@@ -11,7 +11,11 @@
 </head>
 <body>
 
-    <h1>📈 나의 주식 매매 일지</h1>
+    <header class="app-header">
+        <div class="logo">
+            <span class="logo-text">TRADING JOURNAL</span>
+        </div>
+    </header>
 
     <div class="main-layout">
         <div class="content-left">
@@ -116,7 +120,7 @@
 
         <div id="portfolioSection" class="portfolio-summary-container" style="display: none;">
             <div class="portfolio-header">
-                <span>📊 전체 투자 현황 및 보유 종목</span>
+                <span class="section-title">PORTFOLIO</span>
             </div>
             <div class="portfolio-content-layout">
                 <div id="portfolioChartContainer" class="chart-container" style="display: none;">
@@ -147,10 +151,10 @@
         </div>
 
         <div class="history-header">
-            <h2>📝 매매 히스토리</h2>
+            <h2 class="section-title">TRADE HISTORY</h2>
             <div class="header-right" style="gap: 8px;">
-                <button id="btnExportCSV" class="btn-edit" style="margin:0; background-color: #27ae60; color: white;">CSV 내보내기</button>
-                <button id="btnImportCSV" class="btn-edit" style="margin:0; background-color: #f39c12; color: white;">CSV 가져오기</button>
+                <button id="btnExportCSV" class="btn-edit" style="margin:0; background-color: var(--success-color); color: white;">CSV 내보내기</button>
+                <button id="btnImportCSV" class="btn-edit" style="margin:0; background-color: var(--warning-color); color: white;">CSV 가져오기</button>
                 <input type="file" id="csvFileInput" accept=".csv" style="display:none;">
             </div>
         </div>
@@ -199,11 +203,11 @@
                 </div>
             </div>
 
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #3498db; padding-bottom: 8px; margin-bottom: 12px;">
-                <h3 style="margin:0; color: #2c3e50; font-size: 1em;">📰 실시간 관련 뉴스</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--primary-color); padding-bottom: 8px; margin-bottom: 12px;">
+                <h3 class="section-title" style="margin:0; font-size: 1.1em;">RELATED NEWS</h3>
                 <button type="button" onclick="fetchRealtimeNews()" style="background: none; border: none; cursor: pointer; font-size: 14px; padding: 0; margin: 0; width: auto; box-shadow: none;" title="새로고침">🔄</button>
             </div>
-            <div id="newsList" style="font-size: 12px; color: #7f8c8d; max-height: 60vh; overflow-y: auto; padding-right: 5px;">
+            <div id="newsList" style="font-size: 12px; color: var(--text-muted-color); max-height: 60vh; overflow-y: auto; padding-right: 5px;">
                 뉴스를 불러오는 중입니다...
             </div>
         </div>

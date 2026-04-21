@@ -464,7 +464,7 @@ function updatePortfolioSummary() {
     
     const dashProfit = document.getElementById('dashTotalProfit');
     dashProfit.innerText = Math.round(totalRealizedProfit).toLocaleString() + '원';
-    dashProfit.style.color = totalRealizedProfit > 0 ? 'var(--danger-color)' : (totalRealizedProfit < 0 ? 'var(--primary-color)' : 'var(--text-strong-color)');
+    dashProfit.style.color = totalRealizedProfit > 0 ? 'var(--danger-color)' : (totalRealizedProfit < 0 ? 'var(--primary-color)' : '');
     
     document.getElementById('dashTotalInvested').innerText = Math.round(totalInvestedAmount).toLocaleString() + '원';
     document.getElementById('dashHoldingsCount').innerText = holdingsCount + '개';
@@ -567,7 +567,7 @@ function displayEntries() {
         `;
 
         if (entryType === 'memo') {
-            card.style.borderLeftColor = '#f39c12';
+            card.style.borderLeftColor = 'var(--primary-color)';
             const stockBadge = entry.stockName ? `<span class="cal-badge memo" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏷️ ${entry.stockName}</span>` : '';
             const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.8em; color: var(--text-muted-color); font-weight: normal; margin-left: 8px;">🏦 ${entry.brokerAccount}</span>` : '';
             card.innerHTML = `

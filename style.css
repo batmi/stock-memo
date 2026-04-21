@@ -49,11 +49,28 @@ body {
     padding: 20px;
     font-size: 13px;
 }
-h1 {
-    text-align: center;
-    color: var(--text-strong-color);
-    font-size: 24px;
+.app-header {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    padding: 10px 0 20px 0;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border-light-color);
 }
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.logo-text, .section-title {
+    font-weight: 800;
+    background: linear-gradient(90deg, var(--primary-color), var(--info-color));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.2px;
+}
+.logo-text { font-size: 20px; }
+
 /* ⭐️ 모달 오버레이 스타일 추가 */
 .modal-overlay {
     display: none;
@@ -219,11 +236,11 @@ button:hover {
     align-items: center;
     margin-top: 15px;
 }
-.history-header h2 { margin: 0; color: #2c3e50; font-size: 1.2em; }
+.history-header h2 { margin: 0; color: var(--text-strong-color); font-size: 1.2em; }
 .filter-box input { width: 100%; padding: 8px 12px; border: 2px solid var(--primary-color); border-radius: 4px; font-size: 13px; height: 36px; box-sizing: border-box; }
 .history-container { display: flex; flex-direction: column; gap: 10px; }
 .entry-card {
-    background-color: var(--card-bg-color); padding: 12px; border-left: 4px solid var(--primary-color);
+    background-color: var(--card-bg-color); padding: 12px; border-left: 4px solid var(--warning-color);
     border-radius: 4px; box-shadow: var(--entry-card-shadow);
 }
 .entry-header { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85em; color: var(--text-muted-color); }
@@ -288,10 +305,10 @@ button:hover {
 .calendar-day { border: 1px solid var(--border-light-color); padding: 5px; border-radius: 4px; background: var(--card-bg-color); text-align: right; display: flex; flex-direction: column; justify-content: space-between; min-height: 60px; cursor: pointer; transition: all 0.2s; }
 .calendar-day:hover { background-color: var(--bg-color); border-color: var(--primary-color); }
 .cal-badge { font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 2px; text-align: center; font-weight: bold; }
-.cal-badge.trade { background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
-.cal-badge.memo { background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
-[data-theme="dark"] .cal-badge.trade { background-color: #16324a; color: #7fa6c7; border-color: #234866; }
-[data-theme="dark"] .cal-badge.memo { background-color: #422d16; color: #b89d67; border-color: #594022; }
+.cal-badge.memo { background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+.cal-badge.trade { background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+[data-theme="dark"] .cal-badge.memo { background-color: #16324a; color: #7fa6c7; border-color: #234866; }
+[data-theme="dark"] .cal-badge.trade { background-color: #422d16; color: #b89d67; border-color: #594022; }
 .dashboard-container { display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 0; }
 .dashboard-card { flex: 1; min-width: 140px; background: var(--card-bg-color); padding: 15px; border-radius: 8px; text-align: center; box-shadow: var(--dashboard-card-shadow); border-top: 4px solid var(--primary-color); }
 .dashboard-card.profit { border-top-color: var(--success-color); }
@@ -299,6 +316,12 @@ button:hover {
 .dashboard-card.stats { border-top-color: var(--info-color); flex: 1.3; min-width: 160px; }
 .dashboard-title { font-size: 0.9em; color: var(--text-muted-color); margin-bottom: 8px; font-weight: bold; }
 .dashboard-value { font-size: 1.15em; font-weight: bold; color: var(--text-strong-color); }
+/* 다크모드 대시보드 폰트 그레이 처리 */
+[data-theme="dark"] .dashboard-value,
+[data-theme="dark"] .portfolio-card .stock-name,
+[data-theme="dark"] .portfolio-card .stat-row span:last-child {
+    color: var(--text-color);
+}
 .main-layout { display: flex; gap: 25px; align-items: flex-start; justify-content: center; }
 .content-left { flex: 1; min-width: 0; max-width: 680px; }
 .content-right { width: 250px; background: var(--card-bg-color); padding: 12px; border-radius: 8px; box-shadow: var(--dashboard-card-shadow); position: sticky; top: 40px; margin-top: 60px; flex-shrink: 0; }
@@ -357,21 +380,15 @@ input:checked + .slider:before { transform: translateX(24px); content: "🌙"; }
 .slider.round:before { border-radius: 50%; }
 
 /* 다크모드 시 볼드체(굵은 글씨) 최소화 */
-[data-theme="dark"] h1,
+[data-theme="dark"] .logo-text,
+[data-theme="dark"] .section-title,
 [data-theme="dark"] label,
 [data-theme="dark"] button,
 [data-theme="dark"] .type-selector label,
 [data-theme="dark"] .detail-item,
 [data-theme="dark"] .entry-title,
-[data-theme="dark"] .portfolio-header,
-[data-theme="dark"] .profit-positive,
-[data-theme="dark"] .profit-negative,
-[data-theme="dark"] .portfolio-card .stock-name,
-[data-theme="dark"] .portfolio-card .stat-row span:last-child,
 [data-theme="dark"] .calendar-header,
 [data-theme="dark"] .cal-badge,
-[data-theme="dark"] .dashboard-title,
-[data-theme="dark"] .dashboard-value,
 [data-theme="dark"] .news-stock-tag {
     font-weight: var(--fw-bold);
 }
