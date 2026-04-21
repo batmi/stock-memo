@@ -274,12 +274,23 @@ document.getElementById('csvFileInput').addEventListener('change', async (e) => 
         if (!lines[i].trim()) continue;
         const row = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(str => str.replace(/^"|"$/g, '').replace(/""/g, '"')) || [];
         if (row.length >= 9) {
-            const [id, type, stockName, brokerAccount, accountName, tradeType, price, quantity, thoughts, date] = row;
-            if (!cloudEntries.find(e => e.id == id)) {
+            let date, type, stockName, brokerAccount, accountName, tradeType, price, quantity, thoughts;
+            
+            // 이전 버전(ID 포함 10개 컬럼)과 새 버전(ID 제외 9개 컬럼) 호환성 처리
+            if (row.length >= 10 && !isNaN(row[0]) && row[0].length >= 10) {
+                [ , type, stockName, brokerAccount, accountName, tradeType, price, quantity, thoughts, date] = row;
+            } else {
+                [date, type, stockName, brokerAccount, accountName, tradeType, price, quantity, thoughts] = row;
+            }
+            
+            // 중복 방지 (같은 날짜와 같은 메모 내용이 있는지 확인)
+            if (!cloudEntries.find(e => e.date === date && e.thoughts === thoughts)) {
+                const nowIso = new Date().toISOString();
                 cloudEntries.push({
-                    id: Number(id) || Date.now() + i, type: type === 'memo' ? 'memo' : 'trade',
+                    id: Date.now() + i, type: type === 'memo' ? 'memo' : 'trade',
                     stockName, brokerAccount, accountName, tradeType, price: Number(price) || 0,
-                    quantity: Number(quantity) || 0, thoughts, date: date || new Date().toLocaleString()
+                    quantity: Number(quantity) || 0, thoughts, date: date || new Date().toLocaleString(),
+                    createdAt: nowIso, updatedAt: nowIso
                 });
                 importedCount++;
             }
@@ -296,11 +307,11 @@ document.getElementById('csvFileInput').addEventListener('change', async (e) => 
 });
 
 document.getElementById('btnExportCSV').addEventListener('click', () => {
-    const header = ['ID', '분류', '종목명', '증권사', '계좌분류', '매매종류', '단가', '수량', '메모/생각', '작성일'];
+    const header = ['작성일', '분류', '종목명', '증권사', '계좌분류', '매매종류', '단가', '수량', '메모/생각'];
     const rows = cloudEntries.map(e => [
-        e.id, e.type, e.stockName||'', e.brokerAccount||'', e.accountName||'',
+        e.date, e.type, e.stockName||'', e.brokerAccount||'', e.accountName||'',
         e.tradeType||'', e.price||0, e.quantity||0, 
-        (e.thoughts||'').replace(/\n/g, ' ').replace(/"/g, '""'), e.date
+        (e.thoughts||'').replace(/\n/g, ' ').replace(/"/g, '""')
     ]);
     const csvContent = [header, ...rows].map(e => e.map(item => `"${item}"`).join(',')).join('\n');
     const blob = new Blob(["\uFEFF"+csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -318,6 +329,8 @@ function updatePortfolioSummary() {
     let totalRealizedProfit = 0;
     let totalInvestedAmount = 0;
     let holdingsCount = 0;
+    let totalBuyCount = 0;
+    let totalSellCount = 0;
     const chronologicalEntries = [...cloudEntries].reverse();
 
     chronologicalEntries.forEach(entry => {
@@ -329,10 +342,12 @@ function updatePortfolioSummary() {
         if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0 };
 
         if (entry.tradeType === '매수') {
+            totalBuyCount++;
             portfolio[stock].qty += qty;
             portfolio[stock].totalCost += (price * qty);
             if (portfolio[stock].qty > 0) portfolio[stock].avgPrice = portfolio[stock].totalCost / portfolio[stock].qty;
         } else if (entry.tradeType === '매도') {
+            totalSellCount++;
             const currentAvgPrice = portfolio[stock].avgPrice;
             const profit = (price - currentAvgPrice) * qty;
             portfolio[stock].realizedProfit += profit;
@@ -391,6 +406,7 @@ function updatePortfolioSummary() {
     
     document.getElementById('dashTotalInvested').innerText = Math.round(totalInvestedAmount).toLocaleString() + '원';
     document.getElementById('dashHoldingsCount').innerText = holdingsCount + '개';
+    document.getElementById('dashTradeStats').innerHTML = `<span style="color:#e74c3c">매수 ${totalBuyCount}</span> / <span style="color:#3498db">매도 ${totalSellCount}</span>`;
     
     const chartContainer = document.getElementById('portfolioChartContainer');
     if (hasHoldings) {
@@ -400,7 +416,22 @@ function updatePortfolioSummary() {
         portfolioChartInstance = new Chart(ctx, {
             type: 'doughnut',
             data: { labels: chartLabels, datasets: [{ data: chartData, backgroundColor: ['#3498db', '#e74c3c', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#34495e'] }] },
-            options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } } }
+            options: { 
+                responsive: true, 
+                plugins: { 
+                    legend: { position: 'bottom', labels: { boxWidth: 12 } },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let value = context.parsed;
+                                let total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                let percentage = total > 0 ? ((value / total) * 100).toFixed(1) + '%' : '0%';
+                                return `${context.label}: ${Math.round(value).toLocaleString()}원 (${percentage})`;
+                            }
+                        }
+                    }
+                } 
+            }
         });
     } else { chartContainer.style.display = 'none'; }
 
