@@ -1,0 +1,24 @@
+# Environments
+.env
+.venv/
+venv/
+.DS_Store
+.coverage
+.coveragerc
+.vscode
+coverage.json
+
+# Data, Logs & Caches
+json/
+db/
+logs/
+uploads/
+htmlcov/
+
+# Python
+__pycache__/
+./modules/__pycache__/
+*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
