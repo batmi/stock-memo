@@ -464,7 +464,7 @@ function updatePortfolioSummary() {
     
     const dashProfit = document.getElementById('dashTotalProfit');
     dashProfit.innerText = Math.round(totalRealizedProfit).toLocaleString() + '원';
-    dashProfit.style.color = totalRealizedProfit > 0 ? '#e74c3c' : (totalRealizedProfit < 0 ? '#3498db' : '#2c3e50');
+    dashProfit.style.color = totalRealizedProfit > 0 ? 'var(--danger-color)' : (totalRealizedProfit < 0 ? 'var(--primary-color)' : 'var(--text-strong-color)');
     
     document.getElementById('dashTotalInvested').innerText = Math.round(totalInvestedAmount).toLocaleString() + '원';
     document.getElementById('dashHoldingsCount').innerText = holdingsCount + '개';
@@ -472,6 +472,9 @@ function updatePortfolioSummary() {
     
     const theme = document.documentElement.getAttribute('data-theme') || 'light';
     const legendColor = theme === 'dark' ? '#e0e0e0' : '#2c3e50';
+    const chartColors = theme === 'dark' 
+        ? ['#2a5298', '#c0392b', '#d68910', '#1e8449', '#76448a', '#ca6f1e', '#117a65', '#283747'] // 다크모드용 차분한 색상
+        : ['#3498db', '#e74c3c', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#34495e']; // 라이트모드용 기본 색상
 
     const chartContainer = document.getElementById('portfolioChartContainer');
     if (hasHoldings) {
@@ -480,7 +483,7 @@ function updatePortfolioSummary() {
         if (portfolioChartInstance) portfolioChartInstance.destroy();
         portfolioChartInstance = new Chart(ctx, {
             type: 'doughnut',
-            data: { labels: chartLabels, datasets: [{ data: chartData, backgroundColor: ['#3498db', '#e74c3c', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#34495e'] }] },
+            data: { labels: chartLabels, datasets: [{ data: chartData, backgroundColor: chartColors, borderColor: theme === 'dark' ? '#1e1e1e' : '#fff' }] },
             options: { 
                 responsive: true, 
                 plugins: { 
@@ -566,20 +569,20 @@ function displayEntries() {
         if (entryType === 'memo') {
             card.style.borderLeftColor = '#f39c12';
             const stockBadge = entry.stockName ? `<span class="cal-badge memo" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏷️ ${entry.stockName}</span>` : '';
-            const brokerBadge = entry.brokerAccount ? `<span class="cal-badge trade" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏦 ${entry.brokerAccount}</span>` : '';
+            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.8em; color: var(--text-muted-color); font-weight: normal; margin-left: 8px;">🏦 ${entry.brokerAccount}</span>` : '';
             card.innerHTML = `
             <div class="entry-header">
                 ${timeDisplayHtml}
                 <div class="header-right"><span>📝 일반 메모</span><button class="btn-edit">수정</button><button class="btn-delete">삭제</button></div>
             </div>
-                <div class="entry-title">${stockBadge}${brokerBadge}${entry.title}</div>
+                <div class="entry-title">${stockBadge}${entry.title}${brokerBadge}</div>
                 <div class="entry-content">${entry.thoughts}</div>
                 ${imageHtml}
             `;
         } else {
-            let typeColor = '#7f8c8d';
-            if(entry.tradeType === '매수') typeColor = '#e74c3c';
-            if(entry.tradeType === '매도') typeColor = '#3498db';
+            let typeColor = 'var(--text-muted-color)';
+            if(entry.tradeType === '매수') typeColor = 'var(--danger-color)';
+            if(entry.tradeType === '매도') typeColor = 'var(--primary-color)';
 
             let detailsHtml = '';
             if (entry.tradeType !== '관망' && (entry.price > 0 || entry.quantity > 0)) {
@@ -594,13 +597,15 @@ function displayEntries() {
                     </div>
                 `;
             }
-            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.7em; color: var(--text-muted-color); font-weight: normal; margin-left: 8px;">🏦 ${entry.brokerAccount}</span>` : '';
+            const stockBadge = entry.stockName ? `<span class="cal-badge trade" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏷️ ${entry.stockName}</span>` : '';
+            const tradeBadge = `<span style="background-color: ${typeColor}; color: white; padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">${entry.tradeType}</span>`;
+            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.8em; color: var(--text-muted-color); font-weight: normal; margin-left: 8px;">🏦 ${entry.brokerAccount}</span>` : '';
             card.innerHTML = `
             <div class="entry-header">
                 ${timeDisplayHtml}
                 <div class="header-right"><span>💼 ${entry.accountName}</span><button class="btn-edit">수정</button><button class="btn-delete">삭제</button></div>
             </div>
-                <div class="entry-title">${entry.stockName} ${brokerBadge} <span style="color: ${typeColor}; font-size: 0.8em;">[${entry.tradeType}]</span></div>
+                <div class="entry-title">${stockBadge}${tradeBadge}${brokerBadge}</div>
                 ${detailsHtml}
                 <div class="entry-content">${entry.thoughts}</div>
                 ${imageHtml}
@@ -728,8 +733,8 @@ function renderCalendar() {
         const dStats = dailyStats[key] || { count: 0, profit: 0, tradeCount: 0, memoCount: 0 };
         
         let profitHtml = '';
-        if (dStats.profit > 0) profitHtml = `<div style="color:#e74c3c; font-size:11px; font-weight:var(--fw-bold, bold); margin-bottom:2px;">+${Math.round(dStats.profit).toLocaleString()}</div>`;
-        else if (dStats.profit < 0) profitHtml = `<div style="color:#3498db; font-size:11px; font-weight:var(--fw-bold, bold); margin-bottom:2px;">${Math.round(dStats.profit).toLocaleString()}</div>`;
+        if (dStats.profit > 0) profitHtml = `<div style="color:var(--danger-color); font-size:11px; font-weight:var(--fw-bold, bold); margin-bottom:2px;">+${Math.round(dStats.profit).toLocaleString()}</div>`;
+        else if (dStats.profit < 0) profitHtml = `<div style="color:var(--primary-color); font-size:11px; font-weight:var(--fw-bold, bold); margin-bottom:2px;">${Math.round(dStats.profit).toLocaleString()}</div>`;
         
         let tradeHtml = dStats.tradeCount > 0 ? `<div class="cal-badge trade" onclick="showDetailsForDate('${key}', 'trade', event)">매매 ${dStats.tradeCount}건</div>` : '';
         let memoHtml = dStats.memoCount > 0 ? `<div class="cal-badge memo" onclick="showDetailsForDate('${key}', 'memo', event)">메모 ${dStats.memoCount}건</div>` : '';

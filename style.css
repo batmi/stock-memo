@@ -22,15 +22,22 @@
 [data-theme="dark"] {
     --bg-color: #121212;
     --card-bg-color: #1e1e1e;
-    --text-color: #bbbbbb;
-    --text-strong-color: #e0e0e0;
-    --text-muted-color: #888888;
+    --text-color: #aaaaaa;
+    --text-strong-color: #cccccc;
+    --text-muted-color: #777777;
     --border-color: #333333;
     --border-light-color: #2c2c2c;
     --card-shadow: 0 10px 25px rgba(0,0,0,0.6);
     --entry-card-shadow: 0 2px 6px rgba(0,0,0,0.4);
     --dashboard-card-shadow: 0 2px 10px rgba(0,0,0,0.5);
     --fw-bold: 500;
+    /* 다크모드 전용 톤다운 메인 컬러 */
+    --primary-color: #3b688c;
+    --primary-hover-color: #2c516e;
+    --danger-color: #a34e4e;
+    --success-color: #3a7a4f;
+    --warning-color: #a87b35;
+    --info-color: #835c94;
 }
 
 body {
@@ -283,8 +290,8 @@ button:hover {
 .cal-badge { font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 2px; text-align: center; font-weight: bold; }
 .cal-badge.trade { background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
 .cal-badge.memo { background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
-[data-theme="dark"] .cal-badge.trade { background-color: #0c4a6e; color: #e0f2fe; border-color: #075985; }
-[data-theme="dark"] .cal-badge.memo { background-color: #78350f; color: #fef3c7; border-color: #92400e; }
+[data-theme="dark"] .cal-badge.trade { background-color: #16324a; color: #7fa6c7; border-color: #234866; }
+[data-theme="dark"] .cal-badge.memo { background-color: #422d16; color: #b89d67; border-color: #594022; }
 .dashboard-container { display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 0; }
 .dashboard-card { flex: 1; min-width: 140px; background: var(--card-bg-color); padding: 15px; border-radius: 8px; text-align: center; box-shadow: var(--dashboard-card-shadow); border-top: 4px solid var(--primary-color); }
 .dashboard-card.profit { border-top-color: var(--success-color); }
@@ -301,7 +308,7 @@ button:hover {
 .news-item a:hover { color: var(--primary-color); text-decoration: underline; }
 .news-meta { font-size: 10.5px; color: var(--text-muted-color); display: flex; justify-content: space-between; align-items: center; }
 .news-stock-tag { background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 3px; font-weight: bold; }
-[data-theme="dark"] .news-stock-tag { background-color: #0c4a6e; color: #e0f2fe; }
+[data-theme="dark"] .news-stock-tag { background-color: #16324a; color: #7fa6c7; }
 @media (max-width: 900px) {
     .main-layout { flex-direction: column; }
     .content-right { width: auto; position: static; }
