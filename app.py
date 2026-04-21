@@ -10,10 +10,12 @@ from flask import Flask, jsonify, request, send_from_directory
 app = Flask(__name__, static_folder='.', static_url_path='')
 
 DATA_FILE = 'my_stock_trading_journal.json'
-DB_FILE = 'journal.db'
+DB_DIR = 'db'
+DB_FILE = os.path.join(DB_DIR, 'journal.db')
 UPLOAD_FOLDER = 'uploads'
 
-# 이미지 저장 폴더 생성
+# 필요한 폴더들 생성
+os.makedirs(DB_DIR, exist_ok=True)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def get_db():
@@ -82,7 +84,7 @@ def init_db():
                         entry.get('price', 0), entry.get('quantity', 0)
                     ))
                 conn.commit()
-                print("✅ 데이터 마이그레이션 완료! (이제부터 journal.db와 uploads 폴더를 사용합니다)")
+                print("✅ 데이터 마이그레이션 완료! (이제부터 db/journal.db와 uploads 폴더를 사용합니다)")
             except Exception as e:
                 print(f"❌ 마이그레이션 중 오류 발생: {e}")
     conn.close()
