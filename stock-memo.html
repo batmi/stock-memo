@@ -100,10 +100,12 @@
                     <textarea id="thoughts" placeholder="현재 시장 상황, 매매 이유, 향후 대응 계획 등을 자유롭게 기록하세요." required></textarea>
                 </div>
                 <div class="form-group">
-                    <label for="imageInput">스크린샷 첨부 (선택)</label>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <label for="imageInput" style="margin-bottom: 0;">스크린샷 첨부 (선택) <span style="font-size: 11px; font-weight: normal; color: #7f8c8d;">(Ctrl+V 로 붙여넣기 가능)</span></label>
+                    </div>
                     <input type="file" id="imageInput" accept="image/*">
                     <div id="imagePreviewContainer" style="display:none; position: relative; margin-top: 10px; max-width: fit-content;">
-                        <img id="imagePreview" style="max-width: 100%; border-radius: 4px; border: 1px solid #ccc; display: block;">
+                        <img id="imagePreview" style="width: 100%; height: auto; border-radius: 4px; border: 1px solid #ccc; display: block;">
                         <button type="button" id="btnRemoveImage" style="position: absolute; top: 5px; right: 5px; width: auto; padding: 4px 8px; background: rgba(231, 76, 60, 0.9); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">삭제</button>
                     </div>
                 </div>
@@ -162,21 +164,21 @@
             <input type="text" id="filterStock" list="stockOptions" placeholder="🔍 특정 종목 모아보기 (예: 삼성전자)" autocomplete="off">
         </div>
         
-        <div id="calendarViewSection" style="display:none; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 15px;">
+        <div id="calendarViewSection" style="display:none; background: var(--card-bg-color); padding: 15px; border-radius: 8px; box-shadow: var(--entry-card-shadow); margin-bottom: 15px;">
             <div style="display:flex; justify-content:space-between; align-items: center; margin-bottom: 15px;">
                 <button id="btnPrevMonth" class="btn-edit" style="background-color:#95a5a6; color:#fff;">◀ 이전달</button>
-                <h3 id="calendarMonthTitle" style="margin:0; color: #2c3e50;"></h3>
+                <h3 id="calendarMonthTitle" style="margin:0; color: var(--text-strong-color);"></h3>
                 <button id="btnNextMonth" class="btn-edit" style="background-color:#95a5a6; color:#fff;">다음달 ▶</button>
             </div>
             <div class="calendar-header">
-                <div style="color:#e74c3c">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div style="color:#3498db">토</div>
+                <div style="color:var(--danger-color)">일</div><div style="color:var(--text-strong-color)">월</div><div style="color:var(--text-strong-color)">화</div><div style="color:var(--text-strong-color)">수</div><div style="color:var(--text-strong-color)">목</div><div style="color:var(--text-strong-color)">금</div><div style="color:var(--primary-color)">토</div>
             </div>
             <div class="calendar-grid" id="calendarGrid"></div>
         </div>
         
-        <div id="activeFilterBanner" style="display:none; background-color: #e0f2fe; padding: 10px 15px; border-radius: 4px; margin-bottom: 15px; align-items: center; justify-content: space-between; border: 1px solid #bae6fd;">
-            <span id="activeFilterText" style="color: #0369a1; font-weight: bold; font-size: 13px;"></span>
-            <button onclick="clearDateFilter()" style="background: none; border: none; color: #0369a1; cursor: pointer; font-size: 18px; line-height: 1; padding: 0; margin: 0; width: auto;" title="필터 해제">&times;</button>
+        <div id="activeFilterBanner" style="display:none; background-color: var(--bg-color); padding: 10px 15px; border-radius: 4px; margin-bottom: 15px; align-items: center; justify-content: space-between; border: 1px solid var(--primary-color);">
+            <span id="activeFilterText" style="color: var(--text-strong-color); font-weight: var(--fw-bold, bold); font-size: 13px;"></span>
+            <button onclick="clearDateFilter()" style="background: none; border: none; color: var(--text-strong-color); cursor: pointer; font-size: 18px; line-height: 1; padding: 0; margin: 0; width: auto;" title="필터 해제">&times;</button>
         </div>
 
         <div class="history-container" id="historyList"></div>
@@ -186,14 +188,30 @@
         </div>
         
         <div class="content-right" id="newsSidebar">
+            <!-- ⭐️ 다크/라이트 모드 설정 (뉴스 상단으로 이동) -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--border-light-color); padding-bottom: 15px;">
+                <span style="font-size: 13px; font-weight: var(--fw-bold, bold); color: var(--text-strong-color);">🌗 화면 테마</span>
+                <div class="theme-switch-wrapper" style="margin-bottom: 0;">
+                    <label class="theme-switch" for="theme-toggle" title="다크/라이트 모드 전환">
+                        <input type="checkbox" id="theme-toggle" />
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+            </div>
+
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #3498db; padding-bottom: 8px; margin-bottom: 12px;">
                 <h3 style="margin:0; color: #2c3e50; font-size: 1em;">📰 실시간 관련 뉴스</h3>
                 <button type="button" onclick="fetchRealtimeNews()" style="background: none; border: none; cursor: pointer; font-size: 14px; padding: 0; margin: 0; width: auto; box-shadow: none;" title="새로고침">🔄</button>
             </div>
-            <div id="newsList" style="font-size: 12px; color: #7f8c8d; max-height: 80vh; overflow-y: auto; padding-right: 5px;">
+            <div id="newsList" style="font-size: 12px; color: #7f8c8d; max-height: 60vh; overflow-y: auto; padding-right: 5px;">
                 뉴스를 불러오는 중입니다...
             </div>
         </div>
+    </div>
+
+    <!-- ⭐️ 이미지 원본 보기 팝업(모달) -->
+    <div id="imageViewerModal" class="modal-overlay" style="display:none; z-index: 3000; cursor: zoom-out;" onclick="this.style.display='none'">
+        <img id="fullSizeImage" style="max-width: 95%; max-height: 95vh; border-radius: 4px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); background: var(--card-bg-color);">
     </div>
 
     <!-- ⭐️ 외부 JS 파일 연결 -->

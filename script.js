@@ -6,6 +6,31 @@ let currentFilterType = null;
 
 const mainApp = document.getElementById('mainApp');
 window.addEventListener('DOMContentLoaded', () => {
+    const themeToggle = document.getElementById('theme-toggle');
+
+    function applyTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        if (theme === 'dark') {
+            themeToggle.checked = true;
+        } else {
+            themeToggle.checked = false;
+        }
+        // 차트가 이미 생성되었다면 색상을 업데이트하기 위해 다시 렌더링
+        if (portfolioChartInstance) {
+            updatePortfolioSummary();
+        }
+    }
+
+    themeToggle.addEventListener('change', () => {
+        const theme = themeToggle.checked ? 'dark' : 'light';
+        localStorage.setItem('theme', theme);
+        applyTheme(theme);
+    });
+
+    // 페이지 로드 시 저장된 테마 적용
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    applyTheme(savedTheme);
+
     loadDataFromLocal();
 });
 
@@ -25,14 +50,18 @@ async function loadDataFromLocal() {
     }
 }
 
-async function saveToLocal() {
+async function saveToLocal(reload = false) {
     try {
         await fetch('/api/data', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(cloudEntries)
         });
-        await loadDataFromLocal();
+        if (reload) {
+            window.location.reload();
+        } else {
+            await loadDataFromLocal();
+        }
     } catch (err) {
         console.error("저장 실패:", err);
         alert("데이터베이스에 저장하는 중 오류가 발생했습니다.");
@@ -94,7 +123,7 @@ async function fetchRealtimeNews() {
         });
     } catch (err) {
         console.error("뉴스 로딩 실패:", err);
-        newsListEl.innerHTML = '<div style="text-align:center; padding: 20px; color:#e74c3c;">뉴스를 불러오지 못했습니다.</div>';
+            newsListEl.innerHTML = '<div style="text-align:center; padding: 20px; color:var(--danger-color);">뉴스를 불러오지 못했습니다.</div>';
     }
 }
 
@@ -109,6 +138,7 @@ const submitBtn = journalForm.querySelector('button[type="submit"]');
 let editingEntryId = null;
 let portfolioChartInstance = null;
 let currentAttachedImage = null;
+let currentSelectedFile = null;
 
 const defaultStocks = [
     "삼성전자", "SK하이닉스", "LG에너지솔루션", "현대차", "기아", "셀트리온", "POSCO홀딩스", "NAVER", "카카오",
@@ -129,6 +159,7 @@ function resetAndCloseForm() {
     formModalOverlay.style.display = 'none';
     journalForm.reset();
     
+    currentSelectedFile = null;
     currentAttachedImage = null;
     document.getElementById('imageInput').value = '';
     const previewContainer = document.getElementById('imagePreviewContainer');
@@ -176,33 +207,68 @@ typeRadios.forEach(radio => {
     });
 });
 
-document.getElementById('imageInput').addEventListener('change', function(e) {
-    const file = e.target.files[0];
-    const imagePreview = document.getElementById('imagePreview');
-    if (!file) { currentAttachedImage = null; document.getElementById('imagePreviewContainer').style.display = 'none'; return; }
+function processImageFile() {
+    if (!currentSelectedFile) {
+        currentAttachedImage = null;
+        const previewContainer = document.getElementById('imagePreviewContainer');
+        if (previewContainer) previewContainer.style.display = 'none';
+        return;
+    }
     const reader = new FileReader();
     reader.onload = function(event) {
         const img = new Image();
         img.onload = function() {
             const canvas = document.createElement('canvas');
-            const MAX_WIDTH = 800;
-            let width = img.width, height = img.height;
-            if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
-            canvas.width = width; canvas.height = height;
+            const MAX_WIDTH = 1920; // 최대 해상도 제한
+            let width = img.width;
+            let height = img.height;
+            if (width > MAX_WIDTH) {
+                height = height * (MAX_WIDTH / width);
+                width = MAX_WIDTH;
+            }
+            canvas.width = width;
+            canvas.height = height;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, width, height);
-            currentAttachedImage = canvas.toDataURL('image/jpeg', 0.7);
-            imagePreview.src = currentAttachedImage;
-            document.getElementById('imagePreviewContainer').style.display = 'inline-block';
+            currentAttachedImage = canvas.toDataURL('image/jpeg', 0.9);
+            
+            document.getElementById('imagePreview').src = currentAttachedImage;
+            const container = document.getElementById('imagePreviewContainer');
+            container.style.width = 'auto'; // 크기 제한 초기화
+            container.style.display = 'block';
         };
         img.src = event.target.result;
     };
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(currentSelectedFile);
+}
+
+document.getElementById('imageInput').addEventListener('change', function(e) { currentSelectedFile = e.target.files[0]; processImageFile(); });
+
+// 클립보드 이미지 붙여넣기 이벤트 처리
+document.addEventListener('paste', function(e) {
+    const formOverlay = document.getElementById('formModalOverlay');
+    if (formOverlay.style.display === 'flex') {
+        const items = e.clipboardData.items;
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+                const file = items[i].getAsFile();
+                currentSelectedFile = file;
+                
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                document.getElementById('imageInput').files = dataTransfer.files;
+                
+                processImageFile();
+                break;
+            }
+        }
+    }
 });
 
 const btnRemoveImage = document.getElementById('btnRemoveImage');
 if (btnRemoveImage) {
     btnRemoveImage.addEventListener('click', () => {
+        currentSelectedFile = null;
         currentAttachedImage = null;
         document.getElementById('imageInput').value = '';
         document.getElementById('imagePreviewContainer').style.display = 'none';
@@ -257,10 +323,7 @@ journalForm.addEventListener('submit', async function(e) {
     
     resetAndCloseForm();
     
-    updateStockOptions();
-    displayEntries();
-
-    await saveToLocal();
+    await saveToLocal(true); // 저장 후 화면 전체를 새로고침하여 최신 상태 반영
 });
 
 document.getElementById('btnImportCSV').addEventListener('click', () => document.getElementById('csvFileInput').click());
@@ -298,8 +361,7 @@ document.getElementById('csvFileInput').addEventListener('change', async (e) => 
     }
     if (importedCount > 0) {
         alert(`${importedCount}개의 기록을 가져왔습니다.`);
-        displayEntries();
-        await saveToLocal();
+        await saveToLocal(true);
     } else {
         alert('가져올 새로운 기록이 없거나 형식이 잘못되었습니다.');
     }
@@ -406,8 +468,11 @@ function updatePortfolioSummary() {
     
     document.getElementById('dashTotalInvested').innerText = Math.round(totalInvestedAmount).toLocaleString() + '원';
     document.getElementById('dashHoldingsCount').innerText = holdingsCount + '개';
-    document.getElementById('dashTradeStats').innerHTML = `<span style="color:#e74c3c">매수 ${totalBuyCount}</span> / <span style="color:#3498db">매도 ${totalSellCount}</span>`;
+    document.getElementById('dashTradeStats').innerHTML = `<span style="color:var(--danger-color)">매수 ${totalBuyCount}</span> / <span style="color:var(--primary-color)">매도 ${totalSellCount}</span>`;
     
+    const theme = document.documentElement.getAttribute('data-theme') || 'light';
+    const legendColor = theme === 'dark' ? '#e0e0e0' : '#2c3e50';
+
     const chartContainer = document.getElementById('portfolioChartContainer');
     if (hasHoldings) {
         chartContainer.style.display = 'block';
@@ -419,7 +484,7 @@ function updatePortfolioSummary() {
             options: { 
                 responsive: true, 
                 plugins: { 
-                    legend: { position: 'bottom', labels: { boxWidth: 12 } },
+                    legend: { position: 'bottom', labels: { boxWidth: 12, color: legendColor } },
                     tooltip: {
                         callbacks: {
                             label: function(context) {
@@ -478,7 +543,7 @@ function displayEntries() {
     } else { banner.style.display = 'none'; }
 
     if (filteredEntries.length === 0) {
-        historyList.innerHTML = '<p style="text-align:center; color:#7f8c8d; font-size: 16px; padding: 20px;">조건에 맞는 기록이 없습니다.</p>';
+        historyList.innerHTML = '<p style="text-align:center; color:var(--text-muted-color); font-size: 16px; padding: 20px;">조건에 맞는 기록이 없습니다.</p>';
         return;
     }
 
@@ -486,22 +551,22 @@ function displayEntries() {
         const card = document.createElement('div');
         card.className = 'entry-card';
         const entryType = entry.type || 'trade';
-        const imageHtml = entry.attachedImage ? `<div style="margin-top:10px;"><img src="${entry.attachedImage}" style="max-width:100%; border-radius:4px; border:1px solid #eee;"></div>` : '';
+        const imageHtml = entry.attachedImage ? `<div style="margin-top:10px;"><img src="${entry.attachedImage}" class="entry-thumbnail" onclick="openImageViewer(this.src, event)" title="클릭하여 원본 보기"></div>` : '';
 
         // ⭐️ 최초 작성 및 수정 시간 계산 (기존 데이터의 경우 id값을 통해 생성 시간 유추)
         const createdStr = entry.createdAt ? new Date(entry.createdAt).toLocaleString() : new Date(entry.id).toLocaleString();
         const updatedStr = entry.updatedAt ? new Date(entry.updatedAt).toLocaleString() : '';
         const timeDisplayHtml = `
             <div style="display: flex; flex-direction: column; gap: 3px;">
-                <span style="color: #34495e; font-weight: bold;">🕒 기록 일시: ${entry.date}</span>
-                <span style="font-size: 11px; color: #95a5a6;">최초 작성: ${createdStr}${updatedStr && updatedStr !== createdStr ? ` | 최종 수정: ${updatedStr}` : ''}</span>
+                <span style="color: var(--text-strong-color); font-weight: var(--fw-bold, bold);">🕒 기록 일시: ${entry.date}</span>
+                <span style="font-size: 11px; color: var(--text-muted-color);">최초 작성: ${createdStr}${updatedStr && updatedStr !== createdStr ? ` | 최종 수정: ${updatedStr}` : ''}</span>
             </div>
         `;
 
         if (entryType === 'memo') {
             card.style.borderLeftColor = '#f39c12';
-            const stockBadge = entry.stockName ? `<span style="background-color:#fef3c7; color:#b45309; padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; border: 1px solid #fde68a;">🏷️ ${entry.stockName}</span>` : '';
-            const brokerBadge = entry.brokerAccount ? `<span style="background-color:#e0f2fe; color:#0369a1; padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; border: 1px solid #bae6fd;">🏦 ${entry.brokerAccount}</span>` : '';
+            const stockBadge = entry.stockName ? `<span class="cal-badge memo" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏷️ ${entry.stockName}</span>` : '';
+            const brokerBadge = entry.brokerAccount ? `<span class="cal-badge trade" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏦 ${entry.brokerAccount}</span>` : '';
             card.innerHTML = `
             <div class="entry-header">
                 ${timeDisplayHtml}
@@ -529,7 +594,7 @@ function displayEntries() {
                     </div>
                 `;
             }
-            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.7em; color: #7f8c8d; font-weight: normal; margin-left: 8px;">🏦 ${entry.brokerAccount}</span>` : '';
+            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.7em; color: var(--text-muted-color); font-weight: normal; margin-left: 8px;">🏦 ${entry.brokerAccount}</span>` : '';
             card.innerHTML = `
             <div class="entry-header">
                 ${timeDisplayHtml}
@@ -576,7 +641,15 @@ function editEntry(entry) {
     document.getElementById('imageInput').value = '';
     const preview = document.getElementById('imagePreview');
     const previewContainer2 = document.getElementById('imagePreviewContainer');
-    if (currentAttachedImage) { preview.src = currentAttachedImage; if(previewContainer2) previewContainer2.style.display = 'inline-block'; }
+    currentSelectedFile = null;
+
+    if (currentAttachedImage) { 
+        preview.src = currentAttachedImage; 
+        if(previewContainer2) {
+            previewContainer2.style.width = 'auto';
+            previewContainer2.style.display = 'block'; 
+        }
+    }
     else { if(previewContainer2) previewContainer2.style.display = 'none'; }
 
     if (entry.type === 'memo') {
@@ -594,10 +667,16 @@ function editEntry(entry) {
 async function deleteEntry(id) {
     if (confirm("정말로 이 기록을 삭제하시겠습니까?\n(삭제 후 로컬 파일에 즉시 반영됩니다)")) {
         cloudEntries = cloudEntries.filter(e => e.id !== id);
-        displayEntries();
-        await saveToLocal();
+        await saveToLocal(true);
     }
 }
+
+window.openImageViewer = function(src, event) {
+    if (event) event.stopPropagation();
+    const modal = document.getElementById('imageViewerModal');
+    document.getElementById('fullSizeImage').src = src;
+    modal.style.display = 'flex';
+};
 
 let currentDate = new Date();
 function renderCalendar() {
@@ -642,20 +721,20 @@ function renderCalendar() {
     const calendarGrid = document.getElementById('calendarGrid');
     calendarGrid.innerHTML = '';
     
-    for(let i=0; i<firstDay.getDay(); i++) calendarGrid.innerHTML += `<div style="background:#f8f9fa; border-radius:4px;"></div>`;
+    for(let i=0; i<firstDay.getDay(); i++) calendarGrid.innerHTML += `<div style="background:var(--border-light-color); border-radius:4px;"></div>`;
     
     for(let d=1; d<=lastDay.getDate(); d++) {
         const key = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const dStats = dailyStats[key] || { count: 0, profit: 0, tradeCount: 0, memoCount: 0 };
         
         let profitHtml = '';
-        if (dStats.profit > 0) profitHtml = `<div style="color:#e74c3c; font-size:11px; font-weight:bold; margin-bottom:2px;">+${Math.round(dStats.profit).toLocaleString()}</div>`;
-        else if (dStats.profit < 0) profitHtml = `<div style="color:#3498db; font-size:11px; font-weight:bold; margin-bottom:2px;">${Math.round(dStats.profit).toLocaleString()}</div>`;
+        if (dStats.profit > 0) profitHtml = `<div style="color:#e74c3c; font-size:11px; font-weight:var(--fw-bold, bold); margin-bottom:2px;">+${Math.round(dStats.profit).toLocaleString()}</div>`;
+        else if (dStats.profit < 0) profitHtml = `<div style="color:#3498db; font-size:11px; font-weight:var(--fw-bold, bold); margin-bottom:2px;">${Math.round(dStats.profit).toLocaleString()}</div>`;
         
         let tradeHtml = dStats.tradeCount > 0 ? `<div class="cal-badge trade" onclick="showDetailsForDate('${key}', 'trade', event)">매매 ${dStats.tradeCount}건</div>` : '';
         let memoHtml = dStats.memoCount > 0 ? `<div class="cal-badge memo" onclick="showDetailsForDate('${key}', 'memo', event)">메모 ${dStats.memoCount}건</div>` : '';
         
-        calendarGrid.innerHTML += `<div class="calendar-day" onclick="showDetailsForDate('${key}', 'all', event)" title="클릭하여 상세 보기"><span style="font-size:12px; font-weight:bold; color: #2c3e50;">${d}</span><div style="text-align:right;">${profitHtml}${tradeHtml}${memoHtml}</div></div>`;
+        calendarGrid.innerHTML += `<div class="calendar-day" onclick="showDetailsForDate('${key}', 'all', event)" title="클릭하여 상세 보기"><span style="font-size:12px; font-weight:var(--fw-bold, bold); color: var(--text-strong-color);">${d}</span><div style="text-align:right;">${profitHtml}${tradeHtml}${memoHtml}</div></div>`;
     }
 }
 
