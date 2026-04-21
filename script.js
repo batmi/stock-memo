@@ -222,6 +222,13 @@ journalForm.addEventListener('submit', async function(e) {
     const date = tradeDateRaw ? new Date(tradeDateRaw).toLocaleString() : new Date().toLocaleString();
     
     let newEntry;
+    const nowIso = new Date().toISOString();
+    let createdAt = nowIso;
+    
+    if (editingEntryId) {
+        const oldEntry = cloudEntries.find(e => e.id === editingEntryId);
+        if (oldEntry) createdAt = oldEntry.createdAt || new Date(oldEntry.id).toISOString(); // 기존 시간 유지
+    }
 
     if (recordType === 'trade') {
         const accountName = document.getElementById('accountName').value;
@@ -231,11 +238,12 @@ journalForm.addEventListener('submit', async function(e) {
 
         newEntry = {
             id: editingEntryId || Date.now(), type: 'trade', stockName, brokerAccount, accountName,
-            tradeType, price: price ? Number(price) : 0, quantity: quantity ? Number(quantity) : 0, thoughts, date, rawDate: tradeDateRaw, attachedImage: currentAttachedImage
+            tradeType, price: price ? Number(price) : 0, quantity: quantity ? Number(quantity) : 0, thoughts, date, rawDate: tradeDateRaw, attachedImage: currentAttachedImage,
+            createdAt, updatedAt: nowIso
         };
     } else {
         const memoTitle = document.getElementById('memoTitle').value;
-        newEntry = { id: editingEntryId || Date.now(), type: 'memo', stockName, title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: currentAttachedImage };
+        newEntry = { id: editingEntryId || Date.now(), type: 'memo', stockName, title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: currentAttachedImage, createdAt, updatedAt: nowIso };
     }
 
     if (editingEntryId) {
@@ -449,13 +457,23 @@ function displayEntries() {
         const entryType = entry.type || 'trade';
         const imageHtml = entry.attachedImage ? `<div style="margin-top:10px;"><img src="${entry.attachedImage}" style="max-width:100%; border-radius:4px; border:1px solid #eee;"></div>` : '';
 
+        // ⭐️ 최초 작성 및 수정 시간 계산 (기존 데이터의 경우 id값을 통해 생성 시간 유추)
+        const createdStr = entry.createdAt ? new Date(entry.createdAt).toLocaleString() : new Date(entry.id).toLocaleString();
+        const updatedStr = entry.updatedAt ? new Date(entry.updatedAt).toLocaleString() : '';
+        const timeDisplayHtml = `
+            <div style="display: flex; flex-direction: column; gap: 3px;">
+                <span style="color: #34495e; font-weight: bold;">🕒 기록 일시: ${entry.date}</span>
+                <span style="font-size: 11px; color: #95a5a6;">최초 작성: ${createdStr}${updatedStr && updatedStr !== createdStr ? ` | 최종 수정: ${updatedStr}` : ''}</span>
+            </div>
+        `;
+
         if (entryType === 'memo') {
             card.style.borderLeftColor = '#f39c12';
             const stockBadge = entry.stockName ? `<span style="background-color:#fef3c7; color:#b45309; padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; border: 1px solid #fde68a;">🏷️ ${entry.stockName}</span>` : '';
             const brokerBadge = entry.brokerAccount ? `<span style="background-color:#e0f2fe; color:#0369a1; padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; border: 1px solid #bae6fd;">🏦 ${entry.brokerAccount}</span>` : '';
             card.innerHTML = `
             <div class="entry-header">
-                <span>🕒 ${entry.date}</span>
+                ${timeDisplayHtml}
                 <div class="header-right"><span>📝 일반 메모</span><button class="btn-edit">수정</button><button class="btn-delete">삭제</button></div>
             </div>
                 <div class="entry-title">${stockBadge}${brokerBadge}${entry.title}</div>
@@ -483,7 +501,7 @@ function displayEntries() {
             const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.7em; color: #7f8c8d; font-weight: normal; margin-left: 8px;">🏦 ${entry.brokerAccount}</span>` : '';
             card.innerHTML = `
             <div class="entry-header">
-                <span>🕒 ${entry.date}</span>
+                ${timeDisplayHtml}
                 <div class="header-right"><span>💼 ${entry.accountName}</span><button class="btn-edit">수정</button><button class="btn-delete">삭제</button></div>
             </div>
                 <div class="entry-title">${entry.stockName} ${brokerBadge} <span style="color: ${typeColor}; font-size: 0.8em;">[${entry.tradeType}]</span></div>
@@ -518,9 +536,10 @@ function editEntry(entry) {
     document.getElementById('brokerAccount').value = entry.brokerAccount || '';
     document.getElementById('thoughts').value = entry.thoughts || '';
     
+    // ⭐️ 기존 수정 시 원래 시간을 불러오던 것을 무시하고 '현재 시간'으로 강제 세팅
     const localNow = new Date();
     localNow.setMinutes(localNow.getMinutes() - localNow.getTimezoneOffset());
-    document.getElementById('tradeDate').value = entry.rawDate || localNow.toISOString().slice(0,16);
+    document.getElementById('tradeDate').value = localNow.toISOString().slice(0,16);
 
     currentAttachedImage = entry.attachedImage || null;
     document.getElementById('imageInput').value = '';
