@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>주식 매매 일지</title>
+    <!-- ⭐️ Chart.js 라이브러리 추가 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- ⭐️ 외부 CSS 파일 연결 -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <h1>📈 나의 주식 매매 일지</h1>
+
+    <div class="main-layout">
+        <div class="content-left">
+            <!-- ⭐️ 메인 앱 영역 -->
+            <div id="mainApp" style="display: block;">
+
+        <!-- ⭐️ 팝업(모달) 오버레이 컨테이너 추가 -->
+        <div id="formModalOverlay" class="modal-overlay">
+            <div class="form-container" id="formContainer">
+            <div class="form-header-container">
+                <h3>✏️ 기록 작성 / 수정</h3>
+                <button type="button" class="btn-close" id="btnCloseForm" title="닫기">&times;</button>
+            </div>
+            <form id="journalForm">
+                
+                <div class="type-selector">
+                    <label><input type="radio" name="recordType" value="trade" checked> 📈 매매 일지</label>
+                    <label><input type="radio" name="recordType" value="memo"> 📝 일반 메모</label>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="stockName">종목명</label>
+                        <input type="text" id="stockName" list="stockOptions" placeholder="검색 또는 직접 입력 (예: 삼성전자)" autocomplete="off" required>
+                        <datalist id="stockOptions"></datalist>
+                    </div>
+                    <div class="form-group" id="brokerAccountGroup">
+                        <label for="brokerAccount">증권 계좌</label>
+                        <input type="text" id="brokerAccount" list="brokerOptions" placeholder="예: 키움증권, 토스 등" autocomplete="off">
+                        <datalist id="brokerOptions">
+                            <option value="키움증권"></option>
+                            <option value="미래에셋증권"></option>
+                            <option value="NH투자증권"></option>
+                            <option value="한국투자증권"></option>
+                            <option value="삼성증권"></option>
+                            <option value="토스증권"></option>
+                        </datalist>
+                    </div>
+                    <div class="form-group">
+                        <label for="tradeDate">기록 일시</label>
+                        <input type="datetime-local" id="tradeDate" required>
+                    </div>
+                </div>
+
+                <div class="form-group" id="memoTitleGroup" style="display: none;">
+                    <label for="memoTitle">메모 제목</label>
+                    <input type="text" id="memoTitle" placeholder="예: 이번 주 관심 섹터, 향후 투자 아이디어 등">
+                </div>
+
+                <div class="form-row" id="tradeRow1">
+                    <div class="form-group">
+                        <label for="accountName">투자 분류</label>
+                        <select id="accountName" required>
+                            <option value="" disabled selected>분류를 선택하세요</option>
+                            <option value="장기투자">장기투자</option>
+                            <option value="단기스윙">단기스윙</option>
+                            <option value="단타(스캘핑)">단타(스캘핑)</option>
+                            <option value="배당투자">배당투자</option>
+                            <option value="공모주">공모주</option>
+                            <option value="기타">기타</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="tradeType">매매 포지션</label>
+                        <select id="tradeType">
+                            <option value="매수">🔴 매수 (Buy)</option>
+                            <option value="매도">🔵 매도 (Sell)</option>
+                            <option value="관망">⚪ 관망 (Hold)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row" id="tradeRow2">
+                    <div class="form-group">
+                        <label for="price">매매 단가 (원/달러)</label>
+                        <input type="number" id="price" placeholder="예: 75000">
+                    </div>
+                    <div class="form-group">
+                        <label for="quantity">매매 수량 (주)</label>
+                        <input type="number" id="quantity" placeholder="예: 10">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="thoughts" id="thoughtsLabel">생각의 흐름 / 계획</label>
+                    <textarea id="thoughts" placeholder="현재 시장 상황, 매매 이유, 향후 대응 계획 등을 자유롭게 기록하세요." required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="imageInput">스크린샷 첨부 (선택)</label>
+                    <input type="file" id="imageInput" accept="image/*">
+                    <div id="imagePreviewContainer" style="display:none; position: relative; margin-top: 10px; max-width: fit-content;">
+                        <img id="imagePreview" style="max-width: 100%; border-radius: 4px; border: 1px solid #ccc; display: block;">
+                        <button type="button" id="btnRemoveImage" style="position: absolute; top: 5px; right: 5px; width: auto; padding: 4px 8px; background: rgba(231, 76, 60, 0.9); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">삭제</button>
+                    </div>
+                </div>
+                <button type="submit">기록 저장하기</button>
+            </form>
+            </div>
+        </div>
+
+        <div id="portfolioSection" class="portfolio-summary-container" style="display: none;">
+            <div class="portfolio-header">
+                <span>📊 전체 투자 현황 및 보유 종목</span>
+            </div>
+            <div class="portfolio-content-layout">
+                <div id="portfolioChartContainer" class="chart-container" style="display: none;">
+                    <canvas id="portfolioChart"></canvas>
+                </div>
+                <div class="portfolio-details">
+                    <div id="dashboardContainer" class="dashboard-container" style="display: none;">
+                        <div class="dashboard-card profit">
+                            <div class="dashboard-title">누적 실현 손익</div>
+                            <div id="dashTotalProfit" class="dashboard-value">0원</div>
+                        </div>
+                        <div class="dashboard-card">
+                            <div class="dashboard-title">현재 총 투자 금액</div>
+                            <div id="dashTotalInvested" class="dashboard-value">0원</div>
+                        </div>
+                        <div class="dashboard-card holdings">
+                            <div class="dashboard-title">보유 종목 수</div>
+                            <div id="dashHoldingsCount" class="dashboard-value">0개</div>
+                        </div>
+                    </div>
+                    <div class="portfolio-grid" id="portfolioGrid"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="history-header">
+            <h2>📝 매매 히스토리</h2>
+            <div class="header-right" style="gap: 8px;">
+                <button id="btnExportCSV" class="btn-edit" style="margin:0; background-color: #27ae60; color: white;">CSV 내보내기</button>
+                <button id="btnImportCSV" class="btn-edit" style="margin:0; background-color: #f39c12; color: white;">CSV 가져오기</button>
+                <input type="file" id="csvFileInput" accept=".csv" style="display:none;">
+            </div>
+        </div>
+
+        <div class="view-toggle">
+            <button id="btnListView" class="active">리스트 뷰</button>
+            <button id="btnCalendarView">캘린더 뷰</button>
+        </div>
+
+        <div class="filter-box" style="margin-bottom: 15px;">
+            <input type="text" id="filterStock" list="stockOptions" placeholder="🔍 특정 종목 모아보기 (예: 삼성전자)" autocomplete="off">
+        </div>
+        
+        <div id="calendarViewSection" style="display:none; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 15px;">
+            <div style="display:flex; justify-content:space-between; align-items: center; margin-bottom: 15px;">
+                <button id="btnPrevMonth" class="btn-edit" style="background-color:#95a5a6; color:#fff;">◀ 이전달</button>
+                <h3 id="calendarMonthTitle" style="margin:0; color: #2c3e50;"></h3>
+                <button id="btnNextMonth" class="btn-edit" style="background-color:#95a5a6; color:#fff;">다음달 ▶</button>
+            </div>
+            <div class="calendar-header">
+                <div style="color:#e74c3c">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div style="color:#3498db">토</div>
+            </div>
+            <div class="calendar-grid" id="calendarGrid"></div>
+        </div>
+        
+        <div id="activeFilterBanner" style="display:none; background-color: #e0f2fe; padding: 10px 15px; border-radius: 4px; margin-bottom: 15px; align-items: center; justify-content: space-between; border: 1px solid #bae6fd;">
+            <span id="activeFilterText" style="color: #0369a1; font-weight: bold; font-size: 13px;"></span>
+            <button onclick="clearDateFilter()" style="background: none; border: none; color: #0369a1; cursor: pointer; font-size: 18px; line-height: 1; padding: 0; margin: 0; width: auto;" title="필터 해제">&times;</button>
+        </div>
+
+        <div class="history-container" id="historyList"></div>
+
+        <button id="btnFab" class="btn-fab" title="새 기록 작성">+</button>
+    </div>
+        </div>
+        
+        <div class="content-right" id="newsSidebar">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #3498db; padding-bottom: 8px; margin-bottom: 12px;">
+                <h3 style="margin:0; color: #2c3e50; font-size: 1em;">📰 실시간 관련 뉴스</h3>
+                <button type="button" onclick="fetchRealtimeNews()" style="background: none; border: none; cursor: pointer; font-size: 14px; padding: 0; margin: 0; width: auto; box-shadow: none;" title="새로고침">🔄</button>
+            </div>
+            <div id="newsList" style="font-size: 12px; color: #7f8c8d; max-height: 80vh; overflow-y: auto; padding-right: 5px;">
+                뉴스를 불러오는 중입니다...
+            </div>
+        </div>
+    </div>
+
+    <!-- ⭐️ 외부 JS 파일 연결 -->
+    <script src="script.js"></script>
+</body>
+</html>
