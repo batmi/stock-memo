@@ -894,7 +894,24 @@ function updatePortfolioSummary() {
                     chart.canvas.style.cursor = isPortfolioEmpty ? 'default' : 'pointer';
                 },
                 plugins: { 
-                    legend: { position: 'bottom', labels: { boxWidth: 12, color: legendColor } },
+                    legend: { 
+                        position: 'bottom', 
+                        labels: { boxWidth: 12, color: legendColor },
+                        // ⭐️ 범례(종목명) 클릭 시 기본 동작(숨기기)을 덮어쓰고 히스토리 필터링으로 연결
+                        onClick: (e, legendItem, legend) => {
+                            if (isPortfolioEmpty) return;
+                            const stock = legendItem.text;
+                            currentFilterDate = null;
+                            currentFilterType = 'stock_' + stock;
+                            
+                            const btnListView = document.getElementById('btnListView');
+                            if (btnListView && !btnListView.classList.contains('active')) btnListView.click();
+                            displayEntries(true);
+                            
+                            const filterBox = document.getElementById('filterBoxContainer');
+                            if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    },
                     tooltip: {
                         callbacks: {
                             label: function(context) {
