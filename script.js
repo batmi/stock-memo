@@ -70,6 +70,17 @@ window.addEventListener('DOMContentLoaded', () => {
         placeholder: '현재 시장 상황, 매매 이유, 향후 대응 계획 등을 자유롭게 기록하세요.'
     });
 
+    // ⭐️ 붙여넣기 시 외부 텍스트의 글자색/배경색 서식 강제 제거 (테마 색상 자동 적용)
+    window.quill.clipboard.addMatcher(Node.ELEMENT_NODE, function(node, delta) {
+        delta.ops.forEach(op => {
+            if (op.attributes) {
+                delete op.attributes.color;
+                delete op.attributes.background;
+            }
+        });
+        return delta;
+    });
+
     loadDataFromLocal();
 });
 
@@ -234,10 +245,15 @@ function setupAutocomplete(inputId, listId, getOptions) {
             } else {
                 item.innerText = opt;
             }
+            // ⭐️ 포커스 유실 방지 (첫 클릭 무시 및 한글 입력기 충돌 해결)
+            item.addEventListener('mousedown', function(ev) {
+                ev.preventDefault(); 
+            });
+            // ⭐️ 한 번의 마우스 클릭만으로 즉시 자동 입력되도록 동작 분리
             item.addEventListener('click', function(ev) {
                 ev.stopPropagation();
                 input.value = opt;
-                lastVal = opt; // 클릭으로 값이 변경됨을 기억하여 다음 input 이벤트를 무시
+                lastVal = opt;
                 list.style.display = 'none';
                 input.dispatchEvent(new Event('input')); 
             });
