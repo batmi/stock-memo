@@ -778,7 +778,15 @@ function displayEntries(isFilterUpdate = false) {
     // [3안] 리스트 뷰 필터링 상태와 HTML Select 동기화
     const filterTypeSelect = document.getElementById('filterTypeSelect');
     if (filterTypeSelect) {
-        filterTypeSelect.value = currentFilterType || 'all';
+        let selectVal = currentFilterType || 'all';
+        if (selectVal.startsWith('stock_trade_')) selectVal = 'stock_' + selectVal.substring(12);
+        else if (selectVal.startsWith('stock_memo_')) selectVal = 'stock_' + selectVal.substring(11);
+        
+        if (filterTypeSelect.querySelector(`option[value="${selectVal}"]`)) {
+            filterTypeSelect.value = selectVal;
+        } else {
+            filterTypeSelect.value = 'all';
+        }
     }
 
     if (!isFilterUpdate) {
@@ -812,9 +820,15 @@ function displayEntries(isFilterUpdate = false) {
         }
 
         if (currentFilterType && currentFilterType !== 'all') {
-            if (currentFilterType.startsWith('stock_')) {
+            if (currentFilterType.startsWith('stock_trade_')) {
+                const targetStock = currentFilterType.substring(12);
+                if ((entry.stockName || '') !== targetStock || (entry.type || 'trade') !== 'trade') return false;
+            } else if (currentFilterType.startsWith('stock_memo_')) {
+                const targetStock = currentFilterType.substring(11);
+                if ((entry.stockName || '') !== targetStock || (entry.type || 'trade') !== 'memo') return false;
+            } else if (currentFilterType.startsWith('stock_')) {
                 const targetStock = currentFilterType.substring(6);
-                if (entry.stockName !== targetStock) return false;
+                if ((entry.stockName || '') !== targetStock) return false;
             } else {
                 const entryType = entry.type || 'trade';
                 if (entryType !== currentFilterType) return false;
@@ -829,7 +843,16 @@ function displayEntries(isFilterUpdate = false) {
         let typeText = '전체 기록';
         if (currentFilterType === 'trade') typeText = '매매 기록';
         else if (currentFilterType === 'memo') typeText = '일반 메모';
-        else if (currentFilterType && currentFilterType.startsWith('stock_')) typeText = currentFilterType.substring(6) + ' 기록';
+        else if (currentFilterType && currentFilterType.startsWith('stock_trade_')) {
+            const st = currentFilterType.substring(12);
+            typeText = st ? st + ' 매매 기록' : '종목 미지정 매매 기록';
+        } else if (currentFilterType && currentFilterType.startsWith('stock_memo_')) {
+            const st = currentFilterType.substring(11);
+            typeText = st ? st + ' 일반 메모' : '종목 미지정 일반 메모';
+        } else if (currentFilterType && currentFilterType.startsWith('stock_')) {
+            const st = currentFilterType.substring(6);
+            typeText = st ? st + ' 기록' : '종목 미지정 기록';
+        }
         document.getElementById('activeFilterText').innerText = `📅 ${currentFilterDate} 일자의 ${typeText} 모아보기`;
     } else { banner.style.display = 'none'; }
 
@@ -997,25 +1020,29 @@ function renderCalendar() {
             if (parts.length >= 3) dateKey = `${parts[0]}-${parts[1].padStart(2,'0')}-${parts[2].split('.')[0].padStart(2,'0')}`;
         }
         if (!dateKey) return;
-        if (!dailyStats[dateKey]) dailyStats[dateKey] = { count: 0, profit: 0, tradeCount: 0, memoCount: 0 };
         
-        if (entry.type === 'trade' && entry.stockName) {
-            dailyStats[dateKey].count++;
-            dailyStats[dateKey].tradeCount++;
-            const stock = entry.stockName, qty = Number(entry.quantity) || 0, price = Number(entry.price) || 0;
-            if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0 };
-            
-            if (entry.tradeType === '매수') {
-                portfolio[stock].qty += qty; portfolio[stock].totalCost += (price * qty);
-                portfolio[stock].avgPrice = portfolio[stock].totalCost / portfolio[stock].qty;
-            } else if (entry.tradeType === '매도') {
-                dailyStats[dateKey].profit += (price - portfolio[stock].avgPrice) * qty;
-                portfolio[stock].qty -= qty; portfolio[stock].totalCost -= (portfolio[stock].avgPrice * qty);
-                if (portfolio[stock].qty <= 0) { portfolio[stock].qty = 0; portfolio[stock].totalCost = 0; portfolio[stock].avgPrice = 0; }
+        if (!dailyStats[dateKey]) dailyStats[dateKey] = { profit: 0, details: {} };
+        
+        const stockKey = entry.stockName || '';
+        if (!dailyStats[dateKey].details[stockKey]) dailyStats[dateKey].details[stockKey] = { tradeCount: 0, memoCount: 0 };
+        
+        if (entry.type === 'trade') {
+            dailyStats[dateKey].details[stockKey].tradeCount++;
+            if (entry.stockName) {
+                const stock = entry.stockName, qty = Number(entry.quantity) || 0, price = Number(entry.price) || 0;
+                if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0 };
+                
+                if (entry.tradeType === '매수') {
+                    portfolio[stock].qty += qty; portfolio[stock].totalCost += (price * qty);
+                    portfolio[stock].avgPrice = portfolio[stock].totalCost / portfolio[stock].qty;
+                } else if (entry.tradeType === '매도') {
+                    dailyStats[dateKey].profit += (price - portfolio[stock].avgPrice) * qty;
+                    portfolio[stock].qty -= qty; portfolio[stock].totalCost -= (portfolio[stock].avgPrice * qty);
+                    if (portfolio[stock].qty <= 0) { portfolio[stock].qty = 0; portfolio[stock].totalCost = 0; portfolio[stock].avgPrice = 0; }
+                }
             }
         } else if (entry.type === 'memo') {
-            dailyStats[dateKey].count++;
-            dailyStats[dateKey].memoCount++;
+            dailyStats[dateKey].details[stockKey].memoCount++;
         }
     });
 
@@ -1030,16 +1057,29 @@ function renderCalendar() {
     
     for(let d=1; d<=lastDay.getDate(); d++) {
         const key = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        const dStats = dailyStats[key] || { count: 0, profit: 0, tradeCount: 0, memoCount: 0 };
+        
+        const dStats = dailyStats[key] || { profit: 0, details: {} };
         
         let profitHtml = '';
         if (dStats.profit > 0) profitHtml = `<div style="color:var(--danger-color); font-size:11px; font-weight:var(--fw-bold, bold); margin-bottom:2px;">+${Math.round(dStats.profit).toLocaleString()}</div>`;
         else if (dStats.profit < 0) profitHtml = `<div style="color:var(--primary-color); font-size:11px; font-weight:var(--fw-bold, bold); margin-bottom:2px;">${Math.round(dStats.profit).toLocaleString()}</div>`;
         
-        let tradeHtml = dStats.tradeCount > 0 ? `<div class="cal-badge trade" onclick="showDetailsForDate('${key}', 'trade', event)">매매 ${dStats.tradeCount}건</div>` : '';
-        let memoHtml = dStats.memoCount > 0 ? `<div class="cal-badge memo" onclick="showDetailsForDate('${key}', 'memo', event)">메모 ${dStats.memoCount}건</div>` : '';
+        let badgesHtml = '';
+        for (const [stock, counts] of Object.entries(dStats.details)) {
+            const prefix = stock ? `${stock} ` : '';
+            const safeStock = stock ? stock.replace(/'/g, "\\'") : '';
+            
+            if (counts.tradeCount > 0) {
+                const typeArg = `stock_trade_${safeStock}`;
+                badgesHtml += `<div class="cal-badge trade" onclick="showDetailsForDate('${key}', '${typeArg}', event)">${prefix}매매 ${counts.tradeCount}건</div>`;
+            }
+            if (counts.memoCount > 0) {
+                const typeArg = `stock_memo_${safeStock}`;
+                badgesHtml += `<div class="cal-badge memo" onclick="showDetailsForDate('${key}', '${typeArg}', event)">${prefix}메모 ${counts.memoCount}건</div>`;
+            }
+        }
         
-        calendarGrid.innerHTML += `<div class="calendar-day" onclick="showDetailsForDate('${key}', 'all', event)" title="클릭하여 상세 보기"><span style="font-size:12px; font-weight:var(--fw-bold, bold); color: var(--text-strong-color);">${d}</span><div style="text-align:right;">${profitHtml}${tradeHtml}${memoHtml}</div></div>`;
+        calendarGrid.innerHTML += `<div class="calendar-day" onclick="showDetailsForDate('${key}', 'all', event)" title="클릭하여 상세 보기"><span style="font-size:12px; font-weight:var(--fw-bold, bold); color: var(--text-strong-color);">${d}</span><div style="text-align:right;">${profitHtml}${badgesHtml}</div></div>`;
     }
 }
 
