@@ -6,9 +6,10 @@ import base64
 import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string
 
 app = Flask(__name__, static_folder='.', static_url_path='')
+app.secret_key = 'stock_memo_secret_key' # 세션 유지를 위한 시크릿 키 설정
 
 DATA_FILE = 'my_stock_trading_journal.json'
 DB_DIR = 'db'
@@ -107,6 +108,60 @@ def init_db():
             except Exception as e:
                 print(f"❌ 마이그레이션 중 오류 발생: {e}")
     conn.close()
+
+@app.before_request
+def check_login():
+    # 로그인 처리를 수행하는 라우트는 검사에서 제외
+    if request.endpoint != 'login':
+        # 세션에 로그인 상태가 없으면 차단
+        if not session.get('logged_in'):
+            # 백엔드 API 요청인 경우 401 인증 에러 반환
+            if request.path.startswith('/api/'):
+                return jsonify({"error": "Unauthorized"}), 401
+            # 일반 페이지 접근은 로그인 화면으로 리다이렉트
+            return redirect(url_for('login'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        password = request.form.get('password')
+        if password == 'ghkswn96':
+            session['logged_in'] = True
+            return redirect(url_for('index'))
+        else:
+            return render_template_string('''
+                <script>
+                    alert("비밀번호가 일치하지 않습니다.");
+                    window.location.href = "{{ url_for('login') }}";
+                </script>
+            ''')
+    
+    return render_template_string('''
+        <!DOCTYPE html>
+        <html lang="ko">
+        <head>
+            <meta charset="UTF-8">
+            <title>주식 매매 일지 - 로그인</title>
+            <style>
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f4f6f9; margin: 0; }
+                .login-container { background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; width: 300px; }
+                h2 { margin-top: 0; color: #333; }
+                input[type="password"] { width: 100%; box-sizing: border-box; padding: 12px; margin: 20px 0; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; }
+                button { width: 100%; padding: 12px; background-color: #2980b9; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.3s; }
+                button:hover { background-color: #1a5276; }
+            </style>
+        </head>
+        <body>
+            <div class="login-container">
+                <h2>🔒 주식 매매 일지</h2>
+                <form method="post">
+                    <input type="password" name="password" placeholder="비밀번호를 입력하세요" required autofocus>
+                    <button type="submit">접속하기</button>
+                </form>
+            </div>
+        </body>
+        </html>
+    ''')
 
 @app.route('/')
 def index():
