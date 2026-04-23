@@ -76,6 +76,7 @@
                         <select id="accountName" required>
                             <option value="" disabled selected>분류를 선택하세요</option>
                             <option value="장기투자">장기투자</option>
+                            <option value="중기투자">중기투자</option>
                             <option value="단기스윙">단기스윙</option>
                             <option value="단타(스캘핑)">단타(스캘핑)</option>
                             <option value="배당투자">배당투자</option>
@@ -137,6 +138,7 @@
             <div class="portfolio-header">
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span class="section-title">PORTFOLIO</span>
+                <button type="button" id="btnToggleClosed" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="청산(매도 완료) 종목 보기">청산 종목 보기</button>
                 <button type="button" id="btnTogglePortfolio" style="background: transparent; color: var(--text-muted-color); border: none; width: auto; padding: 2px 8px; font-size: 12px; font-weight: normal; margin: 0; box-shadow: none; cursor: pointer;" title="포트폴리오 대시보드 접기/펴기">접기 ▲</button>
             </div>
             </div>
@@ -169,7 +171,10 @@
         </div>
 
         <div class="history-header">
-            <h2 class="section-title">TRADE HISTORY</h2>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <h2 class="section-title" style="margin: 0;">TRADE HISTORY</h2>
+                <button type="button" id="btnToggleHistoryClosed" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="청산(매도 완료) 종목 숨기기/보기">청산 종목 숨기기</button>
+            </div>
             <div class="header-right" style="gap: 8px;">
                 <input type="file" id="excelFileInput" accept=".xlsx, .xls" style="display:none;">
             </div>

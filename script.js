@@ -4,6 +4,12 @@ let newsInterval = null;
 let currentFilterDate = null;
 let currentFilterType = null;
 let isDashboardCollapsed = false;
+let showClosedPositions = false; // 청산 종목 보기 상태
+let showHistoryClosedPositions = true; // 히스토리 청산 종목 포함 상태
+let currentFilteredEntries = [];
+let currentRenderPage = 1;
+const entriesPerPage = 15;
+let lastRenderedMonth = '';
 
 const mainApp = document.getElementById('mainApp');
 window.addEventListener('DOMContentLoaded', () => {
@@ -41,6 +47,30 @@ window.addEventListener('DOMContentLoaded', () => {
         btnTogglePortfolio.addEventListener('click', () => {
             isDashboardCollapsed = !isDashboardCollapsed;
             updatePortfolioSummary();
+        });
+    }
+
+    // 청산 종목 보기 토글 버튼 이벤트 연결
+    const btnToggleClosed = document.getElementById('btnToggleClosed');
+    if (btnToggleClosed) {
+        btnToggleClosed.addEventListener('click', () => {
+            showClosedPositions = !showClosedPositions;
+            btnToggleClosed.innerText = showClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
+            btnToggleClosed.style.backgroundColor = showClosedPositions ? 'var(--primary-color)' : 'transparent';
+            btnToggleClosed.style.color = showClosedPositions ? '#fff' : 'var(--primary-color)';
+            updatePortfolioSummary();
+        });
+    }
+
+    // 히스토리 청산 종목 숨기기/보기 토글 버튼 이벤트 연결
+    const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
+    if (btnToggleHistoryClosed) {
+        btnToggleHistoryClosed.addEventListener('click', () => {
+            showHistoryClosedPositions = !showHistoryClosedPositions;
+            btnToggleHistoryClosed.innerText = showHistoryClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
+            btnToggleHistoryClosed.style.backgroundColor = showHistoryClosedPositions ? 'transparent' : 'var(--primary-color)';
+            btnToggleHistoryClosed.style.color = showHistoryClosedPositions ? 'var(--primary-color)' : '#fff';
+            displayEntries(true);
         });
     }
 
@@ -479,6 +509,13 @@ if (btnRemoveImage) {
     });
 }
 
+const loadMoreObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) {
+        currentRenderPage++;
+        renderPage();
+    }
+}, { rootMargin: '300px' }); // 스크롤이 바닥에 닿기 300px 전에 미리 다음 페이지 로딩 시작
+
 filterStockInput.addEventListener('input', () => { 
     clearFilterBtn.style.display = filterStockInput.value ? 'block' : 'none';
     displayEntries(true); 
@@ -629,15 +666,18 @@ function updatePortfolioSummary() {
         const qty = Number(entry.quantity) || 0;
         const price = Number(entry.price) || 0;
 
-        if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0 };
+        if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, accountName: '', traded: false };
+        if (entry.accountName) portfolio[stock].accountName = entry.accountName; // 가장 최근 거래의 투자 분류 기록
 
         if (entry.tradeType === '매수') {
             totalBuyCount++;
+            portfolio[stock].traded = true;
             portfolio[stock].qty += qty;
             portfolio[stock].totalCost += (price * qty);
             if (portfolio[stock].qty > 0) portfolio[stock].avgPrice = portfolio[stock].totalCost / portfolio[stock].qty;
         } else if (entry.tradeType === '매도') {
             totalSellCount++;
+            portfolio[stock].traded = true;
             const currentAvgPrice = portfolio[stock].avgPrice;
             const profit = (price - currentAvgPrice) * qty;
             portfolio[stock].realizedProfit += profit;
@@ -654,35 +694,63 @@ function updatePortfolioSummary() {
     let hasHoldings = false;
     currentHoldings = [];
 
+    // ⭐️ 포트폴리오를 배열로 변환하고 투자 분류에 따라 정렬
+    const portfolioArray = [];
     for (const stock in portfolio) {
-        if (portfolio[stock].qty > 0) {
-            totalInvestedAmount += portfolio[stock].totalCost;
-            holdingsCount++;
-            currentHoldings.push(stock);
-
-            hasHoldings = true;
-            chartLabels.push(stock);
-            chartData.push(portfolio[stock].totalCost);
-            const data = portfolio[stock];
-            const card = document.createElement('div');
-            card.className = 'portfolio-card';
-            card.innerHTML = `
-                <div class="stock-name">${stock}</div>
-                <div class="stat-row"><span>보유 수량</span><span>${data.qty.toLocaleString()}주</span></div>
-                <div class="stat-row"><span>평균 단가</span><span>${Math.round(data.avgPrice).toLocaleString()}</span></div>
-                <div class="stat-row"><span>총 매수금액</span><span>${Math.round(data.totalCost).toLocaleString()}</span></div>
-            `;
-            
-            if (data.realizedProfit !== 0) {
-                const profitColor = data.realizedProfit > 0 ? 'var(--danger-color)' : 'var(--primary-color)';
-                card.innerHTML += `
-                    <div class="stat-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
-                        <span>종목 실현손익</span><span style="color:${profitColor}">${Math.round(data.realizedProfit).toLocaleString()}</span>
-                    </div>`;
-            }
-            portfolioGrid.appendChild(card);
+        const p = portfolio[stock];
+        const isClosed = p.qty <= 0;
+        if (!isClosed) {
+            portfolioArray.push({ stock, ...p, isClosed: false });
+        } else if (showClosedPositions && p.traded) {
+            portfolioArray.push({ stock, ...p, isClosed: true }); // 청산 종목 포함
         }
     }
+
+    const sortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "기타": 7 };
+    portfolioArray.sort((a, b) => {
+        const orderA = sortOrder[a.accountName] || 99;
+        const orderB = sortOrder[b.accountName] || 99;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.stock.localeCompare(b.stock); // 분류가 같으면 종목명 가나다순 정렬
+    });
+
+    portfolioArray.forEach(data => {
+        const stock = data.stock;
+        const isClosed = data.isClosed;
+        
+        // 현재 보유 중인 종목만 차트 및 상단 요약 수치에 반영
+        if (!isClosed) {
+            totalInvestedAmount += data.totalCost;
+            holdingsCount++;
+            currentHoldings.push(stock);
+            hasHoldings = true;
+            chartLabels.push(stock);
+            chartData.push(data.totalCost);
+        }
+        
+        const card = document.createElement('div');
+        card.className = 'portfolio-card';
+        if (isClosed) {
+            card.style.opacity = '0.6'; // 청산 종목은 반투명하게 표시
+            card.style.borderLeftColor = 'var(--text-muted-color)';
+        }
+        const statusBadge = isClosed ? `<span style="font-size: 10px; background: var(--border-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px; margin-left: 4px;">청산완료</span>` : '';
+        card.innerHTML = `
+            <div class="stock-name">${stock} <span style="font-size: 11px; color: var(--text-muted-color); font-weight: normal;">${data.accountName ? `(${data.accountName})` : ''}</span>${statusBadge}</div>
+            <div class="stat-row"><span>보유 수량</span><span>${data.qty.toLocaleString()}주</span></div>
+            <div class="stat-row"><span>평균 단가</span><span>${Math.round(data.avgPrice).toLocaleString()}</span></div>
+            <div class="stat-row"><span>총 매수금액</span><span>${Math.round(data.totalCost).toLocaleString()}</span></div>
+        `;
+        
+        if (data.realizedProfit !== 0) {
+            const profitColor = data.realizedProfit > 0 ? 'var(--danger-color)' : 'var(--primary-color)';
+            card.innerHTML += `
+                <div class="stat-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
+                    <span>종목 실현손익</span><span style="color:${profitColor}">${Math.round(data.realizedProfit).toLocaleString()}</span>
+                </div>`;
+        }
+        portfolioGrid.appendChild(card);
+    });
     
     const dashContainer = document.getElementById('dashboardContainer');
     
@@ -693,7 +761,7 @@ function updatePortfolioSummary() {
         toggleBtn.style.display = (hasHoldings || totalRealizedProfit !== 0) ? 'inline-block' : 'none';
     }
 
-    dashContainer.style.display = (isDashboardCollapsed || (holdingsCount === 0 && totalRealizedProfit === 0)) ? 'none' : 'flex';
+    dashContainer.style.display = (isDashboardCollapsed || (holdingsCount === 0 && totalRealizedProfit === 0 && portfolioArray.length === 0)) ? 'none' : 'flex';
     if (portfolioGrid) portfolioGrid.style.display = isDashboardCollapsed ? 'none' : '';
     
     const dashProfit = document.getElementById('dashTotalProfit');
@@ -737,7 +805,7 @@ function updatePortfolioSummary() {
         });
     } else { chartContainer.style.display = 'none'; }
 
-    document.getElementById('portfolioSection').style.display = (hasHoldings || totalRealizedProfit !== 0) ? 'block' : 'none';
+    document.getElementById('portfolioSection').style.display = (hasHoldings || totalRealizedProfit !== 0 || portfolioArray.length > 0) ? 'block' : 'none';
 }
 
 // ⭐️ 드롭다운 필터에 종목명을 동적으로 추가하는 함수
@@ -797,6 +865,16 @@ function displayEntries(isFilterUpdate = false) {
 
     historyList.innerHTML = '';
     
+    // 청산 종목 필터링을 위한 현재 보유 수량 계산
+    const stockQtys = {};
+    cloudEntries.forEach(entry => {
+        if (entry.type === 'trade' && entry.stockName) {
+            if (stockQtys[entry.stockName] === undefined) stockQtys[entry.stockName] = 0;
+            if (entry.tradeType === '매수') stockQtys[entry.stockName] += (Number(entry.quantity) || 0);
+            else if (entry.tradeType === '매도') stockQtys[entry.stockName] -= (Number(entry.quantity) || 0);
+        }
+    });
+
     const filterValue = filterStockInput.value.trim().toLowerCase();
     const filteredEntries = cloudEntries.filter(entry => {
         if (filterValue) {
@@ -834,6 +912,12 @@ function displayEntries(isFilterUpdate = false) {
                 if (entryType !== currentFilterType) return false;
             }
         }
+        
+        // ⭐️ 청산 종목 숨기기 상태일 때 (보유 수량이 0인 종목을 검색 및 필터에서 제외)
+        if (!showHistoryClosedPositions) {
+            if (entry.stockName && stockQtys[entry.stockName] !== undefined && stockQtys[entry.stockName] <= 0) return false; 
+        }
+        
         return true;
     });
 
@@ -856,18 +940,53 @@ function displayEntries(isFilterUpdate = false) {
         document.getElementById('activeFilterText').innerText = `📅 ${currentFilterDate} 일자의 ${typeText} 모아보기`;
     } else { banner.style.display = 'none'; }
 
+    currentFilteredEntries = filteredEntries;
+    currentRenderPage = 1;
+    lastRenderedMonth = '';
+
     if (filteredEntries.length === 0) {
         historyList.innerHTML = '<p style="text-align:center; color:var(--text-muted-color); font-size: 16px; padding: 20px;">조건에 맞는 기록이 없습니다.</p>';
         return;
     }
 
-    filteredEntries.forEach(entry => {
+    renderPage();
+}
+
+function renderPage() {
+    const existingSentinel = document.getElementById('scroll-sentinel');
+    if (existingSentinel) {
+        loadMoreObserver.unobserve(existingSentinel);
+        existingSentinel.remove();
+    }
+
+    const start = (currentRenderPage - 1) * entriesPerPage;
+    const end = start + entriesPerPage;
+    const pageEntries = currentFilteredEntries.slice(start, end);
+
+    pageEntries.forEach(entry => {
+        // ⭐️ 월별 타임라인 구분선 로직
+        let entryMonth = '';
+        let parsedDate = null;
+        if (entry.rawDate) parsedDate = new Date(entry.rawDate);
+        else if (entry.id) parsedDate = new Date(entry.id);
+        
+        if (parsedDate && !isNaN(parsedDate)) {
+            entryMonth = `${parsedDate.getFullYear()}년 ${parsedDate.getMonth() + 1}월`;
+        }
+
+        if (entryMonth && entryMonth !== lastRenderedMonth) {
+            const divider = document.createElement('div');
+            divider.className = 'timeline-divider';
+            divider.innerText = entryMonth;
+            historyList.appendChild(divider);
+            lastRenderedMonth = entryMonth;
+        }
+
         const card = document.createElement('div');
         card.className = 'entry-card';
         const entryType = entry.type || 'trade';
         const imageHtml = entry.attachedImage ? `<div style="margin-top:10px;"><img src="${entry.attachedImage}" class="entry-thumbnail" onclick="openImageViewer(this.src, event)" title="클릭하여 원본 보기"></div>` : '';
 
-        // ⭐️ 최초 작성 및 수정 시간 계산 (기존 데이터의 경우 id값을 통해 생성 시간 유추)
         const createdStr = entry.createdAt ? new Date(entry.createdAt).toLocaleString() : new Date(entry.id).toLocaleString();
         const updatedStr = entry.updatedAt ? new Date(entry.updatedAt).toLocaleString() : '';
         const timeDisplayHtml = `
@@ -935,6 +1054,19 @@ function displayEntries(isFilterUpdate = false) {
 
         historyList.appendChild(card);
     });
+
+    // 스크롤 감지용 투명 요소(Sentinel) 추가
+    if (end < currentFilteredEntries.length) {
+        const sentinel = document.createElement('div');
+        sentinel.id = 'scroll-sentinel';
+        sentinel.style.padding = '20px';
+        sentinel.style.textAlign = 'center';
+        sentinel.style.color = 'var(--text-muted-color)';
+        sentinel.style.fontSize = '12px';
+        sentinel.innerHTML = '<span>⬇️ 스크롤하여 과거 기록 불러오는 중...</span>';
+        historyList.appendChild(sentinel);
+        loadMoreObserver.observe(sentinel);
+    }
 }
 
 function editEntry(entry) {
@@ -956,13 +1088,12 @@ function editEntry(entry) {
     renderTags();
     calcTotalAmount();
     
-    // ⭐️ 기존 수정 시 원래 시간을 불러오던 것을 무시하고 '현재 시간'으로 강제 세팅
-    const localNow = new Date();
-    localNow.setMinutes(localNow.getMinutes() - localNow.getTimezoneOffset());
+    // ⭐️ 수정 시 기존에 기록된 '기록 일시'를 가져와서 설정
     if (window.tradeDatePicker) {
-        window.tradeDatePicker.setDate(localNow.toISOString().slice(0,16));
+        const originalDate = entry.rawDate || new Date(entry.id).toISOString().slice(0, 16);
+        window.tradeDatePicker.setDate(originalDate);
     } else {
-        document.getElementById('tradeDate').value = localNow.toISOString().slice(0,16);
+        document.getElementById('tradeDate').value = entry.rawDate || new Date(entry.id).toISOString().slice(0, 16);
     }
 
     currentAttachedImage = entry.attachedImage || null;

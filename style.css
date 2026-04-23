@@ -281,6 +281,13 @@ button:hover {
     background-color: var(--card-bg-color); padding: 12px; border-left: 4px solid var(--warning-color);
     border-radius: 4px; box-shadow: var(--entry-card-shadow);
 }
+.timeline-divider {
+    display: flex; align-items: center; text-align: center;
+    color: var(--text-strong-color); font-size: 1.1em; font-weight: bold; margin: 20px 0 10px 0;
+}
+.timeline-divider::before, .timeline-divider::after { content: ''; flex: 1; border-bottom: 1px solid var(--border-color); }
+.timeline-divider::before { margin-right: 15px; }
+.timeline-divider::after { margin-left: 15px; }
 .entry-header { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85em; color: var(--text-muted-color); }
 .entry-title { font-size: 1.05em; font-weight: bold; color: var(--text-strong-color); margin-bottom: 6px; }
 .entry-content { line-height: 1.5; font-size: 12.5px; word-wrap: break-word; }
