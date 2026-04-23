@@ -6,6 +6,15 @@
     <title>주식 매매 일지</title>
     <!-- ⭐️ Chart.js 라이브러리 추가 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- ⭐️ 즐겨찾기(파비콘) 이모지 추가 -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📈</text></svg>">
+    <!-- ⭐️ Flatpickr (날짜/시간 선택기) 라이브러리 추가 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css" id="flatpickr-dark-theme" disabled>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ko.js"></script>
+    <!-- ⭐️ SheetJS (Excel 내보내기/가져오기) 라이브러리 추가 -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <!-- ⭐️ 외부 CSS 파일 연결 -->
     <link rel="stylesheet" href="style.css">
 </head>
@@ -37,26 +46,19 @@
                 </div>
 
                 <div class="form-row">
-                    <div class="form-group">
+                    <div class="form-group" style="position: relative;">
                         <label for="stockName">종목명</label>
-                        <input type="text" id="stockName" list="stockOptions" placeholder="검색 또는 직접 입력 (예: 삼성전자)" autocomplete="off" required>
-                        <datalist id="stockOptions"></datalist>
+                        <input type="text" id="stockName" placeholder="검색 또는 직접 입력 (예: 삼성전자)" autocomplete="off" required>
+                        <div id="stockNameList" class="autocomplete-list"></div>
                     </div>
-                    <div class="form-group" id="brokerAccountGroup">
+                    <div class="form-group" id="brokerAccountGroup" style="position: relative;">
                         <label for="brokerAccount">증권 계좌</label>
-                        <input type="text" id="brokerAccount" list="brokerOptions" placeholder="예: 키움증권, 토스 등" autocomplete="off">
-                        <datalist id="brokerOptions">
-                            <option value="키움증권"></option>
-                            <option value="미래에셋증권"></option>
-                            <option value="NH투자증권"></option>
-                            <option value="한국투자증권"></option>
-                            <option value="삼성증권"></option>
-                            <option value="토스증권"></option>
-                        </datalist>
+                        <input type="text" id="brokerAccount" placeholder="예: 키움증권, 토스 등" autocomplete="off">
+                        <div id="brokerAccountList" class="autocomplete-list"></div>
                     </div>
                     <div class="form-group">
                         <label for="tradeDate">기록 일시</label>
-                        <input type="datetime-local" id="tradeDate" required>
+                        <input type="text" id="tradeDate" required>
                     </div>
                 </div>
 
@@ -98,10 +100,20 @@
                         <input type="number" id="quantity" placeholder="예: 10">
                     </div>
                 </div>
+                <div id="totalAmountWrapper" style="display: none;">
+                    <div class="total-amount-display" id="totalAmountDisplay">총 금액: 0원</div>
+                </div>
 
                 <div class="form-group">
                     <label for="thoughts" id="thoughtsLabel">생각의 흐름 / 계획</label>
                     <textarea id="thoughts" placeholder="현재 시장 상황, 매매 이유, 향후 대응 계획 등을 자유롭게 기록하세요." required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="tagInput">해시태그 (선택)</label>
+                    <div class="tag-input-container">
+                        <div id="tagList" class="tag-list"></div>
+                        <input type="text" id="tagInput" placeholder="태그 입력 후 Enter (예: #돌파매매)">
+                    </div>
                 </div>
                 <div class="form-group">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -120,7 +132,10 @@
 
         <div id="portfolioSection" class="portfolio-summary-container" style="display: none;">
             <div class="portfolio-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
                 <span class="section-title">PORTFOLIO</span>
+                <button type="button" id="btnTogglePortfolio" style="background: transparent; color: var(--text-muted-color); border: none; width: auto; padding: 2px 8px; font-size: 12px; font-weight: normal; margin: 0; box-shadow: none; cursor: pointer;" title="포트폴리오 대시보드 접기/펴기">접기 ▲</button>
+            </div>
             </div>
             <div class="portfolio-content-layout">
                 <div id="portfolioChartContainer" class="chart-container" style="display: none;">
@@ -153,9 +168,7 @@
         <div class="history-header">
             <h2 class="section-title">TRADE HISTORY</h2>
             <div class="header-right" style="gap: 8px;">
-                <button id="btnExportCSV" class="btn-edit" style="margin:0; background-color: var(--success-color); color: white;">CSV 내보내기</button>
-                <button id="btnImportCSV" class="btn-edit" style="margin:0; background-color: var(--warning-color); color: white;">CSV 가져오기</button>
-                <input type="file" id="csvFileInput" accept=".csv" style="display:none;">
+                <input type="file" id="excelFileInput" accept=".xlsx, .xls" style="display:none;">
             </div>
         </div>
 
@@ -164,8 +177,18 @@
             <button id="btnCalendarView">캘린더 뷰</button>
         </div>
 
-        <div class="filter-box" style="margin-bottom: 15px;">
-            <input type="text" id="filterStock" list="stockOptions" placeholder="🔍 특정 종목 모아보기 (예: 삼성전자)" autocomplete="off">
+        <div id="filterBoxContainer" class="filter-box" style="margin-bottom: 15px; position: relative;">
+            <div style="display: flex; gap: 5px;">
+                <!-- ⭐️ [3안] 유형 필터링 추가 -->
+                <select id="filterTypeSelect" style="width: auto; padding: 8px; border-radius: 4px; border: 2px solid var(--primary-color); height: 36px; outline: none; cursor: pointer;">
+                    <option value="all">전체 보기</option>
+                    <option value="trade">매매 기록만</option>
+                    <option value="memo">일반 메모만</option>
+                </select>
+                <input type="text" id="filterStock" placeholder="🔍 검색 (종목명, 증권사, 해시태그)" autocomplete="off">
+                <span id="clearFilterBtn" class="clear-input-btn" title="검색어 지우기">&times;</span>
+                <div id="filterStockList" class="autocomplete-list"></div>
+            </div>
         </div>
         
         <div id="calendarViewSection" style="display:none; background: var(--card-bg-color); padding: 15px; border-radius: 8px; box-shadow: var(--entry-card-shadow); margin-bottom: 15px;">
@@ -192,14 +215,20 @@
         </div>
         
         <div class="content-right" id="newsSidebar">
-            <!-- ⭐️ 다크/라이트 모드 설정 (뉴스 상단으로 이동) -->
+            <!-- ⭐️ 앱 설정 (테마 및 Excel) -->
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--border-light-color); padding-bottom: 15px;">
-                <span style="font-size: 13px; font-weight: var(--fw-bold, bold); color: var(--text-strong-color);">🌗 화면 테마</span>
-                <div class="theme-switch-wrapper" style="margin-bottom: 0;">
-                    <label class="theme-switch" for="theme-toggle" title="다크/라이트 모드 전환">
-                        <input type="checkbox" id="theme-toggle" />
-                        <span class="slider round"></span>
-                    </label>
+                <div style="display: flex; justify-content: flex-start; align-items: center; gap: 10px;">
+                    <span style="font-size: 13px; font-weight: var(--fw-bold, bold); color: var(--text-strong-color);">🌗 화면 테마</span>
+                    <div class="theme-switch-wrapper" style="margin-bottom: 0; position: relative; top: 5px;">
+                        <label class="theme-switch" for="theme-toggle" title="다크/라이트 모드 전환">
+                            <input type="checkbox" id="theme-toggle" />
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 5px;">
+                    <button id="btnImportExcel" class="btn-edit" style="margin: 0; padding: 4px 6px; font-size: 11px; background-color: var(--warning-color); color: white; border: none;" title="Excel 파일 가져오기">가져오기</button>
+                    <button id="btnExportExcel" class="btn-edit" style="margin: 0; padding: 4px 6px; font-size: 11px; background-color: var(--success-color); color: white; border: none;" title="Excel 파일 내보내기">내보내기</button>
                 </div>
             </div>
 

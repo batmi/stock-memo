@@ -62,7 +62,8 @@ def init_db():
             price REAL,
             quantity REAL,
             createdAt TEXT,
-            updatedAt TEXT
+            updatedAt TEXT,
+            tags TEXT
         )
     ''')
     
@@ -73,6 +74,10 @@ def init_db():
         pass
     try:
         c.execute("ALTER TABLE entries ADD COLUMN updatedAt TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute("ALTER TABLE entries ADD COLUMN tags TEXT")
     except sqlite3.OperationalError:
         pass
     conn.commit()
@@ -88,14 +93,14 @@ def init_db():
                     img_url = process_image(entry.get('attachedImage'), entry.get('id'))
                     c.execute('''
                         INSERT INTO entries 
-                        (id, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (id, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         entry.get('id'), entry.get('type'), entry.get('stockName'), entry.get('title'),
                         entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), img_url,
                         entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
                         entry.get('price', 0), entry.get('quantity', 0),
-                        entry.get('createdAt'), entry.get('updatedAt')
+                        entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', '')
                     ))
                 conn.commit()
                 print("✅ 데이터 마이그레이션 완료! (이제부터 db/journal.db와 uploads 폴더를 사용합니다)")
@@ -148,14 +153,14 @@ def save_data():
         img_url = process_image(entry.get('attachedImage'), entry.get('id'))
         c.execute('''
             INSERT OR REPLACE INTO entries 
-            (id, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             entry.get('id'), entry.get('type'), entry.get('stockName'), entry.get('title'),
             entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), img_url,
             entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
             entry.get('price', 0), entry.get('quantity', 0),
-            entry.get('createdAt'), entry.get('updatedAt')
+            entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', '')
         ))
         
     conn.commit()

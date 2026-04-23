@@ -3,6 +3,7 @@ let currentHoldings = [];
 let newsInterval = null;
 let currentFilterDate = null;
 let currentFilterType = null;
+let isDashboardCollapsed = false;
 
 const mainApp = document.getElementById('mainApp');
 window.addEventListener('DOMContentLoaded', () => {
@@ -10,10 +11,13 @@ window.addEventListener('DOMContentLoaded', () => {
 
     function applyTheme(theme) {
         document.documentElement.setAttribute('data-theme', theme);
+        const fpDark = document.getElementById('flatpickr-dark-theme');
         if (theme === 'dark') {
             themeToggle.checked = true;
+            if (fpDark) fpDark.removeAttribute('disabled');
         } else {
             themeToggle.checked = false;
+            if (fpDark) fpDark.setAttribute('disabled', 'disabled');
         }
         // 차트가 이미 생성되었다면 색상을 업데이트하기 위해 다시 렌더링
         if (portfolioChartInstance) {
@@ -31,6 +35,24 @@ window.addEventListener('DOMContentLoaded', () => {
     const savedTheme = localStorage.getItem('theme') || 'dark';
     applyTheme(savedTheme);
 
+    // 대시보드 접기/펴기 버튼 이벤트 연결
+    const btnTogglePortfolio = document.getElementById('btnTogglePortfolio');
+    if (btnTogglePortfolio) {
+        btnTogglePortfolio.addEventListener('click', () => {
+            isDashboardCollapsed = !isDashboardCollapsed;
+            updatePortfolioSummary();
+        });
+    }
+
+    // [3안] 필터 타입(유형) 선택 드롭다운 이벤트
+    const filterTypeSelect = document.getElementById('filterTypeSelect');
+    if (filterTypeSelect) {
+        filterTypeSelect.addEventListener('change', (e) => {
+            currentFilterType = e.target.value === 'all' ? null : e.target.value;
+            displayEntries();
+        });
+    }
+
     loadDataFromLocal();
 });
 
@@ -38,7 +60,6 @@ async function loadDataFromLocal() {
     try {
         const response = await fetch('/api/data');
         cloudEntries = await response.json();
-        updateStockOptions();
         displayEntries();
         
         fetchRealtimeNews();
@@ -130,6 +151,7 @@ async function fetchRealtimeNews() {
 const journalForm = document.getElementById('journalForm');
 const historyList = document.getElementById('historyList');
 const filterStockInput = document.getElementById('filterStock');
+const clearFilterBtn = document.getElementById('clearFilterBtn');
 const formContainer = document.getElementById('formContainer');
 const formModalOverlay = document.getElementById('formModalOverlay');
 const btnFab = document.getElementById('btnFab');
@@ -139,6 +161,7 @@ let editingEntryId = null;
 let portfolioChartInstance = null;
 let currentAttachedImage = null;
 let currentSelectedFile = null;
+let currentTags = [];
 
 const defaultStocks = [
     "삼성전자", "SK하이닉스", "LG에너지솔루션", "현대차", "기아", "셀트리온", "POSCO홀딩스", "NAVER", "카카오",
@@ -155,10 +178,120 @@ formModalOverlay.addEventListener('click', (e) => {
     if (e.target === formModalOverlay) resetAndCloseForm();
 });
 
+// ⭐️ Esc 키로 모달 닫기
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && formModalOverlay.style.display === 'flex') {
+        const openLists = document.querySelectorAll('.autocomplete-list[style*="display: block"]');
+        if (openLists.length > 0) return; // 드롭다운이 열려있을 땐 모달 닫기 방지
+        resetAndCloseForm();
+    }
+});
+
+// ⭐️ 커스텀 자동완성(Autocomplete) 드롭다운 로직
+function setupAutocomplete(inputId, listId, getOptions) {
+    const input = document.getElementById(inputId);
+    const list = document.getElementById(listId);
+    let currentFocus = -1;
+    let lastVal = input.value;
+
+    function triggerInput(e) {
+        const val = input.value;
+        
+        // 한글 타이핑 중 방향키 조작 시 발생하는 의미 없는 input 이벤트 무시 (초기화 방지)
+        if (e && e.type === 'input' && val === lastVal) return;
+        lastVal = val;
+        
+        list.innerHTML = '';
+        currentFocus = -1;
+        const options = getOptions();
+        const matched = val ? options.filter(opt => opt.toLowerCase().includes(val.toLowerCase())) : options;
+        
+        if (matched.length === 0) {
+            list.style.display = 'none';
+            return;
+        }
+        
+        list.style.display = 'block';
+        matched.forEach(opt => {
+            const item = document.createElement('div');
+            item.className = 'autocomplete-item';
+            if (val) {
+                const regex = new RegExp(`(${val})`, 'gi');
+                item.innerHTML = opt.replace(regex, "<span style='color:var(--danger-color); font-weight:var(--fw-bold, bold);'>$1</span>");
+            } else {
+                item.innerText = opt;
+            }
+            item.addEventListener('click', function(ev) {
+                ev.stopPropagation();
+                input.value = opt;
+                lastVal = opt; // 클릭으로 값이 변경됨을 기억하여 다음 input 이벤트를 무시
+                list.style.display = 'none';
+                input.dispatchEvent(new Event('input')); 
+            });
+            list.appendChild(item);
+        });
+    }
+
+    input.addEventListener('input', triggerInput);
+    input.addEventListener('focus', triggerInput);
+    input.addEventListener('click', triggerInput);
+
+    input.addEventListener('keydown', function(e) {
+        const items = list.getElementsByClassName('autocomplete-item');
+        if (list.style.display === 'none') return;
+        if (e.key === 'ArrowDown' || e.keyCode === 40) {
+            currentFocus++; addActive(items); e.preventDefault();
+        } else if (e.key === 'ArrowUp' || e.keyCode === 38) {
+            currentFocus--; addActive(items); e.preventDefault();
+        } else if (e.key === 'Enter' || e.keyCode === 13) {
+            // 커서가 이동된 상태(currentFocus > -1)라면 한글 조합 중이더라도 항목 선택을 우선함
+            if (currentFocus > -1 && items.length > 0) { 
+                e.preventDefault(); 
+                items[currentFocus].click(); 
+            } else if (e.isComposing) {
+                // 커서 이동 없이 단순 타이핑 중 엔터인 경우, 글자 조합만 완료하고 무시
+                return;
+            }
+        } else if (e.key === 'Escape' || e.keyCode === 27) {
+            list.style.display = 'none';
+        }
+    });
+
+    function addActive(items) {
+        if (!items || items.length === 0) return;
+        for (let i = 0; i < items.length; i++) items[i].classList.remove('active');
+        if (currentFocus >= items.length) currentFocus = 0;
+        if (currentFocus < 0) currentFocus = items.length - 1;
+        items[currentFocus].classList.add('active');
+        items[currentFocus].scrollIntoView({ block: 'nearest' });
+    }
+
+    document.addEventListener('click', function(e) {
+        if (e.target !== input && e.target !== list) list.style.display = 'none';
+    });
+}
+
+const defaultBrokers = ["키움증권", "미래에셋증권", "NH투자증권", "한국투자증권", "삼성증권", "토스증권"];
+function getStockOptions() {
+    const historyStocks = cloudEntries.map(entry => entry.stockName).filter(Boolean);
+    return [...new Set([...defaultStocks, ...historyStocks])].sort();
+}
+function getBrokerOptions() {
+    const historyBrokers = cloudEntries.map(entry => entry.brokerAccount).filter(Boolean);
+    return [...new Set([...defaultBrokers, ...historyBrokers])].sort();
+}
+
+setupAutocomplete('stockName', 'stockNameList', getStockOptions);
+setupAutocomplete('brokerAccount', 'brokerAccountList', getBrokerOptions);
+setupAutocomplete('filterStock', 'filterStockList', getStockOptions);
+
 function resetAndCloseForm() {
     formModalOverlay.style.display = 'none';
     journalForm.reset();
     
+    currentTags = [];
+    renderTags();
+    calcTotalAmount();
     currentSelectedFile = null;
     currentAttachedImage = null;
     document.getElementById('imageInput').value = '';
@@ -170,25 +303,41 @@ function resetAndCloseForm() {
     const tradeRadio = document.querySelector('input[name="recordType"][value="trade"]');
     if(tradeRadio) { tradeRadio.checked = true; tradeRadio.dispatchEvent(new Event('change')); }
     const resetNow = new Date(); resetNow.setMinutes(resetNow.getMinutes() - resetNow.getTimezoneOffset());
-    document.getElementById('tradeDate').value = resetNow.toISOString().slice(0,16);
+    if (window.tradeDatePicker) {
+        window.tradeDatePicker.setDate(resetNow.toISOString().slice(0,16));
+    } else {
+        document.getElementById('tradeDate').value = resetNow.toISOString().slice(0,16);
+    }
 }
 
-function updateStockOptions() {
-    const datalist = document.getElementById('stockOptions');
-    const historyStocks = cloudEntries.map(entry => entry.stockName).filter(Boolean);
-    const allStocks = [...new Set([...defaultStocks, ...historyStocks])].sort();
-    
-    datalist.innerHTML = '';
-    allStocks.forEach(stock => {
-        const option = document.createElement('option');
-        option.value = stock;
-        datalist.appendChild(option);
-    });
-}
+// ⭐️ Flatpickr 초기화 (날짜 및 시간 선택기)
+window.tradeDatePicker = flatpickr("#tradeDate", {
+    enableTime: true,
+    dateFormat: "Y-m-d\\TH:i",
+    locale: "ko",
+    time_24hr: false
+});
 
 const now = new Date();
 now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-document.getElementById('tradeDate').value = now.toISOString().slice(0,16);
+window.tradeDatePicker.setDate(now.toISOString().slice(0,16));
+
+// ⭐️ 총 금액 자동 계산 로직
+function calcTotalAmount() {
+    const recordType = document.querySelector('input[name="recordType"]:checked');
+    const totalWrapper = document.getElementById('totalAmountWrapper');
+    if (!recordType || recordType.value !== 'trade') {
+        totalWrapper.style.display = 'none'; return;
+    }
+    const price = Number(document.getElementById('price').value) || 0;
+    const qty = Number(document.getElementById('quantity').value) || 0;
+    if (price > 0 && qty > 0) {
+        totalWrapper.style.display = 'block';
+        document.getElementById('totalAmountDisplay').innerText = `총 금액: ${(price * qty).toLocaleString()}원`;
+    } else { totalWrapper.style.display = 'none'; }
+}
+document.getElementById('price').addEventListener('input', calcTotalAmount);
+document.getElementById('quantity').addEventListener('input', calcTotalAmount);
 
 const typeRadios = document.querySelectorAll('input[name="recordType"]');
 typeRadios.forEach(radio => {
@@ -204,7 +353,32 @@ typeRadios.forEach(radio => {
         document.getElementById('accountName').required = isTrade;
         document.getElementById('memoTitle').required = !isTrade;
         document.getElementById('thoughtsLabel').innerText = isTrade ? '생각의 흐름 / 계획' : '메모 내용';
+        calcTotalAmount();
     });
+});
+
+// ⭐️ 해시태그 입력 로직
+function renderTags() {
+    const tagList = document.getElementById('tagList');
+    tagList.innerHTML = '';
+    currentTags.forEach((tag, index) => {
+        const badge = document.createElement('span');
+        badge.className = 'tag-badge';
+        badge.innerHTML = `#${tag} <span class="remove-tag" onclick="removeTag(${index})">&times;</span>`;
+        tagList.appendChild(badge);
+    });
+}
+window.removeTag = function(index) { currentTags.splice(index, 1); renderTags(); };
+document.getElementById('tagInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+        e.preventDefault();
+        let val = this.value.trim().replace(/^#+/, '').replace(/,/g, '');
+        if (val && !currentTags.includes(val)) {
+            currentTags.push(val);
+            renderTags();
+        }
+        this.value = '';
+    }
 });
 
 function processImageFile() {
@@ -275,7 +449,16 @@ if (btnRemoveImage) {
     });
 }
 
-filterStockInput.addEventListener('input', () => { displayEntries(); });
+filterStockInput.addEventListener('input', () => { 
+    clearFilterBtn.style.display = filterStockInput.value ? 'block' : 'none';
+    displayEntries(); 
+});
+clearFilterBtn.addEventListener('click', () => {
+    filterStockInput.value = '';
+    clearFilterBtn.style.display = 'none';
+    document.getElementById('filterStockList').style.display = 'none';
+    displayEntries();
+});
 
 journalForm.addEventListener('submit', async function(e) {
     e.preventDefault();
@@ -305,11 +488,11 @@ journalForm.addEventListener('submit', async function(e) {
         newEntry = {
             id: editingEntryId || Date.now(), type: 'trade', stockName, brokerAccount, accountName,
             tradeType, price: price ? Number(price) : 0, quantity: quantity ? Number(quantity) : 0, thoughts, date, rawDate: tradeDateRaw, attachedImage: currentAttachedImage,
-            createdAt, updatedAt: nowIso
+            createdAt, updatedAt: nowIso, tags: currentTags.join(',')
         };
     } else {
         const memoTitle = document.getElementById('memoTitle').value;
-        newEntry = { id: editingEntryId || Date.now(), type: 'memo', stockName, title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: currentAttachedImage, createdAt, updatedAt: nowIso };
+        newEntry = { id: editingEntryId || Date.now(), type: 'memo', stockName, title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: currentAttachedImage, createdAt, updatedAt: nowIso, tags: currentTags.join(',') };
     }
 
     if (editingEntryId) {
@@ -326,62 +509,70 @@ journalForm.addEventListener('submit', async function(e) {
     await saveToLocal(true); // 저장 후 화면 전체를 새로고침하여 최신 상태 반영
 });
 
-document.getElementById('btnImportCSV').addEventListener('click', () => document.getElementById('csvFileInput').click());
-document.getElementById('csvFileInput').addEventListener('change', async (e) => {
+document.getElementById('btnImportExcel').addEventListener('click', () => document.getElementById('excelFileInput').click());
+document.getElementById('excelFileInput').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const text = await file.text();
-    const lines = text.split('\n');
-    let importedCount = 0;
-    for (let i = 1; i < lines.length; i++) {
-        if (!lines[i].trim()) continue;
-        const row = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(str => str.replace(/^"|"$/g, '').replace(/""/g, '"')) || [];
-        if (row.length >= 9) {
-            let date, type, stockName, brokerAccount, accountName, tradeType, price, quantity, thoughts;
-            
-            // 이전 버전(ID 포함 10개 컬럼)과 새 버전(ID 제외 9개 컬럼) 호환성 처리
-            if (row.length >= 10 && !isNaN(row[0]) && row[0].length >= 10) {
-                [ , type, stockName, brokerAccount, accountName, tradeType, price, quantity, thoughts, date] = row;
-            } else {
-                [date, type, stockName, brokerAccount, accountName, tradeType, price, quantity, thoughts] = row;
-            }
-            
+
+    const reader = new FileReader();
+    reader.onload = async function(event) {
+        const data = new Uint8Array(event.target.result);
+        const workbook = XLSX.read(data, {type: 'array'});
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const rows = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+
+        let importedCount = 0;
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            if (!row || row.length === 0) continue;
+
+            const date = row[0] || '';
+            const type = row[1] || 'trade';
+            const stockName = row[2] || '';
+            const brokerAccount = row[3] || '';
+            const accountName = row[4] || '';
+            const tradeType = row[5] || '';
+            const price = Number(row[6]) || 0;
+            const quantity = Number(row[7]) || 0;
+            const thoughts = row[8] || '';
+            const tags = row[9] || '';
+
             // 중복 방지 (같은 날짜와 같은 메모 내용이 있는지 확인)
             if (!cloudEntries.find(e => e.date === date && e.thoughts === thoughts)) {
                 const nowIso = new Date().toISOString();
                 cloudEntries.push({
                     id: Date.now() + i, type: type === 'memo' ? 'memo' : 'trade',
-                    stockName, brokerAccount, accountName, tradeType, price: Number(price) || 0,
-                    quantity: Number(quantity) || 0, thoughts, date: date || new Date().toLocaleString(),
-                    createdAt: nowIso, updatedAt: nowIso
+                    stockName, brokerAccount, accountName, tradeType, price,
+                    quantity, thoughts, date: date || new Date().toLocaleString(),
+                    createdAt: nowIso, updatedAt: nowIso, tags
                 });
                 importedCount++;
             }
         }
-    }
-    if (importedCount > 0) {
-        alert(`${importedCount}개의 기록을 가져왔습니다.`);
-        await saveToLocal(true);
-    } else {
-        alert('가져올 새로운 기록이 없거나 형식이 잘못되었습니다.');
-    }
+        if (importedCount > 0) {
+            alert(`${importedCount}개의 기록을 Excel에서 가져왔습니다.`);
+            await saveToLocal(true);
+        } else {
+            alert('가져올 새로운 기록이 없거나 형식이 잘못되었습니다.');
+        }
+    };
+    reader.readAsArrayBuffer(file);
     e.target.value = '';
 });
 
-document.getElementById('btnExportCSV').addEventListener('click', () => {
-    const header = ['작성일', '분류', '종목명', '증권사', '계좌분류', '매매종류', '단가', '수량', '메모/생각'];
+document.getElementById('btnExportExcel').addEventListener('click', () => {
+    const header = ['작성일', '분류', '종목명', '증권사', '계좌분류', '매매종류', '단가', '수량', '메모/생각', '태그'];
     const rows = cloudEntries.map(e => [
         e.date, e.type, e.stockName||'', e.brokerAccount||'', e.accountName||'',
-        e.tradeType||'', e.price||0, e.quantity||0, 
-        (e.thoughts||'').replace(/\n/g, ' ').replace(/"/g, '""')
+        e.tradeType||'', Number(e.price)||0, Number(e.quantity)||0, 
+        e.thoughts||'', e.tags||''
     ]);
-    const csvContent = [header, ...rows].map(e => e.map(item => `"${item}"`).join(',')).join('\n');
-    const blob = new Blob(["\uFEFF"+csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', '주식매매일지_백업.csv');
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    
+    const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "매매일지");
+    XLSX.writeFile(workbook, "주식매매일지_백업.xlsx");
 });
 
 function updatePortfolioSummary() {
@@ -449,9 +640,9 @@ function updatePortfolioSummary() {
             `;
             
             if (data.realizedProfit !== 0) {
-                const profitColor = data.realizedProfit > 0 ? '#e74c3c' : '#3498db';
+                const profitColor = data.realizedProfit > 0 ? 'var(--danger-color)' : 'var(--primary-color)';
                 card.innerHTML += `
-                    <div class="stat-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #eee;">
+                    <div class="stat-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
                         <span>종목 실현손익</span><span style="color:${profitColor}">${Math.round(data.realizedProfit).toLocaleString()}</span>
                     </div>`;
             }
@@ -460,7 +651,16 @@ function updatePortfolioSummary() {
     }
     
     const dashContainer = document.getElementById('dashboardContainer');
-    dashContainer.style.display = (holdingsCount > 0 || totalRealizedProfit !== 0) ? 'flex' : 'none';
+    
+    let toggleBtn = document.getElementById('btnTogglePortfolio');
+
+    if (toggleBtn) {
+        toggleBtn.innerHTML = isDashboardCollapsed ? '펼치기 ▼' : '접기 ▲';
+        toggleBtn.style.display = (hasHoldings || totalRealizedProfit !== 0) ? 'inline-block' : 'none';
+    }
+
+    dashContainer.style.display = (isDashboardCollapsed || (holdingsCount === 0 && totalRealizedProfit === 0)) ? 'none' : 'flex';
+    if (portfolioGrid) portfolioGrid.style.display = isDashboardCollapsed ? 'none' : '';
     
     const dashProfit = document.getElementById('dashTotalProfit');
     dashProfit.innerText = Math.round(totalRealizedProfit).toLocaleString() + '원';
@@ -477,7 +677,7 @@ function updatePortfolioSummary() {
         : ['#3498db', '#e74c3c', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#34495e']; // 라이트모드용 기본 색상
 
     const chartContainer = document.getElementById('portfolioChartContainer');
-    if (hasHoldings) {
+    if (hasHoldings && !isDashboardCollapsed) {
         chartContainer.style.display = 'block';
         const ctx = document.getElementById('portfolioChart').getContext('2d');
         if (portfolioChartInstance) portfolioChartInstance.destroy();
@@ -513,13 +713,24 @@ function displayEntries() {
         return timeB - timeA;
     });
 
+    // [3안] 리스트 뷰 필터링 상태와 HTML Select 동기화
+    const filterTypeSelect = document.getElementById('filterTypeSelect');
+    if (filterTypeSelect) {
+        filterTypeSelect.value = currentFilterType || 'all';
+    }
+
     updatePortfolioSummary();
     renderCalendar();
     historyList.innerHTML = '';
     
     const filterValue = filterStockInput.value.trim().toLowerCase();
     const filteredEntries = cloudEntries.filter(entry => {
-        if (filterValue && !(entry.stockName && entry.stockName.toLowerCase().includes(filterValue))) return false;
+        if (filterValue) {
+            const matchStock = entry.stockName && entry.stockName.toLowerCase().includes(filterValue);
+            const matchBroker = entry.brokerAccount && entry.brokerAccount.toLowerCase().includes(filterValue);
+            const matchTags = entry.tags && entry.tags.toLowerCase().includes(filterValue);
+            if (!(matchStock || matchBroker || matchTags)) return false;
+        }
         
         if (currentFilterDate) {
             let entryDateKey = '';
@@ -565,6 +776,8 @@ function displayEntries() {
                 <span style="font-size: 11px; color: var(--text-muted-color);">최초 작성: ${createdStr}${updatedStr && updatedStr !== createdStr ? ` | 최종 수정: ${updatedStr}` : ''}</span>
             </div>
         `;
+        const tagsArr = entry.tags ? entry.tags.split(',').filter(Boolean) : [];
+        const tagsHtml = tagsArr.length > 0 ? `<div style="margin-top: 8px;">` + tagsArr.map(t => `<span class="history-tag">#${t}</span>`).join('') + `</div>` : '';
 
         if (entryType === 'memo') {
             card.style.borderLeftColor = 'var(--primary-color)';
@@ -577,6 +790,7 @@ function displayEntries() {
             </div>
                 <div class="entry-title">${stockBadge}${entry.title}${brokerBadge}</div>
                 <div class="entry-content">${entry.thoughts}</div>
+                ${tagsHtml}
                 ${imageHtml}
             `;
         } else {
@@ -608,6 +822,7 @@ function displayEntries() {
                 <div class="entry-title">${stockBadge}${tradeBadge}${brokerBadge}</div>
                 ${detailsHtml}
                 <div class="entry-content">${entry.thoughts}</div>
+                ${tagsHtml}
                 ${imageHtml}
             `;
         }
@@ -637,10 +852,18 @@ function editEntry(entry) {
     document.getElementById('brokerAccount').value = entry.brokerAccount || '';
     document.getElementById('thoughts').value = entry.thoughts || '';
     
+    currentTags = entry.tags ? entry.tags.split(',').filter(Boolean) : [];
+    renderTags();
+    calcTotalAmount();
+    
     // ⭐️ 기존 수정 시 원래 시간을 불러오던 것을 무시하고 '현재 시간'으로 강제 세팅
     const localNow = new Date();
     localNow.setMinutes(localNow.getMinutes() - localNow.getTimezoneOffset());
-    document.getElementById('tradeDate').value = localNow.toISOString().slice(0,16);
+    if (window.tradeDatePicker) {
+        window.tradeDatePicker.setDate(localNow.toISOString().slice(0,16));
+    } else {
+        document.getElementById('tradeDate').value = localNow.toISOString().slice(0,16);
+    }
 
     currentAttachedImage = entry.attachedImage || null;
     document.getElementById('imageInput').value = '';
@@ -762,12 +985,14 @@ document.getElementById('btnListView').addEventListener('click', function() {
     this.classList.add('active'); document.getElementById('btnCalendarView').classList.remove('active');
     document.getElementById('historyList').style.display = 'flex';
     document.getElementById('calendarViewSection').style.display = 'none';
+    document.getElementById('filterBoxContainer').style.display = 'block';
 });
 
 document.getElementById('btnCalendarView').addEventListener('click', function() {
     this.classList.add('active'); document.getElementById('btnListView').classList.remove('active');
     document.getElementById('historyList').style.display = 'none';
     document.getElementById('calendarViewSection').style.display = 'block';
+    document.getElementById('filterBoxContainer').style.display = 'none';
     renderCalendar();
 });
 

@@ -28,8 +28,18 @@ pip install flask
 
 ### 3. 서버 실행
 프로젝트 폴더로 이동한 뒤, 아래 명령어를 통해 로컬 서버를 실행합니다.
+
+**Mac / Linux 환경**
+최초 1회 실행 권한을 부여한 뒤, 스크립트 형태로 간편하게 실행할 수 있습니다.
 ```bash
-python app.py
+chmod +x backend_app.py
+./backend_app.py
+```
+*(기존 방식인 `python app.py` 명령어로도 동일하게 실행 가능합니다.)*
+
+**Windows 환경**
+```bash
+python backend_app.py
 ```
 
 ### 4. 접속
@@ -44,7 +54,7 @@ http://127.0.0.1:5000
 
 ```text
 stock-memo/
-├── app.py             # 백엔드 서버 구동 및 DB 관리 로직 (Flask)
+├── backend_app.py     # 백엔드 서버 구동 및 DB 관리 로직 (Flask)
 ├── stock-memo.html    # 프론트엔드 메인 화면 구조 (HTML)
 ├── style.css          # 화면 디자인 및 레이아웃 (CSS)
 ├── script.js          # 화면 동작, 데이터 통신, 차트 로직 (JavaScript)
