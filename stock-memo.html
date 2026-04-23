@@ -13,6 +13,9 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css" id="flatpickr-dark-theme" disabled>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ko.js"></script>
+    <!-- ⭐️ Quill (리치 텍스트 에디터) 라이브러리 추가 -->
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
     <!-- ⭐️ SheetJS (Excel 내보내기/가져오기) 라이브러리 추가 -->
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <!-- ⭐️ 외부 CSS 파일 연결 -->
@@ -106,7 +109,7 @@
 
                 <div class="form-group">
                     <label for="thoughts" id="thoughtsLabel">생각의 흐름 / 계획</label>
-                    <textarea id="thoughts" placeholder="현재 시장 상황, 매매 이유, 향후 대응 계획 등을 자유롭게 기록하세요." required></textarea>
+                    <div id="editor-container" style="height: 150px; font-family: inherit; font-size: 13px; background-color: var(--bg-color); color: var(--text-color);"></div>
                 </div>
                 <div class="form-group">
                     <label for="tagInput">해시태그 (선택)</label>

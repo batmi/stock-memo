@@ -283,7 +283,7 @@ button:hover {
 }
 .entry-header { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85em; color: var(--text-muted-color); }
 .entry-title { font-size: 1.05em; font-weight: bold; color: var(--text-strong-color); margin-bottom: 6px; }
-.entry-content { white-space: pre-wrap; line-height: 1.4; font-size: 12.5px; }
+.entry-content { line-height: 1.5; font-size: 12.5px; word-wrap: break-word; }
 .entry-thumbnail {
     max-width: 200px;
     max-height: 150px;
@@ -440,3 +440,19 @@ input:checked + .slider { background-color: var(--primary-color); }
 input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 .slider.round { border-radius: 34px; }
 .slider.round:before { border-radius: 50%; }
+
+/* Quill 에디터 디자인 보정 및 다크모드 적용 */
+.ql-toolbar.ql-snow { font-family: inherit; border-color: var(--border-color); border-top-left-radius: 4px; border-top-right-radius: 4px; background: var(--card-bg-color); padding: 4px 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.ql-container.ql-snow { font-family: inherit; border-color: var(--border-color); border-bottom-left-radius: 4px; border-bottom-right-radius: 4px; }
+.ql-editor { font-size: 13px; }
+/* 전역 button 스타일 충돌 방지 및 크기 최적화 */
+.ql-toolbar.ql-snow .ql-formats { margin-right: 6px !important; margin-bottom: 0 !important; display: inline-flex; align-items: center; }
+.ql-toolbar.ql-snow button { width: 22px !important; height: 22px !important; padding: 2px !important; margin: 0 1px !important; background: transparent !important; border-radius: 3px !important; display: flex !important; justify-content: center; align-items: center; }
+.ql-toolbar.ql-snow button svg { width: 14px !important; height: 14px !important; }
+.ql-toolbar.ql-snow button:hover { background: var(--border-light-color) !important; }
+.ql-toolbar.ql-snow .ql-picker { height: 22px !important; line-height: 22px !important; top: 0 !important; }
+.ql-toolbar.ql-snow .ql-picker-label { padding: 0 4px !important; display: flex; align-items: center; border: none !important; }
+.ql-toolbar.ql-snow .ql-picker-label svg { width: 14px !important; height: 14px !important; right: 2px !important; }
+[data-theme="dark"] .ql-stroke { stroke: var(--text-color) !important; }
+[data-theme="dark"] .ql-fill { fill: var(--text-color) !important; }
+[data-theme="dark"] .ql-picker { color: var(--text-color) !important; }

@@ -53,6 +53,23 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ⭐️ Quill 에디터 초기화
+    window.quill = new Quill('#editor-container', {
+        theme: 'snow',
+        modules: {
+            toolbar: [
+                [{ 'header': [1, 2, 3, false] }, { 'size': ['small', false, 'large', 'huge'] }], // 헤더, 글자 크기
+                ['bold', 'italic', 'underline', 'strike'],       // 텍스트 강조
+                [{ 'color': [] }, { 'background': [] }],         // 글자/배경 색상
+                [{ 'align': [] }],                               // 정렬
+                [{ 'list': 'ordered'}, { 'list': 'bullet' }],    // 리스트
+                ['blockquote', 'code-block'],                    // 인용, 코드 블록
+                ['clean']                                        // 서식 초기화
+            ]
+        },
+        placeholder: '현재 시장 상황, 매매 이유, 향후 대응 계획 등을 자유롭게 기록하세요.'
+    });
+
     loadDataFromLocal();
 });
 
@@ -174,10 +191,6 @@ btnFab.addEventListener('click', () => {
 
 btnCloseForm.addEventListener('click', resetAndCloseForm);
 
-formModalOverlay.addEventListener('click', (e) => {
-    if (e.target === formModalOverlay) resetAndCloseForm();
-});
-
 // ⭐️ Esc 키로 모달 닫기
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && formModalOverlay.style.display === 'flex') {
@@ -298,6 +311,7 @@ function resetAndCloseForm() {
     const previewContainer = document.getElementById('imagePreviewContainer');
     if (previewContainer) previewContainer.style.display = 'none';
     
+    if (window.quill) window.quill.setContents([]); // 에디터 초기화
     editingEntryId = null;
     submitBtn.innerText = "기록 저장하기";
     const tradeRadio = document.querySelector('input[name="recordType"][value="trade"]');
@@ -467,7 +481,14 @@ journalForm.addEventListener('submit', async function(e) {
     const stockName = document.getElementById('stockName').value;
     const brokerAccount = document.getElementById('brokerAccount').value;
     const tradeDateRaw = document.getElementById('tradeDate').value;
-    const thoughts = document.getElementById('thoughts').value;
+    
+    // ⭐️ 에디터에서 작성한 내용 가져오기 및 필수 입력 검증
+    const thoughtsHTML = window.quill.root.innerHTML;
+    const thoughtsText = window.quill.getText().trim();
+    if (!thoughtsText && !thoughtsHTML.includes('<img')) {
+        alert("내용을 입력해주세요."); return;
+    }
+    const thoughts = thoughtsHTML === '<p><br></p>' ? '' : thoughtsHTML;
     const date = tradeDateRaw ? new Date(tradeDateRaw).toLocaleString() : new Date().toLocaleString();
     
     let newEntry;
@@ -566,7 +587,7 @@ document.getElementById('btnExportExcel').addEventListener('click', () => {
     const rows = cloudEntries.map(e => [
         e.date, e.type, e.stockName||'', e.brokerAccount||'', e.accountName||'',
         e.tradeType||'', Number(e.price)||0, Number(e.quantity)||0, 
-        e.thoughts||'', e.tags||''
+        (e.thoughts||'').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' '), e.tags||'' // HTML 태그 제거 후 엑셀 내보내기
     ]);
     
     const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
@@ -703,6 +724,34 @@ function updatePortfolioSummary() {
     document.getElementById('portfolioSection').style.display = (hasHoldings || totalRealizedProfit !== 0) ? 'block' : 'none';
 }
 
+// ⭐️ 드롭다운 필터에 종목명을 동적으로 추가하는 함수
+function updateFilterDropdown() {
+    const select = document.getElementById('filterTypeSelect');
+    if (!select) return;
+    
+    const currentVal = currentFilterType || 'all';
+    let html = `<option value="all">전체 보기</option>
+                <option value="trade">매매 기록만</option>
+                <option value="memo">일반 메모만</option>`;
+    
+    const stocks = [...new Set(cloudEntries.map(e => e.stockName).filter(Boolean))].sort();
+    if (stocks.length > 0) {
+        html += `<optgroup label="종목별 모아보기">`;
+        stocks.forEach(stock => {
+            html += `<option value="stock_${stock.replace(/"/g, '&quot;')}">${stock}</option>`;
+        });
+        html += `</optgroup>`;
+    }
+    select.innerHTML = html;
+    
+    if (select.querySelector(`option[value="${currentVal}"]`)) {
+        select.value = currentVal;
+    } else {
+        select.value = 'all';
+        currentFilterType = null;
+    }
+}
+
 function displayEntries(isFilterUpdate = false) {
     cloudEntries.sort((a, b) => {
         const timeA = a.rawDate ? new Date(a.rawDate).getTime() : a.id;
@@ -717,6 +766,7 @@ function displayEntries(isFilterUpdate = false) {
     }
 
     if (!isFilterUpdate) {
+        updateFilterDropdown();
         updatePortfolioSummary();
         renderCalendar();
     }
@@ -729,7 +779,8 @@ function displayEntries(isFilterUpdate = false) {
             const matchStock = entry.stockName && entry.stockName.toLowerCase().includes(filterValue);
             const matchBroker = entry.brokerAccount && entry.brokerAccount.toLowerCase().includes(filterValue);
             const matchTags = entry.tags && entry.tags.toLowerCase().includes(filterValue);
-            const matchThoughts = entry.thoughts && entry.thoughts.toLowerCase().includes(filterValue);
+            const plainThoughts = entry.thoughts ? entry.thoughts.replace(/<[^>]*>?/gm, '').toLowerCase() : '';
+            const matchThoughts = plainThoughts.includes(filterValue);
             const matchTitle = entry.title && entry.title.toLowerCase().includes(filterValue);
             if (!(matchStock || matchBroker || matchTags || matchThoughts || matchTitle)) return false;
         }
@@ -745,8 +796,13 @@ function displayEntries(isFilterUpdate = false) {
         }
 
         if (currentFilterType && currentFilterType !== 'all') {
-            const entryType = entry.type || 'trade';
-            if (entryType !== currentFilterType) return false;
+            if (currentFilterType.startsWith('stock_')) {
+                const targetStock = currentFilterType.substring(6);
+                if (entry.stockName !== targetStock) return false;
+            } else {
+                const entryType = entry.type || 'trade';
+                if (entryType !== currentFilterType) return false;
+            }
         }
         return true;
     });
@@ -754,7 +810,10 @@ function displayEntries(isFilterUpdate = false) {
     const banner = document.getElementById('activeFilterBanner');
     if (currentFilterDate) {
         banner.style.display = 'flex';
-        let typeText = currentFilterType === 'trade' ? '매매 기록' : (currentFilterType === 'memo' ? '일반 메모' : '전체 기록');
+        let typeText = '전체 기록';
+        if (currentFilterType === 'trade') typeText = '매매 기록';
+        else if (currentFilterType === 'memo') typeText = '일반 메모';
+        else if (currentFilterType && currentFilterType.startsWith('stock_')) typeText = currentFilterType.substring(6) + ' 기록';
         document.getElementById('activeFilterText').innerText = `📅 ${currentFilterDate} 일자의 ${typeText} 모아보기`;
     } else { banner.style.display = 'none'; }
 
@@ -791,7 +850,7 @@ function displayEntries(isFilterUpdate = false) {
                 <div class="header-right"><span>📝 일반 메모</span><button class="btn-edit">수정</button><button class="btn-delete">삭제</button></div>
             </div>
                 <div class="entry-title">${stockBadge}${entry.title}${brokerBadge}</div>
-                <div class="entry-content">${entry.thoughts}</div>
+                <div class="entry-content ql-snow" style="border:none; padding:0;"><div class="ql-editor" style="padding:0; min-height:auto; font-family:inherit; font-size:inherit;">${entry.thoughts}</div></div>
                 ${tagsHtml}
                 ${imageHtml}
             `;
@@ -823,7 +882,7 @@ function displayEntries(isFilterUpdate = false) {
             </div>
                 <div class="entry-title">${stockBadge}${tradeBadge}${brokerBadge}</div>
                 ${detailsHtml}
-                <div class="entry-content">${entry.thoughts}</div>
+                <div class="entry-content ql-snow" style="border:none; padding:0;"><div class="ql-editor" style="padding:0; min-height:auto; font-family:inherit; font-size:inherit;">${entry.thoughts}</div></div>
                 ${tagsHtml}
                 ${imageHtml}
             `;
@@ -852,7 +911,7 @@ function editEntry(entry) {
 
     document.getElementById('stockName').value = entry.stockName || '';
     document.getElementById('brokerAccount').value = entry.brokerAccount || '';
-    document.getElementById('thoughts').value = entry.thoughts || '';
+    if (window.quill) window.quill.root.innerHTML = entry.thoughts || ''; // 에디터에 기존 내용 불러오기
     
     currentTags = entry.tags ? entry.tags.split(',').filter(Boolean) : [];
     renderTags();
