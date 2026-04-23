@@ -93,6 +93,16 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ⭐️ 로그아웃 버튼 이벤트 연결
+    const btnLogout = document.getElementById('btnLogout');
+    if (btnLogout) {
+        btnLogout.addEventListener('click', () => {
+            if (confirm("로그아웃 하시겠습니까?")) {
+                window.location.href = '/logout';
+            }
+        });
+    }
+
     // ⭐️ Quill 에디터 초기화
     window.quill = new Quill('#editor-container', {
         theme: 'snow',

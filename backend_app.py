@@ -6,6 +6,7 @@ import base64
 import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
+import time
 from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string
 
 app = Flask(__name__, static_folder='.', static_url_path='')
@@ -19,6 +20,9 @@ UPLOAD_FOLDER = 'uploads'
 # 필요한 폴더들 생성
 os.makedirs(DB_DIR, exist_ok=True)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# 로그인 시도 횟수 및 차단 시간 관리를 위한 전역 변수 (IP 기준)
+login_attempts = {}
 
 def get_db():
     conn = sqlite3.connect(DB_FILE)
@@ -123,18 +127,49 @@ def check_login():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    client_ip = request.remote_addr
+    current_time = time.time()
+    
+    # 접속 IP별 시도 횟수 및 차단 시간 초기화
+    if client_ip not in login_attempts:
+        login_attempts[client_ip] = {'count': 0, 'lockout_until': 0}
+        
+    record = login_attempts[client_ip]
+    
     if request.method == 'POST':
+        # 현재 차단된 상태인지 확인
+        if current_time < record['lockout_until']:
+            remaining = int(record['lockout_until'] - current_time)
+            return render_template_string('''
+                <script>
+                    alert("로그인 5회 실패로 차단되었습니다.\\n{{ remaining }}초 후에 다시 시도해주세요.");
+                    window.location.href = "{{ url_for('login') }}";
+                </script>
+            ''', remaining=remaining)
+            
         password = request.form.get('password')
         if password == 'ghkswn96':
+            record['count'] = 0
+            record['lockout_until'] = 0
             session['logged_in'] = True
             return redirect(url_for('index'))
         else:
+            record['count'] += 1
+            if record['count'] >= 5:
+                record['lockout_until'] = current_time + 60
+                return render_template_string('''
+                    <script>
+                        alert("비밀번호 5회 연속 실패! 1분 동안 로그인이 차단됩니다.");
+                        window.location.href = "{{ url_for('login') }}";
+                    </script>
+                ''')
+                
             return render_template_string('''
                 <script>
-                    alert("비밀번호가 일치하지 않습니다.");
+                    alert("비밀번호가 일치하지 않습니다. (실패 횟수: {{ count }}/5)");
                     window.location.href = "{{ url_for('login') }}";
                 </script>
-            ''')
+            ''', count=record['count'])
     
     return render_template_string('''
         <!DOCTYPE html>
@@ -143,12 +178,27 @@ def login():
             <meta charset="UTF-8">
             <title>주식 매매 일지 - 로그인</title>
             <style>
-                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f4f6f9; margin: 0; }
-                .login-container { background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; width: 300px; }
-                h2 { margin-top: 0; color: #333; }
-                input[type="password"] { width: 100%; box-sizing: border-box; padding: 12px; margin: 20px 0; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; }
-                button { width: 100%; padding: 12px; background-color: #2980b9; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.3s; }
-                button:hover { background-color: #1a5276; }
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #121212; margin: 0; color: #ccc; }
+                .login-container { background: #1e1e1e; padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); text-align: center; width: 300px; }
+                h2 { margin-top: 0; color: #cccccc; }
+                input[type="password"] { 
+                    width: 100%; 
+                    box-sizing: border-box; 
+                    padding: 12px; 
+                    margin: 20px 0; 
+                    border: 1px solid #333; 
+                    border-radius: 6px; 
+                    font-size: 16px; 
+                    background-color: #121212; 
+                    color: #ccc;
+                }
+                input[type="password"]::placeholder {
+                    color: #777;
+                }
+                button { 
+                    width: 100%; padding: 12px; background-color: #3b688c; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.3s; 
+                }
+                button:hover { background-color: #2c516e; }
             </style>
         </head>
         <body>
@@ -162,6 +212,11 @@ def login():
         </body>
         </html>
     ''')
+
+@app.route('/logout')
+def logout():
+    session.pop('logged_in', None)
+    return redirect(url_for('login'))
 
 @app.route('/')
 def index():
