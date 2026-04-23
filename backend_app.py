@@ -315,5 +315,5 @@ def get_news():
 if __name__ == '__main__':
     init_db()
     print("🚀 로컬 주식 매매 일지 서버를 시작합니다.")
-    print("👉 웹 브라우저를 열고 http://127.0.0.1:5000 주소로 접속해주세요.")
-    app.run(debug=True, port=5000)
+    print("👉 웹 브라우저를 열고 http://127.0.0.1:5000 또는 기기의 로컬 IP 주소(예: 192.168.x.x:5000)로 접속해주세요.")
+    app.run(host='0.0.0.0', debug=True, port=5000)
