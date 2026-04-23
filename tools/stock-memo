@@ -5,7 +5,7 @@ cd /home/batmi/stock-memo
 tmux new-session -d -s stock-memo -n "Backend App" '/usr/bin/bash -c "cd /home/batmi/stock-memo && ./backend_app.py; echo \"Process exited. Press Enter to close...\"; read"'
 
 # 2. localhost.run 창 추가 (두 번째 윈도우)
-tmux new-window -t stock-memo -n "localhost.run" '/usr/bin/bash -c "cd /home/batmi/my-stock-hts && ssh -R 80:localhost:5000 nokey@localhost.run"'
+tmux new-window -t stock-memo -n "localhost.run" '/usr/bin/bash -c "cd /home/batmi/my-stock-hts && ssh -i ~/.ssh/id_rsa -R batmi.lhr.life:80:localhost:5000 localhost.run"'
 
 # 3. System Trading 윈도우로 이동 (첫 번째 선택)
 #tmux select-window -t stock-hts:0
