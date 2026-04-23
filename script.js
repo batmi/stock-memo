@@ -789,6 +789,26 @@ function updatePortfolioSummary() {
                     <span>종목 실현손익</span><span style="color:${profitColor}">${profitStr}</span>
                 </div>`;
         }
+        
+        // ⭐️ 종목 카드 클릭 시 해당 종목 히스토리 필터링 이벤트 연동
+        card.title = `${stock} 기록 모아보기`;
+        card.addEventListener('click', () => {
+            currentFilterDate = null; // 날짜 필터 초기화
+            currentFilterType = 'stock_' + stock; // 드롭다운 필터값 설정
+            
+            // 캘린더 뷰인 경우 리스트 뷰로 자동 전환
+            const btnListView = document.getElementById('btnListView');
+            if (btnListView && !btnListView.classList.contains('active')) {
+                btnListView.click();
+            }
+            
+            displayEntries(true); // 필터링 반영
+            
+            // 사용자 편의를 위해 필터/히스토리 영역으로 부드럽게 스크롤
+            const filterBox = document.getElementById('filterBoxContainer');
+            if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+
         portfolioGrid.appendChild(card);
     });
     

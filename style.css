@@ -336,7 +336,9 @@ button:hover {
 .profit-positive { color: var(--danger-color); font-weight: bold; }
 .profit-negative { color: var(--primary-color); font-weight: bold; }
 .portfolio-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
-.portfolio-card { background: var(--card-bg-color); padding: 12px; border-radius: 8px; border-left: 4px solid var(--success-color); box-shadow: var(--dashboard-card-shadow); }
+.portfolio-card { background: var(--card-bg-color); padding: 12px; border-radius: 8px; border-left: 4px solid var(--success-color); box-shadow: var(--dashboard-card-shadow); transition: transform 0.2s, box-shadow 0.2s; cursor: pointer; }
+.portfolio-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+[data-theme="dark"] .portfolio-card:hover { box-shadow: 0 4px 15px rgba(0,0,0,0.7); }
 .portfolio-card .stock-name { font-weight: bold; font-size: 1em; color: var(--text-strong-color); margin-bottom: 6px; }
 .portfolio-card .stat-row { display: flex; justify-content: space-between; font-size: 0.85em; margin-bottom: 6px; color: var(--text-muted-color); }
 .portfolio-card .stat-row:last-child { margin-bottom: 0; }
