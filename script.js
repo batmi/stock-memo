@@ -6,6 +6,7 @@ let currentFilterType = null;
 let isDashboardCollapsed = false;
 let showClosedPositions = false; // 청산 종목 보기 상태
 let showHistoryClosedPositions = true; // 히스토리 청산 종목 포함 상태
+let currentDashboardBroker = 'all'; // 대시보드 증권사 필터 상태
 let currentFilteredEntries = [];
 let currentRenderPage = 1;
 const entriesPerPage = 15;
@@ -58,6 +59,15 @@ window.addEventListener('DOMContentLoaded', () => {
             btnToggleClosed.innerText = showClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
             btnToggleClosed.style.backgroundColor = showClosedPositions ? 'var(--primary-color)' : 'transparent';
             btnToggleClosed.style.color = showClosedPositions ? '#fff' : 'var(--primary-color)';
+            updatePortfolioSummary();
+        });
+    }
+
+    // ⭐️ 대시보드 증권사 필터 이벤트 연결
+    const dashboardBrokerFilter = document.getElementById('dashboardBrokerFilter');
+    if (dashboardBrokerFilter) {
+        dashboardBrokerFilter.addEventListener('change', (e) => {
+            currentDashboardBroker = e.target.value;
             updatePortfolioSummary();
         });
     }
@@ -667,6 +677,10 @@ function updatePortfolioSummary() {
 
     chronologicalEntries.forEach(entry => {
         if (entry.type !== 'trade' || !entry.stockName) return;
+        
+        // ⭐️ 대시보드 증권사 필터 적용
+        if (currentDashboardBroker !== 'all' && (entry.brokerAccount || '') !== currentDashboardBroker) return;
+
         const stock = entry.stockName;
         const qty = Number(entry.quantity) || 0;
         const price = Number(entry.price) || 0;
@@ -778,6 +792,11 @@ function updatePortfolioSummary() {
 
     if (portfolioGrid) portfolioGrid.style.display = isDashboardCollapsed ? 'none' : '';
     
+    const brokerFilterEl = document.getElementById('dashboardBrokerFilter');
+    if (brokerFilterEl && brokerFilterEl.parentElement) {
+        brokerFilterEl.parentElement.style.display = isDashboardCollapsed ? 'none' : 'flex';
+    }
+    
     const theme = document.documentElement.getAttribute('data-theme') || 'light';
     const legendColor = theme === 'dark' ? '#e0e0e0' : '#2c3e50';
     const chartColors = theme === 'dark' 
@@ -855,6 +874,50 @@ function updateFilterDropdown() {
         });
         html += `</optgroup>`;
     }
+    
+    const accountSortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "기타": 7 };
+    const accounts = [...new Set(cloudEntries.map(e => e.accountName).filter(Boolean))].sort((a, b) => {
+        const orderA = accountSortOrder[a] || 99;
+        const orderB = accountSortOrder[b] || 99;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.localeCompare(b);
+    });
+    if (accounts.length > 0) {
+        html += `<optgroup label="분류별 모아보기">`;
+        accounts.forEach(account => {
+            html += `<option value="account_${account.replace(/"/g, '&quot;')}">${account}</option>`;
+        });
+        html += `</optgroup>`;
+    }
+    
+    const brokers = [...new Set(cloudEntries.map(e => e.brokerAccount).filter(Boolean))].sort();
+    if (brokers.length > 0) {
+        html += `<optgroup label="증권사별 모아보기">`;
+        brokers.forEach(broker => {
+            html += `<option value="broker_${broker.replace(/"/g, '&quot;')}">${broker}</option>`;
+        });
+        html += `</optgroup>`;
+    }
+    
+    // ⭐️ 대시보드의 증권사 필터 옵션도 동적으로 업데이트
+    const dashboardBrokerFilter = document.getElementById('dashboardBrokerFilter');
+    if (dashboardBrokerFilter) {
+        const currentBrokerVal = currentDashboardBroker || 'all';
+        let brokerHtml = `<option value="all">모든 증권사</option>`;
+        if (brokers.length > 0) {
+            brokers.forEach(broker => {
+                brokerHtml += `<option value="${broker.replace(/"/g, '&quot;')}">${broker}</option>`;
+            });
+        }
+        dashboardBrokerFilter.innerHTML = brokerHtml;
+        if (dashboardBrokerFilter.querySelector(`option[value="${currentBrokerVal}"]`)) {
+            dashboardBrokerFilter.value = currentBrokerVal;
+        } else {
+            dashboardBrokerFilter.value = 'all';
+            currentDashboardBroker = 'all';
+        }
+    }
+
     select.innerHTML = html;
     
     if (select.querySelector(`option[value="${currentVal}"]`)) {
@@ -904,6 +967,16 @@ function displayEntries(isFilterUpdate = false) {
         }
     });
 
+    // ⭐️ 분류별/증권사별 모아보기 시 연관된 일반 메모를 함께 보여주기 위해 종목명 추출
+    const relatedStocksForFilter = new Set();
+    if (currentFilterType && currentFilterType.startsWith('account_')) {
+        const targetAccount = currentFilterType.substring(8);
+        cloudEntries.forEach(e => { if ((e.type || 'trade') === 'trade' && e.accountName === targetAccount && e.stockName) relatedStocksForFilter.add(e.stockName); });
+    } else if (currentFilterType && currentFilterType.startsWith('broker_')) {
+        const targetBroker = currentFilterType.substring(7);
+        cloudEntries.forEach(e => { if ((e.type || 'trade') === 'trade' && e.brokerAccount === targetBroker && e.stockName) relatedStocksForFilter.add(e.stockName); });
+    }
+
     const filterValue = filterStockInput.value.trim().toLowerCase();
     const filteredEntries = cloudEntries.filter(entry => {
         if (filterValue) {
@@ -936,6 +1009,18 @@ function displayEntries(isFilterUpdate = false) {
             } else if (currentFilterType.startsWith('stock_')) {
                 const targetStock = currentFilterType.substring(6);
                 if ((entry.stockName || '') !== targetStock) return false;
+            } else if (currentFilterType.startsWith('account_')) {
+                const targetAccount = currentFilterType.substring(8);
+                const entryType = entry.type || 'trade';
+                const isMatchTrade = entryType === 'trade' && (entry.accountName || '') === targetAccount;
+                const isMatchMemo = entryType === 'memo' && relatedStocksForFilter.has(entry.stockName);
+                if (!isMatchTrade && !isMatchMemo) return false;
+            } else if (currentFilterType.startsWith('broker_')) {
+                const targetBroker = currentFilterType.substring(7);
+                const entryType = entry.type || 'trade';
+                const isMatchTrade = entryType === 'trade' && (entry.brokerAccount || '') === targetBroker;
+                const isMatchMemo = entryType === 'memo' && relatedStocksForFilter.has(entry.stockName);
+                if (!isMatchTrade && !isMatchMemo) return false;
             } else {
                 const entryType = entry.type || 'trade';
                 if (entryType !== currentFilterType) return false;
@@ -965,6 +1050,12 @@ function displayEntries(isFilterUpdate = false) {
         } else if (currentFilterType && currentFilterType.startsWith('stock_')) {
             const st = currentFilterType.substring(6);
             typeText = st ? st + ' 기록' : '종목 미지정 기록';
+        } else if (currentFilterType && currentFilterType.startsWith('account_')) {
+            const acc = currentFilterType.substring(8);
+            typeText = acc ? acc + ' 기록' : '분류 미지정 기록';
+        } else if (currentFilterType && currentFilterType.startsWith('broker_')) {
+            const brk = currentFilterType.substring(7);
+            typeText = brk ? brk + ' 기록' : '증권사 미지정 기록';
         }
         document.getElementById('activeFilterText').innerText = `📅 ${currentFilterDate} 일자의 ${typeText} 모아보기`;
     } else { banner.style.display = 'none'; }
