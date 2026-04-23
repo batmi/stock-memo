@@ -8,6 +8,7 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 import time
 from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 app.secret_key = 'stock_memo_secret_key' # 세션 유지를 위한 시크릿 키 설정
@@ -71,6 +72,15 @@ def init_db():
             tags TEXT
         )
     ''')
+
+    # 사용자 계정 관리를 위한 테이블 생성
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL
+        )
+    ''')
     
     # 기존 DB 호환성을 위해 새 컬럼을 안전하게 추가
     try:
@@ -86,6 +96,14 @@ def init_db():
     except sqlite3.OperationalError:
         pass
     conn.commit()
+    
+    # ⭐️ 기본 사용자(batmi) 계정이 없으면 암호화하여 DB에 생성
+    c.execute("SELECT COUNT(*) FROM users WHERE username = 'batmi'")
+    if c.fetchone()[0] == 0:
+        default_hash = generate_password_hash('ghkswn96')
+        c.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", ('batmi', default_hash))
+        conn.commit()
+        print("🔒 기본 관리자 계정(batmi)이 DB에 안전하게 암호화되어 생성되었습니다.")
     
     # 기존 JSON 파일이 있고 DB가 비어있다면 자동 마이그레이션 수행
     c.execute("SELECT COUNT(*) FROM entries")
@@ -147,8 +165,18 @@ def login():
                 </script>
             ''', remaining=remaining)
             
+        username = request.form.get('username')
         password = request.form.get('password')
-        if password == 'ghkswn96':
+        
+        # DB에서 입력한 아이디와 일치하는 암호화된 비밀번호 조회
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+        user_record = c.fetchone()
+        conn.close()
+        
+        # 계정이 존재하고, 입력한 비밀번호와 DB의 해시값이 일치하는지 검증
+        if user_record and check_password_hash(user_record['password_hash'], password):
             record['count'] = 0
             record['lockout_until'] = 0
             session['logged_in'] = True
@@ -166,7 +194,7 @@ def login():
                 
             return render_template_string('''
                 <script>
-                    alert("비밀번호가 일치하지 않습니다. (실패 횟수: {{ count }}/5)");
+                    alert("아이디 또는 비밀번호가 일치하지 않습니다. (실패 횟수: {{ count }}/5)");
                     window.location.href = "{{ url_for('login') }}";
                 </script>
             ''', count=record['count'])
@@ -181,17 +209,19 @@ def login():
                 body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #121212; margin: 0; color: #ccc; }
                 .login-container { background: #1e1e1e; padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); text-align: center; width: 300px; }
                 h2 { margin-top: 0; color: #cccccc; }
-                input[type="password"] { 
+                input[type="text"],
+                input[type="password"] {
                     width: 100%; 
                     box-sizing: border-box; 
                     padding: 12px; 
-                    margin: 20px 0; 
+                    margin: 10px 0; 
                     border: 1px solid #333; 
                     border-radius: 6px; 
                     font-size: 16px; 
                     background-color: #121212; 
                     color: #ccc;
                 }
+                input[type="text"]::placeholder,
                 input[type="password"]::placeholder {
                     color: #777;
                 }
@@ -205,6 +235,7 @@ def login():
             <div class="login-container">
                 <h2>🔒 주식 매매 일지</h2>
                 <form method="post">
+                    <input type="text" name="username" placeholder="아이디를 입력하세요" required autofocus>
                     <input type="password" name="password" placeholder="비밀번호를 입력하세요" required autofocus>
                     <button type="submit">접속하기</button>
                 </form>
