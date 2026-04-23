@@ -49,7 +49,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (filterTypeSelect) {
         filterTypeSelect.addEventListener('change', (e) => {
             currentFilterType = e.target.value === 'all' ? null : e.target.value;
-            displayEntries();
+            displayEntries(true);
         });
     }
 
@@ -451,13 +451,13 @@ if (btnRemoveImage) {
 
 filterStockInput.addEventListener('input', () => { 
     clearFilterBtn.style.display = filterStockInput.value ? 'block' : 'none';
-    displayEntries(); 
+    displayEntries(true); 
 });
 clearFilterBtn.addEventListener('click', () => {
     filterStockInput.value = '';
     clearFilterBtn.style.display = 'none';
     document.getElementById('filterStockList').style.display = 'none';
-    displayEntries();
+    displayEntries(true);
 });
 
 journalForm.addEventListener('submit', async function(e) {
@@ -617,15 +617,12 @@ function updatePortfolioSummary() {
     let hasHoldings = false;
     currentHoldings = [];
 
-    const filterValue = filterStockInput.value.trim().toLowerCase();
-
     for (const stock in portfolio) {
         if (portfolio[stock].qty > 0) {
             totalInvestedAmount += portfolio[stock].totalCost;
             holdingsCount++;
             currentHoldings.push(stock);
 
-            if (filterValue && !stock.toLowerCase().includes(filterValue)) continue;
             hasHoldings = true;
             chartLabels.push(stock);
             chartData.push(portfolio[stock].totalCost);
@@ -706,7 +703,7 @@ function updatePortfolioSummary() {
     document.getElementById('portfolioSection').style.display = (hasHoldings || totalRealizedProfit !== 0) ? 'block' : 'none';
 }
 
-function displayEntries() {
+function displayEntries(isFilterUpdate = false) {
     cloudEntries.sort((a, b) => {
         const timeA = a.rawDate ? new Date(a.rawDate).getTime() : a.id;
         const timeB = b.rawDate ? new Date(b.rawDate).getTime() : b.id;
@@ -719,8 +716,11 @@ function displayEntries() {
         filterTypeSelect.value = currentFilterType || 'all';
     }
 
-    updatePortfolioSummary();
-    renderCalendar();
+    if (!isFilterUpdate) {
+        updatePortfolioSummary();
+        renderCalendar();
+    }
+
     historyList.innerHTML = '';
     
     const filterValue = filterStockInput.value.trim().toLowerCase();
@@ -729,7 +729,9 @@ function displayEntries() {
             const matchStock = entry.stockName && entry.stockName.toLowerCase().includes(filterValue);
             const matchBroker = entry.brokerAccount && entry.brokerAccount.toLowerCase().includes(filterValue);
             const matchTags = entry.tags && entry.tags.toLowerCase().includes(filterValue);
-            if (!(matchStock || matchBroker || matchTags)) return false;
+            const matchThoughts = entry.thoughts && entry.thoughts.toLowerCase().includes(filterValue);
+            const matchTitle = entry.title && entry.title.toLowerCase().includes(filterValue);
+            if (!(matchStock || matchBroker || matchTags || matchThoughts || matchTitle)) return false;
         }
         
         if (currentFilterDate) {
@@ -972,13 +974,13 @@ window.showDetailsForDate = function(date, type, event) {
     currentFilterType = type;
     
     document.getElementById('btnListView').click();
-    displayEntries();
+    displayEntries(true);
 };
 
 window.clearDateFilter = function() {
     currentFilterDate = null;
     currentFilterType = null;
-    displayEntries();
+    displayEntries(true);
 };
 
 document.getElementById('btnListView').addEventListener('click', function() {
