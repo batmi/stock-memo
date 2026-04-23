@@ -345,8 +345,8 @@ button:hover {
 .view-toggle button { flex: 1; padding: 8px; border-radius: 4px; font-weight: bold; background-color: var(--card-bg-color); color: var(--text-muted-color); cursor: pointer; border: 1px solid var(--border-color); font-size: 13px; }
 .view-toggle button.active { background-color: var(--primary-color); color: white; border-color: var(--primary-color); }
 .portfolio-content-layout { display: flex; gap: 30px; align-items: flex-start; }
-.portfolio-details { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
-.chart-container { width: 100%; max-width: 250px; flex-shrink: 0; margin: 0; align-self: center; }
+.portfolio-details { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.chart-container { width: 100%; max-width: 280px; flex-shrink: 0; margin: 0; align-self: center; }
 .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; min-height: 300px; }
 .calendar-header { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; text-align: center; font-weight: bold; margin-bottom: 5px; font-size: 13px; }
 .calendar-day { border: 1px solid var(--border-light-color); padding: 5px; border-radius: 4px; background: var(--card-bg-color); text-align: right; display: flex; flex-direction: column; justify-content: space-between; min-height: 60px; cursor: pointer; transition: all 0.2s; }
@@ -358,15 +358,6 @@ button:hover {
 .cal-badge.trade { background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
 [data-theme="dark"] .cal-badge.memo { background-color: #16324a; color: #7fa6c7; border-color: #234866; }
 [data-theme="dark"] .cal-badge.trade { background-color: #422d16; color: #b89d67; border-color: #594022; }
-.dashboard-container { display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 0; }
-.dashboard-card { flex: 1; min-width: 140px; background: var(--card-bg-color); padding: 15px; border-radius: 8px; text-align: center; box-shadow: var(--dashboard-card-shadow); border-top: 4px solid var(--primary-color); }
-.dashboard-card.profit { border-top-color: var(--success-color); }
-.dashboard-card.holdings { border-top-color: var(--warning-color); flex: 0.7; min-width: 90px; }
-.dashboard-card.stats { border-top-color: var(--info-color); flex: 1.3; min-width: 160px; }
-.dashboard-title { font-size: 0.9em; color: var(--text-muted-color); margin-bottom: 8px; font-weight: bold; }
-.dashboard-value { font-size: 1.15em; font-weight: bold; color: var(--text-strong-color); }
-/* 다크모드 대시보드 폰트 그레이 처리 */
-[data-theme="dark"] .dashboard-value,
 [data-theme="dark"] .portfolio-card .stock-name,
 [data-theme="dark"] .portfolio-card .stat-row span:last-child {
     color: var(--text-color);
@@ -389,11 +380,8 @@ button:hover {
     .portfolio-content-layout { flex-direction: column; align-items: center; }
     .portfolio-details { width: 100%; }
     
-    /* ⭐️ [4안] 대시보드 요소 모바일 세로 정렬 최적화 */
-    #dashboardContainer { flex-direction: column; align-items: center; gap: 15px; }
-    .dashboard-card { width: 100%; box-sizing: border-box; }
     #portfolioGrid { grid-template-columns: 1fr !important; }
-    #portfolioChartContainer { width: 100% !important; max-width: 300px; margin: 0 auto; }
+    #portfolioChartContainer { width: 100% !important; max-width: 280px; margin: 0 auto 20px auto; }
     
     #filterBoxContainer > div { flex-direction: column; }
     #filterTypeSelect { width: 100% !important; margin-bottom: 5px; }

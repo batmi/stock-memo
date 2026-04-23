@@ -656,8 +656,13 @@ function updatePortfolioSummary() {
     let totalRealizedProfit = 0;
     let totalInvestedAmount = 0;
     let holdingsCount = 0;
-    let totalBuyCount = 0;
-    let totalSellCount = 0;
+    let monthlyBuyCount = 0;
+    let monthlySellCount = 0;
+    
+    const nowDt = new Date();
+    const curYear = nowDt.getFullYear();
+    const curMonth = nowDt.getMonth();
+    
     const chronologicalEntries = [...cloudEntries].reverse();
 
     chronologicalEntries.forEach(entry => {
@@ -669,14 +674,24 @@ function updatePortfolioSummary() {
         if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, accountName: '', traded: false };
         if (entry.accountName) portfolio[stock].accountName = entry.accountName; // 가장 최근 거래의 투자 분류 기록
 
+        // 이번 달 거래인지 확인
+        let isCurrentMonth = false;
+        let entryDate = null;
+        if (entry.rawDate) entryDate = new Date(entry.rawDate);
+        else if (entry.id) entryDate = new Date(entry.id);
+        
+        if (entryDate && !isNaN(entryDate) && entryDate.getFullYear() === curYear && entryDate.getMonth() === curMonth) {
+            isCurrentMonth = true;
+        }
+
         if (entry.tradeType === '매수') {
-            totalBuyCount++;
+            if (isCurrentMonth) monthlyBuyCount++;
             portfolio[stock].traded = true;
             portfolio[stock].qty += qty;
             portfolio[stock].totalCost += (price * qty);
             if (portfolio[stock].qty > 0) portfolio[stock].avgPrice = portfolio[stock].totalCost / portfolio[stock].qty;
         } else if (entry.tradeType === '매도') {
-            totalSellCount++;
+            if (isCurrentMonth) monthlySellCount++;
             portfolio[stock].traded = true;
             const currentAvgPrice = portfolio[stock].avgPrice;
             const profit = (price - currentAvgPrice) * qty;
@@ -744,33 +759,24 @@ function updatePortfolioSummary() {
         
         if (data.realizedProfit !== 0) {
             const profitColor = data.realizedProfit > 0 ? 'var(--danger-color)' : 'var(--primary-color)';
+            const profitStr = (data.realizedProfit > 0 ? '+' : '') + Math.round(data.realizedProfit).toLocaleString();
             card.innerHTML += `
                 <div class="stat-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
-                    <span>종목 실현손익</span><span style="color:${profitColor}">${Math.round(data.realizedProfit).toLocaleString()}</span>
+                    <span>종목 실현손익</span><span style="color:${profitColor}">${profitStr}</span>
                 </div>`;
         }
         portfolioGrid.appendChild(card);
     });
     
-    const dashContainer = document.getElementById('dashboardContainer');
-    
     let toggleBtn = document.getElementById('btnTogglePortfolio');
+    const shouldShowDashboard = (hasHoldings || totalRealizedProfit !== 0 || portfolioArray.length > 0);
 
     if (toggleBtn) {
         toggleBtn.innerHTML = isDashboardCollapsed ? '펼치기 ▼' : '접기 ▲';
-        toggleBtn.style.display = (hasHoldings || totalRealizedProfit !== 0) ? 'inline-block' : 'none';
+        toggleBtn.style.display = shouldShowDashboard ? 'inline-block' : 'none';
     }
 
-    dashContainer.style.display = (isDashboardCollapsed || (holdingsCount === 0 && totalRealizedProfit === 0 && portfolioArray.length === 0)) ? 'none' : 'flex';
     if (portfolioGrid) portfolioGrid.style.display = isDashboardCollapsed ? 'none' : '';
-    
-    const dashProfit = document.getElementById('dashTotalProfit');
-    dashProfit.innerText = Math.round(totalRealizedProfit).toLocaleString() + '원';
-    dashProfit.style.color = totalRealizedProfit > 0 ? 'var(--danger-color)' : (totalRealizedProfit < 0 ? 'var(--primary-color)' : '');
-    
-    document.getElementById('dashTotalInvested').innerText = Math.round(totalInvestedAmount).toLocaleString() + '원';
-    document.getElementById('dashHoldingsCount').innerText = holdingsCount + '개';
-    document.getElementById('dashTradeStats').innerHTML = `<span style="color:var(--danger-color)">매수 ${totalBuyCount}</span> / <span style="color:var(--primary-color)">매도 ${totalSellCount}</span>`;
     
     const theme = document.documentElement.getAttribute('data-theme') || 'light';
     const legendColor = theme === 'dark' ? '#e0e0e0' : '#2c3e50';
@@ -779,20 +785,43 @@ function updatePortfolioSummary() {
         : ['#3498db', '#e74c3c', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#34495e']; // 라이트모드용 기본 색상
 
     const chartContainer = document.getElementById('portfolioChartContainer');
-    if (hasHoldings && !isDashboardCollapsed) {
+    if (shouldShowDashboard && !isDashboardCollapsed) {
         chartContainer.style.display = 'block';
+        
+        // 차트 중앙 텍스트 업데이트
+        const investedStr = Math.round(totalInvestedAmount).toLocaleString() + '원';
+        const elInvested = document.getElementById('centerTotalInvested');
+        elInvested.innerText = investedStr;
+        elInvested.style.fontSize = investedStr.length > 13 ? '13px' : (investedStr.length > 10 ? '15px' : '17px');
+
+        const centerProfit = document.getElementById('centerTotalProfit');
+        const profitStr = (totalRealizedProfit > 0 ? '+' : '') + Math.round(totalRealizedProfit).toLocaleString() + '원';
+        centerProfit.innerText = profitStr;
+        centerProfit.style.fontSize = profitStr.length > 13 ? '12px' : (profitStr.length > 10 ? '13px' : '15px');
+        centerProfit.style.color = totalRealizedProfit > 0 ? 'var(--danger-color)' : (totalRealizedProfit < 0 ? 'var(--primary-color)' : 'var(--text-strong-color)');
+        document.getElementById('centerHoldingsCount').innerText = holdingsCount + '종목 보유';
+        document.getElementById('centerTradeStats').innerText = `월간 매수 ${monthlyBuyCount} / 매도 ${monthlySellCount}`;
+
+        // 보유 종목이 없을 때(전량 매도) 보여줄 '빈 고리' 더미 데이터 처리
+        const isPortfolioEmpty = totalInvestedAmount === 0;
+        const finalLabels = isPortfolioEmpty ? ['보유 종목 없음'] : chartLabels;
+        const finalData = isPortfolioEmpty ? [1] : chartData;
+        const finalColors = isPortfolioEmpty ? [theme === 'dark' ? '#2c2c2c' : '#f0f0f0'] : chartColors;
+
         const ctx = document.getElementById('portfolioChart').getContext('2d');
         if (portfolioChartInstance) portfolioChartInstance.destroy();
         portfolioChartInstance = new Chart(ctx, {
             type: 'doughnut',
-            data: { labels: chartLabels, datasets: [{ data: chartData, backgroundColor: chartColors, borderColor: theme === 'dark' ? '#1e1e1e' : '#fff' }] },
+            data: { labels: finalLabels, datasets: [{ data: finalData, backgroundColor: finalColors, borderColor: theme === 'dark' ? '#1e1e1e' : '#fff' }] },
             options: { 
-                responsive: true, 
+                responsive: true,
+                cutout: '72%', // 중앙 구멍 크기 확장
                 plugins: { 
                     legend: { position: 'bottom', labels: { boxWidth: 12, color: legendColor } },
                     tooltip: {
                         callbacks: {
                             label: function(context) {
+                                if (isPortfolioEmpty) return '현재 보유 중인 종목이 없습니다.';
                                 let value = context.parsed;
                                 let total = context.dataset.data.reduce((a, b) => a + b, 0);
                                 let percentage = total > 0 ? ((value / total) * 100).toFixed(1) + '%' : '0%';
@@ -805,7 +834,7 @@ function updatePortfolioSummary() {
         });
     } else { chartContainer.style.display = 'none'; }
 
-    document.getElementById('portfolioSection').style.display = (hasHoldings || totalRealizedProfit !== 0 || portfolioArray.length > 0) ? 'block' : 'none';
+    document.getElementById('portfolioSection').style.display = shouldShowDashboard ? 'block' : 'none';
 }
 
 // ⭐️ 드롭다운 필터에 종목명을 동적으로 추가하는 함수

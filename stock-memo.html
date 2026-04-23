@@ -144,27 +144,24 @@
             </div>
             <div class="portfolio-content-layout">
                 <div id="portfolioChartContainer" class="chart-container" style="display: none;">
-                    <canvas id="portfolioChart"></canvas>
-                </div>
-                <div class="portfolio-details">
-                    <div id="dashboardContainer" class="dashboard-container" style="display: none;">
-                        <div class="dashboard-card profit">
-                            <div class="dashboard-title">누적 실현 손익</div>
-                            <div id="dashTotalProfit" class="dashboard-value">0원</div>
-                        </div>
-                        <div class="dashboard-card">
-                            <div class="dashboard-title">현재 총 투자 금액</div>
-                            <div id="dashTotalInvested" class="dashboard-value">0원</div>
-                        </div>
-                        <div class="dashboard-card holdings">
-                            <div class="dashboard-title">보유 종목 수</div>
-                            <div id="dashHoldingsCount" class="dashboard-value">0개</div>
-                        </div>
-                        <div class="dashboard-card stats">
-                            <div class="dashboard-title">누적 매매 건수</div>
-                            <div id="dashTradeStats" class="dashboard-value" style="font-size: 1.05em;">매수 0 / 매도 0</div>
+                    <div style="position: relative;">
+                        <!-- ⭐️ 캔버스의 z-index를 높여 툴팁이 가장 위에 표시되도록 수정 -->
+                        <canvas id="portfolioChart" style="position: relative; z-index: 10;"></canvas>
+                        <div id="chartCenterText" style="position: absolute; top: 42%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; text-align: center; width: 68%; display: flex; flex-direction: column; gap: 2px; z-index: 1;">
+                            <div style="font-size: 11px; color: var(--text-muted-color);">현재 총 투자 금액</div>
+                            <div id="centerTotalInvested" style="font-size: 17px; font-weight: 800; color: var(--text-strong-color); letter-spacing: -0.5px; white-space: nowrap; transition: font-size 0.2s ease;">0원</div>
+                            <div style="font-size: 11px; color: var(--text-muted-color); margin-top: 5px;">누적 실현 손익</div>
+                            <div id="centerTotalProfit" style="font-size: 15px; font-weight: 800; letter-spacing: -0.5px; white-space: nowrap; transition: font-size 0.2s ease;">0원</div>
                         </div>
                     </div>
+                    <!-- ⭐️ 너무 많은 정보가 차트를 가리지 않도록 차트 하단으로 분리 -->
+                    <div style="text-align: center; margin-top: 10px;">
+                        <div style="font-size: 11px; color: var(--text-muted-color); background: var(--bg-color); border-radius: 12px; padding: 4px 10px; display: inline-flex; justify-content: center; gap: 8px; border: 1px solid var(--border-light-color);">
+                            <span id="centerHoldingsCount">0종목</span><span style="color: var(--border-color);">|</span><span id="centerTradeStats">매수 0 / 매도 0</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="portfolio-details">
                     <div class="portfolio-grid" id="portfolioGrid"></div>
                 </div>
             </div>
