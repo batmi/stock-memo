@@ -5,7 +5,7 @@ let currentFilterDate = null;
 let currentFilterType = null;
 let isDashboardCollapsed = false;
 let showClosedPositions = false; // 청산 종목 보기 상태
-let showHistoryClosedPositions = true; // 히스토리 청산 종목 포함 상태
+let showHistoryClosedPositions = false; // 히스토리 청산 종목 포함 상태
 let currentDashboardBroker = 'all'; // 대시보드 증권사 필터 상태
 let currentDashboardAccount = 'all'; // 대시보드 투자 분류 필터 상태
 let currentFilteredEntries = [];
@@ -55,6 +55,11 @@ window.addEventListener('DOMContentLoaded', () => {
     // 청산 종목 보기 토글 버튼 이벤트 연결
     const btnToggleClosed = document.getElementById('btnToggleClosed');
     if (btnToggleClosed) {
+        // 초기 버튼 상태 동기화
+        btnToggleClosed.innerText = showClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
+        btnToggleClosed.style.backgroundColor = showClosedPositions ? 'var(--primary-color)' : 'transparent';
+        btnToggleClosed.style.color = showClosedPositions ? '#fff' : 'var(--primary-color)';
+
         btnToggleClosed.addEventListener('click', () => {
             showClosedPositions = !showClosedPositions;
             btnToggleClosed.innerText = showClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
@@ -85,6 +90,11 @@ window.addEventListener('DOMContentLoaded', () => {
     // 히스토리 청산 종목 숨기기/보기 토글 버튼 이벤트 연결
     const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
     if (btnToggleHistoryClosed) {
+        // 초기 버튼 상태 동기화
+        btnToggleHistoryClosed.innerText = showHistoryClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
+        btnToggleHistoryClosed.style.backgroundColor = showHistoryClosedPositions ? 'transparent' : 'var(--primary-color)';
+        btnToggleHistoryClosed.style.color = showHistoryClosedPositions ? 'var(--primary-color)' : '#fff';
+
         btnToggleHistoryClosed.addEventListener('click', () => {
             showHistoryClosedPositions = !showHistoryClosedPositions;
             btnToggleHistoryClosed.innerText = showHistoryClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
