@@ -92,15 +92,19 @@ window.addEventListener('DOMContentLoaded', () => {
     if (btnToggleHistoryClosed) {
         // 초기 버튼 상태 동기화
         btnToggleHistoryClosed.innerText = showHistoryClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
-        btnToggleHistoryClosed.style.backgroundColor = showHistoryClosedPositions ? 'transparent' : 'var(--primary-color)';
-        btnToggleHistoryClosed.style.color = showHistoryClosedPositions ? 'var(--primary-color)' : '#fff';
+        btnToggleHistoryClosed.style.backgroundColor = showHistoryClosedPositions ? 'var(--primary-color)' : 'transparent';
+        btnToggleHistoryClosed.style.color = showHistoryClosedPositions ? '#fff' : 'var(--primary-color)';
 
         btnToggleHistoryClosed.addEventListener('click', () => {
             showHistoryClosedPositions = !showHistoryClosedPositions;
             btnToggleHistoryClosed.innerText = showHistoryClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
-            btnToggleHistoryClosed.style.backgroundColor = showHistoryClosedPositions ? 'transparent' : 'var(--primary-color)';
-            btnToggleHistoryClosed.style.color = showHistoryClosedPositions ? 'var(--primary-color)' : '#fff';
+            btnToggleHistoryClosed.style.backgroundColor = showHistoryClosedPositions ? 'var(--primary-color)' : 'transparent';
+            btnToggleHistoryClosed.style.color = showHistoryClosedPositions ? '#fff' : 'var(--primary-color)';
             displayEntries(true);
+
+            // 필터 변경 시 히스토리 상단으로 부드럽게 스크롤
+            const filterBox = document.getElementById('filterBoxContainer');
+            if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
     }
 
@@ -110,6 +114,10 @@ window.addEventListener('DOMContentLoaded', () => {
         filterTypeSelect.addEventListener('change', (e) => {
             currentFilterType = e.target.value === 'all' ? null : e.target.value;
             displayEntries(true);
+
+            // 필터 변경 시 히스토리 상단으로 부드럽게 스크롤
+            const filterBox = document.getElementById('filterBoxContainer');
+            if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
     }
 
@@ -565,6 +573,10 @@ clearFilterBtn.addEventListener('click', () => {
     clearFilterBtn.style.display = 'none';
     document.getElementById('filterStockList').style.display = 'none';
     displayEntries(true);
+
+    // 필터 초기화 시 히스토리 상단으로 부드럽게 스크롤
+    const filterBox = document.getElementById('filterBoxContainer');
+    if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
 journalForm.addEventListener('submit', async function(e) {
@@ -1524,12 +1536,18 @@ window.showDetailsForDate = function(date, type, event) {
     
     document.getElementById('btnListView').click();
     displayEntries(true);
+
+    const filterBox = document.getElementById('filterBoxContainer');
+    if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
 window.clearDateFilter = function() {
     currentFilterDate = null;
     currentFilterType = null;
     displayEntries(true);
+
+    const filterBox = document.getElementById('filterBoxContainer');
+    if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
 document.getElementById('btnListView').addEventListener('click', function() {
