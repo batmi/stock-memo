@@ -30,10 +30,10 @@
         <!-- ⭐️ 데이터 관리 및 로그아웃 버튼 -->
         <div style="margin-left: auto; display: flex; gap: 6px; align-items: center; margin-right: max(0px, calc((100% - 955px) / 2));">
             <input type="file" id="restoreFileInput" accept=".zip" style="display:none;">
-            <button type="button" id="btnFullBackup" class="btn-edit" style="margin: 0; padding: 0; width: 22px; height: 22px; font-size: 11px; font-weight: bold; background-color: var(--success-color); color: white; border: none; display: flex; justify-content: center; align-items: center; border-radius: 4px;" title="모든 데이터 완벽 백업 (ZIP)">B</button>
-            <button type="button" id="btnFullRestore" class="btn-edit" style="margin: 0; padding: 0; width: 22px; height: 22px; font-size: 11px; font-weight: bold; background-color: var(--warning-color); color: white; border: none; display: flex; justify-content: center; align-items: center; border-radius: 4px;" title="백업 파일로 복원 (ZIP)">R</button>
-            <button type="button" id="btnExportExcel" class="btn-edit" style="margin: 0; padding: 0; width: 22px; height: 22px; font-size: 11px; font-weight: bold; background-color: var(--primary-color); color: white; border: none; display: flex; justify-content: center; align-items: center; border-radius: 4px;" title="Excel 파일로 내보내기">E</button>
-            <button type="button" id="btnLogout" class="btn-logout" style="margin: 0; padding: 0 6px; height: 22px; font-size: 10.5px; font-weight: bold; display: flex; justify-content: center; align-items: center; border-radius: 4px;" title="안전하게 로그아웃">Logout</button>
+            <button type="button" id="btnFullBackup" class="header-action-btn btn-backup" title="모든 데이터 완벽 백업 (ZIP)">B</button>
+            <button type="button" id="btnFullRestore" class="header-action-btn btn-restore" title="백업 파일로 복원 (ZIP)">R</button>
+            <button type="button" id="btnExportExcel" class="header-action-btn btn-export" title="Excel 파일로 내보내기">E</button>
+            <button type="button" id="btnLogout" class="header-action-btn btn-logout" title="안전하게 로그아웃">Logout</button>
         </div>
     </header>
 

@@ -190,19 +190,42 @@ button:hover {
 .auth-info { display: flex; align-items: center; }
 .auth-info .status { font-size: 0.9em; color: var(--text-muted-color); margin: 0; font-weight: bold; }
 .auth-info .storage-desc { display: none; }
-.btn-logout {
-    background-color: var(--danger-color);
+
+/* ⭐️ 상단 헤더 B/R/E/Logout 공통 버튼 스타일 및 호버 반전 효과 */
+.header-action-btn {
+    margin: 0;
+    padding: 0;
+    height: 22px;
+    font-weight: bold;
     color: white;
     border: none;
-    padding: 4px 6px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
     border-radius: 4px;
     cursor: pointer;
-    font-size: 11px;
-    font-weight: normal;
-    width: auto;
-    margin-top: 0;
+    transition: background-color 0.2s;
 }
-.btn-logout:hover { background-color: #c0392b; } /* Keep specific hover for danger */
+.btn-backup, .btn-restore, .btn-export { width: 22px; font-size: 11px; }
+.btn-logout { padding: 0 6px; font-size: 10.5px; width: auto; }
+
+.btn-backup { background-color: var(--success-color); }
+.btn-restore { background-color: var(--warning-color); }
+.btn-export { background-color: var(--primary-color); }
+.btn-logout { background-color: var(--danger-color); }
+
+/* 라이트모드 호버 시: 다크모드 색상 사용 */
+.btn-backup:hover { background-color: #3a7a4f; }
+.btn-restore:hover { background-color: #a87b35; }
+.btn-export:hover { background-color: #3b688c; }
+.btn-logout:hover { background-color: #a34e4e; }
+
+/* 다크모드 호버 시: 라이트모드 색상 사용 */
+[data-theme="dark"] .btn-backup:hover { background-color: #27ae60; }
+[data-theme="dark"] .btn-restore:hover { background-color: #f39c12; }
+[data-theme="dark"] .btn-export:hover { background-color: #3498db; }
+[data-theme="dark"] .btn-logout:hover { background-color: #e74c3c; }
+
 .type-selector {
     display: flex;
     gap: 20px;
