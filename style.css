@@ -152,8 +152,9 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    background-color: var(--primary-color);
-    color: white;
+    gap: 8px;
+    background-color: var(--bg-color);
+    color: var(--text-strong-color);
     font-weight: bold;
     font-size: 13px;
     z-index: 9999;
@@ -161,6 +162,20 @@ body {
     box-shadow: 0 2px 10px rgba(0,0,0,0.2);
     border-bottom-left-radius: 12px;
     border-bottom-right-radius: 12px;
+}
+@keyframes ptrSpin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+.ptr-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border-color);
+    border-top: 2px solid var(--text-strong-color);
+    border-radius: 50%;
+}
+.ptr-spinner.spinning {
+    animation: ptrSpin 0.8s linear infinite;
 }
 
 /* ⭐️ 모달 오버레이 스타일 추가 */

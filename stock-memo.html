@@ -28,7 +28,10 @@
 <body>
 
     <!-- ⭐️ 당겨서 새로고침(Pull-to-Refresh) 인디케이터 -->
-    <div id="ptrIndicator">⬇️ 아래로 당겨서 새로고침</div>
+    <div id="ptrIndicator">
+        <div class="ptr-spinner" id="ptrSpinner"></div>
+        <span id="ptrText">아래로 당겨서 새로고침</span>
+    </div>
 
     <header class="app-header">
         <div class="logo">
