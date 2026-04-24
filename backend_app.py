@@ -218,21 +218,34 @@ def login():
                     width: 100%; 
                     box-sizing: border-box; 
                     padding: 12px; 
-                    margin: 10px 0; 
+                    margin: 10px 0 20px 0; 
                     border: 1px solid #333; 
                     border-radius: 6px; 
-                    font-size: 16px; 
+                    font-size: 15px; 
                     background-color: #121212; 
                     color: #ccc;
+                    transition: border-color 0.2s, box-shadow 0.2s;
                 }
                 input[type="text"]::placeholder,
                 input[type="password"]::placeholder {
                     color: #777;
                 }
-                button { 
-                    width: 100%; padding: 12px; background-color: #3b688c; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.3s; 
+                input[type="text"]:focus,
+                input[type="password"]:focus {
+                    border-color: #3b688c;
+                    outline: none;
+                    box-shadow: 0 0 0 2px rgba(59, 104, 140, 0.5);
                 }
-                button:hover { background-color: #2c516e; }
+                button { 
+                    width: 100%; padding: 14px; background-color: #3b688c; color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; 
+                    transition: transform 0.2s, background-color 0.2s, box-shadow 0.2s; 
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+                }
+                button:hover { 
+                    background-color: #3498db; 
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.7);
+                }
             </style>
         </head>
         <body>
