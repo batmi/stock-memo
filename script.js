@@ -853,8 +853,15 @@ function updatePortfolioSummary() {
         portfolioGrid.appendChild(card);
     });
     
+    // ⭐️ 필터 결과가 없을 때 빈 화면 대신 안내 메시지 표시
+    if (portfolioArray.length === 0) {
+        portfolioGrid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--text-muted-color); font-size: 13px;">해당 조건에 맞는 종목이 없습니다.</div>';
+    }
+
     let toggleBtn = document.getElementById('btnTogglePortfolio');
-    const shouldShowDashboard = (hasHoldings || totalRealizedProfit !== 0 || portfolioArray.length > 0);
+    // ⭐️ 필터가 적용되어 결과가 없더라도, 전체 매매 기록이 존재하면 대시보드를 숨기지 않음
+    const hasAnyTrade = cloudEntries.some(e => e.type === 'trade' && e.stockName);
+    const shouldShowDashboard = hasAnyTrade;
 
     if (toggleBtn) {
         toggleBtn.innerHTML = isDashboardCollapsed ? '펼치기 ▼' : '접기 ▲';
