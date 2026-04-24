@@ -7,6 +7,7 @@ let isDashboardCollapsed = false;
 let showClosedPositions = false; // 청산 종목 보기 상태
 let showHistoryClosedPositions = true; // 히스토리 청산 종목 포함 상태
 let currentDashboardBroker = 'all'; // 대시보드 증권사 필터 상태
+let currentDashboardAccount = 'all'; // 대시보드 투자 분류 필터 상태
 let currentFilteredEntries = [];
 let currentRenderPage = 1;
 const entriesPerPage = 15;
@@ -68,6 +69,15 @@ window.addEventListener('DOMContentLoaded', () => {
     if (dashboardBrokerFilter) {
         dashboardBrokerFilter.addEventListener('change', (e) => {
             currentDashboardBroker = e.target.value;
+            updatePortfolioSummary();
+        });
+    }
+
+    // ⭐️ 대시보드 투자 분류 필터 이벤트 연결
+    const dashboardAccountFilter = document.getElementById('dashboardAccountFilter');
+    if (dashboardAccountFilter) {
+        dashboardAccountFilter.addEventListener('change', (e) => {
+            currentDashboardAccount = e.target.value;
             updatePortfolioSummary();
         });
     }
@@ -690,6 +700,9 @@ function updatePortfolioSummary() {
         
         // ⭐️ 대시보드 증권사 필터 적용
         if (currentDashboardBroker !== 'all' && (entry.brokerAccount || '') !== currentDashboardBroker) return;
+        
+        // ⭐️ 대시보드 투자 분류 필터 적용
+        if (currentDashboardAccount !== 'all' && (entry.accountName || '') !== currentDashboardAccount) return;
 
         const stock = entry.stockName;
         const qty = Number(entry.quantity) || 0;
@@ -1018,6 +1031,25 @@ function updateFilterDropdown() {
         } else {
             dashboardBrokerFilter.value = 'all';
             currentDashboardBroker = 'all';
+        }
+    }
+
+    // ⭐️ 대시보드의 투자 분류 필터 옵션도 동적으로 업데이트
+    const dashboardAccountFilter = document.getElementById('dashboardAccountFilter');
+    if (dashboardAccountFilter) {
+        const currentAccountVal = currentDashboardAccount || 'all';
+        let accountHtml = `<option value="all">모든 분류</option>`;
+        if (accounts.length > 0) {
+            accounts.forEach(account => {
+                accountHtml += `<option value="${account.replace(/"/g, '&quot;')}">${account}</option>`;
+            });
+        }
+        dashboardAccountFilter.innerHTML = accountHtml;
+        if (dashboardAccountFilter.querySelector(`option[value="${currentAccountVal}"]`)) {
+            dashboardAccountFilter.value = currentAccountVal;
+        } else {
+            dashboardAccountFilter.value = 'all';
+            currentDashboardAccount = 'all';
         }
     }
 
