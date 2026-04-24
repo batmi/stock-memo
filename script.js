@@ -15,9 +15,10 @@ let lastRenderedMonth = '';
 
 // ⭐️ 공통 스크롤 함수: 스크롤 튐 현상을 막기 위해 window.scrollTo 절대 좌표 사용
 window.scrollToFilterBox = function() {
-    const filterBox = document.getElementById('filterBoxContainer');
-    if (!filterBox) return;
-    const y = filterBox.getBoundingClientRect().top + window.scrollY - 20; // 상단 여백 20px
+    // "TRADE HISTORY" 타이틀이 포함된 history-header 영역을 찾아 최상단으로 스크롤
+    const historyHeader = document.querySelector('.history-header');
+    if (!historyHeader) return;
+    const y = historyHeader.getBoundingClientRect().top + window.scrollY - 20; // 상단 여백 20px
     window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
 };
 
@@ -339,7 +340,8 @@ function setupAutocomplete(inputId, listId, getOptions) {
                 input.value = opt;
                 lastVal = opt;
                 list.style.display = 'none';
-                input.dispatchEvent(new Event('input')); 
+                input.dispatchEvent(new Event('input'));
+                input.dispatchEvent(new CustomEvent('itemSelected')); // 자동완성 클릭 시 명시적 이벤트를 발생시켜 필터 트리거
             });
             list.appendChild(item);
         });
@@ -572,9 +574,17 @@ const loadMoreObserver = new IntersectionObserver((entries) => {
 
 filterStockInput.addEventListener('input', () => { 
     clearFilterBtn.style.display = filterStockInput.value ? 'block' : 'none';
-    displayEntries(true); 
-    
-    // 검색어 타이핑 시에도 문서 높이 변화로 인해 화면이 내려가지 않고 필터 영역이 상단에 유지되도록 처리
+    // 검색어 타이핑 중에는 화면 요동을 방지하기 위해 실시간 필터링을 수행하지 않음
+});
+filterStockInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) {
+        displayEntries(true);
+        window.scrollToFilterBox();
+        document.getElementById('filterStockList').style.display = 'none';
+    }
+});
+filterStockInput.addEventListener('itemSelected', () => {
+    displayEntries(true);
     window.scrollToFilterBox();
 });
 clearFilterBtn.addEventListener('click', () => {
