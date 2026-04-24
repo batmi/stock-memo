@@ -747,6 +747,10 @@ function updatePortfolioSummary() {
 
     const sortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "기타": 7 };
     portfolioArray.sort((a, b) => {
+        // ⭐️ 청산 종목을 가장 하단으로 정렬
+        if (a.isClosed !== b.isClosed) {
+            return a.isClosed ? 1 : -1;
+        }
         const orderA = sortOrder[a.accountName] || 99;
         const orderB = sortOrder[b.accountName] || 99;
         if (orderA !== orderB) return orderA - orderB;
