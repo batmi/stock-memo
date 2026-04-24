@@ -943,22 +943,7 @@ function updatePortfolioSummary() {
                 },
                 plugins: { 
                     legend: { 
-                        position: 'bottom', 
-                        labels: { boxWidth: 12, color: legendColor },
-                        // ⭐️ 범례(종목명) 클릭 시 기본 동작(숨기기)을 덮어쓰고 히스토리 필터링으로 연결
-                        onClick: (e, legendItem, legend) => {
-                            if (isPortfolioEmpty) return;
-                            const stock = legendItem.text;
-                            currentFilterDate = null;
-                            currentFilterType = 'stock_' + stock;
-                            
-                            const btnListView = document.getElementById('btnListView');
-                            if (btnListView && !btnListView.classList.contains('active')) btnListView.click();
-                            displayEntries(true);
-                            
-                            const filterBox = document.getElementById('filterBoxContainer');
-                            if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }
+                        display: false // ⭐️ 기본 캔버스 범례 숨기기 (도넛 크기 고정을 위해)
                     },
                     tooltip: {
                         callbacks: {
@@ -972,8 +957,53 @@ function updatePortfolioSummary() {
                         }
                     }
                 } 
-            }
+            },
+            // ⭐️ 커스텀 플러그인: 도넛 차트의 실제 중심 좌표를 찾아 텍스트 위치를 동기화
+            plugins: [{
+                id: 'centerTextPositioner',
+                afterDraw: (chart) => {
+                    const centerText = document.getElementById('chartCenterText');
+                    const meta = chart.getDatasetMeta(0);
+                    if (centerText && meta && meta.data.length > 0) {
+                        const arc = meta.data[0];
+                        if (arc && typeof arc.x === 'number' && typeof arc.y === 'number') {
+                            centerText.style.left = arc.x + 'px';
+                            centerText.style.top = arc.y + 'px';
+                        }
+                    }
+                }
+            }]
         });
+
+        // ⭐️ 커스텀 HTML 범례 생성 (도넛 크기가 범례 개수에 영향받지 않게 분리)
+        const customLegendContainer = document.getElementById('customChartLegend');
+        if (customLegendContainer) {
+            customLegendContainer.innerHTML = '';
+            if (!isPortfolioEmpty) {
+                chartLabels.forEach((label, index) => {
+                    const color = finalColors[index % finalColors.length];
+                    const legendItem = document.createElement('div');
+                    legendItem.style.display = 'flex';
+                    legendItem.style.alignItems = 'center';
+                    legendItem.style.gap = '4px';
+                    legendItem.style.fontSize = '11.5px';
+                    legendItem.style.color = legendColor;
+                    legendItem.style.cursor = 'pointer';
+                    legendItem.innerHTML = `<span style="display:inline-block; width:10px; height:10px; background-color:${color}; border-radius:2px;"></span><span>${label}</span>`;
+                    
+                    legendItem.addEventListener('click', () => {
+                        currentFilterDate = null;
+                        currentFilterType = 'stock_' + label;
+                        const btnListView = document.getElementById('btnListView');
+                        if (btnListView && !btnListView.classList.contains('active')) btnListView.click();
+                        displayEntries(true);
+                        const filterBox = document.getElementById('filterBoxContainer');
+                        if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    });
+                    customLegendContainer.appendChild(legendItem);
+                });
+            }
+        }
     } else { chartContainer.style.display = 'none'; }
 
     document.getElementById('portfolioSection').style.display = shouldShowDashboard ? 'block' : 'none';
