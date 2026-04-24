@@ -401,29 +401,33 @@ setupAutocomplete('brokerAccount', 'brokerAccountList', getBrokerOptions);
 setupAutocomplete('filterStock', 'filterStockList', getStockOptions);
 
 function resetAndCloseForm() {
-    formModalOverlay.style.display = 'none';
-    journalForm.reset();
-    
-    currentTags = [];
-    renderTags();
-    calcTotalAmount();
-    currentSelectedFile = null;
-    currentAttachedImage = null;
-    document.getElementById('imageInput').value = '';
-    const previewContainer = document.getElementById('imagePreviewContainer');
-    if (previewContainer) previewContainer.style.display = 'none';
-    
-    if (window.quill) window.quill.setContents([]); // 에디터 초기화
-    editingEntryId = null;
-    submitBtn.innerText = "기록 저장하기";
-    const tradeRadio = document.querySelector('input[name="recordType"][value="trade"]');
-    if(tradeRadio) { tradeRadio.checked = true; tradeRadio.dispatchEvent(new Event('change')); }
-    const resetNow = new Date(); resetNow.setMinutes(resetNow.getMinutes() - resetNow.getTimezoneOffset());
-    if (window.tradeDatePicker) {
-        window.tradeDatePicker.setDate(resetNow.toISOString().slice(0,16));
-    } else {
-        document.getElementById('tradeDate').value = resetNow.toISOString().slice(0,16);
-    }
+    formModalOverlay.classList.add('closing');
+    setTimeout(() => {
+        formModalOverlay.style.display = 'none';
+        formModalOverlay.classList.remove('closing');
+        
+        journalForm.reset();
+        currentTags = [];
+        renderTags();
+        calcTotalAmount();
+        currentSelectedFile = null;
+        currentAttachedImage = null;
+        document.getElementById('imageInput').value = '';
+        const previewContainer = document.getElementById('imagePreviewContainer');
+        if (previewContainer) previewContainer.style.display = 'none';
+        
+        if (window.quill) window.quill.setContents([]); // 에디터 초기화
+        editingEntryId = null;
+        submitBtn.innerText = "기록 저장하기";
+        const tradeRadio = document.querySelector('input[name="recordType"][value="trade"]');
+        if(tradeRadio) { tradeRadio.checked = true; toggleFormUI('trade'); }
+        const resetNow = new Date(); resetNow.setMinutes(resetNow.getMinutes() - resetNow.getTimezoneOffset());
+        if (window.tradeDatePicker) {
+            window.tradeDatePicker.setDate(resetNow.toISOString().slice(0,16));
+        } else {
+            document.getElementById('tradeDate').value = resetNow.toISOString().slice(0,16);
+        }
+    }, 180); // CSS 페이드아웃 애니메이션 시간과 동기화
 }
 
 // ⭐️ Flatpickr 초기화 (날짜 및 시간 선택기)
@@ -455,21 +459,30 @@ function calcTotalAmount() {
 document.getElementById('price').addEventListener('input', calcTotalAmount);
 document.getElementById('quantity').addEventListener('input', calcTotalAmount);
 
+// ⭐️ 기록 유형(매매/메모)에 따른 폼 UI 전환 함수
+function toggleFormUI(recordType) {
+    const isTrade = recordType === 'trade';
+    document.getElementById('tradeRow1').style.display = isTrade ? 'flex' : 'none';
+    document.getElementById('tradeRow2').style.display = isTrade ? 'flex' : 'none';
+    document.getElementById('memoTitleGroup').style.display = isTrade ? 'none' : 'block';
+    document.getElementById('brokerAccountGroup').style.display = isTrade ? 'block' : 'none';
+    
+    document.getElementById('stockName').required = isTrade;
+    document.getElementById('stockName').placeholder = isTrade ? "검색 또는 직접 입력 (예: 삼성전자)" : "종목명 (메모 시 생략 가능)";
+    
+    const accountNameEl = document.getElementById('accountName');
+    if (accountNameEl) accountNameEl.required = isTrade;
+    const memoTitleEl = document.getElementById('memoTitle');
+    if (memoTitleEl) memoTitleEl.required = !isTrade;
+    
+    document.getElementById('thoughtsLabel').innerText = isTrade ? '생각의 흐름 / 계획' : '메모 내용';
+    calcTotalAmount();
+}
+
 const typeRadios = document.querySelectorAll('input[name="recordType"]');
 typeRadios.forEach(radio => {
     radio.addEventListener('change', function() {
-        const isTrade = this.value === 'trade';
-        document.getElementById('tradeRow1').style.display = isTrade ? 'flex' : 'none';
-        document.getElementById('tradeRow2').style.display = isTrade ? 'flex' : 'none';
-        document.getElementById('memoTitleGroup').style.display = isTrade ? 'none' : 'block';
-        document.getElementById('brokerAccountGroup').style.display = isTrade ? 'block' : 'none';
-        
-        document.getElementById('stockName').required = isTrade;
-        document.getElementById('stockName').placeholder = isTrade ? "검색 또는 직접 입력 (예: 삼성전자)" : "종목명 (메모 시 생략 가능)";
-        document.getElementById('accountName').required = isTrade;
-        document.getElementById('memoTitle').required = !isTrade;
-        document.getElementById('thoughtsLabel').innerText = isTrade ? '생각의 흐름 / 계획' : '메모 내용';
-        calcTotalAmount();
+        toggleFormUI(this.value);
     });
 });
 
@@ -1494,7 +1507,7 @@ function editEntry(entry) {
     const typeRadio = document.querySelector(`input[name="recordType"][value="${entry.type || 'trade'}"]`);
     if (typeRadio) {
         typeRadio.checked = true;
-        typeRadio.dispatchEvent(new Event('change'));
+        toggleFormUI(entry.type || 'trade');
     }
 
     document.getElementById('stockName').value = entry.stockName || '';

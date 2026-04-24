@@ -259,7 +259,7 @@
     </div>
 
     <!-- ⭐️ 이미지 원본 보기 팝업(모달) -->
-    <div id="imageViewerModal" class="modal-overlay" style="display:none; z-index: 3000; cursor: zoom-out;" onclick="this.style.display='none'">
+        <div id="imageViewerModal" class="modal-overlay" style="display:none; z-index: 3000; cursor: zoom-out;" onclick="this.classList.add('closing'); setTimeout(() => { this.style.display='none'; this.classList.remove('closing'); }, 180)">
         <img id="fullSizeImage" style="max-width: 95%; max-height: 95vh; border-radius: 4px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); background: var(--card-bg-color);">
     </div>
 

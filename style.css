@@ -123,6 +123,24 @@ body {
 }
 .logo-text { font-size: 20px; }
 
+/* ⭐️ 모달창 등장 애니메이션 정의 */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+@keyframes slideInUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+@keyframes slideOutDown {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(20px); }
+}
+
 /* ⭐️ 모달 오버레이 스타일 추가 */
 .modal-overlay {
     display: none;
@@ -134,6 +152,13 @@ body {
     align-items: center;
     padding: 20px;
     box-sizing: border-box;
+    animation: fadeIn 0.2s ease-out;
+}
+.modal-overlay.closing {
+    animation: fadeOut 0.2s ease-in forwards;
+}
+.modal-overlay.closing .form-container {
+    animation: slideOutDown 0.2s ease-in forwards;
 }
 .form-container {
     background-color: var(--card-bg-color);
@@ -141,6 +166,7 @@ body {
     border-radius: 12px;
     box-shadow: var(--card-shadow);
     width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto;
+    animation: slideInUp 0.3s ease-out forwards;
 }
 .form-group {
     margin-bottom: 15px;
