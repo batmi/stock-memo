@@ -343,6 +343,15 @@ button:hover {
 .portfolio-card .stat-row { display: flex; justify-content: space-between; font-size: 0.85em; margin-bottom: 6px; color: var(--text-muted-color); }
 .portfolio-card .stat-row:last-child { margin-bottom: 0; }
 .portfolio-card .stat-row span:last-child { font-weight: bold; color: var(--text-strong-color); }
+/* ⭐️ 포트폴리오 카드 투자 종류 배지 스타일 */
+.account-badge { font-size: 10.5px; padding: 2px 5px; border-radius: 4px; margin-right: 5px; font-weight: bold; }
+.badge-long { background-color: #e0f2fe; color: #0369a1; }
+.badge-mid { background-color: #dcfce7; color: #15803d; }
+.badge-swing { background-color: #fef9c3; color: #a16207; }
+.badge-scalp { background-color: #fee2e2; color: #b91c1c; }
+.badge-dividend { background-color: #f3e8ff; color: #7e22ce; }
+.badge-ipo { background-color: #ffedd5; color: #c2410c; }
+.badge-etc { background-color: #f1f5f9; color: #475569; }
 .view-toggle { display: flex; gap: 10px; margin-bottom: 10px; margin-top: 10px; }
 .view-toggle button { flex: 1; padding: 8px; border-radius: 4px; font-weight: bold; background-color: var(--card-bg-color); color: var(--text-muted-color); cursor: pointer; border: 1px solid var(--border-color); font-size: 13px; }
 .view-toggle button.active { background-color: var(--primary-color); color: white; border-color: var(--primary-color); }
@@ -364,6 +373,14 @@ button:hover {
 [data-theme="dark"] .portfolio-card .stat-row span:last-child {
     color: var(--text-color);
 }
+/* ⭐️ 다크모드 투자 종류 배지 색상 */
+[data-theme="dark"] .badge-long { background-color: #16324a; color: #7fa6c7; }
+[data-theme="dark"] .badge-mid { background-color: #143622; color: #7ab591; }
+[data-theme="dark"] .badge-swing { background-color: #3f2f11; color: #c4995c; }
+[data-theme="dark"] .badge-scalp { background-color: #451a1a; color: #c97575; }
+[data-theme="dark"] .badge-dividend { background-color: #321c45; color: #a883c7; }
+[data-theme="dark"] .badge-ipo { background-color: #452211; color: #c48560; }
+[data-theme="dark"] .badge-etc { background-color: #272a30; color: #8b949e; }
 .main-layout { display: flex; gap: 25px; align-items: flex-start; justify-content: center; }
 .content-left { flex: 1; min-width: 0; max-width: 680px; }
 .content-right { width: 250px; background: var(--card-bg-color); padding: 12px; border-radius: 8px; box-shadow: var(--dashboard-card-shadow); position: sticky; top: 40px; margin-top: 60px; flex-shrink: 0; }

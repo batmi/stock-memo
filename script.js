@@ -757,6 +757,26 @@ function updatePortfolioSummary() {
         return a.stock.localeCompare(b.stock); // 분류가 같으면 종목명 가나다순 정렬
     });
 
+    const shortAccountNameMap = {
+        "장기투자": "장기",
+        "중기투자": "중기",
+        "단기스윙": "스윙",
+        "단타(스캘핑)": "단타",
+        "배당투자": "배당",
+        "공모주": "공모",
+        "기타": "기타"
+    };
+
+    const badgeClassMap = {
+        "장기투자": "badge-long",
+        "중기투자": "badge-mid",
+        "단기스윙": "badge-swing",
+        "단타(스캘핑)": "badge-scalp",
+        "배당투자": "badge-dividend",
+        "공모주": "badge-ipo",
+        "기타": "badge-etc"
+    };
+
     portfolioArray.forEach(data => {
         const stock = data.stock;
         const isClosed = data.isClosed;
@@ -777,9 +797,13 @@ function updatePortfolioSummary() {
             card.style.opacity = '0.6'; // 청산 종목은 반투명하게 표시
             card.style.borderLeftColor = 'var(--text-muted-color)';
         }
-        const statusBadge = isClosed ? `<span style="font-size: 10px; background: var(--border-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px; margin-left: 4px;">청산완료</span>` : '';
+        const statusBadge = isClosed ? `<span style="font-size: 10px; background: var(--border-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px;">청산완료</span>` : '';
+        const shortAccountName = data.accountName ? (shortAccountNameMap[data.accountName] || data.accountName.substring(0, 2)) : '';
+        const badgeClass = badgeClassMap[data.accountName] || 'badge-etc';
+        const accountBadgeHtml = shortAccountName ? `<span class="account-badge ${badgeClass}">${shortAccountName}</span>` : '';
         card.innerHTML = `
-            <div class="stock-name">${stock} <span style="font-size: 11px; color: var(--text-muted-color); font-weight: normal;">${data.accountName ? `(${data.accountName})` : ''}</span>${statusBadge}</div>
+            <div class="stock-name" style="margin-bottom: 2px;">${stock}</div>
+            <div style="margin-bottom: 8px; display: flex; align-items: center; min-height: 16px;">${accountBadgeHtml}${statusBadge}</div>
             <div class="stat-row"><span>보유 수량</span><span>${data.qty.toLocaleString()}주</span></div>
             <div class="stat-row"><span>평균 단가</span><span>${Math.round(data.avgPrice).toLocaleString()}</span></div>
             <div class="stat-row"><span>총 매수금액</span><span>${Math.round(data.totalCost).toLocaleString()}</span></div>
