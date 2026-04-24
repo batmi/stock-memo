@@ -405,7 +405,7 @@ button:hover {
 .profit-positive { color: var(--danger-color); font-weight: bold; }
 .profit-negative { color: var(--primary-color); font-weight: bold; }
 .portfolio-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
-.portfolio-card { background: var(--card-bg-color); padding: 12px; border-radius: 8px; border-left: 4px solid var(--success-color); box-shadow: var(--dashboard-card-shadow); transition: transform 0.2s, box-shadow 0.2s; cursor: pointer; }
+.portfolio-card { background: var(--card-bg-color); padding: 12px; border-radius: 8px; border-left: 4px solid var(--border-color); box-shadow: var(--dashboard-card-shadow); transition: transform 0.2s, box-shadow 0.2s; cursor: pointer; }
 .portfolio-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
 [data-theme="dark"] .portfolio-card:hover { box-shadow: 0 4px 15px rgba(0,0,0,0.7); }
 .portfolio-card .stock-name { font-weight: bold; font-size: 1em; color: var(--text-strong-color); margin-bottom: 6px; }
@@ -421,6 +421,14 @@ button:hover {
 .badge-dividend { background-color: #f3e8ff; color: #7e22ce; }
 .badge-ipo { background-color: #ffedd5; color: #c2410c; }
 .badge-etc { background-color: #f1f5f9; color: #475569; }
+/* ⭐️ 포트폴리오 카드 테두리 색상 (배지 텍스트 색상과 동기화) */
+.card-border-long { border-left-color: #0369a1; }
+.card-border-mid { border-left-color: #15803d; }
+.card-border-swing { border-left-color: #a16207; }
+.card-border-scalp { border-left-color: #b91c1c; }
+.card-border-dividend { border-left-color: #7e22ce; }
+.card-border-ipo { border-left-color: #c2410c; }
+.card-border-etc { border-left-color: #475569; }
 .view-toggle { display: flex; gap: 10px; margin-bottom: 10px; margin-top: 10px; }
 .view-toggle button { flex: 1; padding: 8px; border-radius: 4px; font-weight: bold; background-color: var(--card-bg-color); color: var(--text-muted-color); cursor: pointer; border: 1px solid var(--border-color); font-size: 13px; }
 .view-toggle button.active { background-color: var(--primary-color); color: white; border-color: var(--primary-color); }
@@ -449,6 +457,14 @@ button:hover {
 [data-theme="dark"] .badge-dividend { background-color: #321c45; color: #a883c7; }
 [data-theme="dark"] .badge-ipo { background-color: #452211; color: #c48560; }
 [data-theme="dark"] .badge-etc { background-color: #272a30; color: #8b949e; }
+/* ⭐️ 다크모드 포트폴리오 카드 테두리 색상 (배지 텍스트 색상과 동기화) */
+[data-theme="dark"] .card-border-long { border-left-color: #7fa6c7; }
+[data-theme="dark"] .card-border-mid { border-left-color: #7ab591; }
+[data-theme="dark"] .card-border-swing { border-left-color: #c4995c; }
+[data-theme="dark"] .card-border-scalp { border-left-color: #c97575; }
+[data-theme="dark"] .card-border-dividend { border-left-color: #a883c7; }
+[data-theme="dark"] .card-border-ipo { border-left-color: #c48560; }
+[data-theme="dark"] .card-border-etc { border-left-color: #8b949e; }
 .main-layout { display: flex; gap: 25px; align-items: flex-start; justify-content: center; }
 .content-left { flex: 1; min-width: 0; max-width: 680px; }
 .content-right { width: 250px; background: var(--card-bg-color); padding: 12px; border-radius: 8px; box-shadow: var(--dashboard-card-shadow); position: sticky; top: 40px; margin-top: 60px; flex-shrink: 0; }

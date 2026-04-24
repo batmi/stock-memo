@@ -907,15 +907,17 @@ function updatePortfolioSummary() {
             chartData.push(data.totalCost);
         }
         
+        const shortAccountName = data.accountName ? (shortAccountNameMap[data.accountName] || data.accountName.substring(0, 2)) : '';
+        const badgeClass = badgeClassMap[data.accountName] || 'badge-etc';
+        const cardBorderClass = badgeClass.replace('badge-', 'card-border-');
+        
         const card = document.createElement('div');
-        card.className = 'portfolio-card';
+        card.className = `portfolio-card ${cardBorderClass}`;
         if (isClosed) {
             card.style.opacity = '0.6'; // 청산 종목은 반투명하게 표시
             card.style.borderLeftColor = 'var(--text-muted-color)';
         }
         const statusBadge = isClosed ? `<span style="font-size: 10px; background: var(--border-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px;">청산완료</span>` : '';
-        const shortAccountName = data.accountName ? (shortAccountNameMap[data.accountName] || data.accountName.substring(0, 2)) : '';
-        const badgeClass = badgeClassMap[data.accountName] || 'badge-etc';
         const accountBadgeHtml = shortAccountName ? `<span class="account-badge ${badgeClass}">${shortAccountName}</span>` : '';
         card.innerHTML = `
             <div class="stock-name" style="margin-bottom: 2px;">${stock}</div>
