@@ -913,6 +913,7 @@ function updatePortfolioSummary() {
             options: { 
                 responsive: true,
                 cutout: '72%', // 중앙 구멍 크기 확장
+                layout: { padding: 15 }, // ⭐️ 도넛 크기를 약간 줄여 주변 여유 공간 확보
                 // ⭐️ 도넛 차트 클릭 시 필터링 및 초기화 이벤트 연동
                 onClick: (e, elements, chart) => {
                     if (isPortfolioEmpty) return;
