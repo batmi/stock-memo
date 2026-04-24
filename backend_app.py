@@ -209,6 +209,9 @@ def login():
         <head>
             <meta charset="UTF-8">
             <title>주식 매매 일지 - 로그인</title>
+            <link rel="shortcut icon" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
+            <link rel="icon" type="image/png" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
+            <link rel="apple-touch-icon" sizes="180x180" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
             <style>
                 body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #121212; margin: 0; color: #ccc; }
                 .login-container { background: #1e1e1e; padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); text-align: center; width: 300px; }
