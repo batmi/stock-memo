@@ -13,6 +13,14 @@ let currentRenderPage = 1;
 const entriesPerPage = 15;
 let lastRenderedMonth = '';
 
+// ⭐️ 공통 스크롤 함수: 스크롤 튐 현상을 막기 위해 window.scrollTo 절대 좌표 사용
+window.scrollToFilterBox = function() {
+    const filterBox = document.getElementById('filterBoxContainer');
+    if (!filterBox) return;
+    const y = filterBox.getBoundingClientRect().top + window.scrollY - 20; // 상단 여백 20px
+    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+};
+
 const mainApp = document.getElementById('mainApp');
 window.addEventListener('DOMContentLoaded', () => {
     const themeToggle = document.getElementById('theme-toggle');
@@ -103,8 +111,7 @@ window.addEventListener('DOMContentLoaded', () => {
             displayEntries(true);
 
             // 필터 변경 시 히스토리 상단으로 부드럽게 스크롤
-            const filterBox = document.getElementById('filterBoxContainer');
-            if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            window.scrollToFilterBox();
         });
     }
 
@@ -116,8 +123,7 @@ window.addEventListener('DOMContentLoaded', () => {
             displayEntries(true);
 
             // 필터 변경 시 히스토리 상단으로 부드럽게 스크롤
-            const filterBox = document.getElementById('filterBoxContainer');
-            if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            window.scrollToFilterBox();
         });
     }
 
@@ -575,8 +581,7 @@ clearFilterBtn.addEventListener('click', () => {
     displayEntries(true);
 
     // 필터 초기화 시 히스토리 상단으로 부드럽게 스크롤
-    const filterBox = document.getElementById('filterBoxContainer');
-    if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.scrollToFilterBox();
 });
 
 journalForm.addEventListener('submit', async function(e) {
@@ -868,8 +873,7 @@ function updatePortfolioSummary() {
             displayEntries(true); // 필터링 반영
             
             // 사용자 편의를 위해 필터/히스토리 영역으로 부드럽게 스크롤
-            const filterBox = document.getElementById('filterBoxContainer');
-            if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            window.scrollToFilterBox();
         });
 
         portfolioGrid.appendChild(card);
@@ -958,8 +962,7 @@ function updatePortfolioSummary() {
                     }
                     displayEntries(true);
                     
-                    const filterBox = document.getElementById('filterBoxContainer');
-                    if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    window.scrollToFilterBox();
                 },
                 onHover: (e, elements, chart) => {
                     chart.canvas.style.cursor = isPortfolioEmpty ? 'default' : 'pointer';
@@ -1020,8 +1023,7 @@ function updatePortfolioSummary() {
                         const btnListView = document.getElementById('btnListView');
                         if (btnListView && !btnListView.classList.contains('active')) btnListView.click();
                         displayEntries(true);
-                        const filterBox = document.getElementById('filterBoxContainer');
-                        if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        window.scrollToFilterBox();
                     });
                     customLegendContainer.appendChild(legendItem);
                 });
@@ -1150,6 +1152,10 @@ function displayEntries(isFilterUpdate = false) {
         renderCalendar();
     }
 
+    // ⭐️ 리스트 갱신 시 순간적인 스크롤 튐(위로 점프) 현상을 방지하기 위해 이전 높이 임시 유지
+    const prevHeight = historyList.offsetHeight;
+    if (prevHeight > 0) historyList.style.minHeight = prevHeight + 'px';
+
     historyList.innerHTML = '';
     
     // 청산 종목 필터링을 위한 현재 보유 수량 계산
@@ -1261,10 +1267,15 @@ function displayEntries(isFilterUpdate = false) {
 
     if (filteredEntries.length === 0) {
         historyList.innerHTML = '<p style="text-align:center; color:var(--text-muted-color); font-size: 16px; padding: 20px;">조건에 맞는 기록이 없습니다.</p>';
+        // 높이 고정 해제
+        requestAnimationFrame(() => { historyList.style.minHeight = ''; });
         return;
     }
 
     renderPage();
+
+    // 리렌더링 완료 후 높이 고정 해제 (부드러운 전환을 위해 브라우저 페인트 타이밍에 맞춤)
+    requestAnimationFrame(() => { historyList.style.minHeight = ''; });
 }
 
 function renderPage() {
@@ -1537,8 +1548,7 @@ window.showDetailsForDate = function(date, type, event) {
     document.getElementById('btnListView').click();
     displayEntries(true);
 
-    const filterBox = document.getElementById('filterBoxContainer');
-    if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.scrollToFilterBox();
 };
 
 window.clearDateFilter = function() {
@@ -1546,8 +1556,7 @@ window.clearDateFilter = function() {
     currentFilterType = null;
     displayEntries(true);
 
-    const filterBox = document.getElementById('filterBoxContainer');
-    if (filterBox) filterBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.scrollToFilterBox();
 };
 
 document.getElementById('btnListView').addEventListener('click', function() {
