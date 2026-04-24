@@ -6,13 +6,39 @@
     --text-muted-color: #7f8c8d;
     --border-color: #ccc;
     --border-light-color: #eee;
+    
+    /* 기본 테마 색상 (라이트) */
     --primary-color: #3498db;
-    --primary-hover-color: #2980b9;
     --danger-color: #e74c3c;
     --success-color: #27ae60;
     --warning-color: #f39c12;
     --info-color: #9b59b6;
     --neutral-color: #95a5a6;
+
+    /* ⭐️ 라이트모드 호버 색상 (다크모드 색상 교차 적용) */
+    --primary-hover-color: #3b688c;
+    --danger-hover-color: #a34e4e;
+    --success-hover-color: #3a7a4f;
+    --warning-hover-color: #a87b35;
+    --info-hover-color: #835c94;
+    --neutral-hover-color: #5f6b6b;
+
+    /* ⭐️ 캘린더 배지 기본 색상 (라이트) */
+    --badge-memo-bg: #e0f2fe;
+    --badge-memo-color: #0369a1;
+    --badge-memo-border: #bae6fd;
+    --badge-trade-bg: #fef3c7;
+    --badge-trade-color: #b45309;
+    --badge-trade-border: #fde68a;
+
+    /* ⭐️ 캘린더 배지 호버 색상 (다크모드 색상 교차 적용) */
+    --badge-memo-hover-bg: #16324a;
+    --badge-memo-hover-color: #7fa6c7;
+    --badge-memo-hover-border: #234866;
+    --badge-trade-hover-bg: #422d16;
+    --badge-trade-hover-color: #b89d67;
+    --badge-trade-hover-border: #594022;
+
     --card-shadow: 0 10px 25px rgba(0,0,0,0.2);
     --entry-card-shadow: 0 2px 4px rgba(0,0,0,0.05);
     --dashboard-card-shadow: 0 2px 8px rgba(0,0,0,0.06);
@@ -31,13 +57,38 @@
     --entry-card-shadow: 0 2px 6px rgba(0,0,0,0.4);
     --dashboard-card-shadow: 0 2px 10px rgba(0,0,0,0.5);
     --fw-bold: 500;
-    /* 다크모드 전용 톤다운 메인 컬러 */
+
+    /* 기본 테마 색상 (다크) */
     --primary-color: #3b688c;
-    --primary-hover-color: #2c516e;
     --danger-color: #a34e4e;
     --success-color: #3a7a4f;
     --warning-color: #a87b35;
     --info-color: #835c94;
+    --neutral-color: #5f6b6b;
+
+    /* ⭐️ 다크모드 호버 색상 (라이트모드 색상 교차 적용) */
+    --primary-hover-color: #3498db;
+    --danger-hover-color: #e74c3c;
+    --success-hover-color: #27ae60;
+    --warning-hover-color: #f39c12;
+    --info-hover-color: #9b59b6;
+    --neutral-hover-color: #95a5a6;
+
+    /* ⭐️ 캘린더 배지 기본 색상 (다크) */
+    --badge-memo-bg: #16324a;
+    --badge-memo-color: #7fa6c7;
+    --badge-memo-border: #234866;
+    --badge-trade-bg: #422d16;
+    --badge-trade-color: #b89d67;
+    --badge-trade-border: #594022;
+
+    /* ⭐️ 캘린더 배지 호버 색상 (라이트모드 색상 교차 적용) */
+    --badge-memo-hover-bg: #e0f2fe;
+    --badge-memo-hover-color: #0369a1;
+    --badge-memo-hover-border: #bae6fd;
+    --badge-trade-hover-bg: #fef3c7;
+    --badge-trade-hover-color: #b45309;
+    --badge-trade-hover-border: #fde68a;
 }
 
 body {
@@ -214,17 +265,11 @@ button:hover {
 .btn-export { background-color: var(--primary-color); }
 .btn-logout { background-color: var(--danger-color); }
 
-/* 라이트모드 호버 시: 다크모드 색상 사용 */
-.btn-backup:hover { background-color: #3a7a4f; }
-.btn-restore:hover { background-color: #a87b35; }
-.btn-export:hover { background-color: #3b688c; }
-.btn-logout:hover { background-color: #a34e4e; }
-
-/* 다크모드 호버 시: 라이트모드 색상 사용 */
-[data-theme="dark"] .btn-backup:hover { background-color: #27ae60; }
-[data-theme="dark"] .btn-restore:hover { background-color: #f39c12; }
-[data-theme="dark"] .btn-export:hover { background-color: #3498db; }
-[data-theme="dark"] .btn-logout:hover { background-color: #e74c3c; }
+/* 공통 호버 변수 적용으로 모든 테마의 교차 반전 호버 처리 */
+.btn-backup:hover { background-color: var(--success-hover-color); }
+.btn-restore:hover { background-color: var(--warning-hover-color); }
+.btn-export:hover { background-color: var(--primary-hover-color); }
+.btn-logout:hover { background-color: var(--danger-hover-color); }
 
 .type-selector {
     display: flex;
@@ -260,7 +305,7 @@ button:hover {
     box-shadow: var(--card-shadow);
 }
 .autocomplete-item { padding: 8px 12px; cursor: pointer; color: var(--text-color); font-size: 13px; }
-.autocomplete-item:hover, .autocomplete-item.active { background-color: var(--primary-color); color: white; }
+.autocomplete-item:hover, .autocomplete-item.active { background-color: var(--primary-hover-color); color: white; }
 .autocomplete-item:hover span, .autocomplete-item.active span { color: white !important; }
 @media (max-width: 600px) {
     .form-row { flex-direction: column; gap: 0; }
@@ -298,7 +343,7 @@ button:hover {
     display: none;
     user-select: none;
 }
-.clear-input-btn:hover { color: var(--danger-color); }
+.clear-input-btn:hover { color: var(--danger-hover-color); }
 .history-container { display: flex; flex-direction: column; gap: 10px; }
 .entry-card {
     background-color: var(--card-bg-color); padding: 12px; border-left: 4px solid var(--warning-color);
@@ -330,16 +375,17 @@ button:hover {
 }
 .btn-edit {
     width: auto; padding: 3px 10px; font-size: 12px; margin-top: 0; margin-left: 10px;
-    background-color: var(--neutral-color); border-radius: 4px; font-weight: normal; display: inline-block;
+    background-color: var(--neutral-color); color: #ffffff; border-radius: 4px; font-weight: normal; display: inline-block;
+    transition: background-color 0.2s;
 }
-.btn-edit:hover { background-color: #7f8c8d; }
+.btn-edit:hover { background-color: var(--neutral-hover-color); }
+
 .btn-delete {
     width: auto; padding: 3px 10px; font-size: 12px; margin-top: 0; margin-left: 5px;
-    background-color: #bb5c5c; color: #ffffff; border-radius: 4px; font-weight: normal; display: inline-block;
+    background-color: var(--danger-color); color: #ffffff; border-radius: 4px; font-weight: normal; display: inline-block;
+    transition: background-color 0.2s;
 }
-.btn-delete:hover { background-color: #d16b6b; }
-[data-theme="dark"] .btn-delete { background-color: #9c4545; }
-[data-theme="dark"] .btn-delete:hover { background-color: #b55555; }
+.btn-delete:hover { background-color: var(--danger-hover-color); }
 .header-right { display: flex; align-items: center; }
 .btn-fab {
     position: fixed; bottom: 30px; right: 30px; background-color: var(--primary-color);
@@ -348,11 +394,11 @@ button:hover {
     display: flex; align-items: center; justify-content: center; z-index: 1000;
     transition: transform 0.2s, background-color 0.2s; padding: 0; margin: 0;
 }
-.btn-fab:hover { background-color: #2980b9; transform: scale(1.05); }
+.btn-fab:hover { background-color: var(--primary-hover-color); transform: scale(1.05); }
 .form-header-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
 .form-header-container h3 { margin: 0; color: var(--text-strong-color); font-size: 1.1em; }
 .btn-close { background: none; border: none; font-size: 28px; cursor: pointer; color: var(--neutral-color); width: auto; padding: 0; margin: 0; line-height: 1; }
-.btn-close:hover { color: var(--danger-color); background: none; }
+.btn-close:hover { color: var(--danger-hover-color); background: none; }
 .portfolio-summary-container { margin-top: 20px; margin-bottom: 30px; }
 .portfolio-header { margin: 0 0 15px 0; color: var(--text-strong-color); font-size: 1.2em; display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
 .total-profit { font-size: 0.9em; padding: 5px 10px; border-radius: 4px; background: var(--card-bg-color); border: 1px solid var(--border-color); }
@@ -384,14 +430,13 @@ button:hover {
 .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; min-height: 300px; }
 .calendar-header { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; text-align: center; font-weight: bold; margin-bottom: 5px; font-size: 13px; }
 .calendar-day { border: 1px solid var(--border-light-color); padding: 5px; border-radius: 4px; background: var(--card-bg-color); text-align: right; display: flex; flex-direction: column; justify-content: space-between; min-height: 60px; cursor: pointer; transition: all 0.2s; }
-.calendar-day:hover { background-color: var(--bg-color); border-color: var(--primary-color); }
-.cal-badge { font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 2px; text-align: center; font-weight: bold; cursor: pointer; transition: transform 0.1s, filter 0.2s; }
-.cal-badge:hover { transform: scale(1.03); filter: brightness(0.95); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-[data-theme="dark"] .cal-badge:hover { filter: brightness(1.2); }
-.cal-badge.memo { background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
-.cal-badge.trade { background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
-[data-theme="dark"] .cal-badge.memo { background-color: #16324a; color: #7fa6c7; border-color: #234866; }
-[data-theme="dark"] .cal-badge.trade { background-color: #422d16; color: #b89d67; border-color: #594022; }
+.calendar-day:hover { background-color: var(--bg-color); border-color: var(--primary-hover-color); }
+.cal-badge { font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 2px; text-align: center; font-weight: bold; cursor: pointer; transition: transform 0.1s, background-color 0.2s, color 0.2s, border-color 0.2s; }
+.cal-badge:hover { transform: scale(1.03); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.cal-badge.memo { background-color: var(--badge-memo-bg); color: var(--badge-memo-color); border: 1px solid var(--badge-memo-border); }
+.cal-badge.trade { background-color: var(--badge-trade-bg); color: var(--badge-trade-color); border: 1px solid var(--badge-trade-border); }
+.cal-badge.memo:hover { background-color: var(--badge-memo-hover-bg); color: var(--badge-memo-hover-color); border-color: var(--badge-memo-hover-border); }
+.cal-badge.trade:hover { background-color: var(--badge-trade-hover-bg); color: var(--badge-trade-hover-color); border-color: var(--badge-trade-hover-border); }
 [data-theme="dark"] .portfolio-card .stock-name,
 [data-theme="dark"] .portfolio-card .stat-row span:last-child {
     color: var(--text-color);
@@ -410,7 +455,7 @@ button:hover {
 .news-item { margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
 .news-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
 .news-item a { text-decoration: none; color: var(--text-color); font-weight: normal; font-size: 12px; display: block; margin-bottom: 4px; line-height: 1.35; }
-.news-item a:hover { color: var(--primary-color); text-decoration: underline; }
+.news-item a:hover { color: var(--primary-hover-color); text-decoration: underline; }
 .news-meta { font-size: 10.5px; color: var(--text-muted-color); display: flex; justify-content: space-between; align-items: center; }
 .news-stock-tag { background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 3px; font-weight: bold; }
 [data-theme="dark"] .news-stock-tag { background-color: #16324a; color: #7fa6c7; }

@@ -979,9 +979,13 @@ function updatePortfolioSummary() {
     
     const theme = document.documentElement.getAttribute('data-theme') || 'light';
     const legendColor = theme === 'dark' ? '#e0e0e0' : '#2c3e50';
-    const chartColors = theme === 'dark' 
-        ? ['#2a5298', '#c0392b', '#d68910', '#1e8449', '#76448a', '#ca6f1e', '#117a65', '#283747'] // 다크모드용 차분한 색상
-        : ['#3498db', '#e74c3c', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#34495e']; // 라이트모드용 기본 색상
+    
+    // 모드별 색상 정의
+    const lightColors = ['#3498db', '#e74c3c', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#34495e'];
+    const darkColors = ['#2a5298', '#c0392b', '#d68910', '#1e8449', '#76448a', '#ca6f1e', '#117a65', '#283747'];
+
+    const chartColors = theme === 'dark' ? darkColors : lightColors;
+    const hoverColors = theme === 'dark' ? lightColors : darkColors; // ⭐️ 호버 시 반대 테마 색상 적용
 
     const chartContainer = document.getElementById('portfolioChartContainer');
     if (shouldShowDashboard && !isDashboardCollapsed) {
@@ -1006,12 +1010,21 @@ function updatePortfolioSummary() {
         const finalLabels = isPortfolioEmpty ? ['보유 종목 없음'] : chartLabels;
         const finalData = isPortfolioEmpty ? [1] : chartData;
         const finalColors = isPortfolioEmpty ? [theme === 'dark' ? '#2c2c2c' : '#f0f0f0'] : chartColors;
+        const finalHoverColors = isPortfolioEmpty ? [theme === 'dark' ? '#f0f0f0' : '#2c2c2c'] : hoverColors;
 
         const ctx = document.getElementById('portfolioChart').getContext('2d');
         if (portfolioChartInstance) portfolioChartInstance.destroy();
         portfolioChartInstance = new Chart(ctx, {
             type: 'doughnut',
-            data: { labels: finalLabels, datasets: [{ data: finalData, backgroundColor: finalColors, borderColor: theme === 'dark' ? '#1e1e1e' : '#fff' }] },
+            data: { 
+                labels: finalLabels, 
+                datasets: [{ 
+                    data: finalData, 
+                    backgroundColor: finalColors, 
+                    hoverBackgroundColor: finalHoverColors, // ⭐️ 호버 색상 속성 추가
+                    borderColor: theme === 'dark' ? '#1e1e1e' : '#fff' 
+                }] 
+            },
             options: { 
                 responsive: true,
                 cutout: '72%', // 중앙 구멍 크기 확장
