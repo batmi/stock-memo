@@ -370,7 +370,9 @@ def full_backup():
     current_time = time.strftime('%Y%m%d_%H%M%S')
     filename = f'TradingJournal_backup_{current_time}.zip'
     
-    return send_file(memory_file, download_name=filename, as_attachment=True)
+    response = send_file(memory_file, mimetype='application/zip', download_name=filename, as_attachment=True)
+    response.headers["Access-Control-Expose-Headers"] = "Content-Disposition"
+    return response
 
 @app.route('/api/restore', methods=['POST'])
 def full_restore():

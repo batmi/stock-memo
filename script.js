@@ -658,7 +658,38 @@ const btnFullBackup = document.getElementById('btnFullBackup');
 if (btnFullBackup) {
     btnFullBackup.addEventListener('click', () => {
         if (confirm('에디터 서식(폰트 등) 및 첨부 이미지를 포함한 모든 데이터를 완벽하게 백업합니다.\n다운로드를 진행하시겠습니까?')) {
-            window.location.href = '/api/backup';
+            document.body.style.cursor = 'wait';
+            fetch('/api/backup')
+                .then(response => {
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    let filename = 'TradingJournal_backup.zip';
+                    const disposition = response.headers.get('content-disposition');
+                    if (disposition && disposition.includes('attachment')) {
+                        const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+                        if (matches != null && matches[1]) { 
+                            filename = matches[1].replace(/['"]/g, '');
+                        }
+                    }
+                    return response.blob().then(blob => ({ blob, filename }));
+                })
+                .then(({ blob, filename }) => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    a.remove();
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert('백업 파일 다운로드 중 오류가 발생했습니다.');
+                })
+                .finally(() => {
+                    document.body.style.cursor = 'default';
+                });
         }
     });
 }
@@ -704,14 +735,38 @@ if (btnFullRestore && restoreFileInput) {
 }
 
 document.getElementById('btnExportExcel').addEventListener('click', () => {
-    const header = ['작성일', '분류', '종목명', '증권사', '계좌분류', '매매종류', '단가', '수량', '메모/생각', '태그'];
+    const header = ['작성일', '분류', '종목명', '증권사', '계좌분류', '매매종류', '단가', '수량', '태그', '메모/생각'];
     const rows = cloudEntries.map(e => [
-        e.date, e.type, e.stockName||'', e.brokerAccount||'', e.accountName||'',
+        e.date, (e.type || '').toUpperCase(), e.stockName||'', e.brokerAccount||'', e.accountName||'',
         e.tradeType||'', Number(e.price)||0, Number(e.quantity)||0, 
-        (e.thoughts||'').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' '), e.tags||'' // HTML 태그 제거 후 엑셀 내보내기
+        e.tags||'', (e.thoughts||'').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') // HTML 태그 제거 후 엑셀 내보내기
     ]);
     
     const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    
+    // 단가, 수량 컬럼 숫자 포맷(천 단위 콤마) 지정
+    const range = XLSX.utils.decode_range(worksheet['!ref']);
+    for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+        const priceCell = worksheet[XLSX.utils.encode_cell({c: 6, r: R})]; // G열 (단가)
+        if (priceCell && priceCell.t === 'n') priceCell.z = '#,##0';
+        
+        const qtyCell = worksheet[XLSX.utils.encode_cell({c: 7, r: R})]; // H열 (수량)
+        if (qtyCell && qtyCell.t === 'n') qtyCell.z = '#,##0';
+    }
+
+    // 내용에 맞게 열 너비 자동 조절
+    const colWidths = header.map((h, colIdx) => {
+        let maxLen = h.length * 2; // 헤더 한글 너비 고려
+        rows.forEach(row => {
+            const val = row[colIdx] != null ? row[colIdx].toString() : '';
+            let len = 0;
+            for (let i = 0; i < val.length; i++) len += val.charCodeAt(i) > 255 ? 2 : 1.1; // 한글은 2, 영문/숫자는 1.1 비율
+            if (len > maxLen) maxLen = len;
+        });
+        return { wch: Math.min(Math.max(Math.ceil(maxLen), 10), 100) }; // 최소 10, 최대 100 제한
+    });
+    worksheet['!cols'] = colWidths;
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "매매일지");
     
