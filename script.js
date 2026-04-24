@@ -573,6 +573,9 @@ const loadMoreObserver = new IntersectionObserver((entries) => {
 filterStockInput.addEventListener('input', () => { 
     clearFilterBtn.style.display = filterStockInput.value ? 'block' : 'none';
     displayEntries(true); 
+    
+    // 검색어 타이핑 시에도 문서 높이 변화로 인해 화면이 내려가지 않고 필터 영역이 상단에 유지되도록 처리
+    window.scrollToFilterBox();
 });
 clearFilterBtn.addEventListener('click', () => {
     filterStockInput.value = '';
