@@ -1680,3 +1680,55 @@ document.getElementById('btnCalendarView').addEventListener('click', function() 
 
 document.getElementById('btnPrevMonth').addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); renderCalendar(); });
 document.getElementById('btnNextMonth').addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); renderCalendar(); });
+
+// ⭐️ 모바일 당겨서 새로고침 (Pull-to-Refresh) 기능
+let ptrStartY = 0;
+let ptrCurrentY = 0;
+let isPulling = false;
+const ptrThreshold = 80; // 당겨야 하는 기준 픽셀
+
+window.addEventListener('touchstart', (e) => {
+    if (window.scrollY <= 0) {
+        ptrStartY = e.touches[0].clientY;
+        ptrCurrentY = ptrStartY;
+        isPulling = true;
+        const ptrIndicator = document.getElementById('ptrIndicator');
+        if (ptrIndicator) ptrIndicator.style.transition = 'none';
+    }
+}, { passive: true });
+
+window.addEventListener('touchmove', (e) => {
+    if (!isPulling) return;
+    ptrCurrentY = e.touches[0].clientY;
+    const distance = ptrCurrentY - ptrStartY;
+
+    // 화면 맨 위에서 아래로 당길 때만 작동
+    if (distance > 0 && window.scrollY <= 0) {
+        const ptrIndicator = document.getElementById('ptrIndicator');
+        if (ptrIndicator) {
+            ptrIndicator.style.opacity = Math.min(distance / 60, 1).toString();
+            // 화면에 더 묵직하게 당겨지도록 distance / 2 로 계산
+            ptrIndicator.style.top = `${Math.min((distance / 2) - 50, 0)}px`;
+            ptrIndicator.innerText = distance > ptrThreshold ? '🔄 손을 놓아서 새로고침' : '⬇️ 아래로 당겨서 새로고침';
+        }
+    }
+}, { passive: true });
+
+window.addEventListener('touchend', () => {
+    if (!isPulling) return;
+    isPulling = false;
+    const distance = ptrCurrentY - ptrStartY;
+    const ptrIndicator = document.getElementById('ptrIndicator');
+
+    if (ptrIndicator) {
+        ptrIndicator.style.transition = 'top 0.3s ease, opacity 0.3s ease';
+        if (distance > ptrThreshold && window.scrollY <= 0) {
+            ptrIndicator.style.top = '0px';
+            ptrIndicator.innerText = '🔄 화면을 새로고침합니다...';
+            setTimeout(() => { window.location.reload(); }, 400);
+        } else {
+            ptrIndicator.style.top = '-50px';
+            ptrIndicator.style.opacity = '0';
+        }
+    }
+});
