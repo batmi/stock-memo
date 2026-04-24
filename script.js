@@ -653,57 +653,55 @@ journalForm.addEventListener('submit', async function(e) {
     await saveToLocal(true); // 저장 후 화면 전체를 새로고침하여 최신 상태 반영
 });
 
-document.getElementById('btnImportExcel').addEventListener('click', () => document.getElementById('excelFileInput').click());
-document.getElementById('excelFileInput').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+// ⭐️ 전체 데이터 백업 및 원복 이벤트 연결
+const btnFullBackup = document.getElementById('btnFullBackup');
+if (btnFullBackup) {
+    btnFullBackup.addEventListener('click', () => {
+        if (confirm('에디터 서식(폰트 등) 및 첨부 이미지를 포함한 모든 데이터를 완벽하게 백업합니다.\n다운로드를 진행하시겠습니까?')) {
+            window.location.href = '/api/backup';
+        }
+    });
+}
 
-    const reader = new FileReader();
-    reader.onload = async function(event) {
-        const data = new Uint8Array(event.target.result);
-        const workbook = XLSX.read(data, {type: 'array'});
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        const rows = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+const btnFullRestore = document.getElementById('btnFullRestore');
+const restoreFileInput = document.getElementById('restoreFileInput');
+if (btnFullRestore && restoreFileInput) {
+    btnFullRestore.addEventListener('click', () => restoreFileInput.click());
+    restoreFileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
 
-        let importedCount = 0;
-        for (let i = 1; i < rows.length; i++) {
-            const row = rows[i];
-            if (!row || row.length === 0) continue;
+        if (!confirm('⚠️ 경고: 원복을 진행하면 현재 작성된 모든 기록과 이미지가 백업 파일(.zip)의 내용으로 "완전히 덮어씌워"집니다.\n\n정말로 복구를 진행하시겠습니까?')) {
+            e.target.value = '';
+            return;
+        }
 
-            const date = row[0] || '';
-            const type = row[1] || 'trade';
-            const stockName = row[2] || '';
-            const brokerAccount = row[3] || '';
-            const accountName = row[4] || '';
-            const tradeType = row[5] || '';
-            const price = Number(row[6]) || 0;
-            const quantity = Number(row[7]) || 0;
-            const thoughts = row[8] || '';
-            const tags = row[9] || '';
+        const formData = new FormData();
+        formData.append('file', file);
 
-            // 중복 방지 (같은 날짜와 같은 메모 내용이 있는지 확인)
-            if (!cloudEntries.find(e => e.date === date && e.thoughts === thoughts)) {
-                const nowIso = new Date().toISOString();
-                cloudEntries.push({
-                    id: Date.now() + i, type: type === 'memo' ? 'memo' : 'trade',
-                    stockName, brokerAccount, accountName, tradeType, price,
-                    quantity, thoughts, date: date || new Date().toLocaleString(),
-                    createdAt: nowIso, updatedAt: nowIso, tags
-                });
-                importedCount++;
+        try {
+            document.body.style.cursor = 'wait'; // 로딩 커서
+            const response = await fetch('/api/restore', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            if (response.ok && result.status === 'success') {
+                alert('데이터가 성공적으로 원복되었습니다.\n화면을 새로고침 합니다.');
+                window.location.reload();
+            } else {
+                alert('원복 실패: ' + (result.error || '알 수 없는 오류가 발생했습니다.'));
             }
+        } catch (err) {
+            console.error(err);
+            alert('서버와 통신 중 오류가 발생했습니다.');
+        } finally {
+            document.body.style.cursor = 'default';
+            e.target.value = '';
         }
-        if (importedCount > 0) {
-            alert(`${importedCount}개의 기록을 Excel에서 가져왔습니다.`);
-            await saveToLocal(true);
-        } else {
-            alert('가져올 새로운 기록이 없거나 형식이 잘못되었습니다.');
-        }
-    };
-    reader.readAsArrayBuffer(file);
-    e.target.value = '';
-});
+    });
+}
 
 document.getElementById('btnExportExcel').addEventListener('click', () => {
     const header = ['작성일', '분류', '종목명', '증권사', '계좌분류', '매매종류', '단가', '수량', '메모/생각', '태그'];
@@ -716,7 +714,17 @@ document.getElementById('btnExportExcel').addEventListener('click', () => {
     const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "매매일지");
-    XLSX.writeFile(workbook, "주식매매일지_백업.xlsx");
+    
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const hh = String(now.getHours()).padStart(2, '0');
+    const min = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    const filename = `TradingJournal_export_${yyyy}${mm}${dd}_${hh}${min}${ss}.xlsx`;
+    
+    XLSX.writeFile(workbook, filename);
 });
 
 function updatePortfolioSummary() {

@@ -7,7 +7,11 @@ import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
 import time
-from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string
+import zipfile
+import io
+import tempfile
+import shutil
+from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__, static_folder='.', static_url_path='')
@@ -342,6 +346,72 @@ def get_news():
             print(f"Error fetching news for {stock}: {e}")
             
     return jsonify(all_news)
+
+@app.route('/api/backup', methods=['GET'])
+def full_backup():
+    """DB와 업로드 이미지를 포함한 전체 폴더를 압축하여 다운로드 제공"""
+    memory_file = io.BytesIO()
+    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+        # 1. DB 백업
+        db_path = os.path.join(DB_DIR, 'journal.db')
+        if os.path.exists(db_path):
+            zf.write(db_path, arcname='db/journal.db')
+        
+        # 2. 이미지 폴더 백업
+        for root, dirs, files in os.walk(UPLOAD_FOLDER):
+            for file in files:
+                file_path = os.path.join(root, file)
+                arcname = os.path.relpath(file_path, start='.')
+                zf.write(file_path, arcname=arcname)
+                
+    memory_file.seek(0)
+    
+    # 파일명에 현재 날짜와 시간 추가 (예: TradingJournal_backup_20231027_153000.zip)
+    current_time = time.strftime('%Y%m%d_%H%M%S')
+    filename = f'TradingJournal_backup_{current_time}.zip'
+    
+    return send_file(memory_file, download_name=filename, as_attachment=True)
+
+@app.route('/api/restore', methods=['POST'])
+def full_restore():
+    """백업 받은 ZIP 파일을 해제하여 DB 및 업로드 이미지를 완벽 원복"""
+    if 'file' not in request.files:
+        return jsonify({'error': '업로드된 파일이 없습니다.'}), 400
+        
+    file = request.files['file']
+    if file.filename == '' or not file.filename.endswith('.zip'):
+        return jsonify({'error': '유효하지 않은 파일입니다. .zip 백업 파일을 업로드해주세요.'}), 400
+        
+    temp_dir = tempfile.mkdtemp()
+    try:
+        with zipfile.ZipFile(file, 'r') as zf:
+            zf.extractall(temp_dir)
+            
+        temp_db = os.path.join(temp_dir, 'db', 'journal.db')
+        if not os.path.exists(temp_db):
+            return jsonify({'error': '손상된 백업 파일입니다. (DB 파일을 찾을 수 없습니다)'}), 400
+            
+        # 1. 기존 DB 덮어쓰기
+        shutil.copy2(temp_db, os.path.join(DB_DIR, 'journal.db'))
+        
+        # 2. 기존 이미지 폴더 날리고 덮어쓰기
+        temp_uploads = os.path.join(temp_dir, 'uploads')
+        for f in os.listdir(UPLOAD_FOLDER):
+            file_path = os.path.join(UPLOAD_FOLDER, f)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+                
+        if os.path.exists(temp_uploads):
+            for f in os.listdir(temp_uploads):
+                src_path = os.path.join(temp_uploads, f)
+                if os.path.isfile(src_path):
+                    shutil.copy2(src_path, os.path.join(UPLOAD_FOLDER, f))
+                    
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        shutil.rmtree(temp_dir)
 
 if __name__ == '__main__':
     init_db()

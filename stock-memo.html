@@ -27,9 +27,13 @@
         <div class="logo">
             <span class="logo-text">TRADING JOURNAL</span>
         </div>
-        <!-- ⭐️ 로그아웃 버튼 추가 -->
-        <div style="margin-left: auto;">
-            <button type="button" id="btnLogout" class="btn-logout" title="안전하게 로그아웃">로그아웃</button>
+        <!-- ⭐️ 데이터 관리 및 로그아웃 버튼 -->
+        <div style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
+            <input type="file" id="restoreFileInput" accept=".zip" style="display:none;">
+            <button type="button" id="btnFullBackup" class="btn-edit" style="margin: 0; padding: 4px 8px; font-size: 11px; background-color: var(--success-color); color: white; border: none;" title="모든 데이터와 이미지를 ZIP 파일로 백업">완벽 백업</button>
+            <button type="button" id="btnFullRestore" class="btn-edit" style="margin: 0; padding: 4px 8px; font-size: 11px; background-color: var(--warning-color); color: white; border: none;" title="ZIP 백업 파일로 완벽 원복">백업 원복</button>
+            <button type="button" id="btnExportExcel" class="btn-edit" style="margin: 0; padding: 4px 8px; font-size: 11px; background-color: var(--primary-color); color: white; border: none;" title="Excel 파일 내보내기">엑셀 내보내기</button>
+            <button type="button" id="btnLogout" class="btn-logout" style="margin: 0; padding: 4px 8px; font-size: 11px;" title="안전하게 로그아웃">로그아웃</button>
         </div>
     </header>
 
@@ -186,9 +190,6 @@
                 <h2 class="section-title" style="margin: 0;">TRADE HISTORY</h2>
                 <button type="button" id="btnToggleHistoryClosed" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="청산(매도 완료) 종목 숨기기/보기">청산 종목 숨기기</button>
             </div>
-            <div class="header-right" style="gap: 8px;">
-                <input type="file" id="excelFileInput" accept=".xlsx, .xls" style="display:none;">
-            </div>
         </div>
 
         <div class="view-toggle">
@@ -244,10 +245,6 @@
                             <span class="slider round"></span>
                         </label>
                     </div>
-                </div>
-                <div style="display: flex; gap: 5px;">
-                    <button id="btnImportExcel" class="btn-edit" style="margin: 0; padding: 4px 6px; font-size: 11px; background-color: var(--warning-color); color: white; border: none;" title="Excel 파일 가져오기">가져오기</button>
-                    <button id="btnExportExcel" class="btn-edit" style="margin: 0; padding: 4px 6px; font-size: 11px; background-color: var(--success-color); color: white; border: none;" title="Excel 파일 내보내기">내보내기</button>
                 </div>
             </div>
 
