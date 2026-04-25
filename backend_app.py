@@ -208,55 +208,62 @@ def login():
         <html lang="ko">
         <head>
             <meta charset="UTF-8">
-            <title>주식 매매 일지 - 로그인</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>TRADING JOURNAL - 로그인</title>
+            <meta name="apple-mobile-web-app-capable" content="yes">
+            <meta name="apple-mobile-web-app-title" content="TRADING JOURNAL">
+            <meta name="theme-color" content="#121212">
             <link rel="shortcut icon" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
             <link rel="icon" type="image/png" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
             <link rel="apple-touch-icon" sizes="180x180" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
             <style>
-                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #121212; margin: 0; color: #ccc; }
-                .login-container { background: #1e1e1e; padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); text-align: center; width: 300px; }
-                h2 { margin-top: 0; color: #cccccc; }
+                body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: linear-gradient(135deg, #121212 0%, #1a1a2e 100%); margin: 0; color: #e0e0e0; }
+                .login-container { background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 40px 35px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 320px; }
+                .logo-text { font-size: 26px; font-weight: 800; font-style: italic; color: #ffffff; letter-spacing: -1px; margin-bottom: 30px; display: flex; align-items: center; justify-content: center; gap: 8px; }
                 input[type="text"],
                 input[type="password"] {
                     width: 100%; 
                     box-sizing: border-box; 
-                    padding: 12px; 
-                    margin: 10px 0 20px 0; 
+                    padding: 14px; 
+                    margin: 0 0 15px 0; 
                     border: 1px solid #333; 
-                    border-radius: 6px; 
+                    border-radius: 8px; 
                     font-size: 15px; 
-                    background-color: #121212; 
-                    color: #ccc;
-                    transition: border-color 0.2s, box-shadow 0.2s;
+                    background-color: rgba(18, 18, 18, 0.8); 
+                    color: #fff;
+                    transition: all 0.3s ease;
                 }
                 input[type="text"]::placeholder,
                 input[type="password"]::placeholder {
-                    color: #777;
+                    color: #666;
                 }
                 input[type="text"]:focus,
                 input[type="password"]:focus {
                     border-color: #3b688c;
                     outline: none;
-                    box-shadow: 0 0 0 2px rgba(59, 104, 140, 0.5);
+                    box-shadow: 0 0 0 3px rgba(59, 104, 140, 0.3);
+                    background-color: #121212;
                 }
                 button { 
-                    width: 100%; padding: 14px; background-color: #3b688c; color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; 
-                    transition: transform 0.2s, background-color 0.2s, box-shadow 0.2s; 
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+                    width: 100%; padding: 14px; margin-top: 10px; background: linear-gradient(135deg, #3b688c 0%, #2a5298 100%); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; 
+                    transition: all 0.3s ease; 
+                    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
                 }
                 button:hover { 
-                    background-color: #3498db; 
                     transform: translateY(-2px);
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.7);
+                    box-shadow: 0 6px 20px rgba(42, 82, 152, 0.5);
+                    background: linear-gradient(135deg, #4b789c 0%, #3a62a8 100%); 
                 }
             </style>
         </head>
         <body>
             <div class="login-container">
-                <h2>🔒 주식 매매 일지</h2>
+                <div class="logo-text">
+                    <span style="font-style: normal;">📊</span> TRADING JOURNAL
+                </div>
                 <form method="post">
                     <input type="text" name="username" placeholder="아이디를 입력하세요" required autofocus>
-                    <input type="password" name="password" placeholder="비밀번호를 입력하세요" required autofocus>
+                    <input type="password" name="password" placeholder="비밀번호를 입력하세요" required>
                     <button type="submit">접속하기</button>
                 </form>
             </div>
