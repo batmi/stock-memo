@@ -219,7 +219,7 @@ def login():
             <style>
                 body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: linear-gradient(135deg, #121212 0%, #1a1a2e 100%); margin: 0; color: #e0e0e0; }
                 .login-container { background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 40px 35px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 320px; }
-                .logo-text { font-size: 26px; font-weight: 800; font-style: italic; color: #ffffff; letter-spacing: -1px; margin-bottom: 30px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+                .logo-text { font-size: 28px; font-weight: 900; font-style: italic; background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -1px; margin-bottom: 30px; display: flex; align-items: center; justify-content: center; }
                 input[type="text"],
                 input[type="password"] {
                     width: 100%; 
@@ -239,27 +239,27 @@ def login():
                 }
                 input[type="text"]:focus,
                 input[type="password"]:focus {
-                    border-color: #3b688c;
+                    border-color: #8a2be2;
                     outline: none;
-                    box-shadow: 0 0 0 3px rgba(59, 104, 140, 0.3);
+                    box-shadow: 0 0 0 3px rgba(138, 43, 226, 0.3);
                     background-color: #121212;
                 }
                 button { 
-                    width: 100%; padding: 14px; margin-top: 10px; background: linear-gradient(135deg, #3b688c 0%, #2a5298 100%); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; 
+                    width: 100%; padding: 14px; margin-top: 10px; background: linear-gradient(135deg, #9d4edd 0%, #7b2cbf 100%); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; 
                     transition: all 0.3s ease; 
                     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
                 }
                 button:hover { 
                     transform: translateY(-2px);
-                    box-shadow: 0 6px 20px rgba(42, 82, 152, 0.5);
-                    background: linear-gradient(135deg, #4b789c 0%, #3a62a8 100%); 
+                    box-shadow: 0 6px 20px rgba(123, 44, 191, 0.5);
+                    background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); 
                 }
             </style>
         </head>
         <body>
             <div class="login-container">
                 <div class="logo-text">
-                    <span style="font-style: normal;">📊</span> TRADING JOURNAL
+                    TRADING JOURNAL
                 </div>
                 <form method="post">
                     <input type="text" name="username" placeholder="아이디를 입력하세요" required autofocus>
