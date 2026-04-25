@@ -174,9 +174,8 @@ def login():
         # 현재 차단된 상태인지 확인
         if current_time < record['lockout_until']:
             remaining = int(record['lockout_until'] - current_time)
-        else:
             error_message = f"로그인 5회 실패로 차단되었습니다. {remaining}초 후에 다시 시도해주세요."
-            
+        else:
             username = request.form.get('username')
             password = request.form.get('password')
             
