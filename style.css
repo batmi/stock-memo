@@ -476,7 +476,13 @@ button:hover {
 .profit-positive { color: var(--danger-color); font-weight: bold; }
 .profit-negative { color: var(--primary-color); font-weight: bold; }
 .portfolio-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
-.portfolio-card { background: var(--card-bg-color); padding: 12px; border-radius: 8px; border-left: 4px solid var(--border-color); box-shadow: var(--dashboard-card-shadow); transition: transform 0.2s, box-shadow 0.2s, border-left-color 0.2s; cursor: pointer; }
+.portfolio-card { 
+    background: var(--card-bg-color); padding: 12px; border-radius: 8px; border-left: 4px solid var(--border-color); 
+    box-shadow: var(--dashboard-card-shadow); transition: transform 0.2s, box-shadow 0.2s, border-left-color 0.2s; 
+    cursor: grab; 
+    -webkit-user-select: none; -moz-user-select: none; user-select: none; 
+    -webkit-touch-callout: none;
+}
 .portfolio-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
 [data-theme="dark"] .portfolio-card:hover { box-shadow: 0 4px 15px rgba(0,0,0,0.7); }
 .portfolio-card .stock-name { font-weight: bold; font-size: 1em; color: var(--text-strong-color); margin-bottom: 6px; }
@@ -487,8 +493,18 @@ button:hover {
 .account-badge { font-size: 10.5px; padding: 2px 5px; border-radius: 4px; margin-right: 5px; font-weight: bold; }
 /* ⭐️ 드래그 앤 드롭 중인 카드의 임시 시각 효과 */
 .sortable-ghost {
-    opacity: 0.4;
+    opacity: 0.2;
     background-color: var(--border-light-color);
+    border: 2px dashed var(--primary-color) !important;
+}
+/* ⭐️ 떠오른(드래그 중인) 카드의 부드러운 입체 효과 */
+.sortable-drag, .sortable-fallback {
+    opacity: 0.95 !important;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.25) !important;
+    cursor: grabbing !important;
+    background-color: var(--card-bg-color) !important;
+    z-index: 9999 !important;
+    transition: none !important; /* ⭐️ 핵심: 터치 드래그 시 카드가 늦게 따라오는(Rubber-band) 지연 현상 제거 */
 }
 .badge-long { background-color: #e0f2fe; color: #0369a1; }
 .badge-mid { background-color: #dcfce7; color: #15803d; }

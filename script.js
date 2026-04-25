@@ -1037,10 +1037,16 @@ function updatePortfolioSummary() {
     
     if (portfolioArray.length > 0 && !isDashboardCollapsed) {
         portfolioSortable = Sortable.create(portfolioGrid, {
-            animation: 150,
+            animation: 300, // ⭐️ 카드가 밀려날 때 더 부드럽고 천천히 이동
+            easing: "cubic-bezier(0.25, 1, 0.5, 1)", // ⭐️ 부드러운 가감속 효과
             ghostClass: 'sortable-ghost',
-            delay: 150, // 모바일에서 스크롤 시 오작동 방지를 위해 약간 딜레이(0.15초 길게 누르기)
+            dragClass: 'sortable-drag',
+            forceFallback: true, // ⭐️ 모바일 환경에서 카드가 손가락을 정확히 따라오도록 강제 폴백 렌더링
+            fallbackClass: 'sortable-fallback',
+            fallbackOnBody: true, // ⭐️ 드래그 중인 카드가 그리드 영역에 갇히지 않고 웹처럼 자유롭게 전체 화면을 이동하도록 설정
+            delay: 150, // 더 빠르고 직관적인 터치 반응을 위해 딜레이 단축 (0.15초)
             delayOnTouchOnly: true,
+            touchStartThreshold: 5, // ⭐️ 5px 이상 터치가 미끄러지면 스크롤로 인식하여 드래그 취소 (모바일 안정성)
             onEnd: function () {
                 const newOrder = portfolioSortable.toArray(); // 새로 정렬된 식별자 배열
                 let updatedOrder = [...newOrder];
