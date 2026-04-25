@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+import sys
+# tmux 등 환경에서 이모지 출력 시 발생하는 UnicodeEncodeError 방지를 위해 표준 출력을 강제로 UTF-8로 지정
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 import json
 import os
 import sqlite3
