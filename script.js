@@ -12,6 +12,8 @@ let currentFilteredEntries = [];
 let currentRenderPage = 1;
 const entriesPerPage = 15;
 let lastRenderedMonth = '';
+let userPreferences = {};       // ⭐️ 사용자별 설정(포트폴리오 정렬 순서 등) 저장
+let portfolioSortable = null;   // ⭐️ SortableJS 드래그 앤 드롭 인스턴스
 
 // ⭐️ 공통 스크롤 함수: 스크롤 튐 현상을 막기 위해 window.scrollTo 절대 좌표 사용
 window.scrollToFilterBox = function() {
@@ -171,6 +173,16 @@ window.addEventListener('DOMContentLoaded', () => {
 
 async function loadDataFromLocal() {
     try {
+        // ⭐️ 사용자 환경설정 먼저 불러오기
+        try {
+            const prefRes = await fetch('/api/preferences');
+            if (prefRes.ok) {
+                userPreferences = await prefRes.json();
+            }
+        } catch (e) {
+            console.warn("환경설정 로드 실패:", e);
+        }
+        
         const response = await fetch('/api/data');
         cloudEntries = await response.json();
         displayEntries();
@@ -199,6 +211,19 @@ async function saveToLocal(reload = false) {
     } catch (err) {
         console.error("저장 실패:", err);
         alert("데이터베이스에 저장하는 중 오류가 발생했습니다.");
+    }
+}
+
+// ⭐️ 환경설정(사용자가 정렬한 카드 순서)을 DB에 저장
+async function savePreferences() {
+    try {
+        await fetch('/api/preferences', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(userPreferences)
+        });
+    } catch (err) {
+        console.error("환경설정 저장 실패:", err);
     }
 }
 
@@ -880,6 +905,17 @@ function updatePortfolioSummary() {
         if (a.isClosed !== b.isClosed) {
             return a.isClosed ? 1 : -1;
         }
+        
+        // ⭐️ 사용자가 드래그 앤 드롭으로 설정한 커스텀 순서가 있다면 최우선 적용
+        if (userPreferences.portfolioOrder) {
+            const idxA = userPreferences.portfolioOrder.indexOf(a.stock);
+            const idxB = userPreferences.portfolioOrder.indexOf(b.stock);
+            
+            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+            if (idxA !== -1) return -1;
+            if (idxB !== -1) return 1;
+        }
+        
         const orderA = sortOrder[a.accountName] || 99;
         const orderB = sortOrder[b.accountName] || 99;
         if (orderA !== orderB) return orderA - orderB;
@@ -926,6 +962,7 @@ function updatePortfolioSummary() {
         
         const card = document.createElement('div');
         card.className = `portfolio-card ${cardBorderClass}`;
+        card.setAttribute('data-id', stock); // ⭐️ 드래그 앤 드롭 정렬을 위한 식별자 추가
         if (isClosed) {
             card.style.opacity = '0.6'; // 청산 종목은 반투명하게 표시
             card.style.borderLeftColor = 'var(--text-muted-color)';
@@ -990,6 +1027,32 @@ function updatePortfolioSummary() {
     const brokerFilterEl = document.getElementById('dashboardBrokerFilter');
     if (brokerFilterEl && brokerFilterEl.parentElement) {
         brokerFilterEl.parentElement.style.display = isDashboardCollapsed ? 'none' : 'flex';
+    }
+    
+    // ⭐️ SortableJS 드래그 앤 드롭 활성화
+    if (portfolioSortable) {
+        portfolioSortable.destroy();
+        portfolioSortable = null;
+    }
+    
+    if (portfolioArray.length > 0 && !isDashboardCollapsed) {
+        portfolioSortable = Sortable.create(portfolioGrid, {
+            animation: 150,
+            ghostClass: 'sortable-ghost',
+            delay: 150, // 모바일에서 스크롤 시 오작동 방지를 위해 약간 딜레이(0.15초 길게 누르기)
+            delayOnTouchOnly: true,
+            onEnd: function () {
+                const newOrder = portfolioSortable.toArray(); // 새로 정렬된 식별자 배열
+                let updatedOrder = [...newOrder];
+                if (userPreferences.portfolioOrder) {
+                    userPreferences.portfolioOrder.forEach(stk => {
+                        if (!updatedOrder.includes(stk)) updatedOrder.push(stk);
+                    });
+                }
+                userPreferences.portfolioOrder = updatedOrder;
+                savePreferences();
+            }
+        });
     }
     
     const theme = document.documentElement.getAttribute('data-theme') || 'light';

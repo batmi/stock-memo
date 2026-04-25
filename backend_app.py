@@ -99,6 +99,12 @@ def init_db():
         c.execute("ALTER TABLE entries ADD COLUMN tags TEXT")
     except sqlite3.OperationalError:
         pass
+        
+    # 사용자별 환경 설정(카드 순서 등) 저장을 위한 컬럼 추가
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN preferences TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     
     # ⭐️ 기본 사용자(batmi) 계정이 없으면 암호화하여 DB에 생성
@@ -184,6 +190,7 @@ def login():
             record['count'] = 0
             record['lockout_until'] = 0
             session['logged_in'] = True
+            session['username'] = username # ⭐️ 계정별 설정 저장을 위해 세션에 저장
             return redirect(url_for('index'))
         else:
             record['count'] += 1
@@ -331,6 +338,37 @@ def save_data():
             entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', '')
         ))
         
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success"})
+
+@app.route('/api/preferences', methods=['GET'])
+def get_preferences():
+    username = session.get('username')
+    if not username:
+        return jsonify({}), 401
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT preferences FROM users WHERE username = ?", (username,))
+    row = c.fetchone()
+    conn.close()
+    prefs = {}
+    if row and row['preferences']:
+        try:
+            prefs = json.loads(row['preferences'])
+        except Exception:
+            pass
+    return jsonify(prefs)
+
+@app.route('/api/preferences', methods=['POST'])
+def save_preferences():
+    username = session.get('username')
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    prefs = request.json
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE users SET preferences = ? WHERE username = ?", (json.dumps(prefs), username))
     conn.commit()
     conn.close()
     return jsonify({"status": "success"})
