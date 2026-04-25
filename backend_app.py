@@ -168,52 +168,39 @@ def login():
         login_attempts[client_ip] = {'count': 0, 'lockout_until': 0}
         
     record = login_attempts[client_ip]
+    error_message = None
     
     if request.method == 'POST':
         # 현재 차단된 상태인지 확인
         if current_time < record['lockout_until']:
             remaining = int(record['lockout_until'] - current_time)
-            return render_template_string('''
-                <script>
-                    alert("로그인 5회 실패로 차단되었습니다.\\n{{ remaining }}초 후에 다시 시도해주세요.");
-                    window.location.href = "{{ url_for('login') }}";
-                </script>
-            ''', remaining=remaining)
-            
-        username = request.form.get('username')
-        password = request.form.get('password')
-        
-        # DB에서 입력한 아이디와 일치하는 암호화된 비밀번호 조회
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
-        user_record = c.fetchone()
-        conn.close()
-        
-        # 계정이 존재하고, 입력한 비밀번호와 DB의 해시값이 일치하는지 검증
-        if user_record and check_password_hash(user_record['password_hash'], password):
-            record['count'] = 0
-            record['lockout_until'] = 0
-            session['logged_in'] = True
-            session['username'] = username # ⭐️ 계정별 설정 저장을 위해 세션에 저장
-            return redirect(url_for('index'))
         else:
-            record['count'] += 1
-            if record['count'] >= 5:
-                record['lockout_until'] = current_time + 60
-                return render_template_string('''
-                    <script>
-                        alert("비밀번호 5회 연속 실패! 1분 동안 로그인이 차단됩니다.");
-                        window.location.href = "{{ url_for('login') }}";
-                    </script>
-                ''')
-                
-            return render_template_string('''
-                <script>
-                    alert("아이디 또는 비밀번호가 일치하지 않습니다. (실패 횟수: {{ count }}/5)");
-                    window.location.href = "{{ url_for('login') }}";
-                </script>
-            ''', count=record['count'])
+            error_message = f"로그인 5회 실패로 차단되었습니다. {remaining}초 후에 다시 시도해주세요."
+            
+            username = request.form.get('username')
+            password = request.form.get('password')
+            
+            # DB에서 입력한 아이디와 일치하는 암호화된 비밀번호 조회
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+            user_record = c.fetchone()
+            conn.close()
+            
+            # 계정이 존재하고, 입력한 비밀번호와 DB의 해시값이 일치하는지 검증
+            if user_record and check_password_hash(user_record['password_hash'], password):
+                record['count'] = 0
+                record['lockout_until'] = 0
+                session['logged_in'] = True
+                session['username'] = username # ⭐️ 계정별 설정 저장을 위해 세션에 저장
+                return redirect(url_for('index'))
+            else:
+                record['count'] += 1
+                if record['count'] >= 5:
+                    record['lockout_until'] = current_time + 60
+                    error_message = "비밀번호 5회 연속 실패! 1분 동안 로그인이 차단됩니다."
+                else:
+                    error_message = f"아이디 또는 비밀번호가 일치하지 않습니다. (실패 횟수: {record['count']}/5)"
     
     return render_template_string('''
         <!DOCTYPE html>
@@ -230,17 +217,17 @@ def login():
             <link rel="apple-touch-icon" sizes="180x180" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
             <style>
                 body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: linear-gradient(135deg, #121212 0%, #1a1a2e 100%); margin: 0; color: #e0e0e0; }
-                .login-container { background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 40px 35px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 320px; }
-                .logo-text { font-size: 28px; font-weight: 900; font-style: italic; background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -1px; margin-bottom: 30px; display: flex; align-items: center; justify-content: center; }
+                .login-container { background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 35px 25px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 290px; }
+                .logo-text { font-size: 24px; font-weight: 900; font-style: italic; background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -1px; margin-bottom: 25px; display: flex; align-items: center; justify-content: center; }
                 input[type="text"],
                 input[type="password"] {
                     width: 100%; 
                     box-sizing: border-box; 
-                    padding: 14px; 
+                    padding: 12px; 
                     margin: 0 0 15px 0; 
                     border: 1px solid #333; 
                     border-radius: 8px; 
-                    font-size: 15px; 
+                    font-size: 14px; 
                     background-color: rgba(18, 18, 18, 0.8); 
                     color: #fff;
                     transition: all 0.3s ease;
@@ -257,7 +244,7 @@ def login():
                     background-color: #121212;
                 }
                 button { 
-                    width: 100%; padding: 14px; margin-top: 10px; background: linear-gradient(135deg, #9d4edd 0%, #7b2cbf 100%); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; 
+                    width: 100%; padding: 12px; margin-top: 10px; background: linear-gradient(135deg, #9d4edd 0%, #7b2cbf 100%); color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; 
                     transition: all 0.3s ease; 
                     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
                 }
@@ -266,9 +253,37 @@ def login():
                     box-shadow: 0 6px 20px rgba(123, 44, 191, 0.5);
                     background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); 
                 }
+                .error-banner {
+                    position: fixed;
+                    top: 20px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: rgba(231, 76, 60, 0.95);
+                    color: white;
+                    padding: 12px 24px;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4);
+                    font-size: 14px;
+                    font-weight: bold;
+                    z-index: 1000;
+                    backdrop-filter: blur(5px);
+                    -webkit-backdrop-filter: blur(5px);
+                    opacity: 0;
+                    pointer-events: none;
+                    animation: slideDownFadeOut 3.5s ease-in-out forwards;
+                }
+                @keyframes slideDownFadeOut {
+                    0% { top: -20px; opacity: 0; }
+                    10% { top: 20px; opacity: 1; }
+                    80% { top: 20px; opacity: 1; }
+                    100% { top: -20px; opacity: 0; }
+                }
             </style>
         </head>
         <body>
+            {% if error_message %}
+            <div class="error-banner">⚠️ {{ error_message }}</div>
+            {% endif %}
             <div class="login-container">
                 <div class="logo-text">
                     TRADING JOURNAL
@@ -281,7 +296,7 @@ def login():
             </div>
         </body>
         </html>
-    ''')
+    ''', error_message=error_message)
 
 @app.route('/logout')
 def logout():
