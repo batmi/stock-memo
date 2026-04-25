@@ -5,7 +5,7 @@ cd /home/batmi/stock-memo
 tmux new-session -d -s stock-memo -n "Backend App" '/usr/bin/bash -c "cd /home/batmi/stock-memo && ./backend_app.py; echo \"Process exited. Press Enter to close...\"; read"'
 
 # 2. localhost.run 창 추가 (두 번째 윈도우)
-tmux new-window -t stock-memo -n "ngrok" '/usr/bin/bash -c "cd /home/batmi/my-stock-hts && ngrok http --domain=letdown-heap-fructose.ngrok-free.dev 5000; echo \"Process exited. Press Enter to close...\"; read"'
+tmux new-window -t stock-memo -n "ngrok" '/usr/bin/bash -c "cd /home/batmi/my-stock-hts && /usr/local/bin/ngrok http --domain=letdown-heap-fructose.ngrok-free.dev 5000; echo \"Process exited. Press Enter to close...\"; read"'
 
 # 3. System Trading 윈도우로 이동 (첫 번째 선택)
 #tmux select-window -t stock-hts:0
