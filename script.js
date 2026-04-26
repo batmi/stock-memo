@@ -175,7 +175,9 @@ async function loadDataFromLocal() {
     try {
         // ⭐️ 사용자 환경설정 먼저 불러오기
         try {
-            const prefRes = await fetch('/api/preferences');
+            const prefRes = await fetch('/api/preferences', {
+                headers: { 'ngrok-skip-browser-warning': 'true' }
+            });
             if (prefRes.ok) {
                 userPreferences = await prefRes.json();
             }
@@ -183,7 +185,9 @@ async function loadDataFromLocal() {
             console.warn("환경설정 로드 실패:", e);
         }
         
-        const response = await fetch('/api/data');
+        const response = await fetch('/api/data', {
+            headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
         cloudEntries = await response.json();
         displayEntries();
         
@@ -200,7 +204,10 @@ async function saveToLocal(reload = false) {
     try {
         await fetch('/api/data', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'ngrok-skip-browser-warning': 'true'
+            },
             body: JSON.stringify(cloudEntries)
         });
         if (reload) {
@@ -219,7 +226,10 @@ async function savePreferences() {
     try {
         await fetch('/api/preferences', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'ngrok-skip-browser-warning': 'true'
+            },
             body: JSON.stringify(userPreferences)
         });
     } catch (err) {
@@ -255,7 +265,10 @@ async function fetchRealtimeNews() {
         newsListEl.innerHTML = '<div style="text-align:center; padding: 20px;">🔄 실시간 뉴스를 불러오는 중...</div>';
         const response = await fetch('/api/news', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'ngrok-skip-browser-warning': 'true'
+            },
             body: JSON.stringify({ stocks: stocksToFetch })
         });
         const newsData = await response.json();
@@ -697,7 +710,9 @@ if (btnFullBackup) {
     btnFullBackup.addEventListener('click', () => {
         if (confirm('에디터 서식(폰트 등) 및 첨부 이미지를 포함한 모든 데이터를 완벽하게 백업합니다.\n다운로드를 진행하시겠습니까?')) {
             document.body.style.cursor = 'wait';
-            fetch('/api/backup')
+            fetch('/api/backup', {
+                headers: { 'ngrok-skip-browser-warning': 'true' }
+            })
                 .then(response => {
                     if (!response.ok) throw new Error('Network response was not ok');
                     let filename = 'TradingJournal_backup.zip';
@@ -752,6 +767,7 @@ if (btnFullRestore && restoreFileInput) {
             document.body.style.cursor = 'wait'; // 로딩 커서
             const response = await fetch('/api/restore', {
                 method: 'POST',
+                headers: { 'ngrok-skip-browser-warning': 'true' },
                 body: formData
             });
             
