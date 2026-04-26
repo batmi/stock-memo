@@ -243,7 +243,7 @@ body {
     padding: 20px;
     border-radius: 12px;
     box-shadow: var(--card-shadow);
-    width: 100%; max-width: 605px; max-height: 90vh; overflow-y: auto;
+    width: 100%; max-width: 610px; max-height: 90vh; overflow-y: auto;
     animation: slideInUp 0.3s ease-out forwards;
 }
 .form-group {
