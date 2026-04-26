@@ -270,9 +270,11 @@ async function fetchRealtimeNews() {
     const portfolioQty = {};
     cloudEntries.forEach(entry => {
         if (entry.type === 'trade' && entry.stockName) {
-            if (portfolioQty[entry.stockName] === undefined) portfolioQty[entry.stockName] = 0;
-            if (entry.tradeType === '매수') portfolioQty[entry.stockName] += (Number(entry.quantity) || 0);
-            else if (entry.tradeType === '매도') portfolioQty[entry.stockName] -= (Number(entry.quantity) || 0);
+            if (entry.tradeType === '매수' || entry.tradeType === '매도') {
+                if (portfolioQty[entry.stockName] === undefined) portfolioQty[entry.stockName] = 0;
+                if (entry.tradeType === '매수') portfolioQty[entry.stockName] += (Number(entry.quantity) || 0);
+                else if (entry.tradeType === '매도') portfolioQty[entry.stockName] -= (Number(entry.quantity) || 0);
+            }
         }
     });
 
@@ -532,9 +534,9 @@ function toggleFormUI(recordType) {
     document.getElementById('tradeRow2').style.display = isTrade ? 'flex' : 'none';
     document.getElementById('memoTitleGroup').style.display = isTrade ? 'none' : 'block';
     document.getElementById('brokerAccountGroup').style.display = isTrade ? 'block' : 'none';
+    document.getElementById('stockNameGroup').style.display = isTrade ? 'block' : 'none';
     
     document.getElementById('stockName').required = isTrade;
-    document.getElementById('stockName').placeholder = isTrade ? "검색 또는 직접 입력 (예: 삼성전자)" : "종목명 (메모 시 생략 가능)";
     
     const accountNameEl = document.getElementById('accountName');
     if (accountNameEl) accountNameEl.required = isTrade;
@@ -721,7 +723,7 @@ journalForm.addEventListener('submit', async function(e) {
         };
     } else {
         const memoTitle = document.getElementById('memoTitle').value;
-        newEntry = { id: editingEntryId || Date.now(), type: 'memo', stockName, title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: currentAttachedImage, createdAt, updatedAt: nowIso, tags: currentTags.join(',') };
+        newEntry = { id: editingEntryId || Date.now(), type: 'memo', stockName: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: currentAttachedImage, createdAt, updatedAt: nowIso, tags: currentTags.join(',') };
     }
 
     if (editingEntryId) {
@@ -1385,9 +1387,11 @@ function displayEntries(isFilterUpdate = false) {
     const stockQtys = {};
     cloudEntries.forEach(entry => {
         if (entry.type === 'trade' && entry.stockName) {
-            if (stockQtys[entry.stockName] === undefined) stockQtys[entry.stockName] = 0;
-            if (entry.tradeType === '매수') stockQtys[entry.stockName] += (Number(entry.quantity) || 0);
-            else if (entry.tradeType === '매도') stockQtys[entry.stockName] -= (Number(entry.quantity) || 0);
+            if (entry.tradeType === '매수' || entry.tradeType === '매도') {
+                if (stockQtys[entry.stockName] === undefined) stockQtys[entry.stockName] = 0;
+                if (entry.tradeType === '매수') stockQtys[entry.stockName] += (Number(entry.quantity) || 0);
+                else if (entry.tradeType === '매도') stockQtys[entry.stockName] -= (Number(entry.quantity) || 0);
+            }
         }
     });
 
@@ -1453,7 +1457,10 @@ function displayEntries(isFilterUpdate = false) {
         
         // ⭐️ 청산 종목 숨기기 상태일 때 (보유 수량이 0인 종목을 검색 및 필터에서 제외)
         if (!showHistoryClosedPositions) {
-            if (entry.stockName && stockQtys[entry.stockName] !== undefined && stockQtys[entry.stockName] <= 0) return false; 
+            if (entry.stockName && stockQtys[entry.stockName] !== undefined && stockQtys[entry.stockName] <= 0) {
+                // 단, 사용자가 현재 지켜보기로 한 '관망' 또는 '주시' 포지션 기록은 예외적으로 숨기지 않음
+                if (entry.tradeType !== '관망' && entry.tradeType !== '주시') return false; 
+            }
         }
         
         return true;
@@ -1548,7 +1555,7 @@ function renderPage() {
         const tagsHtml = tagsArr.length > 0 ? `<div style="margin-top: 8px;">` + tagsArr.map(t => `<span class="history-tag">#${t}</span>`).join('') + `</div>` : '';
 
         if (entryType === 'memo') {
-            card.style.borderLeftColor = 'var(--primary-color)';
+            card.style.borderLeftColor = 'var(--success-color)';
             const stockBadge = entry.stockName ? `<span class="cal-badge memo" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏷️ ${entry.stockName}</span>` : '';
             const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.8em; color: var(--text-muted-color); font-weight: normal; margin-left: 8px;">🏦 ${entry.brokerAccount}</span>` : '';
             card.innerHTML = `
@@ -1567,7 +1574,7 @@ function renderPage() {
             if(entry.tradeType === '매도') typeColor = 'var(--primary-color)';
 
             let detailsHtml = '';
-            if (entry.tradeType !== '관망' && (entry.price > 0 || entry.quantity > 0)) {
+            if (entry.tradeType !== '관망' && entry.tradeType !== '주시' && (entry.price > 0 || entry.quantity > 0)) {
                 const priceStr = entry.price ? entry.price.toLocaleString() : '0';
                 const qtyStr = entry.quantity ? entry.quantity.toLocaleString() : '0';
                 const totalAmount = (entry.price * entry.quantity).toLocaleString();

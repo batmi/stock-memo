@@ -427,7 +427,7 @@ button:hover {
 .clear-input-btn:hover { color: var(--danger-hover-color); }
 .history-container { display: flex; flex-direction: column; gap: 10px; }
 .entry-card {
-    background-color: var(--card-bg-color); padding: 12px; border-left: 4px solid var(--warning-color);
+    background-color: var(--card-bg-color); padding: 12px; border-left: 4px solid var(--primary-color);
     border-radius: 4px; box-shadow: var(--entry-card-shadow);
 }
 .timeline-divider {
