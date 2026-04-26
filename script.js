@@ -12,6 +12,9 @@ let currentFilteredEntries = [];
 let currentRenderPage = 1;
 const entriesPerPage = 15;
 let lastRenderedMonth = '';
+let currentAttachedFile = null;
+let currentAttachedFileName = '';
+let pendingUploadFile = null;
 let userPreferences = {};       // ⭐️ 사용자별 설정(포트폴리오 정렬 순서 등) 저장
 let portfolioSortable = null;   // ⭐️ SortableJS 드래그 앤 드롭 인스턴스
 
@@ -230,6 +233,36 @@ window.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
+
+    // ⭐️ 일반 첨부파일 이벤트 연결
+    const btnAttachFile = document.getElementById('btnAttachFile');
+    const generalFileInput = document.getElementById('generalFileInput');
+    const attachedFileNameDisplay = document.getElementById('attachedFileNameDisplay');
+    const btnRemoveAttachedFile = document.getElementById('btnRemoveAttachedFile');
+
+    if (btnAttachFile && generalFileInput) {
+        btnAttachFile.addEventListener('click', () => generalFileInput.click());
+        generalFileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                pendingUploadFile = file;
+                currentAttachedFileName = file.name;
+                attachedFileNameDisplay.innerText = file.name;
+                btnRemoveAttachedFile.style.display = 'inline-block';
+            }
+        });
+    }
+
+    if (btnRemoveAttachedFile) {
+        btnRemoveAttachedFile.addEventListener('click', () => {
+            pendingUploadFile = null;
+            currentAttachedFile = null;
+            currentAttachedFileName = '';
+            if (generalFileInput) generalFileInput.value = '';
+            attachedFileNameDisplay.innerText = '선택된 파일 없음';
+            btnRemoveAttachedFile.style.display = 'none';
+        });
+    }
 
     loadDataFromLocal();
 });
@@ -535,6 +568,13 @@ function resetAndCloseForm() {
         renderTags();
         calcTotalAmount();
         
+        currentAttachedFile = null;
+        currentAttachedFileName = '';
+        pendingUploadFile = null;
+        if (document.getElementById('generalFileInput')) document.getElementById('generalFileInput').value = '';
+        if (document.getElementById('attachedFileNameDisplay')) document.getElementById('attachedFileNameDisplay').innerText = '선택된 파일 없음';
+        if (document.getElementById('btnRemoveAttachedFile')) document.getElementById('btnRemoveAttachedFile').style.display = 'none';
+
         if (window.quill) window.quill.setContents([]); // 에디터 초기화
         editingEntryId = null;
         submitBtn.innerText = "기록 저장하기";
@@ -713,6 +753,42 @@ journalForm.addEventListener('submit', async function(e) {
     const thoughts = thoughtsHTML === '<p><br></p>' ? '' : thoughtsHTML;
     const date = tradeDateRaw ? new Date(tradeDateRaw).toLocaleString() : new Date().toLocaleString();
     
+    // ⭐️ 첨부파일 업로드 처리
+    let finalAttachedFile = currentAttachedFile;
+    let finalAttachedFileName = currentAttachedFileName;
+    
+    if (pendingUploadFile) {
+        const formData = new FormData();
+        formData.append('file', pendingUploadFile);
+        try {
+            document.body.style.cursor = 'wait';
+            submitBtn.innerText = "업로드 중...";
+            const uploadRes = await fetch('/api/upload', {
+                method: 'POST',
+                headers: { 'ngrok-skip-browser-warning': 'true' },
+                body: formData
+            });
+            if (uploadRes.ok) {
+                const uploadData = await uploadRes.json();
+                finalAttachedFile = uploadData.url;
+                finalAttachedFileName = uploadData.filename;
+            } else {
+                alert("파일 첨부 실패");
+                document.body.style.cursor = 'default';
+                submitBtn.innerText = editingEntryId ? "기록 수정하기" : "기록 저장하기";
+                return;
+            }
+        } catch (e) {
+            console.error(e);
+            alert("파일 첨부 중 오류 발생");
+            document.body.style.cursor = 'default';
+            submitBtn.innerText = editingEntryId ? "기록 수정하기" : "기록 저장하기";
+            return;
+        } finally {
+            document.body.style.cursor = 'default';
+        }
+    }
+
     let newEntry;
     const nowIso = new Date().toISOString();
     let createdAt = nowIso;
@@ -733,11 +809,11 @@ journalForm.addEventListener('submit', async function(e) {
         newEntry = {
             id: editingEntryId || Date.now(), type: 'trade', stockName, brokerAccount, accountName,
             tradeType, price: price ? Number(price) : 0, quantity: quantity ? Number(quantity) : 0, thoughts, date, rawDate: tradeDateRaw, attachedImage: null,
-            createdAt, updatedAt: nowIso, tags: currentTags.join(',')
+            createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: finalAttachedFile, attachedFileName: finalAttachedFileName
         };
     } else {
         const memoTitle = document.getElementById('memoTitle').value;
-        newEntry = { id: editingEntryId || Date.now(), type: 'memo', stockName: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(',') };
+        newEntry = { id: editingEntryId || Date.now(), type: 'memo', stockName: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: finalAttachedFile, attachedFileName: finalAttachedFileName };
     }
 
     if (editingEntryId) {
@@ -1571,6 +1647,12 @@ function renderPage() {
         `;
         const tagsArr = entry.tags ? entry.tags.split(',').filter(Boolean) : [];
         const tagsHtml = tagsArr.length > 0 ? `<div style="margin-top: 8px;">` + tagsArr.map(t => `<span class="history-tag">#${t}</span>`).join('') + `</div>` : '';
+        const fileHtml = entry.attachedFile ? `
+            <div style="margin-top: 10px; padding: 8px 12px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 4px; display: inline-flex; align-items: center; gap: 8px; font-size: 12px;">
+                <span>📎</span>
+                <a href="${entry.attachedFile}" target="_blank" style="color: var(--primary-color); text-decoration: none; font-weight: bold; word-break: break-all;">${entry.attachedFileName || '첨부파일 다운로드'}</a>
+            </div>
+        ` : '';
 
         if (entryType === 'memo') {
             card.style.borderLeftColor = 'var(--info-color)';
@@ -1584,6 +1666,7 @@ function renderPage() {
                 <div class="entry-title">${stockBadge}${entry.title}${brokerBadge}</div>
                 <div class="entry-content ql-snow" style="border:none; padding:0;"><div class="ql-editor" style="padding:0; min-height:auto; font-family:inherit; font-size:inherit;">${entry.thoughts}</div></div>
                 ${tagsHtml}
+                ${fileHtml}
                 ${imageHtml}
             `;
         } else {
@@ -1632,6 +1715,7 @@ function renderPage() {
                 ${detailsHtml}
                 <div class="entry-content ql-snow" style="border:none; padding:0;"><div class="ql-editor" style="padding:0; min-height:auto; font-family:inherit; font-size:inherit;">${entry.thoughts}</div></div>
                 ${tagsHtml}
+                ${fileHtml}
                 ${imageHtml}
             `;
         }
@@ -1684,6 +1768,22 @@ function editEntry(entry) {
     renderTags();
     calcTotalAmount();
     
+    // 일반 첨부파일 로드
+    currentAttachedFile = entry.attachedFile || null;
+    currentAttachedFileName = entry.attachedFileName || '';
+    pendingUploadFile = null;
+    const generalFileInput = document.getElementById('generalFileInput');
+    const attachedFileNameDisplay = document.getElementById('attachedFileNameDisplay');
+    const btnRemoveAttachedFile = document.getElementById('btnRemoveAttachedFile');
+    if (generalFileInput) generalFileInput.value = '';
+    if (currentAttachedFileName && attachedFileNameDisplay && btnRemoveAttachedFile) {
+        attachedFileNameDisplay.innerText = currentAttachedFileName;
+        btnRemoveAttachedFile.style.display = 'inline-block';
+    } else if (attachedFileNameDisplay && btnRemoveAttachedFile) {
+        attachedFileNameDisplay.innerText = '선택된 파일 없음';
+        btnRemoveAttachedFile.style.display = 'none';
+    }
+
     // ⭐️ 수정 시 기존에 기록된 '기록 일시'를 가져와서 설정
     if (window.tradeDatePicker) {
         const originalDate = entry.rawDate || new Date(entry.id).toISOString().slice(0, 16);

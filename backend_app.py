@@ -5,6 +5,7 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
 import json
+import uuid
 import os
 import sqlite3
 import base64
@@ -78,7 +79,9 @@ def init_db():
             quantity REAL,
             createdAt TEXT,
             updatedAt TEXT,
-            tags TEXT
+            tags TEXT,
+            attachedFile TEXT,
+            attachedFileName TEXT
         )
     ''')
 
@@ -102,6 +105,14 @@ def init_db():
         pass
     try:
         c.execute("ALTER TABLE entries ADD COLUMN tags TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute("ALTER TABLE entries ADD COLUMN attachedFile TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute("ALTER TABLE entries ADD COLUMN attachedFileName TEXT")
     except sqlite3.OperationalError:
         pass
         
@@ -131,14 +142,15 @@ def init_db():
                     img_url = process_image(entry.get('attachedImage'), entry.get('id'))
                     c.execute('''
                         INSERT INTO entries 
-                        (id, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (id, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         entry.get('id'), entry.get('type'), entry.get('stockName'), entry.get('title'),
                         entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), img_url,
                         entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
                         entry.get('price', 0), entry.get('quantity', 0),
-                        entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', '')
+                        entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', ''),
+                        entry.get('attachedFile', ''), entry.get('attachedFileName', '')
                     ))
                 conn.commit()
                 print("✅ 데이터 마이그레이션 완료! (이제부터 db/journal.db와 uploads 폴더를 사용합니다)")
@@ -311,6 +323,20 @@ def uploaded_file(filename):
     # 분리되어 저장된 이미지 파일을 브라우저에 제공
     return send_from_directory(UPLOAD_FOLDER, filename)
 
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+    
+    filename = os.path.basename(file.filename)
+    safe_name = f"{int(time.time())}_{uuid.uuid4().hex[:6]}_{filename.replace(' ', '_')}"
+    filepath = os.path.join(UPLOAD_FOLDER, safe_name)
+    file.save(filepath)
+    return jsonify({'url': f'/uploads/{safe_name}', 'filename': file.filename})
+
 @app.route('/api/data', methods=['GET'])
 def get_data():
     conn = get_db()
@@ -330,7 +356,7 @@ def save_data():
     c = conn.cursor()
     
     # 삭제된 항목 처리 (DB에는 있는데 클라이언트가 안 보낸 ID 삭제)
-    c.execute("SELECT id, attachedImage FROM entries")
+    c.execute("SELECT id, attachedImage, attachedFile FROM entries")
     existing_entries = c.fetchall()
     
     for row in existing_entries:
@@ -340,6 +366,10 @@ def save_data():
                 filepath = os.path.join(UPLOAD_FOLDER, os.path.basename(row['attachedImage']))
                 if os.path.exists(filepath):
                     os.remove(filepath)
+            if row['attachedFile'] and row['attachedFile'].startswith('/uploads/'):
+                filepath = os.path.join(UPLOAD_FOLDER, os.path.basename(row['attachedFile']))
+                if os.path.exists(filepath):
+                    os.remove(filepath)
             c.execute("DELETE FROM entries WHERE id=?", (row['id'],))
 
     # 새로 추가되거나 수정된 항목 저장 (Upsert)
@@ -347,14 +377,15 @@ def save_data():
         img_url = process_image(entry.get('attachedImage'), entry.get('id'))
         c.execute('''
             INSERT OR REPLACE INTO entries 
-            (id, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             entry.get('id'), entry.get('type'), entry.get('stockName'), entry.get('title'),
             entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), img_url,
             entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
             entry.get('price', 0), entry.get('quantity', 0),
-            entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', '')
+            entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', ''),
+            entry.get('attachedFile', ''), entry.get('attachedFileName', '')
         ))
         
     conn.commit()
