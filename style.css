@@ -289,6 +289,18 @@ input[type="text"], select, input[type="number"], input[type="datetime-local"] {
     border: none !important;
     background: transparent !important;
 }
+/* ⭐️ 모바일 환경 Flatpickr(기록 일시) 네이티브 입력창 사이즈 통일 */
+input.flatpickr-input, input.flatpickr-mobile {
+    height: 36px !important;
+    padding: 8px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 6px !important;
+    background-color: var(--bg-color) !important;
+    color: var(--text-color) !important;
+    -webkit-appearance: none !important;
+}
 textarea {
     resize: vertical;
     height: 80px;

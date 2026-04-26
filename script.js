@@ -440,6 +440,7 @@ const defaultStocks = [
 
 btnFab.addEventListener('click', () => {
     formModalOverlay.style.display = 'flex';
+    document.body.style.overflow = 'hidden'; // ⭐️ 모달 열림 시 배경 스크롤 방지
 });
 
 btnCloseForm.addEventListener('click', resetAndCloseForm);
@@ -562,6 +563,7 @@ function resetAndCloseForm() {
     setTimeout(() => {
         formModalOverlay.style.display = 'none';
         formModalOverlay.classList.remove('closing');
+        document.body.style.overflow = ''; // ⭐️ 모달 닫힘 시 배경 스크롤 복구
         
         journalForm.reset();
         currentTags = [];
@@ -1747,6 +1749,7 @@ function editEntry(entry) {
     editingEntryId = entry.id;
 
     formModalOverlay.style.display = 'flex';
+    document.body.style.overflow = 'hidden'; // ⭐️ 모달 열림 시 배경 스크롤 방지
     
     const typeRadio = document.querySelector(`input[name="recordType"][value="${entry.type || 'trade'}"]`);
     if (typeRadio) {
@@ -1816,6 +1819,7 @@ window.openImageViewer = function(src, event) {
     const modal = document.getElementById('imageViewerModal');
     document.getElementById('fullSizeImage').src = src;
     modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden'; // ⭐️ 모달 열림 시 배경 스크롤 방지
 };
 
 let currentDate = new Date();
@@ -1947,7 +1951,7 @@ document.getElementById('btnNextMonth').addEventListener('click', () => { curren
 let ptrStartY = 0;
 let ptrCurrentY = 0;
 let isPulling = false;
-const ptrThreshold = 80; // 당겨야 하는 기준 픽셀
+const ptrThreshold = 150; // ⭐️ 당겨야 하는 기준 픽셀 (기존 80에서 증가시켜 민감도 대폭 낮춤)
 
 window.addEventListener('touchstart', (e) => {
     if (window.scrollY <= 0) {
@@ -1971,9 +1975,9 @@ window.addEventListener('touchmove', (e) => {
         const ptrText = document.getElementById('ptrText');
         if (ptrIndicator && ptrSpinner && ptrText) {
             ptrIndicator.style.opacity = Math.min(distance / 60, 1).toString();
-            // 화면에 더 묵직하게 당겨지도록 distance / 2 로 계산
-            ptrIndicator.style.top = `${Math.min((distance / 2) - 50, 0)}px`;
-            ptrSpinner.style.transform = `rotate(${distance * 2}deg)`;
+            // 화면에 더 묵직하게 당겨지도록 distance / 2.5 로 계산
+            ptrIndicator.style.top = `${Math.min((distance / 2.5) - 50, 0)}px`;
+            ptrSpinner.style.transform = `rotate(${distance * 1.5}deg)`;
             ptrText.innerText = distance > ptrThreshold ? '손을 놓아서 새로고침' : '아래로 당겨서 새로고침';
         }
     }
