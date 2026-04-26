@@ -678,8 +678,9 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 
 /* Quill 에디터 디자인 보정 및 다크모드 적용 */
 .ql-toolbar.ql-snow { font-family: inherit; border-color: var(--border-color); border-top-left-radius: 6px; border-top-right-radius: 6px; background: var(--card-bg-color); padding: 4px 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
-.ql-container.ql-snow { font-family: inherit; border-color: var(--border-color); border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; }
-.ql-editor { font-size: 13px; color: var(--text-color); }
+[data-theme="dark"] .ql-toolbar.ql-snow { border-color: var(--border-color); }
+.ql-container.ql-snow { font-family: inherit; border-color: var(--border-color); border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; height: auto !important; min-height: 120px; max-height: 400px; overflow-y: auto !important; }
+.ql-editor { font-size: 13px; color: var(--text-color); min-height: 120px; word-break: break-word; overflow-y: auto; }
 [data-theme="dark"] .ql-editor.ql-blank::before { color: var(--text-muted-color); font-style: normal; }
 /* 전역 button 스타일 충돌 방지 및 크기 최적화 */
 .ql-toolbar.ql-snow .ql-formats { margin-right: 6px !important; margin-bottom: 0 !important; display: inline-flex; align-items: center; }

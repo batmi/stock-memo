@@ -681,6 +681,8 @@ document.addEventListener('paste', function(e) {
                 // ⭐️ 에디터 본문에 포커스가 있으면 텍스트 중간에 인라인 삽입
                 if (window.quill && window.quill.hasFocus()) {
                     e.preventDefault(); // 기본 붙여넣기(원본 화질로 인한 용량 증가) 방지
+                    e.stopPropagation(); // ⭐️ Quill 내부의 기본 중복 처리 완벽 차단
+                    e.stopImmediatePropagation();
                     window.resizeAndInsertImageToQuill(file);
                 } else {
                     // 기존: 포커스가 없으면 하단 대표 첨부파일 영역에 설정
