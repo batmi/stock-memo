@@ -210,6 +210,18 @@ window.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // ⭐️ 단순 파일 업로드 버튼 이벤트 연결
+    const btnSimpleUpload = document.getElementById('btnSimpleUpload');
+    const simpleImageInput = document.getElementById('simpleImageInput');
+    if (btnSimpleUpload && simpleImageInput) {
+        btnSimpleUpload.addEventListener('click', () => simpleImageInput.click());
+        simpleImageInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) window.resizeAndInsertImageToQuill(file);
+            this.value = ''; // 초기화
+        });
+    }
+
     loadDataFromLocal();
 });
 
@@ -1577,7 +1589,7 @@ function renderPage() {
         const tagsHtml = tagsArr.length > 0 ? `<div style="margin-top: 8px;">` + tagsArr.map(t => `<span class="history-tag">#${t}</span>`).join('') + `</div>` : '';
 
         if (entryType === 'memo') {
-            card.style.borderLeftColor = 'var(--success-color)';
+            card.style.borderLeftColor = 'var(--info-color)';
             const stockBadge = entry.stockName ? `<span class="cal-badge memo" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏷️ ${entry.stockName}</span>` : '';
             const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.8em; color: var(--text-muted-color); font-weight: normal; margin-left: 8px;">🏦 ${entry.brokerAccount}</span>` : '';
             card.innerHTML = `
@@ -1604,8 +1616,8 @@ function renderPage() {
                 borderColor = 'var(--primary-color)';
                 badgeClass = 'sell';
             } else if(entry.tradeType === '주시' || entry.tradeType === '관망') {
-                typeColor = 'var(--warning-color)';
-                borderColor = 'var(--warning-color)';
+                typeColor = 'var(--success-color)';
+                borderColor = 'var(--success-color)';
                 badgeClass = 'watch';
             }
             

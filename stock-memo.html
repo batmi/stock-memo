@@ -133,6 +133,12 @@
                 <div class="form-group">
                     <label for="thoughts" id="thoughtsLabel">생각의 흐름 / 계획</label>
                     <div id="editor-container" style="min-height: 140px; height: auto; font-family: inherit; font-size: 13px; background-color: var(--bg-color); color: var(--text-color);"></div>
+                    <!-- ⭐️ 단순 파일 업로드(이미지 첨부) 기능 추가 -->
+                    <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
+                        <button type="button" id="btnSimpleUpload" style="width: auto; margin: 0; padding: 5px 10px; background: var(--neutral-color); color: white; border-radius: 4px; font-size: 12px; font-weight: normal;"><span style="margin-right:4px;">📷</span>이미지 첨부</button>
+                        <span style="font-size: 11px; color: var(--text-muted-color);">에디터에 드래그 앤 드롭 하거나 Ctrl+V로 붙여넣을 수도 있습니다.</span>
+                        <input type="file" id="simpleImageInput" accept="image/*" style="display: none;">
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="tagInput">해시태그 (선택)</label>

@@ -24,9 +24,9 @@
     --neutral-hover-color: #5f6b6b;
 
     /* ⭐️ 캘린더 배지 기본 색상 (라이트) */
-    --badge-memo-bg: #dcfce7;
-    --badge-memo-color: #15803d;
-    --badge-memo-border: #bbf7d0;
+    --badge-memo-bg: #f3e8ff;
+    --badge-memo-color: #7e22ce;
+    --badge-memo-border: #e9d5ff;
     --badge-trade-bg: #e0f2fe;
     --badge-trade-color: #0369a1;
     --badge-trade-border: #bae6fd;
@@ -38,14 +38,14 @@
     --badge-sell-bg: #e0f2fe;
     --badge-sell-color: #0369a1;
     --badge-sell-border: #bae6fd;
-    --badge-watch-bg: #fef9c3;
-    --badge-watch-color: #a16207;
-    --badge-watch-border: #fef08a;
+    --badge-watch-bg: #dcfce7;
+    --badge-watch-color: #15803d;
+    --badge-watch-border: #bbf7d0;
 
     /* ⭐️ 캘린더 배지 호버 색상 (다크모드 색상 교차 적용) */
-    --badge-memo-hover-bg: #143622;
-    --badge-memo-hover-color: #7ab591;
-    --badge-memo-hover-border: #1e5033;
+    --badge-memo-hover-bg: #321c45;
+    --badge-memo-hover-color: #a883c7;
+    --badge-memo-hover-border: #4b2b63;
     --badge-trade-hover-bg: #16324a;
     --badge-trade-hover-color: #7fa6c7;
     --badge-trade-hover-border: #234866;
@@ -86,9 +86,9 @@
     --neutral-hover-color: #95a5a6;
 
     /* ⭐️ 캘린더 배지 기본 색상 (다크) */
-    --badge-memo-bg: #143622;
-    --badge-memo-color: #7ab591;
-    --badge-memo-border: #1e5033;
+    --badge-memo-bg: #321c45;
+    --badge-memo-color: #a883c7;
+    --badge-memo-border: #4b2b63;
     --badge-trade-bg: #16324a;
     --badge-trade-color: #7fa6c7;
     --badge-trade-border: #234866;
@@ -100,14 +100,14 @@
     --badge-sell-bg: #16324a;
     --badge-sell-color: #7fa6c7;
     --badge-sell-border: #234866;
-    --badge-watch-bg: #3f2f11;
-    --badge-watch-color: #c4995c;
-    --badge-watch-border: #5c4317;
+    --badge-watch-bg: #143622;
+    --badge-watch-color: #7ab591;
+    --badge-watch-border: #1e5033;
 
     /* ⭐️ 캘린더 배지 호버 색상 (라이트모드 색상 교차 적용) */
-    --badge-memo-hover-bg: #dcfce7;
-    --badge-memo-hover-color: #15803d;
-    --badge-memo-hover-border: #bbf7d0;
+    --badge-memo-hover-bg: #f3e8ff;
+    --badge-memo-hover-color: #7e22ce;
+    --badge-memo-hover-border: #e9d5ff;
     --badge-trade-hover-bg: #e0f2fe;
     --badge-trade-hover-color: #0369a1;
     --badge-trade-hover-border: #bae6fd;
@@ -225,7 +225,7 @@ body {
     padding: 20px;
     border-radius: 12px;
     box-shadow: var(--card-shadow);
-    width: 100%; max-width: 630px; max-height: 90vh; overflow-y: auto;
+    width: 100%; max-width: 610px; max-height: 90vh; overflow-y: auto;
     animation: slideInUp 0.3s ease-out forwards;
 }
 .form-group {
