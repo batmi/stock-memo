@@ -31,6 +31,17 @@
     --badge-trade-color: #0369a1;
     --badge-trade-border: #bae6fd;
 
+    /* ⭐️ 종목명 배지 (매수/매도/주시) 색상 (라이트) */
+    --badge-buy-bg: #fee2e2;
+    --badge-buy-color: #b91c1c;
+    --badge-buy-border: #fecaca;
+    --badge-sell-bg: #e0f2fe;
+    --badge-sell-color: #0369a1;
+    --badge-sell-border: #bae6fd;
+    --badge-watch-bg: #fef9c3;
+    --badge-watch-color: #a16207;
+    --badge-watch-border: #fef08a;
+
     /* ⭐️ 캘린더 배지 호버 색상 (다크모드 색상 교차 적용) */
     --badge-memo-hover-bg: #143622;
     --badge-memo-hover-color: #7ab591;
@@ -81,6 +92,17 @@
     --badge-trade-bg: #16324a;
     --badge-trade-color: #7fa6c7;
     --badge-trade-border: #234866;
+
+    /* ⭐️ 종목명 배지 (매수/매도/주시) 색상 (다크) */
+    --badge-buy-bg: #451a1a;
+    --badge-buy-color: #c97575;
+    --badge-buy-border: #5c2323;
+    --badge-sell-bg: #16324a;
+    --badge-sell-color: #7fa6c7;
+    --badge-sell-border: #234866;
+    --badge-watch-bg: #3f2f11;
+    --badge-watch-color: #c4995c;
+    --badge-watch-border: #5c4317;
 
     /* ⭐️ 캘린더 배지 호버 색상 (라이트모드 색상 교차 적용) */
     --badge-memo-hover-bg: #dcfce7;
@@ -366,11 +388,6 @@ button:hover {
 .total-amount-highlight { background: rgba(231, 76, 60, 0.08); padding: 8px 12px; border-radius: 6px; border: 1px dashed var(--danger-color); display: inline-block; float: right; margin-bottom: 12px; }
 [data-theme="dark"] .total-amount-highlight { background: rgba(231, 76, 60, 0.15); }
 
-/* ⭐️ 모던 이미지 첨부 드롭 영역 (Dropzone) */
-.file-drop-area { border: 2px dashed var(--border-color); border-radius: 8px; padding: 15px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--bg-color); margin-top: 5px; }
-.file-drop-area:hover, .file-drop-area.dragover { border-color: var(--primary-color); background: var(--badge-memo-bg); }
-.drop-msg { font-size: 13px; color: var(--text-muted-color); font-weight: bold; pointer-events: none; line-height: 1.5; display: block; }
-
 .tag-input-container { display: flex; flex-wrap: wrap; gap: 5px; padding: 8px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-color); align-items: center; min-height: 40px; box-sizing: border-box; transition: border-color 0.2s, box-shadow 0.2s; }
 .tag-input-container:focus-within { border-color: var(--primary-color); box-shadow: 0 0 0 2px var(--badge-memo-border); }
 .tag-list { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -554,6 +571,9 @@ button:hover {
 .cal-badge:hover { transform: scale(1.03); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 .cal-badge.memo { background-color: var(--badge-memo-bg); color: var(--badge-memo-color); border: 1px solid var(--badge-memo-border); }
 .cal-badge.trade { background-color: var(--badge-trade-bg); color: var(--badge-trade-color); border: 1px solid var(--badge-trade-border); }
+.cal-badge.buy { background-color: var(--badge-buy-bg); color: var(--badge-buy-color); border: 1px solid var(--badge-buy-border); }
+.cal-badge.sell { background-color: var(--badge-sell-bg); color: var(--badge-sell-color); border: 1px solid var(--badge-sell-border); }
+.cal-badge.watch { background-color: var(--badge-watch-bg); color: var(--badge-watch-color); border: 1px solid var(--badge-watch-border); }
 .cal-badge.memo:hover { background-color: var(--badge-memo-hover-bg); color: var(--badge-memo-hover-color); border-color: var(--badge-memo-hover-border); }
 .cal-badge.trade:hover { background-color: var(--badge-trade-hover-bg); color: var(--badge-trade-hover-color); border-color: var(--badge-trade-hover-border); }
 [data-theme="dark"] .portfolio-card .stock-name,
@@ -679,8 +699,8 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 /* Quill 에디터 디자인 보정 및 다크모드 적용 */
 .ql-toolbar.ql-snow { font-family: inherit; border-color: var(--border-color); border-top-left-radius: 6px; border-top-right-radius: 6px; background: var(--card-bg-color); padding: 4px 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 [data-theme="dark"] .ql-toolbar.ql-snow { border-color: var(--border-color); }
-.ql-container.ql-snow { font-family: inherit; border-color: var(--border-color); border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; height: auto !important; min-height: 120px; max-height: 400px; overflow-y: auto !important; }
-.ql-editor { font-size: 13px; color: var(--text-color); min-height: 120px; word-break: break-word; overflow-y: auto; }
+.ql-container.ql-snow { font-family: inherit; border-color: var(--border-color); border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; height: auto !important; min-height: 180px; max-height: 400px; overflow-y: auto !important; }
+.ql-editor { font-size: 13px; color: var(--text-color); min-height: 180px; word-break: break-word; overflow-y: auto; }
 [data-theme="dark"] .ql-editor.ql-blank::before { color: var(--text-muted-color); font-style: normal; }
 /* 전역 button 스타일 충돌 방지 및 크기 최적화 */
 .ql-toolbar.ql-snow .ql-formats { margin-right: 6px !important; margin-bottom: 0 !important; display: inline-flex; align-items: center; }

@@ -195,31 +195,20 @@ window.addEventListener('DOMContentLoaded', () => {
         return delta;
     });
 
-    // ⭐️ 이미지 드래그 앤 드롭 영역 이벤트 연결
-    const fileDropArea = document.getElementById('fileDropArea');
-    if (fileDropArea) {
-        fileDropArea.addEventListener('click', () => {
-            document.getElementById('imageInput').click();
-        });
-        fileDropArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            fileDropArea.classList.add('dragover');
-        });
-        fileDropArea.addEventListener('dragleave', () => {
-            fileDropArea.classList.remove('dragover');
-        });
-        fileDropArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            fileDropArea.classList.remove('dragover');
-            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                currentSelectedFile = e.dataTransfer.files[0];
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(currentSelectedFile);
-                document.getElementById('imageInput').files = dataTransfer.files;
-                processImageFile();
+    // ⭐️ 에디터 본문 드래그 앤 드롭 이미지 삽입 지원
+    window.quill.root.addEventListener('drop', function(e) {
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            for (let i = 0; i < e.dataTransfer.files.length; i++) {
+                const file = e.dataTransfer.files[i];
+                if (file.type.startsWith('image/')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.resizeAndInsertImageToQuill(file);
+                    break;
+                }
             }
-        });
-    }
+        }
+    });
 
     loadDataFromLocal();
 });
@@ -388,8 +377,6 @@ const btnCloseForm = document.getElementById('btnCloseForm');
 const submitBtn = journalForm.querySelector('button[type="submit"]');
 let editingEntryId = null;
 let portfolioChartInstance = null;
-let currentAttachedImage = null;
-let currentSelectedFile = null;
 let currentTags = [];
 
 const defaultStocks = [
@@ -526,13 +513,6 @@ function resetAndCloseForm() {
         currentTags = [];
         renderTags();
         calcTotalAmount();
-        currentSelectedFile = null;
-        currentAttachedImage = null;
-        document.getElementById('imageInput').value = '';
-        const previewContainer = document.getElementById('imagePreviewContainer');
-        if (previewContainer) previewContainer.style.display = 'none';
-        const fileDropArea = document.getElementById('fileDropArea');
-        if (fileDropArea) fileDropArea.style.display = 'block';
         
         if (window.quill) window.quill.setContents([]); // 에디터 초기화
         editingEntryId = null;
@@ -628,47 +608,6 @@ document.getElementById('tagInput').addEventListener('keydown', function(e) {
     }
 });
 
-function processImageFile() {
-    if (!currentSelectedFile) {
-        currentAttachedImage = null;
-        const previewContainer = document.getElementById('imagePreviewContainer');
-        if (previewContainer) previewContainer.style.display = 'none';
-            const dropArea = document.getElementById('fileDropArea');
-            if (dropArea) dropArea.style.display = 'block';
-        return;
-    }
-    const reader = new FileReader();
-    reader.onload = function(event) {
-        const img = new Image();
-        img.onload = function() {
-            const canvas = document.createElement('canvas');
-            const MAX_WIDTH = 1920; // 최대 해상도 제한
-            let width = img.width;
-            let height = img.height;
-            if (width > MAX_WIDTH) {
-                height = height * (MAX_WIDTH / width);
-                width = MAX_WIDTH;
-            }
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
-            currentAttachedImage = canvas.toDataURL('image/jpeg', 0.9);
-            
-            document.getElementById('imagePreview').src = currentAttachedImage;
-            const container = document.getElementById('imagePreviewContainer');
-            container.style.width = 'auto'; // 크기 제한 초기화
-            container.style.display = 'block';
-            const dropArea = document.getElementById('fileDropArea');
-            if (dropArea) dropArea.style.display = 'none';
-        };
-        img.src = event.target.result;
-    };
-    reader.readAsDataURL(currentSelectedFile);
-}
-
-document.getElementById('imageInput').addEventListener('change', function(e) { currentSelectedFile = e.target.files[0]; processImageFile(); });
-
 // 클립보드 이미지 붙여넣기 이벤트 처리
 document.addEventListener('paste', function(e) {
     const formOverlay = document.getElementById('formModalOverlay');
@@ -729,18 +668,6 @@ window.resizeAndInsertImageToQuill = function(file) {
     reader.readAsDataURL(file);
 };
 
-const btnRemoveImage = document.getElementById('btnRemoveImage');
-if (btnRemoveImage) {
-    btnRemoveImage.addEventListener('click', () => {
-        currentSelectedFile = null;
-        currentAttachedImage = null;
-        document.getElementById('imageInput').value = '';
-        document.getElementById('imagePreviewContainer').style.display = 'none';
-        const fileDropArea = document.getElementById('fileDropArea');
-        if (fileDropArea) fileDropArea.style.display = 'block';
-    });
-}
-
 const loadMoreObserver = new IntersectionObserver((entries) => {
     if (entries[0].isIntersecting) {
         currentRenderPage++;
@@ -796,7 +723,9 @@ journalForm.addEventListener('submit', async function(e) {
     
     if (editingEntryId) {
         const oldEntry = cloudEntries.find(e => e.id === editingEntryId);
-        if (oldEntry) createdAt = oldEntry.createdAt || new Date(oldEntry.id).toISOString(); // 기존 시간 유지
+        if (oldEntry) {
+            createdAt = oldEntry.createdAt || new Date(oldEntry.id).toISOString(); // 기존 시간 유지
+        }
     }
 
     if (recordType === 'trade') {
@@ -807,12 +736,12 @@ journalForm.addEventListener('submit', async function(e) {
 
         newEntry = {
             id: editingEntryId || Date.now(), type: 'trade', stockName, brokerAccount, accountName,
-            tradeType, price: price ? Number(price) : 0, quantity: quantity ? Number(quantity) : 0, thoughts, date, rawDate: tradeDateRaw, attachedImage: currentAttachedImage,
+            tradeType, price: price ? Number(price) : 0, quantity: quantity ? Number(quantity) : 0, thoughts, date, rawDate: tradeDateRaw, attachedImage: null,
             createdAt, updatedAt: nowIso, tags: currentTags.join(',')
         };
     } else {
         const memoTitle = document.getElementById('memoTitle').value;
-        newEntry = { id: editingEntryId || Date.now(), type: 'memo', stockName: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: currentAttachedImage, createdAt, updatedAt: nowIso, tags: currentTags.join(',') };
+        newEntry = { id: editingEntryId || Date.now(), type: 'memo', stockName: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(',') };
     }
 
     if (editingEntryId) {
@@ -1663,8 +1592,24 @@ function renderPage() {
             `;
         } else {
             let typeColor = 'var(--text-muted-color)';
-            if(entry.tradeType === '매수') typeColor = 'var(--danger-color)';
-            if(entry.tradeType === '매도') typeColor = 'var(--primary-color)';
+            let borderColor = 'var(--primary-color)';
+            let badgeClass = 'trade';
+
+            if(entry.tradeType === '매수') {
+                typeColor = 'var(--danger-color)';
+                borderColor = 'var(--danger-color)';
+                badgeClass = 'buy';
+            } else if(entry.tradeType === '매도') {
+                typeColor = 'var(--primary-color)';
+                borderColor = 'var(--primary-color)';
+                badgeClass = 'sell';
+            } else if(entry.tradeType === '주시' || entry.tradeType === '관망') {
+                typeColor = 'var(--warning-color)';
+                borderColor = 'var(--warning-color)';
+                badgeClass = 'watch';
+            }
+            
+            card.style.borderLeftColor = borderColor;
 
             let detailsHtml = '';
             if (entry.tradeType !== '관망' && entry.tradeType !== '주시' && (entry.price > 0 || entry.quantity > 0)) {
@@ -1679,7 +1624,7 @@ function renderPage() {
                     </div>
                 `;
             }
-            const stockBadge = entry.stockName ? `<span class="cal-badge trade" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏷️ ${entry.stockName}</span>` : '';
+            const stockBadge = entry.stockName ? `<span class="cal-badge ${badgeClass}" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏷️ ${entry.stockName}</span>` : '';
             const tradeBadge = `<span style="background-color: ${typeColor}; color: white; padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">${entry.tradeType}</span>`;
             const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.8em; color: var(--text-muted-color); font-weight: normal; margin-left: 8px;">🏦 ${entry.brokerAccount}</span>` : '';
             card.innerHTML = `
@@ -1731,7 +1676,13 @@ function editEntry(entry) {
 
     document.getElementById('stockName').value = entry.stockName || '';
     document.getElementById('brokerAccount').value = entry.brokerAccount || '';
-    if (window.quill) window.quill.root.innerHTML = entry.thoughts || ''; // 에디터에 기존 내용 불러오기
+    
+    // ⭐️ 과거 하단에 첨부했던 이미지가 있다면 에디터 본문으로 자동 이동(마이그레이션)
+    let contentHtml = entry.thoughts || '';
+    if (entry.attachedImage && !contentHtml.includes(entry.attachedImage)) {
+        contentHtml += `<p><br></p><p><img src="${entry.attachedImage}"></p>`;
+    }
+    if (window.quill) window.quill.root.innerHTML = contentHtml; // 에디터에 기존 내용 불러오기
     
     currentTags = entry.tags ? entry.tags.split(',').filter(Boolean) : [];
     renderTags();
@@ -1743,27 +1694,6 @@ function editEntry(entry) {
         window.tradeDatePicker.setDate(originalDate);
     } else {
         document.getElementById('tradeDate').value = entry.rawDate || new Date(entry.id).toISOString().slice(0, 16);
-    }
-
-    currentAttachedImage = entry.attachedImage || null;
-    document.getElementById('imageInput').value = '';
-    const preview = document.getElementById('imagePreview');
-    const previewContainer2 = document.getElementById('imagePreviewContainer');
-    currentSelectedFile = null;
-
-    if (currentAttachedImage) { 
-        preview.src = currentAttachedImage; 
-        if(previewContainer2) {
-            previewContainer2.style.width = 'auto';
-            previewContainer2.style.display = 'block'; 
-        }
-        const dropArea = document.getElementById('fileDropArea');
-        if (dropArea) dropArea.style.display = 'none';
-    }
-    else { 
-        if(previewContainer2) previewContainer2.style.display = 'none'; 
-        const dropArea = document.getElementById('fileDropArea');
-        if (dropArea) dropArea.style.display = 'block';
     }
 
     if (entry.type === 'memo') {
