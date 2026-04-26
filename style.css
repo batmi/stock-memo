@@ -225,7 +225,7 @@ body {
     padding: 20px;
     border-radius: 12px;
     box-shadow: var(--card-shadow);
-    width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto;
+    width: 100%; max-width: 630px; max-height: 90vh; overflow-y: auto;
     animation: slideInUp 0.3s ease-out forwards;
 }
 .form-group {
@@ -385,7 +385,7 @@ button:hover {
 .total-amount-display { margin-top: 5px; margin-bottom: 12px; font-size: 13px; font-weight: var(--fw-bold, bold); color: var(--danger-color); text-align: right; }
 
 /* ⭐️ 총 금액 영수증 하이라이트 박스 */
-.total-amount-highlight { background: rgba(231, 76, 60, 0.08); padding: 8px 12px; border-radius: 6px; border: 1px dashed var(--danger-color); display: inline-block; float: right; margin-bottom: 12px; }
+.total-amount-highlight { background: rgba(231, 76, 60, 0.08); padding: 8px 12px; border-radius: 6px; border: 1px dashed var(--danger-color); float: right; margin-bottom: 12px; }
 [data-theme="dark"] .total-amount-highlight { background: rgba(231, 76, 60, 0.15); }
 
 .tag-input-container { display: flex; flex-wrap: wrap; gap: 5px; padding: 8px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-color); align-items: center; min-height: 40px; box-sizing: border-box; transition: border-color 0.2s, box-shadow 0.2s; }
@@ -699,8 +699,8 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 /* Quill 에디터 디자인 보정 및 다크모드 적용 */
 .ql-toolbar.ql-snow { font-family: inherit; border-color: var(--border-color); border-top-left-radius: 6px; border-top-right-radius: 6px; background: var(--card-bg-color); padding: 4px 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 [data-theme="dark"] .ql-toolbar.ql-snow { border-color: var(--border-color); }
-.ql-container.ql-snow { font-family: inherit; border-color: var(--border-color); border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; height: auto !important; min-height: 180px; max-height: 400px; overflow-y: auto !important; }
-.ql-editor { font-size: 13px; color: var(--text-color); min-height: 180px; word-break: break-word; overflow-y: auto; }
+.ql-container.ql-snow { font-family: inherit; border-color: var(--border-color); border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; height: auto !important; min-height: 140px; max-height: 400px; overflow-y: auto !important; }
+.ql-editor { font-size: 13px; color: var(--text-color); min-height: 140px; word-break: break-word; overflow-y: auto; }
 [data-theme="dark"] .ql-editor.ql-blank::before { color: var(--text-muted-color); font-style: normal; }
 /* 전역 button 스타일 충돌 방지 및 크기 최적화 */
 .ql-toolbar.ql-snow .ql-formats { margin-right: 6px !important; margin-bottom: 0 !important; display: inline-flex; align-items: center; }
