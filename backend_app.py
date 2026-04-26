@@ -216,17 +216,17 @@ def login():
             <link rel="apple-touch-icon" sizes="180x180" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
             <style>
                 body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: linear-gradient(135deg, #121212 0%, #1a1a2e 100%); margin: 0; color: #e0e0e0; }
-                .login-container { background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 35px 25px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 290px; }
-                .logo-text { font-size: 24px; font-weight: 900; font-style: italic; background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -1px; margin-bottom: 25px; display: flex; align-items: center; justify-content: center; }
+                .login-container { background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 30px 20px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 260px; }
+                .logo-text { font-size: 22px; font-weight: 900; font-style: italic; background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -1px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; }
                 input[type="text"],
                 input[type="password"] {
                     width: 100%; 
                     box-sizing: border-box; 
-                    padding: 12px; 
-                    margin: 0 0 15px 0; 
+                    padding: 10px; 
+                    margin: 0 0 12px 0; 
                     border: 1px solid #333; 
                     border-radius: 8px; 
-                    font-size: 14px; 
+                    font-size: 13px; 
                     background-color: rgba(18, 18, 18, 0.8); 
                     color: #fff;
                     transition: all 0.3s ease;
@@ -243,7 +243,7 @@ def login():
                     background-color: #121212;
                 }
                 button { 
-                    width: 100%; padding: 12px; margin-top: 10px; background: linear-gradient(135deg, #9d4edd 0%, #7b2cbf 100%); color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; 
+                    width: 100%; padding: 10px; margin-top: 5px; background: linear-gradient(135deg, #9d4edd 0%, #7b2cbf 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; 
                     transition: all 0.3s ease; 
                     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
                 }
