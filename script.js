@@ -60,6 +60,10 @@ window.addEventListener('DOMContentLoaded', () => {
         btnTogglePortfolio.addEventListener('click', () => {
             isDashboardCollapsed = !isDashboardCollapsed;
             updatePortfolioSummary();
+            
+            // ⭐️ 사용자 설정에 상태 저장
+            userPreferences.isDashboardCollapsed = isDashboardCollapsed;
+            savePreferences();
         });
     }
 
@@ -77,6 +81,10 @@ window.addEventListener('DOMContentLoaded', () => {
             btnToggleClosed.style.backgroundColor = showClosedPositions ? 'var(--primary-color)' : 'transparent';
             btnToggleClosed.style.color = showClosedPositions ? '#fff' : 'var(--primary-color)';
             updatePortfolioSummary();
+            
+            // ⭐️ 사용자 설정에 상태 저장 (정상 위치로 복구)
+            userPreferences.showClosedPositions = showClosedPositions;
+            savePreferences();
         });
     }
 
@@ -115,6 +123,10 @@ window.addEventListener('DOMContentLoaded', () => {
 
             // 필터 변경 시 히스토리 상단으로 부드럽게 스크롤
             window.scrollToFilterBox();
+            
+            // ⭐️ 사용자 설정에 상태 저장 (추가)
+            userPreferences.showHistoryClosedPositions = showHistoryClosedPositions;
+            savePreferences();
         });
     }
 
@@ -206,6 +218,29 @@ async function loadDataFromLocal() {
             });
             if (prefRes.ok) {
                 userPreferences = await prefRes.json();
+                
+                // ⭐️ DB에서 불러온 환경설정을 UI(청산 종목 토글, 접기/펴기 등)에 반영
+                if (typeof userPreferences.isDashboardCollapsed !== 'undefined') {
+                    isDashboardCollapsed = userPreferences.isDashboardCollapsed;
+                }
+                if (typeof userPreferences.showClosedPositions !== 'undefined') {
+                    showClosedPositions = userPreferences.showClosedPositions;
+                    const btn1 = document.getElementById('btnToggleClosed');
+                    if (btn1) {
+                        btn1.innerText = showClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
+                        btn1.style.backgroundColor = showClosedPositions ? 'var(--primary-color)' : 'transparent';
+                        btn1.style.color = showClosedPositions ? '#fff' : 'var(--primary-color)';
+                    }
+                }
+                if (typeof userPreferences.showHistoryClosedPositions !== 'undefined') {
+                    showHistoryClosedPositions = userPreferences.showHistoryClosedPositions;
+                    const btn2 = document.getElementById('btnToggleHistoryClosed');
+                    if (btn2) {
+                        btn2.innerText = showHistoryClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
+                        btn2.style.backgroundColor = showHistoryClosedPositions ? 'var(--primary-color)' : 'transparent';
+                        btn2.style.color = showHistoryClosedPositions ? '#fff' : 'var(--primary-color)';
+                    }
+                }
             }
         } catch (e) {
             console.warn("환경설정 로드 실패:", e);
@@ -737,7 +772,7 @@ journalForm.addEventListener('submit', async function(e) {
     
     resetAndCloseForm();
     
-    await saveToLocal(true); // 저장 후 화면 전체를 새로고침하여 최신 상태 반영
+    await saveToLocal(false); // ⭐️ 저장 후 화면 전체를 새로고침하지 않고 데이터만 갱신하여 상태(필터 등) 유지
 });
 
 // ⭐️ 전체 데이터 백업 및 원복 이벤트 연결
@@ -1054,6 +1089,10 @@ function updatePortfolioSummary() {
             
             // 사용자 편의를 위해 필터/히스토리 영역으로 부드럽게 스크롤
             window.scrollToFilterBox();
+            
+            // ⭐️ 사용자 설정에 상태 저장
+            userPreferences.showHistoryClosedPositions = showHistoryClosedPositions;
+            savePreferences();
         });
 
         portfolioGrid.appendChild(card);
@@ -1688,7 +1727,7 @@ function editEntry(entry) {
 async function deleteEntry(id) {
     if (confirm("정말로 이 기록을 삭제하시겠습니까?\n(삭제 후 로컬 파일에 즉시 반영됩니다)")) {
         cloudEntries = cloudEntries.filter(e => e.id !== id);
-        await saveToLocal(true);
+        await saveToLocal(false); // ⭐️ 새로고침 없이 삭제 반영하여 상태 유지
     }
 }
 
