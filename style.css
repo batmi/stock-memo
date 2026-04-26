@@ -440,6 +440,7 @@ button:hover {
 .entry-header { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85em; color: var(--text-muted-color); }
 .entry-title { font-size: 1.05em; font-weight: bold; color: var(--text-strong-color); margin-bottom: 6px; }
 .entry-content { line-height: 1.5; font-size: 12.5px; word-wrap: break-word; }
+.entry-content img, .ql-editor img { max-width: 100%; height: auto; border-radius: 4px; margin: 8px 0; display: inline-block; }
 .entry-thumbnail {
     max-width: 200px;
     max-height: 150px;

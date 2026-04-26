@@ -163,10 +163,25 @@ window.addEventListener('DOMContentLoaded', () => {
                 [{ 'align': [] }],                               // 정렬
                 [{ 'list': 'ordered'}, { 'list': 'bullet' }],    // 리스트
                 ['blockquote', 'code-block'],                    // 인용, 코드 블록
+                ['image'],                                       // ⭐️ 이미지 삽입 툴바 버튼 추가
                 ['clean']                                        // 서식 초기화
             ]
         },
         placeholder: '현재 시장 상황, 매매 이유, 향후 대응 계획 등을 자유롭게 기록하세요.'
+    });
+
+    // ⭐️ 에디터 내 이미지 삽입 커스텀 핸들러 연결 (원본 대신 리사이징 적용)
+    window.quill.getModule('toolbar').addHandler('image', function() {
+        const input = document.createElement('input');
+        input.setAttribute('type', 'file');
+        input.setAttribute('accept', 'image/*');
+        input.click();
+        input.onchange = function() {
+            const file = input.files[0];
+            if (file) {
+                window.resizeAndInsertImageToQuill(file);
+            }
+        };
     });
 
     // ⭐️ 붙여넣기 시 외부 텍스트의 글자색/배경색 서식 강제 제거 (테마 색상 자동 적용)
@@ -662,18 +677,55 @@ document.addEventListener('paste', function(e) {
         for (let i = 0; i < items.length; i++) {
             if (items[i].type.indexOf('image') !== -1) {
                 const file = items[i].getAsFile();
-                currentSelectedFile = file;
                 
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(file);
-                document.getElementById('imageInput').files = dataTransfer.files;
-                
-                processImageFile();
+                // ⭐️ 에디터 본문에 포커스가 있으면 텍스트 중간에 인라인 삽입
+                if (window.quill && window.quill.hasFocus()) {
+                    e.preventDefault(); // 기본 붙여넣기(원본 화질로 인한 용량 증가) 방지
+                    window.resizeAndInsertImageToQuill(file);
+                } else {
+                    // 기존: 포커스가 없으면 하단 대표 첨부파일 영역에 설정
+                    currentSelectedFile = file;
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(file);
+                    document.getElementById('imageInput').files = dataTransfer.files;
+                    processImageFile();
+                }
                 break;
             }
         }
     }
 });
+
+// ⭐️ 에디터 내부에 이미지를 압축하여 삽입하는 함수
+window.resizeAndInsertImageToQuill = function(file) {
+    const reader = new FileReader();
+    reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 1200; // 본문 삽입용 최대 해상도 제한
+            let width = img.width;
+            let height = img.height;
+            if (width > MAX_WIDTH) {
+                height = height * (MAX_WIDTH / width);
+                width = MAX_WIDTH;
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            // jpeg 포맷으로 85% 최적화 압축 (Base64)
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            
+            const range = window.quill.getSelection(true);
+            window.quill.insertEmbed(range.index, 'image', dataUrl);
+            window.quill.setSelection(range.index + 1);
+        };
+        img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+};
 
 const btnRemoveImage = document.getElementById('btnRemoveImage');
 if (btnRemoveImage) {
