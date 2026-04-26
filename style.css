@@ -42,6 +42,11 @@
     --badge-watch-color: #15803d;
     --badge-watch-border: #bbf7d0;
 
+    /* ⭐️ 종목명 통일 배지 색상 (라이트: 차분한 슬레이트/그레이) */
+    --badge-stock-bg: #f1f5f9;
+    --badge-stock-color: #475569;
+    --badge-stock-border: #e2e8f0;
+
     /* ⭐️ 캘린더 배지 호버 색상 (다크모드 색상 교차 적용) */
     --badge-memo-hover-bg: #321c45;
     --badge-memo-hover-color: #a883c7;
@@ -49,6 +54,10 @@
     --badge-trade-hover-bg: #16324a;
     --badge-trade-hover-color: #7fa6c7;
     --badge-trade-hover-border: #234866;
+    
+    --badge-stock-hover-bg: #e2e8f0;
+    --badge-stock-hover-color: #334155;
+    --badge-stock-hover-border: #cbd5e1;
 
     --card-shadow: 0 10px 25px rgba(0,0,0,0.2);
     --entry-card-shadow: 0 2px 4px rgba(0,0,0,0.05);
@@ -104,6 +113,11 @@
     --badge-watch-color: #7ab591;
     --badge-watch-border: #1e5033;
 
+    /* ⭐️ 종목명 통일 배지 색상 (다크: 세련된 다크 그레이) */
+    --badge-stock-bg: #21262d;
+    --badge-stock-color: #c9d1d9;
+    --badge-stock-border: #30363d;
+
     /* ⭐️ 캘린더 배지 호버 색상 (라이트모드 색상 교차 적용) */
     --badge-memo-hover-bg: #f3e8ff;
     --badge-memo-hover-color: #7e22ce;
@@ -111,6 +125,10 @@
     --badge-trade-hover-bg: #e0f2fe;
     --badge-trade-hover-color: #0369a1;
     --badge-trade-hover-border: #bae6fd;
+
+    --badge-stock-hover-bg: #30363d;
+    --badge-stock-hover-color: #ffffff;
+    --badge-stock-hover-border: #8b949e;
 }
 
 body {
@@ -574,8 +592,10 @@ button:hover {
 .cal-badge.buy { background-color: var(--badge-buy-bg); color: var(--badge-buy-color); border: 1px solid var(--badge-buy-border); }
 .cal-badge.sell { background-color: var(--badge-sell-bg); color: var(--badge-sell-color); border: 1px solid var(--badge-sell-border); }
 .cal-badge.watch { background-color: var(--badge-watch-bg); color: var(--badge-watch-color); border: 1px solid var(--badge-watch-border); }
+.cal-badge.stock { background-color: var(--badge-stock-bg); color: var(--badge-stock-color); border: 1px solid var(--badge-stock-border); }
 .cal-badge.memo:hover { background-color: var(--badge-memo-hover-bg); color: var(--badge-memo-hover-color); border-color: var(--badge-memo-hover-border); }
 .cal-badge.trade:hover { background-color: var(--badge-trade-hover-bg); color: var(--badge-trade-hover-color); border-color: var(--badge-trade-hover-border); }
+.cal-badge.stock:hover { background-color: var(--badge-stock-hover-bg); color: var(--badge-stock-hover-color); border-color: var(--badge-stock-hover-border); }
 [data-theme="dark"] .portfolio-card .stock-name,
 [data-theme="dark"] .portfolio-card .stat-row span:last-child {
     color: var(--text-color);

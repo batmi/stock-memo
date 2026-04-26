@@ -210,17 +210,23 @@ window.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // ⭐️ 단순 파일 업로드 버튼 이벤트 연결
-    const btnSimpleUpload = document.getElementById('btnSimpleUpload');
-    const simpleImageInput = document.getElementById('simpleImageInput');
-    if (btnSimpleUpload && simpleImageInput) {
-        btnSimpleUpload.addEventListener('click', () => simpleImageInput.click());
-        simpleImageInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (file) window.resizeAndInsertImageToQuill(file);
-            this.value = ''; // 초기화
-        });
-    }
+    // ⭐️ 에디터 본문 클립보드 이미지 붙여넣기(Ctrl+V) 직접 연결 (충돌 해결)
+    window.quill.root.addEventListener('paste', function(e) {
+        if (e.clipboardData && e.clipboardData.items) {
+            const items = e.clipboardData.items;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    const file = items[i].getAsFile();
+                    if (file) {
+                        e.preventDefault(); // 기본 붙여넣기(원본 용량) 방지
+                        e.stopPropagation();
+                        window.resizeAndInsertImageToQuill(file);
+                        break;
+                    }
+                }
+            }
+        }
+    });
 
     loadDataFromLocal();
 });
@@ -617,35 +623,6 @@ document.getElementById('tagInput').addEventListener('keydown', function(e) {
             renderTags();
         }
         this.value = '';
-    }
-});
-
-// 클립보드 이미지 붙여넣기 이벤트 처리
-document.addEventListener('paste', function(e) {
-    const formOverlay = document.getElementById('formModalOverlay');
-    if (formOverlay.style.display === 'flex') {
-        const items = e.clipboardData.items;
-        for (let i = 0; i < items.length; i++) {
-            if (items[i].type.indexOf('image') !== -1) {
-                const file = items[i].getAsFile();
-                
-                // ⭐️ 에디터 본문에 포커스가 있으면 텍스트 중간에 인라인 삽입
-                if (window.quill && window.quill.hasFocus()) {
-                    e.preventDefault(); // 기본 붙여넣기(원본 화질로 인한 용량 증가) 방지
-                    e.stopPropagation(); // ⭐️ Quill 내부의 기본 중복 처리 완벽 차단
-                    e.stopImmediatePropagation();
-                    window.resizeAndInsertImageToQuill(file);
-                } else {
-                    // 기존: 포커스가 없으면 하단 대표 첨부파일 영역에 설정
-                    currentSelectedFile = file;
-                    const dataTransfer = new DataTransfer();
-                    dataTransfer.items.add(file);
-                    document.getElementById('imageInput').files = dataTransfer.files;
-                    processImageFile();
-                }
-                break;
-            }
-        }
     }
 });
 
@@ -1590,7 +1567,7 @@ function renderPage() {
 
         if (entryType === 'memo') {
             card.style.borderLeftColor = 'var(--info-color)';
-            const stockBadge = entry.stockName ? `<span class="cal-badge memo" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏷️ ${entry.stockName}</span>` : '';
+            const stockBadge = entry.stockName ? `<span class="cal-badge stock" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏷️ ${entry.stockName}</span>` : '';
             const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.8em; color: var(--text-muted-color); font-weight: normal; margin-left: 8px;">🏦 ${entry.brokerAccount}</span>` : '';
             card.innerHTML = `
             <div class="entry-header">
@@ -1636,7 +1613,7 @@ function renderPage() {
                     </div>
                 `;
             }
-            const stockBadge = entry.stockName ? `<span class="cal-badge ${badgeClass}" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏷️ ${entry.stockName}</span>` : '';
+            const stockBadge = entry.stockName ? `<span class="cal-badge stock" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏷️ ${entry.stockName}</span>` : '';
             const tradeBadge = `<span style="background-color: ${typeColor}; color: white; padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">${entry.tradeType}</span>`;
             const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.8em; color: var(--text-muted-color); font-weight: normal; margin-left: 8px;">🏦 ${entry.brokerAccount}</span>` : '';
             card.innerHTML = `
@@ -1752,10 +1729,13 @@ function renderCalendar() {
         if (!dailyStats[dateKey]) dailyStats[dateKey] = { profit: 0, details: {} };
         
         const stockKey = entry.stockName || '';
-        if (!dailyStats[dateKey].details[stockKey]) dailyStats[dateKey].details[stockKey] = { tradeCount: 0, memoCount: 0 };
+        if (!dailyStats[dateKey].details[stockKey]) dailyStats[dateKey].details[stockKey] = { buyCount: 0, sellCount: 0, watchCount: 0, memoCount: 0 };
         
         if (entry.type === 'trade') {
-            dailyStats[dateKey].details[stockKey].tradeCount++;
+            if (entry.tradeType === '매수') dailyStats[dateKey].details[stockKey].buyCount++;
+            else if (entry.tradeType === '매도') dailyStats[dateKey].details[stockKey].sellCount++;
+            else if (entry.tradeType === '주시' || entry.tradeType === '관망') dailyStats[dateKey].details[stockKey].watchCount++;
+
             if (entry.stockName) {
                 const stock = entry.stockName, qty = Number(entry.quantity) || 0, price = Number(entry.price) || 0;
                 if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0 };
@@ -1797,9 +1777,17 @@ function renderCalendar() {
             const prefix = stock ? `${stock} ` : '';
             const safeStock = stock ? stock.replace(/'/g, "\\'") : '';
             
-            if (counts.tradeCount > 0) {
+            if (counts.buyCount > 0) {
                 const typeArg = `stock_trade_${safeStock}`;
-                badgesHtml += `<div class="cal-badge trade" onclick="showDetailsForDate('${key}', '${typeArg}', event)">${prefix}매매 ${counts.tradeCount}건</div>`;
+                badgesHtml += `<div class="cal-badge buy" onclick="showDetailsForDate('${key}', '${typeArg}', event)">${prefix}매수 ${counts.buyCount}건</div>`;
+            }
+            if (counts.sellCount > 0) {
+                const typeArg = `stock_trade_${safeStock}`;
+                badgesHtml += `<div class="cal-badge sell" onclick="showDetailsForDate('${key}', '${typeArg}', event)">${prefix}매도 ${counts.sellCount}건</div>`;
+            }
+            if (counts.watchCount > 0) {
+                const typeArg = `stock_trade_${safeStock}`;
+                badgesHtml += `<div class="cal-badge watch" onclick="showDetailsForDate('${key}', '${typeArg}', event)">${prefix}주시 ${counts.watchCount}건</div>`;
             }
             if (counts.memoCount > 0) {
                 const typeArg = `stock_memo_${safeStock}`;
