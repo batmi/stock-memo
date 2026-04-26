@@ -243,7 +243,7 @@ body {
     padding: 20px;
     border-radius: 12px;
     box-shadow: var(--card-shadow);
-    width: 100%; max-width: 610px; max-height: 90vh; overflow-y: auto;
+    width: 100%; max-width: 605px; max-height: 90vh; overflow-y: auto;
     animation: slideInUp 0.3s ease-out forwards;
 }
 .form-group {
@@ -702,10 +702,12 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 
 /* ⭐️ 기록 저장 모달창의 완료 버튼 (호버 플로팅 효과) */
 #journalForm button[type="submit"] {
-    padding: 14px;
+    padding: 12px 35px;
+    width: auto;
+    display: block;
+    margin: 20px auto 0;
     border-radius: 8px;
     font-size: 15px;
-    margin-top: 20px;
     transition: transform 0.2s, background-color 0.2s, box-shadow 0.2s;
     box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
 }
