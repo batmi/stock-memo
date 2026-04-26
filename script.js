@@ -156,6 +156,9 @@ window.addEventListener('DOMContentLoaded', () => {
     window.quill = new Quill('#editor-container', {
         theme: 'snow',
         modules: {
+            imageResize: {
+                displaySize: true // 리사이즈 시 이미지 크기 툴팁 표시
+            },
             toolbar: [
                 [{ 'header': [1, 2, 3, false] }, { 'size': ['small', false, 'large', 'huge'] }], // 헤더, 글자 크기
                 ['bold', 'italic', 'underline', 'strike'],       // 텍스트 강조
@@ -628,6 +631,11 @@ document.getElementById('tagInput').addEventListener('keydown', function(e) {
 
 // ⭐️ 에디터 내부에 이미지를 압축하여 삽입하는 함수
 window.resizeAndInsertImageToQuill = function(file) {
+    // ⭐️ 비동기 파일 읽기가 시작되기 전에 현재 커서 위치를 미리 캡처 (상단으로 튕기는 현상 방지)
+    window.quill.focus();
+    const range = window.quill.getSelection();
+    const insertIndex = range ? range.index : window.quill.getLength();
+
     const reader = new FileReader();
     reader.onload = function(event) {
         const img = new Image();
@@ -648,9 +656,8 @@ window.resizeAndInsertImageToQuill = function(file) {
             // jpeg 포맷으로 85% 최적화 압축 (Base64)
             const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
             
-            const range = window.quill.getSelection(true);
-            window.quill.insertEmbed(range.index, 'image', dataUrl);
-            window.quill.setSelection(range.index + 1);
+            window.quill.insertEmbed(insertIndex, 'image', dataUrl);
+            window.quill.setSelection(insertIndex + 1);
         };
         img.src = event.target.result;
     };

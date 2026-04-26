@@ -273,6 +273,11 @@ input[type="text"]:focus, select:focus, textarea:focus, input[type="number"]:foc
     outline: none;
     box-shadow: 0 0 0 2px var(--badge-memo-border);
 }
+/* ⭐️ 일반 메모 제목 입력창 폰트 강조 */
+#memoTitle {
+    font-size: 15px;
+    font-weight: var(--fw-bold, bold);
+}
 input[type="text"], select, input[type="number"], input[type="datetime-local"] {
     height: 36px; 
 }
