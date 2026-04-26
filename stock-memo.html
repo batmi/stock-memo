@@ -71,7 +71,7 @@
 
                 <div class="form-row">
                     <div class="form-group" style="position: relative;">
-                        <label for="stockName">종목명</label>
+                        <label for="stockName">종목명 <span style="color:var(--danger-color)">*</span></label>
                         <input type="text" id="stockName" placeholder="검색 또는 직접 입력 (예: 삼성전자)" autocomplete="off" required>
                         <div id="stockNameList" class="autocomplete-list"></div>
                     </div>
@@ -81,7 +81,7 @@
                         <div id="brokerAccountList" class="autocomplete-list"></div>
                     </div>
                     <div class="form-group">
-                        <label for="tradeDate">기록 일시</label>
+                        <label for="tradeDate">기록 일시 <span style="color:var(--danger-color)">*</span></label>
                         <input type="text" id="tradeDate" required>
                     </div>
                 </div>
@@ -93,7 +93,7 @@
 
                 <div class="form-row" id="tradeRow1">
                     <div class="form-group">
-                        <label for="accountName">투자 분류</label>
+                        <label for="accountName">투자 분류 <span style="color:var(--danger-color)">*</span></label>
                         <select id="accountName" required>
                             <option value="" disabled selected>분류를 선택하세요</option>
                             <option value="장기투자">장기투자</option>
@@ -126,7 +126,8 @@
                     </div>
                 </div>
                 <div id="totalAmountWrapper" style="display: none;">
-                    <div class="total-amount-display" id="totalAmountDisplay">총 금액: 0원</div>
+                    <div class="total-amount-display total-amount-highlight" id="totalAmountDisplay">총 매수/매도 금액: 0원</div>
+                    <div style="clear:both;"></div>
                 </div>
 
                 <div class="form-group">
@@ -141,10 +142,11 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <label for="imageInput" style="margin-bottom: 0;">스크린샷 첨부 (선택) <span style="font-size: 11px; font-weight: normal; color: #7f8c8d;">(Ctrl+V 로 붙여넣기 가능)</span></label>
+                    <label>스크린샷 첨부 (선택)</label>
+                    <div class="file-drop-area" id="fileDropArea">
+                        <span class="drop-msg">📸 이곳을 클릭하여 이미지 첨부 또는 드래그 앤 드롭<br><span style="font-size:11px; font-weight:normal; opacity:0.8;">(클립보드 Ctrl+V 붙여넣기도 지원합니다)</span></span>
+                        <input type="file" id="imageInput" accept="image/*" style="display:none;">
                     </div>
-                    <input type="file" id="imageInput" accept="image/*">
                     <div id="imagePreviewContainer" style="display:none; position: relative; margin-top: 10px; max-width: fit-content;">
                         <img id="imagePreview" style="width: 100%; height: auto; border-radius: 4px; border: 1px solid #ccc; display: block;">
                         <button type="button" id="btnRemoveImage" style="position: absolute; top: 5px; right: 5px; width: auto; padding: 4px 8px; background: rgba(231, 76, 60, 0.9); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">삭제</button>

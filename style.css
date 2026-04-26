@@ -361,6 +361,16 @@ button:hover {
 .form-row { display: flex; gap: 15px; margin-bottom: 15px; }
 .form-row .form-group { flex: 1; margin-bottom: 0; }
 .total-amount-display { margin-top: 5px; margin-bottom: 15px; font-size: 13px; font-weight: var(--fw-bold, bold); color: var(--danger-color); text-align: right; }
+
+/* ⭐️ 총 금액 영수증 하이라이트 박스 */
+.total-amount-highlight { background: rgba(231, 76, 60, 0.08); padding: 10px 15px; border-radius: 6px; border: 1px dashed var(--danger-color); display: inline-block; float: right; margin-bottom: 15px; }
+[data-theme="dark"] .total-amount-highlight { background: rgba(231, 76, 60, 0.15); }
+
+/* ⭐️ 모던 이미지 첨부 드롭 영역 (Dropzone) */
+.file-drop-area { border: 2px dashed var(--border-color); border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--bg-color); margin-top: 5px; }
+.file-drop-area:hover, .file-drop-area.dragover { border-color: var(--primary-color); background: var(--badge-memo-bg); }
+.drop-msg { font-size: 13px; color: var(--text-muted-color); font-weight: bold; pointer-events: none; line-height: 1.5; display: block; }
+
 .tag-input-container { display: flex; flex-wrap: wrap; gap: 5px; padding: 8px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-color); align-items: center; min-height: 40px; box-sizing: border-box; transition: border-color 0.2s, box-shadow 0.2s; }
 .tag-input-container:focus-within { border-color: var(--primary-color); box-shadow: 0 0 0 2px var(--badge-memo-border); }
 .tag-list { display: flex; flex-wrap: wrap; gap: 5px; }

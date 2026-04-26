@@ -168,6 +168,32 @@ window.addEventListener('DOMContentLoaded', () => {
         return delta;
     });
 
+    // ⭐️ 이미지 드래그 앤 드롭 영역 이벤트 연결
+    const fileDropArea = document.getElementById('fileDropArea');
+    if (fileDropArea) {
+        fileDropArea.addEventListener('click', () => {
+            document.getElementById('imageInput').click();
+        });
+        fileDropArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            fileDropArea.classList.add('dragover');
+        });
+        fileDropArea.addEventListener('dragleave', () => {
+            fileDropArea.classList.remove('dragover');
+        });
+        fileDropArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fileDropArea.classList.remove('dragover');
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                currentSelectedFile = e.dataTransfer.files[0];
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(currentSelectedFile);
+                document.getElementById('imageInput').files = dataTransfer.files;
+                processImageFile();
+            }
+        });
+    }
+
     loadDataFromLocal();
 });
 
@@ -453,6 +479,8 @@ function resetAndCloseForm() {
         document.getElementById('imageInput').value = '';
         const previewContainer = document.getElementById('imagePreviewContainer');
         if (previewContainer) previewContainer.style.display = 'none';
+        const fileDropArea = document.getElementById('fileDropArea');
+        if (fileDropArea) fileDropArea.style.display = 'block';
         
         if (window.quill) window.quill.setContents([]); // 에디터 초기화
         editingEntryId = null;
@@ -491,7 +519,7 @@ function calcTotalAmount() {
     const qty = Number(document.getElementById('quantity').value) || 0;
     if (price > 0 && qty > 0) {
         totalWrapper.style.display = 'block';
-        document.getElementById('totalAmountDisplay').innerText = `총 금액: ${(price * qty).toLocaleString()}원`;
+            document.getElementById('totalAmountDisplay').innerText = `총 매매 금액: ${(price * qty).toLocaleString()}원`;
     } else { totalWrapper.style.display = 'none'; }
 }
 document.getElementById('price').addEventListener('input', calcTotalAmount);
@@ -553,6 +581,8 @@ function processImageFile() {
         currentAttachedImage = null;
         const previewContainer = document.getElementById('imagePreviewContainer');
         if (previewContainer) previewContainer.style.display = 'none';
+            const dropArea = document.getElementById('fileDropArea');
+            if (dropArea) dropArea.style.display = 'block';
         return;
     }
     const reader = new FileReader();
@@ -577,6 +607,8 @@ function processImageFile() {
             const container = document.getElementById('imagePreviewContainer');
             container.style.width = 'auto'; // 크기 제한 초기화
             container.style.display = 'block';
+            const dropArea = document.getElementById('fileDropArea');
+            if (dropArea) dropArea.style.display = 'none';
         };
         img.src = event.target.result;
     };
@@ -613,6 +645,8 @@ if (btnRemoveImage) {
         currentAttachedImage = null;
         document.getElementById('imageInput').value = '';
         document.getElementById('imagePreviewContainer').style.display = 'none';
+        const fileDropArea = document.getElementById('fileDropArea');
+        if (fileDropArea) fileDropArea.style.display = 'block';
     });
 }
 
@@ -1623,8 +1657,14 @@ function editEntry(entry) {
             previewContainer2.style.width = 'auto';
             previewContainer2.style.display = 'block'; 
         }
+        const dropArea = document.getElementById('fileDropArea');
+        if (dropArea) dropArea.style.display = 'none';
     }
-    else { if(previewContainer2) previewContainer2.style.display = 'none'; }
+    else { 
+        if(previewContainer2) previewContainer2.style.display = 'none'; 
+        const dropArea = document.getElementById('fileDropArea');
+        if (dropArea) dropArea.style.display = 'block';
+    }
 
     if (entry.type === 'memo') {
         document.getElementById('memoTitle').value = entry.title || '';
