@@ -21,7 +21,7 @@
     --danger-hover-color: #a34e4e;
     --success-hover-color: #3a7a4f;
     --warning-hover-color: #a87b35;
-    --info-hover-color: #835c94;
+    --info-hover-color: #7b2cbf; /* ⭐️ 호버 시 더 짙은 보라색 */
     --neutral-hover-color: #5f6b6b;
     --admin-hover-color: #d35400; /* 어두운 주황 */
 
@@ -94,7 +94,7 @@
     --danger-hover-color: #e74c3c;
     --success-hover-color: #27ae60;
     --warning-hover-color: #f39c12;
-    --info-hover-color: #9b59b6;
+    --info-hover-color: #b388ff; /* ⭐️ 호버 시 더 밝은 보라색 */
     --neutral-hover-color: #95a5a6;
     --admin-hover-color: #e67e22; /* 쨍한 주황 */
 
