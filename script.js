@@ -2428,6 +2428,8 @@ document.getElementById('btnListView').addEventListener('click', function() {
     document.getElementById('historyList').style.display = 'flex';
     document.getElementById('calendarViewSection').style.display = 'none';
     document.getElementById('filterBoxContainer').style.display = 'block';
+    const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
+    if (btnToggleHistoryClosed) btnToggleHistoryClosed.style.display = 'inline-block';
 });
 
 document.getElementById('btnCalendarView').addEventListener('click', function() {
@@ -2435,6 +2437,8 @@ document.getElementById('btnCalendarView').addEventListener('click', function() 
     document.getElementById('historyList').style.display = 'none';
     document.getElementById('calendarViewSection').style.display = 'block';
     document.getElementById('filterBoxContainer').style.display = 'none';
+    const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
+    if (btnToggleHistoryClosed) btnToggleHistoryClosed.style.display = 'none';
     renderCalendar();
 });
 
