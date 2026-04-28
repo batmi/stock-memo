@@ -537,8 +537,14 @@ button:hover {
     font-size: 22px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); cursor: pointer;
     display: flex; align-items: center; justify-content: center; z-index: 1000;
     transition: transform 0.2s, background-color 0.2s; padding: 0; margin: 0;
+    -webkit-tap-highlight-color: transparent; /* ⭐️ 모바일 터치 시 기본 회색 음영 제거 */
 }
 .btn-fab:hover { background-color: var(--primary-hover-color); transform: scale(1.05); }
+/* ⭐️ 모바일 터치(클릭) 시 즉각적인 피드백을 주는 눌림(Scale) 애니메이션 */
+.btn-fab:active {
+    transform: scale(0.9) !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+}
 .form-header-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 2px solid #eee; padding-bottom: 8px; }
 .form-header-container h3 { margin: 0; color: var(--text-strong-color); font-size: 1.1em; }
 .btn-close { background: none; border: none; font-size: 28px; cursor: pointer; color: var(--neutral-color); width: auto; padding: 0; margin: 0; line-height: 1; }
@@ -611,6 +617,9 @@ button:hover {
 .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; min-height: 300px; }
 .calendar-header { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; text-align: center; font-weight: bold; margin-bottom: 5px; font-size: 13px; }
 .calendar-day { border: 1px solid var(--border-light-color); padding: 5px; border-radius: 4px; background: var(--card-bg-color); text-align: right; display: flex; flex-direction: column; justify-content: space-between; min-height: 60px; cursor: pointer; transition: all 0.2s; }
+/* ⭐️ 달력 뷰 오늘 날짜 강조 스타일 */
+.calendar-day.today { border: 2px solid var(--primary-color); background: rgba(52, 152, 219, 0.05); }
+[data-theme="dark"] .calendar-day.today { background: rgba(59, 104, 140, 0.15); }
 .calendar-day:hover { background-color: var(--bg-color); border-color: var(--primary-hover-color); }
 .cal-badge { font-size: 11px; padding: 2px 4px; border-radius: 4px; margin-top: 2px; text-align: center; font-weight: bold; cursor: pointer; transition: transform 0.1s, background-color 0.2s, color 0.2s, border-color 0.2s; }
 .cal-badge:hover { transform: scale(1.03); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }

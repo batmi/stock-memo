@@ -439,6 +439,15 @@ const defaultStocks = [
 btnFab.addEventListener('click', () => {
     formModalOverlay.style.display = 'flex';
     document.body.style.overflow = 'hidden'; // ⭐️ 모달 열림 시 배경 스크롤 방지
+    
+    // ⭐️ 새 글 작성 시 기록 일시를 현재 시간으로 리프레시
+    const currentNow = new Date();
+    currentNow.setMinutes(currentNow.getMinutes() - currentNow.getTimezoneOffset());
+    if (window.tradeDatePicker) {
+        window.tradeDatePicker.setDate(currentNow.toISOString().slice(0,16));
+    } else {
+        document.getElementById('tradeDate').value = currentNow.toISOString().slice(0,16);
+    }
 });
 
 btnCloseForm.addEventListener('click', resetAndCloseForm);
@@ -1138,6 +1147,38 @@ document.getElementById('btnExportExcel').addEventListener('click', () => {
     XLSX.writeFile(workbook, filename);
 });
 
+// ⭐️ 숫자 카운트업 애니메이션 함수 (차트 중앙 텍스트용)
+function animateValue(element, endValue, duration, isProfit = false) {
+    let startValue = parseInt(element.getAttribute('data-val')) || 0;
+    if (startValue === endValue) {
+        const prefix = isProfit && endValue > 0 ? '+' : '';
+        element.innerText = prefix + endValue.toLocaleString() + '원';
+        return;
+    }
+    if (element.dataset.animId) cancelAnimationFrame(element.dataset.animId);
+
+    let startTime = null;
+    const step = (timestamp) => {
+        if (!startTime) startTime = timestamp;
+        const progress = Math.min((timestamp - startTime) / duration, 1);
+        // easeOutExpo (부드럽게 감속)
+        const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+        const current = Math.floor(startValue + (endValue - startValue) * ease);
+        
+        const prefix = isProfit && current > 0 ? '+' : '';
+        element.innerText = prefix + current.toLocaleString() + '원';
+        
+        if (progress < 1) {
+            element.dataset.animId = requestAnimationFrame(step);
+        } else {
+            const finalPrefix = isProfit && endValue > 0 ? '+' : '';
+            element.innerText = finalPrefix + endValue.toLocaleString() + '원';
+            element.setAttribute('data-val', endValue);
+        }
+    };
+    element.dataset.animId = requestAnimationFrame(step);
+}
+
 function updatePortfolioSummary() {
     const portfolio = {};
     const chartLabels = [];
@@ -1398,14 +1439,16 @@ function updatePortfolioSummary() {
         chartContainer.style.display = 'block';
         
         // 차트 중앙 텍스트 업데이트
-        const investedStr = Math.round(totalInvestedAmount).toLocaleString() + '원';
+        const targetInvested = Math.round(totalInvestedAmount);
+        const investedStr = targetInvested.toLocaleString() + '원';
         const elInvested = document.getElementById('centerTotalInvested');
-        elInvested.innerText = investedStr;
+        animateValue(elInvested, targetInvested, 1000, false); // ⭐️ 1초(1000ms) 동안 카운트업 애니메이션
         elInvested.style.fontSize = investedStr.length > 13 ? '13px' : (investedStr.length > 10 ? '15px' : '17px');
 
         const centerProfit = document.getElementById('centerTotalProfit');
-        const profitStr = (totalRealizedProfit > 0 ? '+' : '') + Math.round(totalRealizedProfit).toLocaleString() + '원';
-        centerProfit.innerText = profitStr;
+        const targetProfit = Math.round(totalRealizedProfit);
+        const profitStr = (targetProfit > 0 ? '+' : '') + targetProfit.toLocaleString() + '원';
+        animateValue(centerProfit, targetProfit, 1000, true); // ⭐️ 1초(1000ms) 동안 카운트업 애니메이션
         centerProfit.style.fontSize = profitStr.length > 13 ? '12px' : (profitStr.length > 10 ? '13px' : '15px');
         centerProfit.style.color = totalRealizedProfit > 0 ? 'var(--danger-color)' : (totalRealizedProfit < 0 ? 'var(--primary-color)' : 'var(--text-strong-color)');
         document.getElementById('centerHoldingsCount').innerText = holdingsCount + '종목 보유';
@@ -1428,7 +1471,8 @@ function updatePortfolioSummary() {
                     data: finalData, 
                     backgroundColor: finalColors, 
                     hoverBackgroundColor: finalHoverColors, // ⭐️ 호버 색상 속성 추가
-                    borderColor: theme === 'dark' ? '#1e1e1e' : '#fff' 
+                    borderColor: theme === 'dark' ? '#1e1e1e' : '#fff',
+                    hoverOffset: isPortfolioEmpty ? 0 : 12 // ⭐️ 마우스 오버 시 조각이 커지는 애니메이션 효과 추가
                 }] 
             },
             options: { 
@@ -2089,7 +2133,15 @@ function renderCalendar() {
             }
         }
         
-        calendarGrid.innerHTML += `<div class="calendar-day" onclick="showDetailsForDate('${key}', 'all', event)" title="클릭하여 상세 보기"><span style="font-size:12px; font-weight:var(--fw-bold, bold); color: var(--text-strong-color);">${d}</span><div style="text-align:right;">${profitHtml}${badgesHtml}</div></div>`;
+        // ⭐️ 오늘 날짜인지 판별하여 강조 클래스 및 스타일 적용
+        const realToday = new Date();
+        const isToday = (year === realToday.getFullYear() && month === realToday.getMonth() && d === realToday.getDate());
+        const todayClass = isToday ? ' today' : '';
+        const daySpanHtml = isToday 
+            ? `<span style="background: var(--primary-color); color: white; padding: 1px 6px; border-radius: 10px; font-size: 11px; font-weight: bold; display: inline-block;">${d}</span>` 
+            : `<span style="font-size:12px; font-weight:var(--fw-bold, bold); color: var(--text-strong-color);">${d}</span>`;
+        
+        calendarGrid.innerHTML += `<div class="calendar-day${todayClass}" onclick="showDetailsForDate('${key}', 'all', event)" title="클릭하여 상세 보기">${daySpanHtml}<div style="text-align:right;">${profitHtml}${badgesHtml}</div></div>`;
     }
 }
 
