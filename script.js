@@ -2133,14 +2133,14 @@ function renderPage() {
 
         if (entryType === 'memo') {
             card.style.borderLeftColor = 'var(--info-color)';
-            const stockBadge = entry.stockName ? `<span class="cal-badge stock" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏷️ ${entry.stockName}</span>` : '';
-            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.8em; color: var(--text-muted-color); font-weight: normal; margin-left: 8px;">🏦 ${entry.brokerAccount}</span>` : '';
+            const stockBadge = entry.stockName ? `<span class="cal-badge stock" style="padding:4px 10px; border-radius:12px; font-size:0.95em; font-weight:bold; color:var(--text-strong-color); margin:0;">🏷️ ${entry.stockName}</span>` : '';
+            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.85em; color: var(--text-muted-color); font-weight: normal; margin:0;">🏦 ${entry.brokerAccount}</span>` : '';
             card.innerHTML = `
             <div class="entry-header">
                 ${timeDisplayHtml}
                 <div class="header-right"><span>📝 일반 메모</span><button class="btn-edit">수정</button><button class="btn-delete">삭제</button></div>
             </div>
-                <div class="entry-title">${stockBadge}${entry.title}${brokerBadge}</div>
+                <div class="entry-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">${stockBadge}<span style="margin:0;">${entry.title}</span>${brokerBadge}</div>
                 <div class="entry-content ql-snow" style="border:none; padding:0;"><div class="ql-editor" style="padding:0; min-height:auto; font-family:inherit; font-size:inherit;">${entry.thoughts}</div></div>
                 ${tagsHtml}
                 ${fileHtml}
@@ -2180,15 +2180,15 @@ function renderPage() {
                     </div>
                 `;
             }
-            const stockBadge = entry.stockName ? `<span class="cal-badge stock" style="padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">🏷️ ${entry.stockName}</span>` : '';
-            const tradeBadge = `<span style="background-color: ${typeColor}; color: white; padding:3px 8px; border-radius:12px; font-size:0.8em; margin-right:8px; display:inline-block;">${entry.tradeType}</span>`;
-            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.8em; color: var(--text-muted-color); font-weight: normal; margin-left: 8px;">🏦 ${entry.brokerAccount}</span>` : '';
+            const stockBadge = entry.stockName ? `<span class="cal-badge stock" style="padding:4px 10px; border-radius:12px; font-size:0.95em; font-weight:bold; color:var(--text-strong-color); margin:0;">🏷️ ${entry.stockName}</span>` : '';
+            const tradeBadge = `<span style="background-color: ${typeColor}; color: white; padding:4px 8px; border-radius:12px; font-size:0.85em; font-weight:bold; margin:0;">${entry.tradeType}</span>`;
+            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.85em; color: var(--text-muted-color); font-weight: normal; margin:0;">🏦 ${entry.brokerAccount}</span>` : '';
             card.innerHTML = `
             <div class="entry-header">
                 ${timeDisplayHtml}
                 <div class="header-right"><span>💼 ${entry.accountName}</span><button class="btn-edit">수정</button><button class="btn-delete">삭제</button></div>
             </div>
-                <div class="entry-title">${stockBadge}${tradeBadge}${brokerBadge}</div>
+                <div class="entry-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">${stockBadge}${tradeBadge}${brokerBadge}</div>
                 ${detailsHtml}
                 <div class="entry-content ql-snow" style="border:none; padding:0;"><div class="ql-editor" style="padding:0; min-height:auto; font-family:inherit; font-size:inherit;">${entry.thoughts}</div></div>
                 ${tagsHtml}
