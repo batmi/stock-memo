@@ -5,7 +5,7 @@ let currentFilterDate = null;
 let currentFilterType = null;
 let isDashboardCollapsed = false;
 let showClosedPositions = false; // 청산 종목 보기 상태
-let showHistoryClosedPositions = false; // 히스토리 청산 종목 포함 상태
+let showHistoryClosedPositions = true; // ⭐️ 기본적으로 히스토리에 청산 종목을 표시하도록 변경
 let currentDashboardBroker = 'all'; // 대시보드 증권사 필터 상태
 let currentDashboardAccount = 'all'; // 대시보드 투자 분류 필터 상태
 let currentFilteredEntries = [];
@@ -114,14 +114,14 @@ window.addEventListener('DOMContentLoaded', () => {
     if (btnToggleHistoryClosed) {
         // 초기 버튼 상태 동기화
         btnToggleHistoryClosed.innerText = showHistoryClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
-        btnToggleHistoryClosed.style.backgroundColor = showHistoryClosedPositions ? 'var(--primary-color)' : 'transparent';
-        btnToggleHistoryClosed.style.color = showHistoryClosedPositions ? '#fff' : 'var(--primary-color)';
+        btnToggleHistoryClosed.style.backgroundColor = showHistoryClosedPositions ? 'transparent' : 'var(--primary-color)';
+        btnToggleHistoryClosed.style.color = showHistoryClosedPositions ? 'var(--primary-color)' : '#fff';
 
         btnToggleHistoryClosed.addEventListener('click', () => {
             showHistoryClosedPositions = !showHistoryClosedPositions;
             btnToggleHistoryClosed.innerText = showHistoryClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
-            btnToggleHistoryClosed.style.backgroundColor = showHistoryClosedPositions ? 'var(--primary-color)' : 'transparent';
-            btnToggleHistoryClosed.style.color = showHistoryClosedPositions ? '#fff' : 'var(--primary-color)';
+            btnToggleHistoryClosed.style.backgroundColor = showHistoryClosedPositions ? 'transparent' : 'var(--primary-color)';
+            btnToggleHistoryClosed.style.color = showHistoryClosedPositions ? 'var(--primary-color)' : '#fff';
             displayEntries(true);
 
             // 필터 변경 시 히스토리 상단으로 부드럽게 스크롤
@@ -271,6 +271,25 @@ async function loadDataFromLocal() {
     try {
         // ⭐️ 사용자 환경설정 먼저 불러오기
         try {
+            // ⭐️ 사용자 정보 및 관리자 여부 확인
+            try {
+                const meRes = await fetch('/api/me', { headers: { 'ngrok-skip-browser-warning': 'true' }});
+                if (meRes.ok) {
+                    const meData = await meRes.json();
+                    if (meData.username) {
+                        const userDisplay = document.getElementById('loggedInUserDisplay');
+                        if (userDisplay) {
+                            userDisplay.innerHTML = `<span style="font-size:12px;">👤</span> ${meData.username}`;
+                            userDisplay.style.display = 'flex';
+                        }
+                        if (meData.username === 'batmi') {
+                            const btnAdmin = document.getElementById('btnAdmin');
+                            if (btnAdmin) btnAdmin.style.display = 'flex';
+                        }
+                    }
+                }
+            } catch(e) { console.warn("사용자 정보 로드 실패"); }
+
             const prefRes = await fetch('/api/preferences', {
                 headers: { 'ngrok-skip-browser-warning': 'true' }
             });
@@ -295,8 +314,8 @@ async function loadDataFromLocal() {
                     const btn2 = document.getElementById('btnToggleHistoryClosed');
                     if (btn2) {
                         btn2.innerText = showHistoryClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
-                        btn2.style.backgroundColor = showHistoryClosedPositions ? 'var(--primary-color)' : 'transparent';
-                        btn2.style.color = showHistoryClosedPositions ? '#fff' : 'var(--primary-color)';
+                        btn2.style.backgroundColor = showHistoryClosedPositions ? 'transparent' : 'var(--primary-color)';
+                        btn2.style.color = showHistoryClosedPositions ? 'var(--primary-color)' : '#fff';
                     }
                 }
             }
@@ -316,27 +335,6 @@ async function loadDataFromLocal() {
     } catch (err) {
         console.error(err);
         alert("로컬 데이터를 불러오지 못했습니다.\n서버가 실행 중인지 확인하세요.");
-    }
-}
-
-async function saveToLocal(reload = false) {
-    try {
-        await fetch('/api/data', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'ngrok-skip-browser-warning': 'true'
-            },
-            body: JSON.stringify(cloudEntries)
-        });
-        if (reload) {
-            window.location.reload();
-        } else {
-            await loadDataFromLocal();
-        }
-    } catch (err) {
-        console.error("저장 실패:", err);
-        alert("데이터베이스에 저장하는 중 오류가 발생했습니다.");
     }
 }
 
@@ -447,10 +445,18 @@ btnCloseForm.addEventListener('click', resetAndCloseForm);
 
 // ⭐️ Esc 키로 모달 닫기
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && formModalOverlay.style.display === 'flex') {
-        const openLists = document.querySelectorAll('.autocomplete-list[style*="display: block"]');
-        if (openLists.length > 0) return; // 드롭다운이 열려있을 땐 모달 닫기 방지
-        resetAndCloseForm();
+    if (e.key === 'Escape') {
+        if (formModalOverlay.style.display === 'flex') {
+            const openLists = document.querySelectorAll('.autocomplete-list[style*="display: block"]');
+            if (openLists.length > 0) return; // 드롭다운이 열려있을 땐 모달 닫기 방지
+            resetAndCloseForm();
+        } else if (typeof passwordModalOverlay !== 'undefined' && passwordModalOverlay && passwordModalOverlay.style.display === 'flex') {
+            document.getElementById('btnClosePasswordModal').click();
+        } else if (typeof adminModalOverlay !== 'undefined' && adminModalOverlay && adminModalOverlay.style.display === 'flex') {
+            document.getElementById('btnCloseAdminModal').click();
+        } else if (typeof deleteAccountModalOverlay !== 'undefined' && deleteAccountModalOverlay && deleteAccountModalOverlay.style.display === 'flex') {
+            document.getElementById('btnCloseDeleteAccountModal').click();
+        }
     }
 });
 
@@ -543,6 +549,152 @@ function setupAutocomplete(inputId, listId, getOptions) {
         if (e.target !== input && e.target !== list) list.style.display = 'none';
     });
 }
+
+// ⭐️ 회원 탈퇴 로직
+const btnDeleteAccount = document.getElementById('btnDeleteAccount');
+const deleteAccountModalOverlay = document.getElementById('deleteAccountModalOverlay');
+const btnCloseDeleteAccountModal = document.getElementById('btnCloseDeleteAccountModal');
+const deleteAccountForm = document.getElementById('deleteAccountForm');
+
+if (btnDeleteAccount && deleteAccountModalOverlay) {
+    btnDeleteAccount.addEventListener('click', () => {
+        const pwOverlay = document.getElementById('passwordModalOverlay');
+        if (pwOverlay) pwOverlay.style.display = 'none'; // 비번 변경 모달 숨기기
+        deleteAccountModalOverlay.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    });
+
+    const closeDeleteModal = () => {
+        deleteAccountModalOverlay.classList.add('closing');
+        setTimeout(() => {
+            deleteAccountModalOverlay.style.display = 'none';
+            deleteAccountModalOverlay.classList.remove('closing');
+            document.body.style.overflow = '';
+            if(deleteAccountForm) deleteAccountForm.reset();
+        }, 180);
+    };
+
+    if (btnCloseDeleteAccountModal) btnCloseDeleteAccountModal.addEventListener('click', closeDeleteModal);
+
+    if (deleteAccountForm) deleteAccountForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const pw = document.getElementById('deleteAccountPassword').value;
+        if (!pw) return;
+
+        if (confirm("정말로 탈퇴하시겠습니까?\n이 작업은 되돌릴 수 없습니다!")) {
+            try {
+                const submitBtn = deleteAccountForm.querySelector('button[type="submit"]');
+                const origText = submitBtn.innerText;
+                submitBtn.innerText = '탈퇴 중...';
+                submitBtn.disabled = true;
+
+                const res = await fetch('/api/account', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+                    body: JSON.stringify({ password: pw })
+                });
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    alert("계정이 성공적으로 삭제되었습니다. 이용해 주셔서 감사합니다.");
+                    window.location.href = '/login';
+                } else {
+                    alert("탈퇴 실패: " + (data.error || "알 수 없는 오류"));
+                    submitBtn.innerText = origText;
+                    submitBtn.disabled = false;
+                }
+            } catch (e) {
+                alert("탈퇴 처리 중 오류가 발생했습니다.");
+                const submitBtn = deleteAccountForm.querySelector('button[type="submit"]');
+                submitBtn.innerText = '탈퇴하기';
+                submitBtn.disabled = false;
+            }
+        }
+    });
+}
+
+// ⭐️ 관리자 대시보드 로직
+const btnAdmin = document.getElementById('btnAdmin');
+const adminModalOverlay = document.getElementById('adminModalOverlay');
+const btnCloseAdminModal = document.getElementById('btnCloseAdminModal');
+const adminUserList = document.getElementById('adminUserList');
+
+if (btnAdmin && adminModalOverlay) {
+    btnAdmin.addEventListener('click', async () => {
+        adminModalOverlay.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+        await loadAdminUsers();
+    });
+    
+    const closeAdminModal = () => {
+        adminModalOverlay.classList.add('closing');
+        setTimeout(() => {
+            adminModalOverlay.style.display = 'none';
+            adminModalOverlay.classList.remove('closing');
+            document.body.style.overflow = '';
+        }, 180);
+    };
+    
+    if (btnCloseAdminModal) btnCloseAdminModal.addEventListener('click', closeAdminModal);
+}
+
+window.loadAdminUsers = async function() {
+    if (!adminUserList) return;
+    adminUserList.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px;">불러오는 중...</td></tr>';
+    try {
+        const res = await fetch('/api/admin/users', { headers: { 'ngrok-skip-browser-warning': 'true' }});
+        if (!res.ok) throw new Error("권한이 없습니다.");
+        const users = await res.json();
+        
+        adminUserList.innerHTML = '';
+        users.forEach(u => {
+            const isMe = u.username === 'batmi';
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid var(--border-light-color)';
+            tr.innerHTML = `
+                <td style="padding: 10px; font-weight: bold; color: var(--text-strong-color);">${u.username} ${isMe ? '👑' : ''}</td>
+                <td style="padding: 10px;">${u.entry_count}건</td>
+                <td style="padding: 10px; text-align: right; white-space: nowrap;">
+                    <button onclick="resetUserPassword('${u.username}')" style="background: var(--warning-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0 4px 0 0; box-shadow: none;">비번 초기화</button>
+                    ${!isMe ? `<button onclick="deleteUserAccount('${u.username}')" style="background: var(--danger-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0; box-shadow: none;">삭제</button>` : ''}
+                </td>
+            `;
+            adminUserList.appendChild(tr);
+        });
+    } catch(e) {
+        adminUserList.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--danger-color);">데이터를 불러오지 못했습니다.</td></tr>';
+    }
+};
+
+window.resetUserPassword = async function(username) {
+    if (confirm(`'${username}' 사용자의 비밀번호를 안전한 무작위 문자열로 초기화하시겠습니까?`)) {
+        try {
+            const res = await fetch(`/api/admin/users/${username}/reset_password`, { method: 'POST', headers: { 'ngrok-skip-browser-warning': 'true' }});
+            if (res.ok) {
+                const data = await res.json();
+                alert(`'${username}' 계정의 비밀번호가 [ ${data.new_password} ] 로 초기화되었습니다.\n사용자에게 이 임시 비밀번호를 전달해 주세요.`);
+            } else {
+                alert("초기화에 실패했습니다.");
+            }
+        } catch(e) { alert("통신 오류가 발생했습니다."); }
+    }
+};
+
+window.deleteUserAccount = async function(username) {
+    const confirmName = prompt(`⚠️ 경고: '${username}' 사용자와 관련된 모든 기록과 첨부파일이 영구적으로 삭제됩니다.\n\n계속하시려면 삭제할 아이디('${username}')를 아래에 정확히 입력해주세요.`);
+    if (confirmName === username) {
+        try {
+            const res = await fetch(`/api/admin/users/${username}`, { method: 'DELETE', headers: { 'ngrok-skip-browser-warning': 'true' }});
+            if (res.ok) {
+                alert(`'${username}' 계정이 삭제되었습니다.`);
+                loadAdminUsers();
+            } else {
+                alert("삭제에 실패했습니다.");
+            }
+        } catch(e) { alert("통신 오류가 발생했습니다."); }
+    } else if (confirmName !== null) {
+        alert("입력한 아이디가 일치하지 않아 삭제가 취소되었습니다.");
+    }
+};
 
 const defaultBrokers = ["키움증권", "미래에셋증권", "NH투자증권", "한국투자증권", "삼성증권", "토스증권"];
 function getStockOptions() {
@@ -818,18 +970,40 @@ journalForm.addEventListener('submit', async function(e) {
         newEntry = { id: editingEntryId || Date.now(), type: 'memo', stockName: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: finalAttachedFile, attachedFileName: finalAttachedFileName };
     }
 
-    if (editingEntryId) {
-        const index = cloudEntries.findIndex(e => e.id === editingEntryId);
-        if (index > -1) cloudEntries[index] = newEntry;
-        editingEntryId = null;
-        submitBtn.innerText = "기록 저장하기";
-    } else {
-        cloudEntries.unshift(newEntry);
+    const method = editingEntryId ? 'PUT' : 'POST';
+    const url = editingEntryId ? `/api/entry/${editingEntryId}` : '/api/entry';
+
+    try {
+        const res = await fetch(url, {
+            method: method,
+            headers: { 
+                'Content-Type': 'application/json',
+                'ngrok-skip-browser-warning': 'true'
+            },
+            body: JSON.stringify(newEntry)
+        });
+        
+        if (res.ok) {
+            if (editingEntryId) {
+                const index = cloudEntries.findIndex(e => e.id === editingEntryId);
+                if (index > -1) cloudEntries[index] = newEntry;
+            } else {
+                cloudEntries.unshift(newEntry);
+            }
+            
+            editingEntryId = null;
+            submitBtn.innerText = "기록 저장하기";
+            resetAndCloseForm();
+            displayEntries(true);
+            updatePortfolioSummary();
+            renderCalendar();
+        } else {
+            alert("저장에 실패했습니다.");
+        }
+    } catch(err) {
+        console.error(err);
+        alert("데이터 저장 중 오류가 발생했습니다.");
     }
-    
-    resetAndCloseForm();
-    
-    await saveToLocal(false); // ⭐️ 저장 후 화면 전체를 새로고침하지 않고 데이터만 갱신하여 상태(필터 등) 유지
 });
 
 // ⭐️ 전체 데이터 백업 및 원복 이벤트 연결
@@ -1554,8 +1728,7 @@ function displayEntries(isFilterUpdate = false) {
         // ⭐️ 청산 종목 숨기기 상태일 때 (보유 수량이 0인 종목을 검색 및 필터에서 제외)
         if (!showHistoryClosedPositions) {
             if (entry.stockName && stockQtys[entry.stockName] !== undefined && stockQtys[entry.stockName] <= 0) {
-                // 단, 사용자가 현재 지켜보기로 한 '관망' 또는 '주시' 포지션 기록은 예외적으로 숨기지 않음
-                if (entry.tradeType !== '관망' && entry.tradeType !== '주시') return false; 
+                return false; 
             }
         }
         
@@ -1809,8 +1982,18 @@ function editEntry(entry) {
 
 async function deleteEntry(id) {
     if (confirm("정말로 이 기록을 삭제하시겠습니까?\n(삭제 후 로컬 파일에 즉시 반영됩니다)")) {
-        cloudEntries = cloudEntries.filter(e => e.id !== id);
-        await saveToLocal(false); // ⭐️ 새로고침 없이 삭제 반영하여 상태 유지
+        try {
+            const res = await fetch(`/api/entry/${id}`, {
+                method: 'DELETE',
+                headers: { 'ngrok-skip-browser-warning': 'true' }
+            });
+            if (res.ok) {
+                cloudEntries = cloudEntries.filter(e => e.id !== id);
+                displayEntries(true);
+                updatePortfolioSummary();
+                renderCalendar();
+            } else { alert("삭제에 실패했습니다."); }
+        } catch(e) { alert("삭제 중 오류가 발생했습니다."); }
     }
 }
 
@@ -2008,3 +2191,71 @@ window.addEventListener('touchend', () => {
         }
     }
 });
+
+// ⭐️ 비밀번호 변경 모달 이벤트 연결
+const passwordModalOverlay = document.getElementById('passwordModalOverlay');
+const btnChangePassword = document.getElementById('btnChangePassword');
+const btnClosePasswordModal = document.getElementById('btnClosePasswordModal');
+const passwordForm = document.getElementById('passwordForm');
+
+if (btnChangePassword && passwordModalOverlay) {
+    btnChangePassword.addEventListener('click', () => {
+        passwordModalOverlay.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    });
+    
+    const closePwModal = () => {
+        passwordModalOverlay.classList.add('closing');
+        setTimeout(() => {
+            passwordModalOverlay.style.display = 'none';
+            passwordModalOverlay.classList.remove('closing');
+            document.body.style.overflow = '';
+            if(passwordForm) passwordForm.reset();
+        }, 180);
+    };
+    
+    if (btnClosePasswordModal) btnClosePasswordModal.addEventListener('click', closePwModal);
+    
+    if(passwordForm) passwordForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const current_password = document.getElementById('currentPassword').value;
+        const new_password = document.getElementById('newPassword').value;
+        const new_password_confirm = document.getElementById('newPasswordConfirm').value;
+        
+        if (new_password !== new_password_confirm) {
+            alert("새 비밀번호가 일치하지 않습니다.");
+            return;
+        }
+        
+        try {
+            const submitBtn = passwordForm.querySelector('button[type="submit"]');
+            const origText = submitBtn.innerText;
+            submitBtn.innerText = '변경 중...';
+            submitBtn.disabled = true;
+            
+            const res = await fetch('/api/change_password', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': 'true'
+                },
+                body: JSON.stringify({ current_password, new_password })
+            });
+            
+            const data = await res.json();
+            if (res.ok && data.status === 'success') {
+                alert("비밀번호가 성공적으로 변경되었습니다.\n새로운 비밀번호로 다시 로그인해주세요.");
+                window.location.href = '/logout'; // 로그아웃 처리하여 새 비번으로 로그인 유도
+            } else {
+                alert("변경 실패: " + (data.error || "알 수 없는 오류가 발생했습니다."));
+                submitBtn.innerText = origText;
+                submitBtn.disabled = false;
+            }
+        } catch(err) {
+            alert("비밀번호 변경 중 오류가 발생했습니다.");
+            const submitBtn = passwordForm.querySelector('button[type="submit"]');
+            submitBtn.innerText = '변경하기';
+            submitBtn.disabled = false;
+        }
+    });
+}

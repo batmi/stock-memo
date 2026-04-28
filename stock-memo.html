@@ -44,10 +44,14 @@
         </div>
         <!-- ⭐️ 데이터 관리 및 로그아웃 버튼 -->
         <div style="margin-left: auto; display: flex; gap: 6px; align-items: center; margin-right: max(0px, calc((100% - 955px) / 2));">
+            <!-- ⭐️ 로그인된 사용자 표시 영역 -->
+            <div id="loggedInUserDisplay" style="font-size: 12px; font-weight: bold; color: var(--text-strong-color); margin-right: 4px; display: flex; align-items: center; gap: 4px; background: var(--card-bg-color); padding: 2px 8px; border-radius: 12px; border: 1px solid var(--border-color); display: none;"></div>
             <input type="file" id="restoreFileInput" accept=".zip" style="display:none;">
             <button type="button" id="btnFullBackup" class="header-action-btn btn-backup" title="모든 데이터 완벽 백업 (ZIP)">B</button>
             <button type="button" id="btnFullRestore" class="header-action-btn btn-restore" title="백업 파일로 복원 (ZIP)">R</button>
             <button type="button" id="btnExportExcel" class="header-action-btn btn-export" title="Excel 파일로 내보내기">E</button>
+            <button type="button" id="btnChangePassword" class="header-action-btn btn-password" title="비밀번호 변경">P</button>
+            <button type="button" id="btnAdmin" class="header-action-btn btn-admin" title="관리자 대시보드" style="display:none;">A</button>
             <button type="button" id="btnLogout" class="header-action-btn btn-logout" title="안전하게 로그아웃">Logout</button>
         </div>
     </header>
@@ -276,6 +280,76 @@
     <!-- ⭐️ 이미지 원본 보기 팝업(모달) -->
         <div id="imageViewerModal" class="modal-overlay" style="display:none; z-index: 3000; cursor: zoom-out;" onclick="this.classList.add('closing'); setTimeout(() => { this.style.display='none'; this.classList.remove('closing'); document.body.style.overflow=''; }, 180)">
         <img id="fullSizeImage" style="max-width: 95%; max-height: 95vh; border-radius: 4px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); background: var(--card-bg-color);">
+    </div>
+
+    <!-- ⭐️ 비밀번호 변경 팝업(모달) -->
+    <div id="passwordModalOverlay" class="modal-overlay" style="display:none; z-index: 3000;">
+        <div class="form-container" style="max-width: 250px; padding: 18px;">
+            <div class="form-header-container" style="margin-bottom: 12px; border: none; padding: 0;">
+                <h3 style="font-size: 14px;">🔒 비밀번호 변경</h3>
+                <button type="button" class="btn-close" id="btnClosePasswordModal" title="닫기">&times;</button>
+            </div>
+            <form id="passwordForm">
+                <div class="form-group">
+                    <label style="font-size: 11px; margin-bottom: 4px; color: var(--text-muted-color);">현재 비밀번호</label>
+                    <input type="password" id="currentPassword" placeholder="기존 비밀번호 입력" required autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label style="font-size: 11px; margin-bottom: 4px; color: var(--text-muted-color);">새 비밀번호</label>
+                    <input type="password" id="newPassword" placeholder="새로운 비밀번호 입력" required autocomplete="off">
+                </div>
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label style="font-size: 11px; margin-bottom: 4px; color: var(--text-muted-color);">새 비밀번호 확인</label>
+                    <input type="password" id="newPasswordConfirm" placeholder="새로운 비밀번호 다시 입력" required autocomplete="off">
+                </div>
+                <button type="submit" style="width: 100%; margin: 0; padding: 8px; font-size: 12px; font-weight: bold; display: block; border-radius: 8px; background: linear-gradient(135deg, var(--info-color) 0%, var(--primary-color) 100%); box-shadow: 0 4px 15px rgba(0,0,0,0.15); border: none; transition: transform 0.2s, box-shadow 0.2s;">변경하기</button>
+                <div style="margin-top: 15px; text-align: center;">
+                    <button type="button" id="btnDeleteAccount" style="background: none; border: none; color: var(--danger-color); font-size: 11px; text-decoration: underline; cursor: pointer; box-shadow: none; width: auto; padding: 0;">회원 탈퇴 및 데이터 삭제</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ⭐️ 회원 탈퇴 팝업(모달) -->
+    <div id="deleteAccountModalOverlay" class="modal-overlay" style="display:none; z-index: 3000;">
+        <div class="form-container" style="max-width: 250px; padding: 18px;">
+            <div class="form-header-container" style="margin-bottom: 12px; border: none; padding: 0;">
+                <h3 style="font-size: 14px; color: var(--danger-color);">⚠️ 회원 탈퇴</h3>
+                <button type="button" class="btn-close" id="btnCloseDeleteAccountModal" title="닫기">&times;</button>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted-color); margin-bottom: 15px; line-height: 1.4;">
+                계정을 영구적으로 삭제합니다.<br>모든 기록과 첨부파일이 지워지며 복구할 수 없습니다.<br><br>본인 확인을 위해 비밀번호를 입력해주세요.
+            </div>
+            <form id="deleteAccountForm">
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <input type="password" id="deleteAccountPassword" placeholder="현재 비밀번호 입력" required autocomplete="off">
+                </div>
+                <button type="submit" style="width: 100%; margin: 0; padding: 8px; font-size: 12px; font-weight: bold; display: block; border-radius: 8px; background: var(--danger-color); box-shadow: 0 4px 15px rgba(231, 76, 60, 0.3); border: none; transition: transform 0.2s, box-shadow 0.2s; color: white;">탈퇴하기</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ⭐️ 관리자 대시보드 팝업(모달) -->
+    <div id="adminModalOverlay" class="modal-overlay" style="display:none; z-index: 3000;">
+        <div class="form-container" style="max-width: 500px; padding: 20px;">
+            <div class="form-header-container" style="margin-bottom: 15px; border: none; padding: 0;">
+                <h3 style="font-size: 15px;">👑 관리자 대시보드</h3>
+                <button type="button" class="btn-close" id="btnCloseAdminModal" title="닫기">&times;</button>
+            </div>
+            <div style="max-height: 400px; overflow-y: auto; background: var(--bg-color); border-radius: 8px; border: 1px solid var(--border-color);">
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid var(--border-color); background: var(--border-light-color);">
+                            <th style="padding: 10px; font-weight: bold; color: var(--text-strong-color);">사용자명</th>
+                            <th style="padding: 10px; font-weight: bold; color: var(--text-strong-color);">기록 수</th>
+                            <th style="padding: 10px; font-weight: bold; color: var(--text-strong-color); text-align: right;">관리</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminUserList">
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
     <!-- ⭐️ 외부 JS 파일 연결 -->

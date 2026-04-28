@@ -23,6 +23,11 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__, static_folder='.', static_url_path='')
 app.secret_key = 'stock_memo_secret_key' # 세션 유지를 위한 시크릿 키 설정
 
+# ⭐️ 세션(쿠키) 보안 설정 강화
+app.config['SESSION_COOKIE_HTTPONLY'] = True  # 자바스크립트(XSS)로 쿠키 접근 원천 차단
+app.config['SESSION_COOKIE_SECURE'] = False   # ⭐️ 로컬(HTTP) 환경 접속 시 로그인 갱신 오류 방지를 위해 비활성화
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax' # CSRF(크로스 사이트 요청 위조) 공격 방어
+
 DATA_FILE = 'my_stock_trading_journal.json'
 DB_DIR = 'db'
 DB_FILE = os.path.join(DB_DIR, 'journal.db')
@@ -37,6 +42,7 @@ login_attempts = {}
 
 def get_db():
     conn = sqlite3.connect(DB_FILE)
+    conn.execute('PRAGMA journal_mode=WAL;')
     conn.row_factory = sqlite3.Row # 결과를 dict 형태로 접근할 수 있게 함
     return conn
 
@@ -65,6 +71,7 @@ def init_db():
     c.execute('''
         CREATE TABLE IF NOT EXISTS entries (
             id INTEGER PRIMARY KEY,
+            username TEXT,
             type TEXT,
             stockName TEXT,
             title TEXT,
@@ -116,6 +123,14 @@ def init_db():
     except sqlite3.OperationalError:
         pass
         
+    # 다중 사용자 격리를 위한 컬럼 추가
+    try:
+        c.execute("ALTER TABLE entries ADD COLUMN username TEXT")
+    except sqlite3.OperationalError:
+        pass
+    
+    c.execute("UPDATE entries SET username = 'batmi' WHERE username IS NULL")
+        
     # 사용자별 환경 설정(카드 순서 등) 저장을 위한 컬럼 추가
     try:
         c.execute("ALTER TABLE users ADD COLUMN preferences TEXT")
@@ -142,8 +157,8 @@ def init_db():
                     img_url = process_image(entry.get('attachedImage'), entry.get('id'))
                     c.execute('''
                         INSERT INTO entries 
-                        (id, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (id, username, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
+                        VALUES (?, 'batmi', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         entry.get('id'), entry.get('type'), entry.get('stockName'), entry.get('title'),
                         entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), img_url,
@@ -160,8 +175,8 @@ def init_db():
 
 @app.before_request
 def check_login():
-    # 로그인 처리를 수행하는 라우트는 검사에서 제외
-    if request.endpoint != 'login':
+    # 로그인 및 회원가입 처리를 수행하는 라우트는 검사에서 제외
+    if request.endpoint not in ['login', 'signup']:
         # 세션에 로그인 상태가 없으면 차단
         if not session.get('logged_in'):
             # 백엔드 API 요청인 경우 401 인증 에러 반환
@@ -304,27 +319,206 @@ def login():
                     <input type="password" name="password" placeholder="비밀번호를 입력하세요" required>
                     <button type="submit">접속하기</button>
                 </form>
+                <div style="margin-top: 15px; font-size: 13px;">
+                    <span style="color: #888;">계정이 없으신가요?</span> 
+                    <a href="{{ url_for('signup') }}" style="color: #b388ff; text-decoration: none; font-weight: bold;">새 계정 가입하기</a>
+                </div>
             </div>
         </body>
         </html>
     ''', error_message=error_message)
 
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    error_message = None
+    success_message = None
+    
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        password_confirm = request.form.get('password_confirm')
+        
+        if not username or not password:
+            error_message = "아이디와 비밀번호를 모두 입력해주세요."
+        elif password != password_confirm:
+            error_message = "비밀번호가 일치하지 않습니다."
+        else:
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("SELECT id FROM users WHERE username = ?", (username,))
+            if c.fetchone():
+                error_message = "이미 존재하는 아이디입니다."
+            else:
+                hashed_pw = generate_password_hash(password)
+                c.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, hashed_pw))
+                conn.commit()
+                success_message = "회원가입이 완료되었습니다! 잠시 후 로그인 화면으로 이동합니다."
+            conn.close()
+            
+    return render_template_string('''
+        <!DOCTYPE html>
+        <html lang="ko">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>TRADING JOURNAL - 회원가입</title>
+            <meta name="apple-mobile-web-app-capable" content="yes">
+            <meta name="apple-mobile-web-app-title" content="TRADING JOURNAL">
+            <meta name="theme-color" content="#121212">
+            <link rel="shortcut icon" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
+            <link rel="icon" type="image/png" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
+            <link rel="apple-touch-icon" sizes="180x180" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
+            <style>
+                body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: linear-gradient(135deg, #121212 0%, #1a1a2e 100%); margin: 0; color: #e0e0e0; }
+                .login-container { background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 30px 20px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 260px; }
+                .logo-text { font-size: 22px; font-weight: 900; font-style: italic; background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -1px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; }
+                input[type="text"], input[type="password"] { width: 100%; box-sizing: border-box; padding: 10px; margin: 0 0 12px 0; border: 1px solid #333; border-radius: 8px; font-size: 13px; background-color: rgba(18, 18, 18, 0.8); color: #fff; transition: all 0.3s ease; }
+                input[type="text"]::placeholder, input[type="password"]::placeholder { color: #666; }
+                input[type="text"]:focus, input[type="password"]:focus { border-color: #8a2be2; outline: none; box-shadow: 0 0 0 3px rgba(138, 43, 226, 0.3); background-color: #121212; }
+                button { width: 100%; padding: 10px; margin-top: 5px; background: linear-gradient(135deg, #9d4edd 0%, #7b2cbf 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); }
+                button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(123, 44, 191, 0.5); background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); }
+                .error-banner { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(231, 76, 60, 0.95); color: white; padding: 12px 24px; border-radius: 8px; box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4); font-size: 14px; font-weight: bold; z-index: 1000; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); opacity: 0; pointer-events: none; animation: slideDownFadeOut 3.5s ease-in-out forwards; }
+                @keyframes slideDownFadeOut { 0% { top: -20px; opacity: 0; } 10% { top: 20px; opacity: 1; } 80% { top: 20px; opacity: 1; } 100% { top: -20px; opacity: 0; } }
+            </style>
+        </head>
+        <body>
+            {% if error_message %}
+            <div class="error-banner">⚠️ {{ error_message }}</div>
+            {% endif %}
+            {% if success_message %}
+            <div class="error-banner" style="background: rgba(39, 174, 96, 0.95); box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4); animation: none; opacity: 1; top: 20px;">✅ {{ success_message }}</div>
+            <script> setTimeout(function() { window.location.href = "{{ url_for('login') }}"; }, 1500); </script>
+            {% endif %}
+            <div class="login-container">
+                <div class="logo-text">TRADING JOURNAL</div>
+                <form method="post">
+                    <input type="text" name="username" placeholder="사용할 아이디" required autofocus>
+                    <input type="password" name="password" placeholder="비밀번호" required>
+                    <input type="password" name="password_confirm" placeholder="비밀번호 확인" required>
+                    <button type="submit">가입하기</button>
+                </form>
+                <div style="margin-top: 15px; font-size: 13px;">
+                    <span style="color: #888;">이미 계정이 있으신가요?</span> 
+                    <a href="{{ url_for('login') }}" style="color: #b388ff; text-decoration: none; font-weight: bold;">로그인</a>
+                </div>
+            </div>
+        </body>
+        </html>
+    ''', error_message=error_message, success_message=success_message)
+
 @app.route('/logout')
 def logout():
     session.pop('logged_in', None)
+    session.pop('username', None) # ⭐️ 로그아웃 시 계정 정보 완벽 파기
     return redirect(url_for('login'))
 
 @app.route('/')
 def index():
     return send_from_directory('.', 'stock-memo.html')
 
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    # 분리되어 저장된 이미지 파일을 브라우저에 제공
-    return send_from_directory(UPLOAD_FOLDER, filename)
+@app.route('/api/me', methods=['GET'])
+def get_me():
+    return jsonify({"username": session.get('username')})
+
+@app.route('/api/account', methods=['DELETE'])
+def delete_account():
+    username = session.get('username')
+    data = request.json or {}
+    password = data.get('password')
+    if not password:
+        return jsonify({"error": "비밀번호를 입력해주세요."}), 400
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+    user_record = c.fetchone()
+    
+    if not user_record or not check_password_hash(user_record['password_hash'], password):
+        conn.close()
+        return jsonify({"error": "비밀번호가 일치하지 않습니다."}), 400
+        
+    # 사용자 데이터 및 계정 삭제
+    c.execute("DELETE FROM entries WHERE username = ?", (username,))
+    c.execute("DELETE FROM users WHERE username = ?", (username,))
+    conn.commit()
+    conn.close()
+    
+    # 사용자 전용 업로드 폴더 삭제
+    user_folder = os.path.join(UPLOAD_FOLDER, username)
+    if os.path.exists(user_folder):
+        shutil.rmtree(user_folder)
+        
+    session.pop('logged_in', None)
+    session.pop('username', None)
+    return jsonify({"status": "success"})
+
+def is_admin():
+    return session.get('username') == 'batmi'
+
+@app.route('/api/admin/users', methods=['GET'])
+def admin_get_users():
+    if not is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''
+        SELECT u.username, COUNT(e.id) as entry_count
+        FROM users u
+        LEFT JOIN entries e ON u.username = e.username
+        GROUP BY u.username
+    ''')
+    users = [dict(row) for row in c.fetchall()]
+    conn.close()
+    return jsonify(users)
+
+@app.route('/api/admin/users/<target_username>', methods=['DELETE'])
+def admin_delete_user(target_username):
+    if not is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+    if target_username == 'batmi':
+        return jsonify({"error": "최고 관리자는 삭제할 수 없습니다."}), 400
+        
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM entries WHERE username = ?", (target_username,))
+    c.execute("DELETE FROM users WHERE username = ?", (target_username,))
+    conn.commit()
+    conn.close()
+    
+    user_folder = os.path.join(UPLOAD_FOLDER, target_username)
+    if os.path.exists(user_folder):
+        shutil.rmtree(user_folder)
+        
+    return jsonify({"status": "success"})
+
+@app.route('/api/admin/users/<target_username>/reset_password', methods=['POST'])
+def admin_reset_password(target_username):
+    if not is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+        
+    # 8자리의 무작위 영문+숫자 임시 비밀번호 생성
+    new_password = uuid.uuid4().hex[:8]
+    hashed_pw = generate_password_hash(new_password)
+    
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (hashed_pw, target_username))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"status": "success", "new_password": new_password})
+
+@app.route('/uploads/<req_username>/<filename>')
+def uploaded_file(req_username, filename):
+    # 사용자 격리된 파일 접근 제어
+    if req_username != session.get('username'):
+        return jsonify({"error": "Unauthorized"}), 403
+    user_folder = os.path.join(UPLOAD_FOLDER, req_username)
+    return send_from_directory(user_folder, filename)
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
+    username = session.get('username')
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
     file = request.files['file']
@@ -333,63 +527,112 @@ def upload_file():
     
     filename = os.path.basename(file.filename)
     safe_name = f"{int(time.time())}_{uuid.uuid4().hex[:6]}_{filename.replace(' ', '_')}"
-    filepath = os.path.join(UPLOAD_FOLDER, safe_name)
+    
+    user_folder = os.path.join(UPLOAD_FOLDER, username)
+    os.makedirs(user_folder, exist_ok=True)
+    filepath = os.path.join(user_folder, safe_name)
     file.save(filepath)
-    return jsonify({'url': f'/uploads/{safe_name}', 'filename': file.filename})
+    return jsonify({'url': f'/uploads/{username}/{safe_name}', 'filename': file.filename})
 
 @app.route('/api/data', methods=['GET'])
 def get_data():
+    username = session.get('username')
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT * FROM entries")
+    c.execute("SELECT * FROM entries WHERE username = ? ORDER BY id DESC", (username,))
     rows = c.fetchall()
     data = [dict(row) for row in rows]
     conn.close()
     return jsonify(data)
 
-@app.route('/api/data', methods=['POST'])
-def save_data():
-    entries = request.json
-    incoming_ids = [entry['id'] for entry in entries]
-    
+@app.route('/api/entry', methods=['POST'])
+def create_entry():
+    username = session.get('username')
+    entry = request.json
     conn = get_db()
     c = conn.cursor()
-    
-    # 삭제된 항목 처리 (DB에는 있는데 클라이언트가 안 보낸 ID 삭제)
-    c.execute("SELECT id, attachedImage, attachedFile FROM entries")
-    existing_entries = c.fetchall()
-    
-    for row in existing_entries:
-        if row['id'] not in incoming_ids:
-            # 연결된 이미지 파일도 함께 삭제
-            if row['attachedImage'] and row['attachedImage'].startswith('/uploads/'):
-                filepath = os.path.join(UPLOAD_FOLDER, os.path.basename(row['attachedImage']))
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-            if row['attachedFile'] and row['attachedFile'].startswith('/uploads/'):
-                filepath = os.path.join(UPLOAD_FOLDER, os.path.basename(row['attachedFile']))
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-            c.execute("DELETE FROM entries WHERE id=?", (row['id'],))
-
-    # 새로 추가되거나 수정된 항목 저장 (Upsert)
-    for entry in entries:
-        img_url = process_image(entry.get('attachedImage'), entry.get('id'))
-        c.execute('''
-            INSERT OR REPLACE INTO entries 
-            (id, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            entry.get('id'), entry.get('type'), entry.get('stockName'), entry.get('title'),
-            entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), img_url,
-            entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
-            entry.get('price', 0), entry.get('quantity', 0),
-            entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', ''),
-            entry.get('attachedFile', ''), entry.get('attachedFileName', '')
-        ))
-        
+    c.execute('''
+        INSERT INTO entries 
+        (id, username, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        entry.get('id'), username, entry.get('type'), entry.get('stockName'), entry.get('title'),
+        entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), entry.get('attachedImage'),
+        entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
+        entry.get('price', 0), entry.get('quantity', 0),
+        entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', ''),
+        entry.get('attachedFile', ''), entry.get('attachedFileName', '')
+    ))
     conn.commit()
     conn.close()
+    return jsonify({"status": "success"})
+
+@app.route('/api/entry/<int:entry_id>', methods=['PUT'])
+def update_entry(entry_id):
+    username = session.get('username')
+    entry = request.json
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''
+        UPDATE entries SET
+        type=?, stockName=?, title=?, thoughts=?, date=?, rawDate=?, attachedImage=?, brokerAccount=?, accountName=?, tradeType=?, price=?, quantity=?, updatedAt=?, tags=?, attachedFile=?, attachedFileName=?
+        WHERE id=? AND username=?
+    ''', (
+        entry.get('type'), entry.get('stockName'), entry.get('title'),
+        entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), entry.get('attachedImage'),
+        entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
+        entry.get('price', 0), entry.get('quantity', 0),
+        entry.get('updatedAt'), entry.get('tags', ''),
+        entry.get('attachedFile', ''), entry.get('attachedFileName', ''),
+        entry_id, username
+    ))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success"})
+
+@app.route('/api/entry/<int:entry_id>', methods=['DELETE'])
+def delete_entry(entry_id):
+    username = session.get('username')
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT attachedFile FROM entries WHERE id=? AND username=?", (entry_id, username))
+    row = c.fetchone()
+    if row and row['attachedFile'] and row['attachedFile'].startswith(f'/uploads/{username}/'):
+        filepath = os.path.join(UPLOAD_FOLDER, username, os.path.basename(row['attachedFile']))
+        if os.path.exists(filepath):
+            os.remove(filepath)
+    c.execute("DELETE FROM entries WHERE id=? AND username=?", (entry_id, username))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success"})
+
+@app.route('/api/change_password', methods=['POST'])
+def change_password():
+    username = session.get('username')
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+        
+    data = request.json
+    current_password = data.get('current_password')
+    new_password = data.get('new_password')
+    
+    if not current_password or not new_password:
+        return jsonify({"error": "모든 필드를 입력해주세요."}), 400
+        
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+    user_record = c.fetchone()
+    
+    if not user_record or not check_password_hash(user_record['password_hash'], current_password):
+        conn.close()
+        return jsonify({"error": "현재 비밀번호가 일치하지 않습니다."}), 400
+        
+    hashed_pw = generate_password_hash(new_password)
+    c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (hashed_pw, username))
+    conn.commit()
+    conn.close()
+    
     return jsonify({"status": "success"})
 
 @app.route('/api/preferences', methods=['GET'])
@@ -461,25 +704,33 @@ def get_news():
 @app.route('/api/backup', methods=['GET'])
 def full_backup():
     """DB와 업로드 이미지를 포함한 전체 폴더를 압축하여 다운로드 제공"""
+    username = session.get('username')
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM entries WHERE username = ?", (username,))
+    rows = [dict(row) for row in c.fetchall()]
+    conn.close()
+    
     memory_file = io.BytesIO()
     with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
-        # 1. DB 백업
-        db_path = os.path.join(DB_DIR, 'journal.db')
-        if os.path.exists(db_path):
-            zf.write(db_path, arcname='db/journal.db')
+        # 1. 사용자 데이터를 JSON으로 백업
+        json_data = json.dumps(rows, ensure_ascii=False, indent=2)
+        zf.writestr('data.json', json_data)
         
-        # 2. 이미지 폴더 백업
-        for root, dirs, files in os.walk(UPLOAD_FOLDER):
-            for file in files:
-                file_path = os.path.join(root, file)
-                arcname = os.path.relpath(file_path, start='.')
-                zf.write(file_path, arcname=arcname)
+        # 2. 사용자 이미지 폴더 백업
+        user_folder = os.path.join(UPLOAD_FOLDER, username)
+        if os.path.exists(user_folder):
+            for root, dirs, files in os.walk(user_folder):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.join('uploads', file)
+                    zf.write(file_path, arcname=arcname)
                 
     memory_file.seek(0)
     
     # 파일명에 현재 날짜와 시간 추가 (예: TradingJournal_backup_20231027_153000.zip)
     current_time = time.strftime('%Y%m%d_%H%M%S')
-    filename = f'TradingJournal_backup_{current_time}.zip'
+    filename = f'TradingJournal_backup_{username}_{current_time}.zip'
     
     response = send_file(memory_file, mimetype='application/zip', download_name=filename, as_attachment=True)
     response.headers["Access-Control-Expose-Headers"] = "Content-Disposition"
@@ -488,6 +739,7 @@ def full_backup():
 @app.route('/api/restore', methods=['POST'])
 def full_restore():
     """백업 받은 ZIP 파일을 해제하여 DB 및 업로드 이미지를 완벽 원복"""
+    username = session.get('username')
     if 'file' not in request.files:
         return jsonify({'error': '업로드된 파일이 없습니다.'}), 400
         
@@ -500,25 +752,48 @@ def full_restore():
         with zipfile.ZipFile(file, 'r') as zf:
             zf.extractall(temp_dir)
             
-        temp_db = os.path.join(temp_dir, 'db', 'journal.db')
-        if not os.path.exists(temp_db):
-            return jsonify({'error': '손상된 백업 파일입니다. (DB 파일을 찾을 수 없습니다)'}), 400
+        json_path = os.path.join(temp_dir, 'data.json')
+        if not os.path.exists(json_path):
+            return jsonify({'error': '손상된 백업 파일입니다. (data.json을 찾을 수 없습니다)'}), 400
             
-        # 1. 기존 DB 덮어쓰기
-        shutil.copy2(temp_db, os.path.join(DB_DIR, 'journal.db'))
+        with open(json_path, 'r', encoding='utf-8') as f:
+            entries = json.load(f)
+            
+        conn = get_db()
+        c = conn.cursor()
         
-        # 2. 기존 이미지 폴더 날리고 덮어쓰기
-        temp_uploads = os.path.join(temp_dir, 'uploads')
-        for f in os.listdir(UPLOAD_FOLDER):
-            file_path = os.path.join(UPLOAD_FOLDER, f)
-            if os.path.isfile(file_path):
-                os.remove(file_path)
+        # 1. 기존 사용자의 데이터만 삭제
+        c.execute("DELETE FROM entries WHERE username = ?", (username,))
+        
+        # 2. 복원할 데이터 삽입
+        for entry in entries:
+            c.execute('''
+                INSERT INTO entries 
+                (id, username, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                entry.get('id'), username, entry.get('type'), entry.get('stockName'), entry.get('title'),
+                entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), entry.get('attachedImage'),
+                entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
+                entry.get('price', 0), entry.get('quantity', 0),
+                entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', ''),
+                entry.get('attachedFile', ''), entry.get('attachedFileName', '')
+            ))
+        conn.commit()
+        conn.close()
+        
+        # 3. 사용자 첨부파일 폴더 덮어쓰기
+        user_folder = os.path.join(UPLOAD_FOLDER, username)
+        if os.path.exists(user_folder):
+            shutil.rmtree(user_folder)
+        os.makedirs(user_folder, exist_ok=True)
                 
+        temp_uploads = os.path.join(temp_dir, 'uploads')
         if os.path.exists(temp_uploads):
             for f in os.listdir(temp_uploads):
                 src_path = os.path.join(temp_uploads, f)
                 if os.path.isfile(src_path):
-                    shutil.copy2(src_path, os.path.join(UPLOAD_FOLDER, f))
+                    shutil.copy2(src_path, os.path.join(user_folder, f))
                     
         return jsonify({'status': 'success'})
     except Exception as e:
@@ -528,6 +803,14 @@ def full_restore():
 
 if __name__ == '__main__':
     init_db()
-    print("🚀 로컬 주식 매매 일지 서버를 시작합니다.")
-    print("👉 웹 브라우저를 열고 http://127.0.0.1:5000 또는 기기의 로컬 IP 주소(예: 192.168.x.x:5000)로 접속해주세요.")
-    app.run(host='0.0.0.0', debug=True, port=5000)
+    
+    port = 5000
+    if len(sys.argv) > 1:
+        try:
+            port = int(sys.argv[1])
+        except ValueError:
+            print(f"⚠️ 경고: 잘못된 포트 번호('{sys.argv[1]}')가 입력되어 기본 포트(5000)로 실행합니다.")
+            
+    print(f"🚀 로컬 주식 매매 일지 서버를 시작합니다. (포트: {port})")
+    print(f"👉 웹 브라우저를 열고 http://127.0.0.1:{port} 또는 기기의 로컬 IP 주소(예: 192.168.x.x:{port})로 접속해주세요.")
+    app.run(host='0.0.0.0', debug=True, port=port)
