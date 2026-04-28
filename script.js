@@ -5,6 +5,8 @@ let currentFilterDate = null;
 let currentFilterType = null;
 let isDashboardCollapsed = false;
 let showClosedPositions = false; // 청산 종목 보기 상태
+let showCurrentPrice = false; // ⭐️ 현재가 및 평가금액 보기 상태
+let currentPortfolioArrayForPrice = []; // 현재가 계산용 임시 배열
 let showHistoryClosedPositions = true; // ⭐️ 기본적으로 히스토리에 청산 종목을 표시하도록 변경
 let currentDashboardBroker = 'all'; // 대시보드 증권사 필터 상태
 let currentDashboardAccount = 'all'; // 대시보드 투자 분류 필터 상태
@@ -88,6 +90,24 @@ window.addEventListener('DOMContentLoaded', () => {
             // ⭐️ 사용자 설정에 상태 저장 (정상 위치로 복구)
             userPreferences.showClosedPositions = showClosedPositions;
             savePreferences();
+        });
+    }
+
+    // ⭐️ 현재가 보기 토글 버튼 이벤트 연결
+    const btnToggleCurrentPrice = document.getElementById('btnToggleCurrentPrice');
+    if (btnToggleCurrentPrice) {
+        btnToggleCurrentPrice.innerText = showCurrentPrice ? '현재가 숨기기' : '현재가 보기';
+        btnToggleCurrentPrice.style.backgroundColor = showCurrentPrice ? 'var(--primary-color)' : 'transparent';
+        btnToggleCurrentPrice.style.color = showCurrentPrice ? '#fff' : 'var(--primary-color)';
+
+        btnToggleCurrentPrice.addEventListener('click', () => {
+            showCurrentPrice = !showCurrentPrice;
+            btnToggleCurrentPrice.innerText = showCurrentPrice ? '현재가 숨기기' : '현재가 보기';
+            btnToggleCurrentPrice.style.backgroundColor = showCurrentPrice ? 'var(--primary-color)' : 'transparent';
+            btnToggleCurrentPrice.style.color = showCurrentPrice ? '#fff' : 'var(--primary-color)';
+            userPreferences.showCurrentPrice = showCurrentPrice;
+            savePreferences();
+            updatePortfolioSummary(); // UI 리렌더링 및 현재가 fetch 트리거
         });
     }
 
@@ -318,6 +338,15 @@ async function loadDataFromLocal() {
                         btn2.style.color = showHistoryClosedPositions ? 'var(--primary-color)' : '#fff';
                     }
                 }
+                if (typeof userPreferences.showCurrentPrice !== 'undefined') {
+                    showCurrentPrice = userPreferences.showCurrentPrice;
+                    const btnCP = document.getElementById('btnToggleCurrentPrice');
+                    if (btnCP) {
+                        btnCP.innerText = showCurrentPrice ? '현재가 숨기기' : '현재가 보기';
+                        btnCP.style.backgroundColor = showCurrentPrice ? 'var(--primary-color)' : 'transparent';
+                        btnCP.style.color = showCurrentPrice ? '#fff' : 'var(--primary-color)';
+                    }
+                }
             }
         } catch (e) {
             console.warn("환경설정 로드 실패:", e);
@@ -539,7 +568,7 @@ function setupAutocomplete(inputId, listId, getOptions) {
                 lastVal = opt;
                 list.style.display = 'none';
                 input.dispatchEvent(new Event('input'));
-                input.dispatchEvent(new CustomEvent('itemSelected')); // 자동완성 클릭 시 명시적 이벤트를 발생시켜 필터 트리거
+                input.dispatchEvent(new CustomEvent('itemSelected', { detail: { value: opt } })); // 자동완성 클릭 시 명시적 이벤트 발생
             });
             list.appendChild(item);
         });
@@ -744,6 +773,15 @@ setupAutocomplete('stockName', 'stockNameList', getStockOptions);
 setupAutocomplete('brokerAccount', 'brokerAccountList', getBrokerOptions);
 setupAutocomplete('filterStock', 'filterStockList', getStockOptions);
 
+// ⭐️ 종목명 자동완성 시 종목코드 자동 입력
+document.getElementById('stockName').addEventListener('itemSelected', function(e) {
+    const val = e.detail ? e.detail.value : this.value;
+    const recentEntry = cloudEntries.find(entry => entry.stockName === val && entry.stockCode);
+    if (recentEntry) {
+        document.getElementById('stockCode').value = recentEntry.stockCode;
+    }
+});
+
 function resetAndCloseForm() {
     formModalOverlay.classList.add('closing');
     setTimeout(() => {
@@ -809,13 +847,14 @@ document.getElementById('quantity').addEventListener('input', calcTotalAmount);
 // ⭐️ 기록 유형(매매/메모)에 따른 폼 UI 전환 함수
 function toggleFormUI(recordType) {
     const isTrade = recordType === 'trade';
+    document.getElementById('tradeRow0').style.display = isTrade ? 'flex' : 'none';
     document.getElementById('tradeRow1').style.display = isTrade ? 'flex' : 'none';
     document.getElementById('tradeRow2').style.display = isTrade ? 'flex' : 'none';
     document.getElementById('memoTitleGroup').style.display = isTrade ? 'none' : 'block';
     document.getElementById('brokerAccountGroup').style.display = isTrade ? 'block' : 'none';
-    document.getElementById('stockNameGroup').style.display = isTrade ? 'block' : 'none';
     
     document.getElementById('stockName').required = isTrade;
+    document.getElementById('stockCode').required = isTrade;
     
     const accountNameEl = document.getElementById('accountName');
     if (accountNameEl) accountNameEl.required = isTrade;
@@ -929,6 +968,7 @@ journalForm.addEventListener('submit', async function(e) {
 
     const recordType = document.querySelector('input[name="recordType"]:checked').value;
     const stockName = document.getElementById('stockName').value;
+    const stockCode = document.getElementById('stockCode').value;
     const brokerAccount = document.getElementById('brokerAccount').value;
     const tradeDateRaw = document.getElementById('tradeDate').value;
     
@@ -995,13 +1035,13 @@ journalForm.addEventListener('submit', async function(e) {
         const quantity = document.getElementById('quantity').value;
 
         newEntry = {
-            id: editingEntryId || Date.now(), type: 'trade', stockName, brokerAccount, accountName,
+            id: editingEntryId || Date.now(), type: 'trade', stockName, stockCode, brokerAccount, accountName,
             tradeType, price: price ? Number(price) : 0, quantity: quantity ? Number(quantity) : 0, thoughts, date, rawDate: tradeDateRaw, attachedImage: null,
             createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: finalAttachedFile, attachedFileName: finalAttachedFileName
         };
     } else {
         const memoTitle = document.getElementById('memoTitle').value;
-        newEntry = { id: editingEntryId || Date.now(), type: 'memo', stockName: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: finalAttachedFile, attachedFileName: finalAttachedFileName };
+        newEntry = { id: editingEntryId || Date.now(), type: 'memo', stockName: '', stockCode: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: finalAttachedFile, attachedFileName: finalAttachedFileName };
     }
 
     const method = editingEntryId ? 'PUT' : 'POST';
@@ -1204,6 +1244,50 @@ function animateValue(element, endValue, duration, isProfit = false) {
     element.dataset.animId = requestAnimationFrame(step);
 }
 
+// ⭐️ 백엔드 API를 통해 현재가와 평가금액을 가져와 DOM에 반영하는 함수
+window.fetchCurrentPricesAndUpdateUI = async function() {
+    if (!showCurrentPrice || currentPortfolioArrayForPrice.length === 0) return;
+    
+    const codes = [...new Set(currentPortfolioArrayForPrice.filter(p => !p.isClosed && p.stockCode).map(p => p.stockCode))];
+    if (codes.length === 0) return;
+    
+    try {
+        const res = await fetch('/api/current_price', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+            body: JSON.stringify({ codes })
+        });
+        const prices = await res.json();
+        
+        let totalEval = 0;
+        currentPortfolioArrayForPrice.forEach(data => {
+            if (data.isClosed) return;
+            const cp = prices[data.stockCode];
+            const pEls = document.querySelectorAll(`.cp-price[data-code="${data.stockCode || ''}"]`);
+            const eEls = document.querySelectorAll(`.cp-eval[data-code="${data.stockCode || ''}"]`);
+            const pfEls = document.querySelectorAll(`.cp-profit[data-code="${data.stockCode || ''}"]`);
+            
+            if (cp !== undefined && cp !== null) {
+                const evalAmount = cp * data.qty;
+                const profitAmount = evalAmount - data.totalCost;
+                
+                pEls.forEach(el => el.innerText = cp.toLocaleString());
+                eEls.forEach(el => el.innerText = Math.round(evalAmount).toLocaleString());
+                
+                const pColor = profitAmount > 0 ? 'var(--danger-color)' : (profitAmount < 0 ? 'var(--primary-color)' : 'var(--text-strong-color)');
+                pfEls.forEach(el => el.innerHTML = `<span style="color: ${pColor}; font-weight: bold;">${profitAmount > 0 ? '+' : ''}${Math.round(profitAmount).toLocaleString()}</span>`);
+                totalEval += evalAmount;
+            } else {
+                pEls.forEach(el => el.innerText = '조회 실패');
+                totalEval += data.totalCost; // 조회 실패 시 기본 투자원금으로 임시 합산
+            }
+        });
+        
+        const centerEvalEl = document.getElementById('centerTotalEvaluation');
+        if (centerEvalEl) animateValue(centerEvalEl, Math.round(totalEval), 1000, false);
+    } catch(e) { console.error("현재가 가져오기 실패", e); }
+};
+
 function updatePortfolioSummary() {
     const portfolio = {};
     const chartLabels = [];
@@ -1233,8 +1317,9 @@ function updatePortfolioSummary() {
         const qty = Number(entry.quantity) || 0;
         const price = Number(entry.price) || 0;
 
-        if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, accountName: '', traded: false };
+        if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, accountName: '', traded: false, stockCode: '' };
         if (entry.accountName) portfolio[stock].accountName = entry.accountName; // 가장 최근 거래의 투자 분류 기록
+        if (entry.stockCode) portfolio[stock].stockCode = entry.stockCode; // 종목코드 기록
 
         // 이번 달 거래인지 확인
         let isCurrentMonth = false;
@@ -1283,6 +1368,7 @@ function updatePortfolioSummary() {
         }
     }
 
+    currentPortfolioArrayForPrice = portfolioArray;
     const sortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "기타": 7 };
     portfolioArray.sort((a, b) => {
         // ⭐️ 청산 종목을 가장 하단으로 정렬
@@ -1368,6 +1454,17 @@ function updatePortfolioSummary() {
                 <div class="stat-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
                     <span>종목 실현손익</span><span style="color:${profitColor}">${profitStr}</span>
                 </div>`;
+        }
+        
+        // ⭐️ 현재가 보기 활성화 시 카드 하단에 영역 추가
+        if (!isClosed && showCurrentPrice) {
+            card.innerHTML += `
+                <div class="current-price-section" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
+                    <div class="stat-row"><span>현재가</span><span class="cp-price" data-code="${data.stockCode || ''}">조회 중...</span></div>
+                    <div class="stat-row"><span>평가금액</span><span class="cp-eval" data-code="${data.stockCode || ''}">-</span></div>
+                    <div class="stat-row"><span>평가손익</span><span class="cp-profit" data-code="${data.stockCode || ''}">-</span></div>
+                </div>
+            `;
         }
         
         // ⭐️ 종목 카드 클릭 시 해당 종목 히스토리 필터링 이벤트 연동
@@ -1485,6 +1582,14 @@ function updatePortfolioSummary() {
         const finalData = isPortfolioEmpty ? [1] : chartData;
         const finalColors = isPortfolioEmpty ? [theme === 'dark' ? '#2c2c2c' : '#f0f0f0'] : chartColors;
         const finalHoverColors = isPortfolioEmpty ? [theme === 'dark' ? '#f0f0f0' : '#2c2c2c'] : hoverColors;
+
+        // ⭐️ 현재가 보기 활성화 시 도넛 차트 중앙에 총 평가금액 컨테이너 노출 및 조회 요청
+        if (showCurrentPrice && !isPortfolioEmpty) {
+            document.getElementById('centerTotalEvaluationContainer').style.display = 'block';
+            fetchCurrentPricesAndUpdateUI();
+        } else {
+            document.getElementById('centerTotalEvaluationContainer').style.display = 'none';
+        }
 
         const ctx = document.getElementById('portfolioChart').getContext('2d');
         if (portfolioChartInstance) portfolioChartInstance.destroy();
@@ -2000,6 +2105,7 @@ function editEntry(entry) {
     }
 
     document.getElementById('stockName').value = entry.stockName || '';
+    document.getElementById('stockCode').value = entry.stockCode || '';
     document.getElementById('brokerAccount').value = entry.brokerAccount || '';
     
     // ⭐️ 과거 하단에 첨부했던 이미지가 있다면 에디터 본문으로 자동 이동(마이그레이션)

@@ -75,18 +75,24 @@
                     <label><input type="radio" name="recordType" value="memo"> 📝 일반 메모</label>
                 </div>
 
-                <div class="form-row">
-                    <div class="form-group" id="stockNameGroup" style="position: relative;">
+                <div class="form-row" id="tradeRow0">
+                    <div class="form-group" id="stockNameGroup" style="position: relative; flex: 1.5;">
                         <label for="stockName">종목명 <span style="color:var(--danger-color)">*</span></label>
                         <input type="text" id="stockName" placeholder="검색 또는 직접 입력 (예: 삼성전자)" autocomplete="off" required>
                         <div id="stockNameList" class="autocomplete-list"></div>
                     </div>
-                    <div class="form-group" id="brokerAccountGroup" style="position: relative;">
+                    <div class="form-group" id="stockCodeGroup" style="position: relative; flex: 1;">
+                        <label for="stockCode">종목코드 <span style="color:var(--danger-color)">*</span></label>
+                        <input type="text" id="stockCode" placeholder="예: 005930, AAPL" autocomplete="off" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" id="brokerAccountGroup" style="position: relative; flex: 1.5;">
                         <label for="brokerAccount">증권 계좌</label>
                         <input type="text" id="brokerAccount" placeholder="예: 키움증권, 토스 등" autocomplete="off">
                         <div id="brokerAccountList" class="autocomplete-list"></div>
                     </div>
-                    <div class="form-group">
+                    <div class="form-group" style="flex: 1;">
                         <label for="tradeDate">기록 일시 <span style="color:var(--danger-color)">*</span></label>
                         <input type="text" id="tradeDate" required>
                     </div>
@@ -165,6 +171,7 @@
             <div class="portfolio-header">
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span class="section-title">PORTFOLIO</span>
+                <button type="button" id="btnToggleCurrentPrice" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="현재가 및 평가금액 조회 (인터넷 연결 필요)">현재가 보기</button>
                 <button type="button" id="btnToggleClosed" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="청산(매도 완료) 종목 보기">청산 종목 보기</button>
                 <button type="button" id="btnTogglePortfolio" style="background: transparent; color: var(--text-muted-color); border: none; width: auto; padding: 2px 8px; font-size: 12px; font-weight: normal; margin: 0; box-shadow: none; cursor: pointer;" title="포트폴리오 대시보드 접기/펴기">접기 ▲</button>
             </div>
@@ -177,6 +184,10 @@
                         <div id="chartCenterText" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; text-align: center; width: 68%; display: flex; flex-direction: column; gap: 2px; z-index: 1;">
                             <div style="font-size: 11px; color: var(--text-muted-color);">현재 총 투자 금액</div>
                             <div id="centerTotalInvested" style="font-size: 17px; font-weight: 800; color: var(--text-strong-color); letter-spacing: -0.5px; white-space: nowrap; transition: font-size 0.2s ease;">0원</div>
+                            <div id="centerTotalEvaluationContainer" style="display: none; margin-top: 5px;">
+                                <div style="font-size: 11px; color: var(--text-muted-color);">총 평가금액</div>
+                                <div id="centerTotalEvaluation" style="font-size: 15px; font-weight: 800; color: var(--info-color); letter-spacing: -0.5px; white-space: nowrap; transition: font-size 0.2s ease;">0원</div>
+                            </div>
                             <div style="font-size: 11px; color: var(--text-muted-color); margin-top: 5px;">누적 실현 손익</div>
                             <div id="centerTotalProfit" style="font-size: 15px; font-weight: 800; letter-spacing: -0.5px; white-space: nowrap; transition: font-size 0.2s ease;">0원</div>
                         </div>

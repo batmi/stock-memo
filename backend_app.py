@@ -17,6 +17,7 @@ import zipfile
 import io
 import tempfile
 import shutil
+import re
 from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -74,6 +75,7 @@ def init_db():
             username TEXT,
             type TEXT,
             stockName TEXT,
+            stockCode TEXT,
             title TEXT,
             thoughts TEXT,
             date TEXT,
@@ -108,6 +110,10 @@ def init_db():
         pass
     try:
         c.execute("ALTER TABLE entries ADD COLUMN updatedAt TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute("ALTER TABLE entries ADD COLUMN stockCode TEXT")
     except sqlite3.OperationalError:
         pass
     try:
@@ -157,10 +163,10 @@ def init_db():
                     img_url = process_image(entry.get('attachedImage'), entry.get('id'))
                     c.execute('''
                         INSERT INTO entries 
-                        (id, username, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
-                        VALUES (?, 'batmi', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
+                        VALUES (?, 'batmi', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
-                        entry.get('id'), entry.get('type'), entry.get('stockName'), entry.get('title'),
+                        entry.get('id'), entry.get('type'), entry.get('stockName'), entry.get('stockCode', ''), entry.get('title'),
                         entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), img_url,
                         entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
                         entry.get('price', 0), entry.get('quantity', 0),
@@ -553,10 +559,10 @@ def create_entry():
     c = conn.cursor()
     c.execute('''
         INSERT INTO entries 
-        (id, username, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
-        entry.get('id'), username, entry.get('type'), entry.get('stockName'), entry.get('title'),
+        entry.get('id'), username, entry.get('type'), entry.get('stockName'), entry.get('stockCode', ''), entry.get('title'),
         entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), entry.get('attachedImage'),
         entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
         entry.get('price', 0), entry.get('quantity', 0),
@@ -575,10 +581,10 @@ def update_entry(entry_id):
     c = conn.cursor()
     c.execute('''
         UPDATE entries SET
-        type=?, stockName=?, title=?, thoughts=?, date=?, rawDate=?, attachedImage=?, brokerAccount=?, accountName=?, tradeType=?, price=?, quantity=?, updatedAt=?, tags=?, attachedFile=?, attachedFileName=?
+        type=?, stockName=?, stockCode=?, title=?, thoughts=?, date=?, rawDate=?, attachedImage=?, brokerAccount=?, accountName=?, tradeType=?, price=?, quantity=?, updatedAt=?, tags=?, attachedFile=?, attachedFileName=?
         WHERE id=? AND username=?
     ''', (
-        entry.get('type'), entry.get('stockName'), entry.get('title'),
+        entry.get('type'), entry.get('stockName'), entry.get('stockCode', ''), entry.get('title'),
         entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), entry.get('attachedImage'),
         entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
         entry.get('price', 0), entry.get('quantity', 0),
@@ -605,6 +611,76 @@ def delete_entry(entry_id):
     conn.commit()
     conn.close()
     return jsonify({"status": "success"})
+
+@app.route('/api/current_price', methods=['POST'])
+def get_current_price():
+    data = request.json or {}
+    codes = data.get('codes', [])
+    prices = {}
+    for code in codes:
+        code_str = str(code).strip().upper()
+        if not code_str: continue
+        try:
+            # ⭐️ KRX 금현물(430450, 430500) 전용 처리: API 우선 시도 후 실패 시 웹 스크래핑(폴백)
+            if code_str in ['430450', '430500']:
+                price_found = False
+                try:
+                    # 1. 네이버 금융 실시간 Polling API 시도
+                    api_url = f"https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{code_str}"
+                    api_req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(api_req, timeout=3) as api_res:
+                        res_data = json.loads(api_res.read())
+                        areas = res_data.get('result', {}).get('areas', [])
+                        if areas and areas[0].get('datas'):
+                            prices[code] = float(areas[0]['datas'][0].get('nv', 0))
+                            price_found = True
+                except Exception:
+                    pass
+                
+                # 2. API 실패 시 백업 로직: 시장지표 페이지 스크래핑
+                if not price_found:
+                    url = "https://finance.naver.com/marketindex/"
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req, timeout=3) as response:
+                        html = response.read().decode('euc-kr', errors='ignore')
+                        match = re.search(r'국내 금.*?<span class="value">([\d,\.]+)</span>', html, re.DOTALL)
+                        if match:
+                            prices[code] = float(match.group(1).replace(',', '').split('.')[0])
+                        else:
+                            prices[code] = None
+                continue
+
+            if code_str.isdigit():
+                # 국내 주식 (네이버 금융 API)
+                url = f"https://m.stock.naver.com/api/stock/{code_str}/basic"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=3) as response:
+                    res_data = json.loads(response.read())
+                    price_str = res_data.get('closePrice', '')
+                    
+                if price_str and price_str != '0':
+                    prices[code] = float(price_str.replace(',', ''))
+                else:
+                    # ⭐️ 일반 API에서 누락되는 종목을 위한 실시간 Polling API(폴백) 처리
+                    fallback_url = f"https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{code_str}"
+                    req2 = urllib.request.Request(fallback_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req2, timeout=3) as response2:
+                        res_data2 = json.loads(response2.read())
+                        areas2 = res_data2.get('result', {}).get('areas', [])
+                        if areas2 and areas2[0].get('datas'):
+                            prices[code] = float(areas2[0]['datas'][0].get('nv', 0))
+                        else:
+                            prices[code] = None
+            else:
+                # 해외 주식 (야후 파이낸스 API)
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{code_str}"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=3) as response:
+                    res_data = json.loads(response.read())
+                    price = res_data['chart']['result'][0]['meta']['regularMarketPrice']
+                    prices[code] = float(price)
+        except Exception: prices[code] = None
+    return jsonify(prices)
 
 @app.route('/api/change_password', methods=['POST'])
 def change_password():
@@ -769,10 +845,10 @@ def full_restore():
         for entry in entries:
             c.execute('''
                 INSERT INTO entries 
-                (id, username, type, stockName, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                entry.get('id'), username, entry.get('type'), entry.get('stockName'), entry.get('title'),
+                entry.get('id'), username, entry.get('type'), entry.get('stockName'), entry.get('stockCode', ''), entry.get('title'),
                 entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), entry.get('attachedImage'),
                 entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
                 entry.get('price', 0), entry.get('quantity', 0),

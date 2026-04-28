@@ -570,6 +570,9 @@ button:hover {
 .portfolio-card .stat-row span:last-child { font-weight: bold; color: var(--text-strong-color); }
 /* ⭐️ 포트폴리오 카드 투자 종류 배지 스타일 */
 .account-badge { font-size: 10.5px; padding: 2px 5px; border-radius: 4px; margin-right: 5px; font-weight: bold; }
+/* ⭐️ 현재가 조회 활성화 시 표시되는 섹션 */
+.current-price-section { background: rgba(52, 152, 219, 0.05); border-radius: 6px; padding: 10px; }
+[data-theme="dark"] .current-price-section { background: rgba(59, 104, 140, 0.15); }
 /* ⭐️ 드래그 앤 드롭 중인 카드의 임시 시각 효과 */
 .sortable-ghost {
     opacity: 0.2;
