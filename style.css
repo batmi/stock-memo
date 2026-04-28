@@ -244,25 +244,25 @@ body {
 }
 .form-container {
     background-color: var(--card-bg-color);
-    padding: 20px;
+    padding: 16px 20px;
     border-radius: 12px;
     box-shadow: var(--card-shadow);
-    width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto;
+    width: 100%; max-width: 540px; max-height: 90vh; overflow-y: auto;
     animation: slideInUp 0.3s ease-out forwards;
 }
 .form-group {
-    margin-bottom: 12px;
+    margin-bottom: 10px;
 }
 label {
     display: block;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
     font-weight: bold;
-    font-size: 0.95em;    
+    font-size: 0.9em;    
     color: var(--text-strong-color);
 }
 input[type="text"], select, textarea, input[type="number"], input[type="datetime-local"], input[type="password"] {
     width: 100%;
-    padding: 8px;
+    padding: 6px 8px;
     border: 1px solid var(--border-color);
     border-radius: 6px;
     box-sizing: border-box;
@@ -283,7 +283,7 @@ input[type="text"]:focus, select:focus, textarea:focus, input[type="number"]:foc
     font-weight: var(--fw-bold, bold);
 }
 input[type="text"], select, input[type="number"], input[type="datetime-local"], input[type="password"] {
-    height: 36px; 
+    height: 34px; 
 }
 /* Flatpickr 시간 선택기 전역 스타일 충돌 방지 */
 .flatpickr-calendar input {
@@ -295,8 +295,8 @@ input[type="text"], select, input[type="number"], input[type="datetime-local"], 
 }
 /* ⭐️ 모바일 환경 Flatpickr(기록 일시) 네이티브 입력창 사이즈 통일 */
 input.flatpickr-input, input.flatpickr-mobile {
-    height: 36px !important;
-    padding: 8px !important;
+    height: 34px !important;
+    padding: 6px 8px !important;
     width: 100% !important;
     box-sizing: border-box !important;
     border: 1px solid var(--border-color) !important;
@@ -411,8 +411,8 @@ button:hover {
 .type-selector {
     display: flex;
     gap: 15px;
-    margin-bottom: 15px;
-    padding-bottom: 12px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
     border-bottom: 1px solid var(--border-light-color);
 }
 .type-selector label {
@@ -425,15 +425,15 @@ button:hover {
     color: var(--text-strong-color);
 }
 .type-selector input[type="radio"] { margin-right: 8px; width: 18px; height: 18px; }
-.form-row { display: flex; gap: 12px; margin-bottom: 12px; }
+.form-row { display: flex; gap: 10px; margin-bottom: 10px; }
 .form-row .form-group { flex: 1; margin-bottom: 0; }
-.total-amount-display { margin-top: 5px; margin-bottom: 12px; font-size: 13px; font-weight: var(--fw-bold, bold); color: var(--danger-color); text-align: right; }
+.total-amount-display { margin-top: 5px; margin-bottom: 10px; font-size: 13px; font-weight: var(--fw-bold, bold); color: var(--danger-color); text-align: right; }
 
 /* ⭐️ 총 금액 영수증 하이라이트 박스 */
-.total-amount-highlight { background: rgba(231, 76, 60, 0.08); padding: 8px 12px; border-radius: 6px; border: 1px dashed var(--danger-color); float: right; margin-bottom: 12px; }
+.total-amount-highlight { background: rgba(231, 76, 60, 0.08); padding: 6px 12px; border-radius: 6px; border: 1px dashed var(--danger-color); float: right; margin-bottom: 10px; }
 [data-theme="dark"] .total-amount-highlight { background: rgba(231, 76, 60, 0.15); }
 
-.tag-input-container { display: flex; flex-wrap: wrap; gap: 5px; padding: 8px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-color); align-items: center; min-height: 40px; box-sizing: border-box; transition: border-color 0.2s, box-shadow 0.2s; }
+.tag-input-container { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-color); align-items: center; min-height: 34px; box-sizing: border-box; transition: border-color 0.2s, box-shadow 0.2s; }
 .tag-input-container:focus-within { border-color: var(--primary-color); box-shadow: 0 0 0 2px var(--badge-memo-border); }
 .tag-list { display: flex; flex-wrap: wrap; gap: 5px; }
 .tag-badge { background-color: var(--primary-color); color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; display: flex; align-items: center; gap: 4px; }
@@ -545,7 +545,7 @@ button:hover {
     transform: scale(0.9) !important;
     box-shadow: 0 2px 5px rgba(0,0,0,0.3);
 }
-.form-header-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 2px solid #eee; padding-bottom: 8px; }
+.form-header-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 2px solid #eee; padding-bottom: 8px; }
 .form-header-container h3 { margin: 0; color: var(--text-strong-color); font-size: 1.1em; }
 .btn-close { background: none; border: none; font-size: 28px; cursor: pointer; color: var(--neutral-color); width: auto; padding: 0; margin: 0; line-height: 1; }
 .btn-close:hover { color: var(--danger-hover-color); background: none; }
@@ -777,8 +777,8 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 /* Quill 에디터 디자인 보정 및 다크모드 적용 */
 .ql-toolbar.ql-snow { font-family: inherit; border-color: var(--border-color); border-top-left-radius: 6px; border-top-right-radius: 6px; background: var(--card-bg-color); padding: 4px 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 0; }
 [data-theme="dark"] .ql-toolbar.ql-snow { border-color: var(--border-color); }
-.ql-container.ql-snow { font-family: inherit; border-color: var(--border-color); border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; height: auto !important; min-height: 140px; max-height: 400px; overflow-y: auto !important; }
-.ql-editor { font-size: 13px; color: var(--text-color); min-height: 140px; word-break: break-word; overflow-y: auto; }
+.ql-container.ql-snow { font-family: inherit; border-color: var(--border-color); border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; height: auto !important; min-height: 100px; max-height: 400px; overflow-y: auto !important; }
+.ql-editor { font-size: 13px; color: var(--text-color); min-height: 100px; word-break: break-word; overflow-y: auto; }
 [data-theme="dark"] .ql-editor.ql-blank::before { color: var(--text-muted-color); font-style: normal; }
 /* 전역 button 스타일 충돌 방지 및 크기 최적화 */
 .ql-toolbar.ql-snow .ql-formats { margin-right: 3px !important; margin-bottom: 0 !important; display: inline-flex; align-items: center; }
