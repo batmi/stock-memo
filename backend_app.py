@@ -143,6 +143,12 @@ def init_db():
     except sqlite3.OperationalError:
         pass
         
+    # 사용자 가입 일시 컬럼 추가
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN created_at TEXT")
+    except sqlite3.OperationalError:
+        pass
+        
     # 사용자 최근 로그인 일시 컬럼 추가
     try:
         c.execute("ALTER TABLE users ADD COLUMN last_login_at TEXT")
@@ -160,7 +166,8 @@ def init_db():
     c.execute("SELECT COUNT(*) FROM users WHERE username = 'batmi'")
     if c.fetchone()[0] == 0:
         default_hash = generate_password_hash('ghkswn96')
-        c.execute("INSERT INTO users (username, password_hash, is_allowed) VALUES (?, ?, 1)", ('batmi', default_hash))
+        current_time = time.strftime('%Y-%m-%d %H:%M:%S')
+        c.execute("INSERT INTO users (username, password_hash, is_allowed, created_at) VALUES (?, ?, 1, ?)", ('batmi', default_hash, current_time))
         conn.commit()
         print("🔒 기본 관리자 계정(batmi)이 DB에 안전하게 암호화되어 생성되었습니다.")
     
@@ -379,7 +386,8 @@ def signup():
                 error_message = "이미 존재하는 아이디입니다."
             else:
                 hashed_pw = generate_password_hash(password)
-                c.execute("INSERT INTO users (username, password_hash, is_allowed) VALUES (?, ?, 0)", (username, hashed_pw))
+                current_time = time.strftime('%Y-%m-%d %H:%M:%S')
+                c.execute("INSERT INTO users (username, password_hash, is_allowed, created_at) VALUES (?, ?, 0, ?)", (username, hashed_pw, current_time))
                 conn.commit()
                 success_message = "회원가입이 완료되었습니다! 관리자의 승인 후 로그인할 수 있습니다. 잠시 후 로그인 화면으로 이동합니다."
             conn.close()
