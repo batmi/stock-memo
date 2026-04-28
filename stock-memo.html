@@ -234,17 +234,19 @@
             <button id="btnCalendarView">캘린더 뷰</button>
         </div>
 
-        <div id="filterBoxContainer" class="filter-box" style="margin-bottom: 15px; position: relative;">
+        <div id="filterBoxContainer" class="filter-box" style="margin-bottom: 15px;">
             <div style="display: flex; gap: 5px;">
                 <!-- ⭐️ [3안] 유형 필터링 추가 -->
-                <select id="filterTypeSelect" style="width: auto; padding: 8px; border-radius: 4px; border: 2px solid var(--primary-color); height: 36px; outline: none; cursor: pointer;">
+                <select id="filterTypeSelect" style="width: auto; padding: 8px; border-radius: 4px; border: 2px solid var(--primary-color); height: 40px; outline: none; cursor: pointer; box-sizing: border-box;">
                     <option value="all">전체 보기</option>
                     <option value="trade">매매 기록만</option>
                     <option value="memo">일반 메모만</option>
                 </select>
-                <input type="text" id="filterStock" placeholder="🔍 검색 (종목명, 증권사, 태그, 내용)" autocomplete="off">
-                <span id="clearFilterBtn" class="clear-input-btn" title="검색어 지우기">&times;</span>
-                <div id="filterStockList" class="autocomplete-list"></div>
+                <div style="position: relative; flex: 1;">
+                    <input type="text" id="filterStock" placeholder="🔍 검색 (종목명, 증권사, 태그, 내용)" autocomplete="off">
+                    <span id="clearFilterBtn" class="clear-input-btn" title="검색어 지우기">&times;</span>
+                    <div id="filterStockList" class="autocomplete-list"></div>
+                </div>
             </div>
         </div>
         
