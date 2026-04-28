@@ -454,6 +454,31 @@ button:hover {
 .btn-admin:hover { background-color: var(--admin-hover-color); }
 .btn-logout:hover { background-color: var(--danger-hover-color); }
 
+/* ⭐️ 어드민 알림 배지 (크기 확대 및 애니메이션 효과) */
+@keyframes pulse-badge {
+    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
+    50% { transform: scale(1.1); box-shadow: 0 0 0 4px rgba(231, 76, 60, 0); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
+}
+.admin-notification-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background-color: var(--danger-color);
+    color: white;
+    border-radius: 50%;
+    width: 14px;
+    height: 14px;
+    font-size: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    border: 1px solid var(--bg-color);
+    animation: pulse-badge 2s infinite;
+    z-index: 10;
+}
+
 .type-selector {
     display: flex;
     gap: 15px;

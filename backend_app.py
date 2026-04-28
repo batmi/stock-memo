@@ -142,13 +142,25 @@ def init_db():
         c.execute("ALTER TABLE users ADD COLUMN preferences TEXT")
     except sqlite3.OperationalError:
         pass
+        
+    # 사용자 최근 로그인 일시 컬럼 추가
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN last_login_at TEXT")
+    except sqlite3.OperationalError:
+        pass
+    # 사용자 로그인 허용 여부를 위한 컬럼 추가 (기존 가입자는 1로 기본 설정)
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN is_allowed INTEGER DEFAULT 1")
+    except sqlite3.OperationalError:
+        pass
+    c.execute("UPDATE users SET is_allowed = 1 WHERE username = 'batmi'")
     conn.commit()
     
     # ⭐️ 기본 사용자(batmi) 계정이 없으면 암호화하여 DB에 생성
     c.execute("SELECT COUNT(*) FROM users WHERE username = 'batmi'")
     if c.fetchone()[0] == 0:
         default_hash = generate_password_hash('ghkswn96')
-        c.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", ('batmi', default_hash))
+        c.execute("INSERT INTO users (username, password_hash, is_allowed) VALUES (?, ?, 1)", ('batmi', default_hash))
         conn.commit()
         print("🔒 기본 관리자 계정(batmi)이 DB에 안전하게 암호화되어 생성되었습니다.")
     
@@ -215,17 +227,28 @@ def login():
             # DB에서 입력한 아이디와 일치하는 암호화된 비밀번호 조회
             conn = get_db()
             c = conn.cursor()
-            c.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+            c.execute("SELECT password_hash, is_allowed FROM users WHERE username = ?", (username,))
             user_record = c.fetchone()
             conn.close()
             
             # 계정이 존재하고, 입력한 비밀번호와 DB의 해시값이 일치하는지 검증
             if user_record and check_password_hash(user_record['password_hash'], password):
-                record['count'] = 0
-                record['lockout_until'] = 0
-                session['logged_in'] = True
-                session['username'] = username # ⭐️ 계정별 설정 저장을 위해 세션에 저장
-                return redirect(url_for('index'))
+                if not user_record['is_allowed']:
+                    error_message = "관리자의 승인이 필요하거나 로그인이 제한된 계정입니다."
+                else:
+                    # 로그인 성공 시 최근 로그인 일시 업데이트
+                    conn = get_db()
+                    c = conn.cursor()
+                    current_time_str = time.strftime('%Y-%m-%d %H:%M:%S')
+                    c.execute("UPDATE users SET last_login_at = ? WHERE username = ?", (current_time_str, username))
+                    conn.commit()
+                    conn.close()
+                    
+                    record['count'] = 0
+                    record['lockout_until'] = 0
+                    session['logged_in'] = True
+                    session['username'] = username # ⭐️ 계정별 설정 저장을 위해 세션에 저장
+                    return redirect(url_for('index'))
             else:
                 record['count'] += 1
                 if record['count'] >= 5:
@@ -356,9 +379,9 @@ def signup():
                 error_message = "이미 존재하는 아이디입니다."
             else:
                 hashed_pw = generate_password_hash(password)
-                c.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, hashed_pw))
+                c.execute("INSERT INTO users (username, password_hash, is_allowed) VALUES (?, ?, 0)", (username, hashed_pw))
                 conn.commit()
-                success_message = "회원가입이 완료되었습니다! 잠시 후 로그인 화면으로 이동합니다."
+                success_message = "회원가입이 완료되었습니다! 관리자의 승인 후 로그인할 수 있습니다. 잠시 후 로그인 화면으로 이동합니다."
             conn.close()
             
     return render_template_string('''
@@ -424,7 +447,15 @@ def index():
 
 @app.route('/api/me', methods=['GET'])
 def get_me():
-    return jsonify({"username": session.get('username')})
+    username = session.get('username')
+    pending_count = 0
+    if username == 'batmi':
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM users WHERE is_allowed = 0")
+        pending_count = c.fetchone()[0]
+        conn.close()
+    return jsonify({"username": username, "pending_count": pending_count})
 
 @app.route('/api/account', methods=['DELETE'])
 def delete_account():
@@ -468,7 +499,7 @@ def admin_get_users():
     conn = get_db()
     c = conn.cursor()
     c.execute('''
-        SELECT u.username, COUNT(e.id) as entry_count
+        SELECT u.username, u.is_allowed, u.created_at, u.last_login_at, COUNT(e.id) as entry_count
         FROM users u
         LEFT JOIN entries e ON u.username = e.username
         GROUP BY u.username
@@ -496,6 +527,28 @@ def admin_delete_user(target_username):
         shutil.rmtree(user_folder)
         
     return jsonify({"status": "success"})
+
+@app.route('/api/admin/users/<target_username>/toggle_allow', methods=['POST'])
+def admin_toggle_allow(target_username):
+    if not is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
+    if target_username == 'batmi':
+        return jsonify({"error": "최고 관리자의 상태는 변경할 수 없습니다."}), 400
+        
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT is_allowed FROM users WHERE username = ?", (target_username,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({"error": "사용자를 찾을 수 없습니다."}), 404
+        
+    new_status = 0 if user['is_allowed'] else 1
+    c.execute("UPDATE users SET is_allowed = ? WHERE username = ?", (new_status, target_username))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"status": "success", "is_allowed": new_status})
 
 @app.route('/api/admin/users/<target_username>/reset_password', methods=['POST'])
 def admin_reset_password(target_username):

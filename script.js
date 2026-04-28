@@ -325,7 +325,14 @@ async function loadDataFromLocal() {
                         }
                         if (meData.username === 'batmi') {
                             const btnAdmin = document.getElementById('btnAdmin');
-                            if (btnAdmin) btnAdmin.style.display = 'flex';
+                            if (btnAdmin) {
+                                btnAdmin.style.display = 'flex';
+                                if (meData.pending_count > 0) {
+                                    btnAdmin.style.position = 'relative';
+                                    btnAdmin.innerHTML += `<span class="admin-notification-badge">${meData.pending_count}</span>`;
+                                    setTimeout(() => { alert(`⚠️ 가입 승인 대기 중인 신규 사용자가 ${meData.pending_count}명 있습니다.\n상단 어드민 메뉴에서 확인해주세요.`); }, 500);
+                                }
+                            }
                         }
                     }
                 }
@@ -721,32 +728,132 @@ if (btnAdmin && adminModalOverlay) {
     if (btnCloseAdminModal) btnCloseAdminModal.addEventListener('click', closeAdminModal);
 }
 
+let adminUsersData = [];
+let currentAdminSort = { key: 'created_at', asc: false };
+
 window.loadAdminUsers = async function() {
     if (!adminUserList) return;
-    adminUserList.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px;">불러오는 중...</td></tr>';
+    adminUserList.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px;">불러오는 중...</td></tr>';
     try {
         const res = await fetch('/api/admin/users', { headers: { 'ngrok-skip-browser-warning': 'true' }});
         if (!res.ok) throw new Error("권한이 없습니다.");
-        const users = await res.json();
-        
-        adminUserList.innerHTML = '';
-        users.forEach(u => {
-            const isMe = u.username === 'batmi';
+        adminUsersData = await res.json();
+        renderAdminUsers();
+    } catch(e) {
+        adminUserList.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color: var(--danger-color);">데이터를 불러오지 못했습니다.</td></tr>';
+    }
+};
+
+window.sortAdminUsers = function(key) {
+    if (currentAdminSort.key === key) {
+        currentAdminSort.asc = !currentAdminSort.asc;
+    } else {
+        currentAdminSort.key = key;
+        currentAdminSort.asc = false; // 새로운 정렬 기준 선택 시 기본 내림차순(최신순/많은순)
+        if (key === 'username') currentAdminSort.asc = true; // 이름은 오름차순(가나다순)이 기본
+    }
+    renderAdminUsers();
+};
+
+window.renderAdminUsers = function() {
+    if (!adminUserList) return;
+
+    // 정렬 아이콘 업데이트
+    ['username', 'created_at', 'last_login_at', 'entry_count'].forEach(key => {
+        const iconEl = document.getElementById('sortIcon_' + key);
+        if (iconEl) {
+            iconEl.innerText = (currentAdminSort.key === key) ? (currentAdminSort.asc ? '▲' : '▼') : '↕';
+            iconEl.style.color = (currentAdminSort.key === key) ? 'var(--primary-color)' : 'var(--text-muted-color)';
+        }
+    });
+
+    // 관리자와 일반 사용자 분리
+    const adminUser = adminUsersData.find(u => u.username === 'batmi');
+    const regularUsers = adminUsersData.filter(u => u.username !== 'batmi');
+
+    // 데이터 정렬 (일반 사용자만)
+    const sortedData = [...regularUsers].sort((a, b) => {
+        let valA = a[currentAdminSort.key];
+        let valB = b[currentAdminSort.key];
+
+        if (currentAdminSort.key === 'entry_count') {
+            valA = parseInt(valA) || 0;
+            valB = parseInt(valB) || 0;
+        } else if (currentAdminSort.key === 'created_at' || currentAdminSort.key === 'last_login_at') {
+            valA = valA ? new Date(valA.replace(' ', 'T')).getTime() : 0;
+            valB = valB ? new Date(valB.replace(' ', 'T')).getTime() : 0;
+        } else {
+            valA = (valA || '').toString().toLowerCase();
+            valB = (valB || '').toString().toLowerCase();
+        }
+
+        if (valA < valB) return currentAdminSort.asc ? -1 : 1;
+        if (valA > valB) return currentAdminSort.asc ? 1 : -1;
+        return 0;
+    });
+
+    adminUserList.innerHTML = '';
+
+    // 최고 관리자 먼저 렌더링 (별도 배경색 및 굵은 하단 테두리로 시각적 분리)
+    if (adminUser) {
+        const createdStr = adminUser.created_at || '-';
+        const lastLoginStr = adminUser.last_login_at || '-';
+        const tr = document.createElement('tr');
+        tr.style.backgroundColor = 'var(--bg-color)';
+        tr.style.borderBottom = '2px solid var(--primary-color)';
+        tr.innerHTML = `
+            <td style="padding: 10px; font-weight: bold; color: var(--primary-color); white-space: nowrap;">${adminUser.username} 👑 <span style="font-size:11px; font-weight:normal; color:var(--text-muted-color);">(최고 관리자)</span></td>
+            <td style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${createdStr}</td>
+            <td style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${lastLoginStr}</td>
+            <td style="padding: 10px; font-weight: bold; white-space: nowrap;">${adminUser.entry_count}건</td>
+            <td style="padding: 10px; text-align: right; white-space: nowrap;">
+                <button onclick="resetUserPassword('${adminUser.username}')" style="background: var(--warning-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0; box-shadow: none;">비번 초기화</button>
+            </td>
+        `;
+        adminUserList.appendChild(tr);
+    }
+
+    // 일반 사용자 목록 렌더링
+    if (sortedData.length > 0) {
+        sortedData.forEach(u => {
+            const isAllowed = u.is_allowed;
+            const allowBtnText = isAllowed ? '제한' : '허용';
+            const allowBtnBg = isAllowed ? 'var(--neutral-color)' : 'var(--success-color)';
+            const createdStr = u.created_at || '-';
+            const lastLoginStr = u.last_login_at || '-';
+            
             const tr = document.createElement('tr');
             tr.style.borderBottom = '1px solid var(--border-light-color)';
             tr.innerHTML = `
-                <td style="padding: 10px; font-weight: bold; color: var(--text-strong-color);">${u.username} ${isMe ? '👑' : ''}</td>
-                <td style="padding: 10px;">${u.entry_count}건</td>
+                <td style="padding: 10px; font-weight: bold; color: var(--text-strong-color); white-space: nowrap;">${u.username}</td>
+                <td style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${createdStr}</td>
+                <td style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${lastLoginStr}</td>
+                <td style="padding: 10px; white-space: nowrap;">${u.entry_count}건</td>
                 <td style="padding: 10px; text-align: right; white-space: nowrap;">
+                    <button onclick="toggleUserAllow('${u.username}')" style="background: ${allowBtnBg}; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0 4px 0 0; box-shadow: none;">${allowBtnText}</button>
                     <button onclick="resetUserPassword('${u.username}')" style="background: var(--warning-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0 4px 0 0; box-shadow: none;">비번 초기화</button>
-                    ${!isMe ? `<button onclick="deleteUserAccount('${u.username}')" style="background: var(--danger-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0; box-shadow: none;">삭제</button>` : ''}
+                    <button onclick="deleteUserAccount('${u.username}')" style="background: var(--danger-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0; box-shadow: none;">삭제</button>
                 </td>
             `;
             adminUserList.appendChild(tr);
         });
-    } catch(e) {
-        adminUserList.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--danger-color);">데이터를 불러오지 못했습니다.</td></tr>';
+    } else {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td colspan="5" style="padding: 20px; text-align: center; color: var(--text-muted-color);">가입한 일반 사용자가 없습니다.</td>';
+        adminUserList.appendChild(tr);
     }
+};
+
+window.toggleUserAllow = async function(username) {
+    try {
+        const res = await fetch(`/api/admin/users/${username}/toggle_allow`, { method: 'POST', headers: { 'ngrok-skip-browser-warning': 'true' }});
+        if (res.ok) {
+            loadAdminUsers();
+        } else {
+            const data = await res.json();
+            alert(data.error || "상태 변경에 실패했습니다.");
+        }
+    } catch(e) { alert("통신 오류가 발생했습니다."); }
 };
 
 window.resetUserPassword = async function(username) {

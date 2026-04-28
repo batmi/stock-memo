@@ -349,18 +349,20 @@
 
     <!-- ⭐️ 관리자 대시보드 팝업(모달) -->
     <div id="adminModalOverlay" class="modal-overlay" style="display:none; z-index: 3000;">
-        <div class="form-container" style="max-width: 500px; padding: 20px;">
+        <div class="form-container" style="max-width: 700px; padding: 20px;">
             <div class="form-header-container" style="margin-bottom: 15px; border: none; padding: 0;">
                 <h3 style="font-size: 15px;">👑 관리자 대시보드</h3>
                 <button type="button" class="btn-close" id="btnCloseAdminModal" title="닫기">&times;</button>
             </div>
-            <div style="max-height: 400px; overflow-y: auto; background: var(--bg-color); border-radius: 8px; border: 1px solid var(--border-color);">
+            <div style="max-height: 400px; overflow-y: auto; overflow-x: auto; background: var(--bg-color); border-radius: 8px; border: 1px solid var(--border-color);">
                 <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
                     <thead>
                         <tr style="border-bottom: 2px solid var(--border-color); background: var(--border-light-color);">
-                            <th style="padding: 10px; font-weight: bold; color: var(--text-strong-color);">사용자명</th>
-                            <th style="padding: 10px; font-weight: bold; color: var(--text-strong-color);">기록 수</th>
-                            <th style="padding: 10px; font-weight: bold; color: var(--text-strong-color); text-align: right;">관리</th>
+                            <th style="padding: 10px; font-weight: bold; color: var(--text-strong-color); cursor: pointer; user-select: none; white-space: nowrap;" onclick="sortAdminUsers('username')">사용자명 <span id="sortIcon_username" style="font-size:10px;">↕</span></th>
+                            <th style="padding: 10px; font-weight: bold; color: var(--text-strong-color); cursor: pointer; user-select: none; white-space: nowrap;" onclick="sortAdminUsers('created_at')">가입 일시 <span id="sortIcon_created_at" style="font-size:10px; color:var(--primary-color);">▼</span></th>
+                            <th style="padding: 10px; font-weight: bold; color: var(--text-strong-color); cursor: pointer; user-select: none; white-space: nowrap;" onclick="sortAdminUsers('last_login_at')">최근 로그인 <span id="sortIcon_last_login_at" style="font-size:10px;">↕</span></th>
+                            <th style="padding: 10px; font-weight: bold; color: var(--text-strong-color); cursor: pointer; user-select: none; white-space: nowrap;" onclick="sortAdminUsers('entry_count')">기록 수 <span id="sortIcon_entry_count" style="font-size:10px;">↕</span></th>
+                            <th style="padding: 10px; font-weight: bold; color: var(--text-strong-color); text-align: right; white-space: nowrap;">관리</th>
                         </tr>
                     </thead>
                     <tbody id="adminUserList">
