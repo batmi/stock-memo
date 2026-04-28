@@ -431,6 +431,31 @@ let editingEntryId = null;
 let portfolioChartInstance = null;
 let currentTags = [];
 
+// ⭐️ 모바일 환경에서 입력 폼 스크롤(터치 이동) 시 키보드 자동 숨김 처리
+if (formContainer) {
+    formContainer.addEventListener('touchmove', () => {
+        const active = document.activeElement;
+        if (active && (['INPUT', 'TEXTAREA'].includes(active.tagName) || active.isContentEditable)) {
+            active.blur();
+        }
+    }, { passive: true });
+
+    // ⭐️ 모바일에서 입력창 포커스 시 키보드가 화면을 가리지 않도록 자동 스크롤
+    formContainer.addEventListener('focusin', (e) => {
+        // 모바일 환경(가로 768px 이하)에서만 동작
+        if (window.matchMedia("(max-width: 768px)").matches) {
+            const target = e.target;
+            // 실제 입력이 가능한 요소(input, textarea, contentEditable)에만 적용
+            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+                // 키보드가 올라오고 뷰포트가 리사이즈될 시간을 기다린 후 스크롤
+                setTimeout(() => {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 300);
+            }
+        }
+    });
+}
+
 const defaultStocks = [
     "삼성전자", "SK하이닉스", "LG에너지솔루션", "현대차", "기아", "셀트리온", "POSCO홀딩스", "NAVER", "카카오",
     "애플 (AAPL)", "테슬라 (TSLA)", "엔비디아 (NVDA)", "마이크로소프트 (MSFT)", "알파벳 (GOOGL)", "아마존 (AMZN)"
@@ -2189,6 +2214,9 @@ let isPulling = false;
 const ptrThreshold = 150; // ⭐️ 당겨야 하는 기준 픽셀 (기존 80에서 증가시켜 민감도 대폭 낮춤)
 
 window.addEventListener('touchstart', (e) => {
+    // ⭐️ 모달(입력창 팝업 등)이 열려있을 때는 당겨서 새로고침 동작 방지
+    if (document.body.style.overflow === 'hidden') return;
+
     if (window.scrollY <= 0) {
         ptrStartY = e.touches[0].clientY;
         ptrCurrentY = ptrStartY;
