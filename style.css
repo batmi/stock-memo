@@ -14,6 +14,7 @@
     --warning-color: #f39c12;
     --info-color: #9b59b6;
     --neutral-color: #95a5a6;
+    --admin-color: #e67e22; /* 쨍한 주황 */
 
     /* ⭐️ 라이트모드 호버 색상 (다크모드 색상 교차 적용) */
     --primary-hover-color: #3b688c;
@@ -22,6 +23,7 @@
     --warning-hover-color: #a87b35;
     --info-hover-color: #835c94;
     --neutral-hover-color: #5f6b6b;
+    --admin-hover-color: #d35400; /* 어두운 주황 */
 
     /* ⭐️ 캘린더 배지 기본 색상 (라이트) */
     --badge-memo-bg: #f3e8ff;
@@ -85,6 +87,7 @@
     --warning-color: #a87b35;
     --info-color: #835c94;
     --neutral-color: #5f6b6b;
+    --admin-color: #d35400; /* 어두운 주황 */
 
     /* ⭐️ 다크모드 호버 색상 (라이트모드 색상 교차 적용) */
     --primary-hover-color: #3498db;
@@ -93,6 +96,7 @@
     --warning-hover-color: #f39c12;
     --info-hover-color: #9b59b6;
     --neutral-hover-color: #95a5a6;
+    --admin-hover-color: #e67e22; /* 쨍한 주황 */
 
     /* ⭐️ 캘린더 배지 기본 색상 (다크) */
     --badge-memo-bg: #321c45;
@@ -393,7 +397,7 @@ button:hover {
 .btn-restore { background-color: var(--warning-color); }
 .btn-export { background-color: var(--primary-color); }
 .btn-password { background-color: var(--info-color); }
-.btn-admin { background-color: #34495e; }
+.btn-admin { background-color: var(--admin-color); }
 .btn-logout { background-color: var(--danger-color); }
 
 /* 공통 호버 변수 적용으로 모든 테마의 교차 반전 호버 처리 */
@@ -401,7 +405,7 @@ button:hover {
 .btn-restore:hover { background-color: var(--warning-hover-color); }
 .btn-export:hover { background-color: var(--primary-hover-color); }
 .btn-password:hover { background-color: var(--info-hover-color); }
-.btn-admin:hover { background-color: #2c3e50; }
+.btn-admin:hover { background-color: var(--admin-hover-color); }
 .btn-logout:hover { background-color: var(--danger-hover-color); }
 
 .type-selector {
@@ -411,8 +415,6 @@ button:hover {
     padding-bottom: 12px;
     border-bottom: 1px solid var(--border-light-color);
 }
-[data-theme="dark"] .btn-admin { background-color: #f39c12; color: white; }
-[data-theme="dark"] .btn-admin:hover { background-color: #e67e22; }
 .type-selector label {
     display: inline-flex;
     align-items: center;
