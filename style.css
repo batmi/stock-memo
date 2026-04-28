@@ -375,6 +375,52 @@ button:hover {
 .auth-info .status { font-size: 0.9em; color: var(--text-muted-color); margin: 0; font-weight: bold; }
 .auth-info .storage-desc { display: none; }
 
+/* ⭐️ 상단 헤더 설정 버튼 그룹 (호버 시 확장) */
+.header-action-group {
+    display: flex;
+    align-items: center;
+    height: 22px;
+}
+.header-action-icon {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 22px;
+    width: 22px;
+    border-radius: 4px;
+    background-color: transparent;
+    border: 1px solid var(--border-color);
+    font-size: 13px;
+    flex-shrink: 0;
+    transition: transform 0.4s ease, background-color 0.2s, border-color 0.2s;
+}
+.header-action-group:hover .header-action-icon,
+.header-action-group.active .header-action-icon {
+    transform: rotate(90deg);
+    background-color: var(--bg-color);
+    border-color: var(--primary-color);
+}
+.header-action-buttons {
+    display: flex;
+    align-items: center;
+    max-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    gap: 0;
+    transition: max-width 0.4s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.3s ease, gap 0.3s ease, margin-left 0.3s ease;
+}
+.header-action-group:hover .header-action-buttons,
+.header-action-group.active .header-action-buttons {
+    max-width: 200px;
+    opacity: 1;
+    gap: 6px;
+    margin-left: 6px;
+}
+.header-action-buttons .header-action-btn {
+    flex-shrink: 0; /* 확장되는 동안 버튼이 찌그러지는 현상 방지 */
+}
+
 /* ⭐️ 상단 헤더 B/R/E/Logout 공통 버튼 스타일 및 호버 반전 효과 */
 .header-action-btn {
     margin: 0;

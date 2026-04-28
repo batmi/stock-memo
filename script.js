@@ -59,6 +59,22 @@ window.addEventListener('DOMContentLoaded', () => {
     const savedTheme = localStorage.getItem('theme') || 'dark';
     applyTheme(savedTheme);
 
+    // ⭐️ 모바일 환경을 위한 설정 메뉴(톱니바퀴) 터치 토글 로직
+    const headerActionGroup = document.querySelector('.header-action-group');
+    const headerActionIcon = document.querySelector('.header-action-icon');
+    if (headerActionGroup && headerActionIcon) {
+        headerActionIcon.addEventListener('click', (e) => {
+            e.stopPropagation(); // 클릭 이벤트가 문서 전체로 전파되는 것 방지
+            headerActionGroup.classList.toggle('active');
+        });
+        // 화면의 다른 빈 공간을 터치(클릭)하면 열려있는 메뉴 닫기
+        document.addEventListener('click', (e) => {
+            if (!headerActionGroup.contains(e.target)) {
+                headerActionGroup.classList.remove('active');
+            }
+        });
+    }
+
     // 대시보드 접기/펴기 버튼 이벤트 연결
     const btnTogglePortfolio = document.getElementById('btnTogglePortfolio');
     if (btnTogglePortfolio) {
