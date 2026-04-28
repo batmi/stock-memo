@@ -67,6 +67,11 @@ window.addEventListener('DOMContentLoaded', () => {
             e.stopPropagation(); // 클릭 이벤트가 문서 전체로 전파되는 것 방지
             headerActionGroup.classList.toggle('active');
         });
+        
+        // ⭐️ 메뉴 안의 동작 버튼을 클릭했을 때도 메뉴가 닫히며 톱니바퀴로 복귀하도록 처리
+        const actionBtns = headerActionGroup.querySelectorAll('.header-action-btn');
+        actionBtns.forEach(btn => btn.addEventListener('click', () => headerActionGroup.classList.remove('active')));
+        
         // 화면의 다른 빈 공간을 터치(클릭)하면 열려있는 메뉴 닫기
         document.addEventListener('click', (e) => {
             if (!headerActionGroup.contains(e.target)) {
