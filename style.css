@@ -764,6 +764,28 @@ button:hover {
     .flatpickr-input, .flatpickr-mobile, .filter-box input, .ql-editor {
         font-size: 16px !important;
     }
+
+    /* ⭐️ 모바일 환경 어드민 페이지 테이블 가로 스크롤 방지 및 최적화 */
+    #adminModalOverlay .form-container {
+        padding: 15px 10px !important;
+    }
+    #adminModalOverlay th, #adminModalOverlay td {
+        white-space: normal !important; /* 강제 줄바꿈 방지 해제 (모바일 한정) */
+        word-break: keep-all;
+        padding: 8px 3px !important;
+        font-size: 11px !important;
+    }
+    /* 관리(버튼) 열 최적화: 버튼들을 세로로 꽉 차게 배치하여 너비 절약 */
+    #adminModalOverlay td:nth-child(5) button {
+        display: block;
+        width: 100% !important;
+        margin: 0 0 5px 0 !important;
+        padding: 5px 0 !important;
+        box-sizing: border-box;
+    }
+    #adminModalOverlay td:nth-child(5) button:last-child {
+        margin-bottom: 0 !important;
+    }
 }
 
 /* 다크모드 시 볼드체(굵은 글씨) 최소화 */
