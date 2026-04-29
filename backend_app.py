@@ -682,33 +682,40 @@ def get_current_price():
         code_str = str(code).strip().upper()
         if not code_str: continue
         try:
-            # ⭐️ KRX 금현물(430450, 430500) 전용 처리: API 우선 시도 후 실패 시 웹 스크래핑(폴백)
-            if code_str in ['430450', '430500']:
+            # ⭐️ KRX 금현물(1g) 전용 처리
+            if code_str in ['KRXGOLD', 'GOLD']:
                 price_found = False
+
                 try:
-                    # 1. 네이버 금융 실시간 Polling API 시도
-                    api_url = f"https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{code_str}"
-                    api_req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(api_req, timeout=3) as api_res:
-                        res_data = json.loads(api_res.read())
-                        areas = res_data.get('result', {}).get('areas', [])
-                        if areas and areas[0].get('datas'):
-                            prices[code] = float(areas[0]['datas'][0].get('nv', 0))
+                    # 1순위: 네이버 증권의 새로운 금 시세 API (가장 안정적)
+                    new_naver_gold_url = "https://api.stock.naver.com/marketindex/metals/M04020000"
+                    req = urllib.request.Request(new_naver_gold_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req, timeout=3) as response:
+                        res_data = json.loads(response.read())
+                        price_str = res_data.get('closePrice', '')
+                        if price_str:
+                            prices[code] = float(price_str.replace(',', ''))
                             price_found = True
                 except Exception:
                     pass
-                
-                # 2. API 실패 시 백업 로직: 시장지표 페이지 스크래핑
+
                 if not price_found:
-                    url = "https://finance.naver.com/marketindex/"
-                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(req, timeout=3) as response:
-                        html = response.read().decode('euc-kr', errors='ignore')
-                        match = re.search(r'국내 금.*?<span class="value">([\d,\.]+)</span>', html, re.DOTALL)
-                        if match:
-                            prices[code] = float(match.group(1).replace(',', '').split('.')[0])
-                        else:
-                            prices[code] = None
+                    try:
+                        # 2순위: 한국거래소(KRX) 공식 웹사이트 직접 스크래핑 (백업)
+                        krx_url = "https://www.krx.co.kr/contents/COM/Finance/KRX_Gold_Market.jsp"
+                        krx_req = urllib.request.Request(krx_url, headers={'User-Agent': 'Mozilla/5.0'})
+                        with urllib.request.urlopen(krx_req, timeout=3) as krx_res:
+                            html = krx_res.read().decode('utf-8', errors='ignore')
+                            match = re.search(r'현재가</th>\s*<td[^>]*>\s*<strong>([\d,]+)</strong>', html)
+                            if match:
+                                prices[code] = float(match.group(1).replace(',', ''))
+                                price_found = True
+                    except Exception:
+                        pass
+
+                if not price_found:
+                    prices[code] = None
+
                 continue
 
             if code_str.isdigit():
