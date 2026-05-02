@@ -289,7 +289,10 @@
 
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--primary-color); padding-bottom: 8px; margin-bottom: 12px;">
                 <h3 class="section-title" style="margin:0; font-size: 1.1em;">RELATED NEWS</h3>
-                <button type="button" onclick="fetchRealtimeNews()" style="background: none; border: none; cursor: pointer; font-size: 14px; padding: 0; margin: 0; width: auto; box-shadow: none;" title="새로고침">🔄</button>
+                <div style="display: flex; gap: 5px; align-items: center;">
+                    <button type="button" id="btnToggleNews" style="background: transparent; color: var(--text-muted-color); border: none; width: auto; padding: 2px 8px; font-size: 12px; font-weight: normal; margin: 0; box-shadow: none; cursor: pointer; display: none;" title="뉴스 세로/가로 정렬 전환">펼치기 ▼</button>
+                    <button type="button" onclick="fetchRealtimeNews()" style="background: none; border: none; cursor: pointer; font-size: 14px; padding: 0; margin: 0; width: auto; box-shadow: none;" title="새로고침">🔄</button>
+                </div>
             </div>
             <div id="newsList" style="font-size: 12px; color: var(--text-muted-color); max-height: 60vh; overflow-y: auto; padding-right: 5px;">
                 뉴스를 불러오는 중입니다...

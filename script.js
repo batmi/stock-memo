@@ -163,6 +163,7 @@ window.addEventListener('DOMContentLoaded', () => {
         const themeSwitchOuter = themeSwitchWrapper ? themeSwitchWrapper.parentElement.parentElement : null;
         const btnTogglePortfolio = document.getElementById('btnTogglePortfolio');
         const portfolioHeaderGroup = document.querySelector('.portfolio-header > div');
+        const btnToggleNews = document.getElementById('btnToggleNews');
 
         if (!mainApp || !portfolioSection || !historyHeader || !newsSidebar || !mainLayout || !themeSwitchOuter || !btnTogglePortfolio || !portfolioHeaderGroup) return;
 
@@ -177,6 +178,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 btnTogglePortfolio.style.border = '1px solid var(--border-color)';
                 btnTogglePortfolio.style.borderRadius = '4px';
             }
+            if (btnToggleNews) btnToggleNews.style.display = 'inline-block';
         } else {
             // 데스크탑 레이아웃 원복
             if (newsSidebar.parentElement !== mainLayout) {
@@ -185,6 +187,12 @@ window.addEventListener('DOMContentLoaded', () => {
             if (btnTogglePortfolio.parentElement !== portfolioHeaderGroup) {
                 portfolioHeaderGroup.appendChild(btnTogglePortfolio);
                 btnTogglePortfolio.style.border = 'none';
+            }
+            if (btnToggleNews) btnToggleNews.style.display = 'none';
+            const newsList = document.getElementById('newsList');
+            if (newsList && newsList.classList.contains('news-expanded')) {
+                newsList.classList.remove('news-expanded');
+                if (btnToggleNews) btnToggleNews.innerText = '펼치기 ▼';
             }
         }
     }
@@ -209,6 +217,20 @@ window.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('click', (e) => {
             if (!headerActionGroup.contains(e.target)) {
                 headerActionGroup.classList.remove('active');
+            }
+        });
+    }
+
+    // ⭐️ 모바일 뉴스 영역 접기/펼치기 버튼 이벤트
+    const btnToggleNews = document.getElementById('btnToggleNews');
+    if (btnToggleNews) {
+        btnToggleNews.addEventListener('click', () => {
+            const newsList = document.getElementById('newsList');
+            if (!newsList) return;
+            const isExpanded = newsList.classList.toggle('news-expanded');
+            btnToggleNews.innerText = isExpanded ? '접기 ▲' : '펼치기 ▼';
+            if (!isExpanded) {
+                newsList.scrollLeft = 0; // 가로 스크롤 원위치
             }
         });
     }
