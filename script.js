@@ -164,6 +164,7 @@ window.addEventListener('DOMContentLoaded', () => {
         const btnTogglePortfolio = document.getElementById('btnTogglePortfolio');
         const portfolioHeaderGroup = document.querySelector('.portfolio-header > div');
         const btnToggleNews = document.getElementById('btnToggleNews');
+        const newsHeaderGroup = newsSidebar ? newsSidebar.querySelector('.section-title').nextElementSibling : null;
 
         if (!mainApp || !portfolioSection || !historyHeader || !newsSidebar || !mainLayout || !themeSwitchOuter || !btnTogglePortfolio || !portfolioHeaderGroup) return;
 
@@ -172,13 +173,17 @@ window.addEventListener('DOMContentLoaded', () => {
             if (newsSidebar.parentElement !== mainApp) {
                 mainApp.insertBefore(newsSidebar, historyHeader);
             }
-            // 2. 포트폴리오 접기/펼치기 버튼을 테마 변경 컨테이너 옆(우측)으로 이동
-            if (btnTogglePortfolio.parentElement !== themeSwitchOuter) {
-                themeSwitchOuter.appendChild(btnTogglePortfolio);
-                btnTogglePortfolio.style.border = '1px solid var(--border-color)';
-                btnTogglePortfolio.style.borderRadius = '4px';
+            // 2. 포트폴리오 접기/펼치기 버튼을 원래 위치로 유지 (이전 이동 복구)
+            if (btnTogglePortfolio.parentElement !== portfolioHeaderGroup) {
+                portfolioHeaderGroup.appendChild(btnTogglePortfolio);
             }
-            if (btnToggleNews) btnToggleNews.style.display = 'inline-block';
+            // 3. 뉴스 접기/펼치기 버튼을 테마 변경 컨테이너 옆(우측)으로 이동
+            if (btnToggleNews && btnToggleNews.parentElement !== themeSwitchOuter) {
+                themeSwitchOuter.appendChild(btnToggleNews);
+                btnToggleNews.style.display = 'inline-block';
+            } else if (btnToggleNews) {
+                btnToggleNews.style.display = 'inline-block';
+            }
         } else {
             // 데스크탑 레이아웃 원복
             if (newsSidebar.parentElement !== mainLayout) {
@@ -186,7 +191,9 @@ window.addEventListener('DOMContentLoaded', () => {
             }
             if (btnTogglePortfolio.parentElement !== portfolioHeaderGroup) {
                 portfolioHeaderGroup.appendChild(btnTogglePortfolio);
-                btnTogglePortfolio.style.border = 'none';
+            }
+            if (btnToggleNews && newsHeaderGroup && btnToggleNews.parentElement !== newsHeaderGroup) {
+                newsHeaderGroup.insertBefore(btnToggleNews, newsHeaderGroup.firstChild);
             }
             if (btnToggleNews) btnToggleNews.style.display = 'none';
             const newsList = document.getElementById('newsList');
