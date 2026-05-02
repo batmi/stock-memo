@@ -338,6 +338,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     // [3안] 필터 타입(유형) 선택 드롭다운 이벤트
     const filterTypeSelect = document.getElementById('filterTypeSelect');
+    const clearTypeFilterBtn = document.getElementById('clearTypeFilterBtn');
     if (filterTypeSelect) {
         filterTypeSelect.addEventListener('change', (e) => {
             currentFilterType = e.target.value === 'all' ? null : e.target.value;
@@ -345,6 +346,20 @@ window.addEventListener('DOMContentLoaded', () => {
 
             // 필터 변경 시 히스토리 상단으로 부드럽게 스크롤
             window.scrollToFilterBox();
+            
+            if (clearTypeFilterBtn) {
+                clearTypeFilterBtn.style.display = currentFilterType ? 'inline-block' : 'none';
+            }
+        });
+    }
+    if (clearTypeFilterBtn) {
+        clearTypeFilterBtn.addEventListener('click', () => {
+            if (filterTypeSelect) {
+                filterTypeSelect.value = 'all';
+                currentFilterType = null;
+                displayEntries(true);
+                window.scrollToFilterBox();
+            }
         });
     }
 
@@ -2147,6 +2162,11 @@ function updateFilterDropdown() {
         select.value = 'all';
         currentFilterType = null;
     }
+    
+    const clearTypeFilterBtn = document.getElementById('clearTypeFilterBtn');
+    if (clearTypeFilterBtn) {
+        clearTypeFilterBtn.style.display = (select.value !== 'all') ? 'inline-block' : 'none';
+    }
 }
 
 function displayEntries(isFilterUpdate = false) {
@@ -2167,6 +2187,11 @@ function displayEntries(isFilterUpdate = false) {
             filterTypeSelect.value = selectVal;
         } else {
             filterTypeSelect.value = 'all';
+        }
+        
+        const clearTypeFilterBtn = document.getElementById('clearTypeFilterBtn');
+        if (clearTypeFilterBtn) {
+            clearTypeFilterBtn.style.display = (filterTypeSelect.value !== 'all') ? 'inline-block' : 'none';
         }
     }
 

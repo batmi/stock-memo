@@ -559,7 +559,7 @@ button:hover {
     top: 50%;
     transform: translateY(-50%);
     cursor: pointer;
-    color: var(--text-muted-color);
+    color: var(--danger-color);
     font-size: 18px;
     display: none;
     user-select: none;
@@ -819,7 +819,8 @@ button:hover {
     #portfolioChartContainer { width: 100% !important; max-width: 280px; margin: 0 auto 20px auto; }
     
     #filterBoxContainer > div { flex-direction: column; }
-    #filterTypeSelect { width: 100% !important; margin-bottom: 5px; }
+    #filterTypeSelectContainer { width: 100%; margin-bottom: 5px; }
+    #filterTypeSelect { width: 100% !important; flex: 1; }
 
     /* ⭐️ 모바일 환경(iOS 등)에서 입력창 터치 시 화면 자동 확대(Zoom) 현상 방지 */
     input[type="text"], input[type="number"], input[type="datetime-local"], 

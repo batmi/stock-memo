@@ -240,11 +240,14 @@
         <div id="filterBoxContainer" class="filter-box" style="margin-bottom: 15px;">
             <div style="display: flex; gap: 5px;">
                 <!-- ⭐️ [3안] 유형 필터링 추가 -->
-                <select id="filterTypeSelect" style="width: auto; padding: 8px; border-radius: 4px; border: 2px solid var(--primary-color); height: 40px; outline: none; cursor: pointer; box-sizing: border-box;">
-                    <option value="all">전체 보기</option>
-                    <option value="trade">매매 기록만</option>
-                    <option value="memo">일반 메모만</option>
-                </select>
+                <div id="filterTypeSelectContainer" style="display: flex; align-items: center; border: 2px solid var(--primary-color); border-radius: 4px; height: 40px; box-sizing: border-box; background-color: var(--bg-color); min-width: 120px; transition: box-shadow 0.2s;">
+                    <select id="filterTypeSelect" style="flex: 1; width: 100%; padding: 8px; border: none !important; background: transparent !important; height: 100%; outline: none; cursor: pointer; box-sizing: border-box; box-shadow: none !important; color: var(--text-color);">
+                        <option value="all">전체 보기</option>
+                        <option value="trade">매매 기록만</option>
+                        <option value="memo">일반 메모만</option>
+                    </select>
+                    <span id="clearTypeFilterBtn" class="clear-input-btn" style="position: static; transform: none; display: none; padding: 0 8px; z-index: 2;" title="필터 초기화">&times;</span>
+                </div>
                 <div style="position: relative; flex: 1;">
                     <input type="text" id="filterStock" placeholder="🔍 검색 (종목명, 증권사, 태그, 내용)" autocomplete="off">
                     <span id="clearFilterBtn" class="clear-input-btn" title="검색어 지우기">&times;</span>
