@@ -786,9 +786,8 @@ button:hover {
     #newsList.news-expanded {
         display: block;
         overflow-x: hidden;
-        overflow-y: auto !important;
-        max-height: 60vh !important;
-        overscroll-behavior-y: auto !important; /* 상/하단 도달 시 전체 페이지 스크롤 허용 */
+        overflow-y: visible !important; /* ⭐️ 내부 스크롤을 제거하여 즉각적인 화면 전체 스크롤 유도 */
+        max-height: none !important;    /* ⭐️ 높이 제한 해제 */
     }
     #newsList.news-expanded .news-item {
         max-width: none; border-right: none; border-bottom: 1px solid var(--border-light-color);
