@@ -1345,7 +1345,7 @@ journalForm.addEventListener('submit', async function(e) {
 const btnFullBackup = document.getElementById('btnFullBackup');
 if (btnFullBackup) {
     btnFullBackup.addEventListener('click', async () => {
-        if (await customConfirm('에디터 서식(폰트 등) 및 첨부 이미지를 포함한 모든 데이터를 완벽하게 백업합니다.\n다운로드를 진행하시겠습니까?')) {
+        if (await customConfirm('에디터 서식(폰트 등) 및 첨부 이미지를 포함한 \n모든 데이터를 완벽하게 백업합니다.\n\n다운로드를 진행하시겠습니까?')) {
             document.body.style.cursor = 'wait';
             fetch('/api/backup', {
                 headers: { 'ngrok-skip-browser-warning': 'true' }
@@ -1392,7 +1392,7 @@ if (btnFullRestore && restoreFileInput) {
         const file = e.target.files[0];
         if (!file) return;
 
-        if (!(await customConfirm('경고: 원복을 진행하면 현재 작성된 모든 기록과 이미지가 백업 파일(.zip)의 내용으로 "완전히 덮어씌워"집니다.\n\n정말로 복구를 진행하시겠습니까?'))) {
+        if (!(await customConfirm('경고: 원복을 진행하면 현재 작성된 모든 기록과 이미지가 \n백업 파일(.zip)의 내용으로 "완전히 덮어씌워"집니다.\n\n정말로 복구를 진행하시겠습니까?'))) {
             e.target.value = '';
             return;
         }
