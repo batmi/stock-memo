@@ -700,13 +700,26 @@ if (formContainer) {
         }
     }
 
+    // ⭐️ 폼 모달 높이 동적 업데이트 함수
+    window.updateFormContainerHeight = function() {
+        if (formModalOverlay && formModalOverlay.style.display === 'flex' && formContainer) {
+            if (window.visualViewport) {
+                if (window.matchMedia("(max-width: 768px)").matches) {
+                    formContainer.style.maxHeight = `${window.visualViewport.height}px`;
+                    formContainer.style.height = `${window.visualViewport.height}px`;
+                } else {
+                    formContainer.style.maxHeight = `${window.visualViewport.height * 0.9}px`;
+                    formContainer.style.height = 'auto';
+                }
+            }
+        }
+    };
+
     if (window.visualViewport) {
         let prevViewportHeight = window.visualViewport.height;
         window.visualViewport.addEventListener('resize', () => {
-                // ⭐️ iOS 등 모바일 환경에서 가상 키보드가 올라올 때 모달이 가려지지 않도록 팝업 최대 높이를 실제 뷰포트에 맞게 동적 보정
-                if (formModalOverlay && formModalOverlay.style.display === 'flex') {
-                    formContainer.style.maxHeight = `${window.visualViewport.height * 0.9}px`;
-                }
+            // ⭐️ iOS 등 모바일 환경에서 가상 키보드가 올라올 때 모달이 가려지지 않도록 팝업 최대 높이를 실제 뷰포트에 맞게 동적 보정
+            if (typeof window.updateFormContainerHeight === 'function') window.updateFormContainerHeight();
 
             // ⭐️ 화면 높이가 줄어들었을 때(가상 키보드가 올라올 때)만 중앙 정렬 스크롤 실행
             if (window.visualViewport.height < prevViewportHeight) {
@@ -727,9 +740,7 @@ btnFab.addEventListener('click', () => {
     document.body.style.overflow = 'hidden'; // ⭐️ 모달 열림 시 배경 스크롤 방지
     
     // ⭐️ 팝업 열릴 때 실제 화면 높이에 맞게 사이즈 조정 (키보드 대응)
-    if (window.visualViewport) {
-        formContainer.style.maxHeight = `${window.visualViewport.height * 0.9}px`;
-    }
+    if (typeof window.updateFormContainerHeight === 'function') window.updateFormContainerHeight();
     
     // ⭐️ 새 글 작성 시 기록 일시를 현재 시간으로 리프레시
     const currentNow = new Date();
@@ -2453,9 +2464,7 @@ function editEntry(entry) {
     document.body.style.overflow = 'hidden'; // ⭐️ 모달 열림 시 배경 스크롤 방지
     
     // ⭐️ 팝업 열릴 때 실제 화면 높이에 맞게 사이즈 조정 (키보드 대응)
-    if (window.visualViewport) {
-        formContainer.style.maxHeight = `${window.visualViewport.height * 0.9}px`;
-    }
+    if (typeof window.updateFormContainerHeight === 'function') window.updateFormContainerHeight();
 
     const typeRadio = document.querySelector(`input[name="recordType"][value="${entry.type || 'trade'}"]`);
     if (typeRadio) {
