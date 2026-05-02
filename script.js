@@ -716,18 +716,15 @@ if (formContainer) {
         }
     }
 
-    formContainer.addEventListener('focusin', scrollToActiveElement);
-    
-    // 에디터 내부를 터치하여 커서를 명시적으로 변경할 때도 즉각 반응
-    formContainer.addEventListener('click', (e) => {
-        const active = document.activeElement;
-        if (active && active.isContentEditable) {
-            setTimeout(scrollToActiveElement, 100);
-        }
-    });
-
     if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', scrollToActiveElement);
+        let prevViewportHeight = window.visualViewport.height;
+        window.visualViewport.addEventListener('resize', () => {
+            // ⭐️ 화면 높이가 줄어들었을 때(가상 키보드가 올라올 때)만 중앙 정렬 스크롤 실행
+            if (window.visualViewport.height < prevViewportHeight) {
+                scrollToActiveElement();
+            }
+            prevViewportHeight = window.visualViewport.height;
+        });
     }
 }
 

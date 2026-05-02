@@ -249,6 +249,7 @@ body {
     box-shadow: var(--card-shadow);
     width: 100%; max-width: 540px; max-height: 90vh; overflow-y: auto;
     animation: slideInUp 0.3s ease-out forwards;
+    overscroll-behavior-y: contain; /* ⭐️ 팝업창 내 스크롤이 끝났을 때 배경 화면이 스크롤되는 현상 차단 */
 }
 .form-group {
     margin-bottom: 10px;
