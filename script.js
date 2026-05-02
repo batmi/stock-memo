@@ -948,7 +948,25 @@ window.tradeDatePicker = flatpickr("#tradeDate", {
     enableTime: true,
     dateFormat: "Y-m-d\\TH:i",
     locale: "ko",
-    time_24hr: false
+    time_24hr: false,
+    onReady: function(selectedDates, dateStr, instance) {
+        const nowBtn = document.createElement('button');
+        nowBtn.type = 'button';
+        nowBtn.textContent = '🕒';
+        nowBtn.title = '현재 시간으로 설정';
+        nowBtn.style.cssText = 'background: transparent; border: none; color: var(--primary-color); cursor: pointer; font-weight: bold; padding: 0 10px; width: auto; margin: 0; box-shadow: none; height: auto; outline: none; display: flex; align-items: center;';
+        
+        nowBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const currentNow = new Date();
+            currentNow.setMinutes(currentNow.getMinutes() - currentNow.getTimezoneOffset());
+            instance.setDate(currentNow.toISOString().slice(0,16), true);
+        });
+        
+        if (instance.timeContainer) {
+            instance.timeContainer.appendChild(nowBtn);
+        }
+    }
 });
 
 const now = new Date();
