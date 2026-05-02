@@ -2108,6 +2108,18 @@ function renderPage() {
     const end = start + entriesPerPage;
     const pageEntries = currentFilteredEntries.slice(start, end);
 
+    // ⭐️ 검색어 하이라이팅을 위한 정규식 준비
+    const keyword = filterStockInput.value.trim();
+    const safeKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regexText = safeKeyword ? new RegExp(`(${safeKeyword})`, 'gi') : null;
+    const regexHtml = safeKeyword ? new RegExp(`(${safeKeyword})(?![^<]*>)`, 'gi') : null; // HTML 태그 내부 무시
+    
+    function highlight(text, isHtml = false) {
+        if (!safeKeyword || !text) return text || '';
+        if (isHtml) return text.replace(regexHtml, `<mark class="search-highlight">$1</mark>`);
+        return text.replace(regexText, `<mark class="search-highlight">$1</mark>`);
+    }
+
     pageEntries.forEach(entry => {
         // ⭐️ 월별 타임라인 구분선 로직
         let entryMonth = '';
@@ -2141,7 +2153,7 @@ function renderPage() {
             </div>
         `;
         const tagsArr = entry.tags ? entry.tags.split(',').filter(Boolean) : [];
-        const tagsHtml = tagsArr.length > 0 ? `<div style="margin-top: 8px;">` + tagsArr.map(t => `<span class="history-tag">#${t}</span>`).join('') + `</div>` : '';
+        const tagsHtml = tagsArr.length > 0 ? `<div style="margin-top: 8px;">` + tagsArr.map(t => `<span class="history-tag">#${highlight(t)}</span>`).join('') + `</div>` : '';
         const fileHtml = entry.attachedFile ? `
             <div style="margin-top: 10px; padding: 8px 12px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 4px; display: inline-flex; align-items: center; gap: 8px; font-size: 12px;">
                 <span>📎</span>
@@ -2149,17 +2161,23 @@ function renderPage() {
             </div>
         ` : '';
 
+        const safeStockName = entry.stockName ? entry.stockName.replace(/'/g, "\\'") : '';
+        const displayStockName = highlight(entry.stockName);
+        const stockBadge = entry.stockName ? `<span class="cal-badge stock" style="padding:4px 10px; border-radius:12px; font-size:0.95em; font-weight:bold; color:var(--text-strong-color); margin:0;" onclick="filterByStock('${safeStockName}', event)" title="${entry.stockName} 모아보기">🏷️ ${displayStockName}</span>` : '';
+
         if (entryType === 'memo') {
             card.style.borderLeftColor = 'var(--info-color)';
-            const stockBadge = entry.stockName ? `<span class="cal-badge stock" style="padding:4px 10px; border-radius:12px; font-size:0.95em; font-weight:bold; color:var(--text-strong-color); margin:0;">🏷️ ${entry.stockName}</span>` : '';
-            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.85em; color: var(--text-muted-color); font-weight: normal; margin:0;">🏦 ${entry.brokerAccount}</span>` : '';
+            const displayBroker = highlight(entry.brokerAccount);
+            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.85em; color: var(--text-muted-color); font-weight: normal; margin:0;">🏦 ${displayBroker}</span>` : '';
+            const displayTitle = highlight(entry.title);
+            const displayThoughts = highlight(entry.thoughts, true);
             card.innerHTML = `
             <div class="entry-header">
                 ${timeDisplayHtml}
                 <div class="header-right"><span>📝 일반 메모</span><button class="btn-edit">수정</button><button class="btn-delete">삭제</button></div>
             </div>
-                <div class="entry-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">${stockBadge}<span style="margin:0;">${entry.title}</span>${brokerBadge}</div>
-                <div class="entry-content ql-snow" style="border:none; padding:0;"><div class="ql-editor" style="padding:0; min-height:auto; font-family:inherit; font-size:inherit;">${entry.thoughts}</div></div>
+                <div class="entry-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">${stockBadge}<span style="margin:0;">${displayTitle}</span>${brokerBadge}</div>
+                <div class="entry-content ql-snow" style="border:none; padding:0;"><div class="ql-editor" style="padding:0; min-height:auto; font-family:inherit; font-size:inherit;">${displayThoughts}</div></div>
                 ${tagsHtml}
                 ${fileHtml}
                 ${imageHtml}
@@ -2198,9 +2216,10 @@ function renderPage() {
                     </div>
                 `;
             }
-            const stockBadge = entry.stockName ? `<span class="cal-badge stock" style="padding:4px 10px; border-radius:12px; font-size:0.95em; font-weight:bold; color:var(--text-strong-color); margin:0;">🏷️ ${entry.stockName}</span>` : '';
             const tradeBadge = `<span style="background-color: ${typeColor}; color: white; padding:4px 8px; border-radius:12px; font-size:0.85em; font-weight:bold; margin:0;">${entry.tradeType}</span>`;
-            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.85em; color: var(--text-muted-color); font-weight: normal; margin:0;">🏦 ${entry.brokerAccount}</span>` : '';
+            const displayBroker = highlight(entry.brokerAccount);
+            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.85em; color: var(--text-muted-color); font-weight: normal; margin:0;">🏦 ${displayBroker}</span>` : '';
+            const displayThoughts = highlight(entry.thoughts, true);
             card.innerHTML = `
             <div class="entry-header">
                 ${timeDisplayHtml}
@@ -2208,7 +2227,7 @@ function renderPage() {
             </div>
                 <div class="entry-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">${stockBadge}${tradeBadge}${brokerBadge}</div>
                 ${detailsHtml}
-                <div class="entry-content ql-snow" style="border:none; padding:0;"><div class="ql-editor" style="padding:0; min-height:auto; font-family:inherit; font-size:inherit;">${entry.thoughts}</div></div>
+                <div class="entry-content ql-snow" style="border:none; padding:0;"><div class="ql-editor" style="padding:0; min-height:auto; font-family:inherit; font-size:inherit;">${displayThoughts}</div></div>
                 ${tagsHtml}
                 ${fileHtml}
                 ${imageHtml}
@@ -2430,6 +2449,20 @@ window.showDetailsForDate = function(date, type, event) {
     document.getElementById('btnListView').click();
     displayEntries(true);
 
+    window.scrollToFilterBox();
+};
+
+window.filterByStock = function(stockName, event) {
+    if (event) event.stopPropagation();
+    currentFilterDate = null;
+    currentFilterType = 'stock_' + stockName;
+    
+    const btnListView = document.getElementById('btnListView');
+    if (btnListView && !btnListView.classList.contains('active')) {
+        btnListView.click();
+    }
+    
+    displayEntries(true);
     window.scrollToFilterBox();
 };
 

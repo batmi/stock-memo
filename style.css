@@ -512,6 +512,11 @@ button:hover {
 .tag-badge .remove-tag:hover { opacity: 1; }
 #tagInput { border: none; outline: none; background: transparent; flex: 1; min-width: 140px; font-size: 13px; padding: 0; height: 22px; color: var(--text-color); }
 .history-tag { font-size: 11.5px; color: var(--primary-color); font-weight: var(--fw-bold, bold); margin-right: 6px; cursor: pointer; display: inline-block; }
+
+/* ⭐️ 검색어 하이라이트 스타일 (라이트/다크 모드 대응) */
+.search-highlight { background-color: #ffeb3b; color: #000000; padding: 0 3px; border-radius: 3px; font-weight: bold; font-style: normal; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+[data-theme="dark"] .search-highlight { background-color: #f39c12; color: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+
 .autocomplete-list {
     position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 1000;
     background: var(--card-bg-color); border: 1px solid var(--border-color);
