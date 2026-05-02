@@ -760,6 +760,8 @@ btnFab.addEventListener('click', () => {
 });
 
 btnCloseForm.addEventListener('click', resetAndCloseForm);
+const btnCancelForm = document.getElementById('btnCancelForm');
+if (btnCancelForm) btnCancelForm.addEventListener('click', resetAndCloseForm);
 
 // ⭐️ Esc 키로 모달 닫기
 document.addEventListener('keydown', (e) => {
@@ -1160,7 +1162,7 @@ function resetAndCloseForm() {
 
         if (window.quill) window.quill.setContents([]); // 에디터 초기화
         editingEntryId = null;
-        submitBtn.innerText = "기록 저장하기";
+        submitBtn.innerText = "기록";
         const tradeRadio = document.querySelector('input[name="recordType"][value="trade"]');
         if(tradeRadio) { tradeRadio.checked = true; toggleFormUI('trade'); }
         const resetNow = new Date(); resetNow.setMinutes(resetNow.getMinutes() - resetNow.getTimezoneOffset());
@@ -1378,14 +1380,14 @@ journalForm.addEventListener('submit', async function(e) {
             } else {
                 await customAlert("파일 첨부 실패");
                 document.body.style.cursor = 'default';
-                submitBtn.innerText = editingEntryId ? "기록 수정하기" : "기록 저장하기";
+                submitBtn.innerText = editingEntryId ? "수정" : "기록";
                 return;
             }
         } catch (e) {
             console.error(e);
             await customAlert("파일 첨부 중 오류 발생");
             document.body.style.cursor = 'default';
-            submitBtn.innerText = editingEntryId ? "기록 수정하기" : "기록 저장하기";
+            submitBtn.innerText = editingEntryId ? "수정" : "기록";
             return;
         } finally {
             document.body.style.cursor = 'default';
@@ -1441,7 +1443,7 @@ journalForm.addEventListener('submit', async function(e) {
             }
             
             editingEntryId = null;
-            submitBtn.innerText = "기록 저장하기";
+            submitBtn.innerText = "기록";
             resetAndCloseForm();
             displayEntries(true);
             updatePortfolioSummary();
@@ -2527,7 +2529,7 @@ function editEntry(entry) {
         document.getElementById('quantity').value = entry.quantity || '';
     }
 
-    submitBtn.innerText = "기록 수정하기";
+    submitBtn.innerText = "수정";
 }
 
 async function deleteEntry(id) {
