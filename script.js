@@ -1145,7 +1145,6 @@ function getBrokerOptions() {
 
 setupAutocomplete('stockName', 'stockNameList', getStockOptions);
 setupAutocomplete('brokerAccount', 'brokerAccountList', getBrokerOptions);
-setupAutocomplete('filterStock', 'filterStockList', getStockOptions);
 
 // ⭐️ 종목명 자동완성 시 종목코드 자동 입력
 document.getElementById('stockName').addEventListener('itemSelected', function(e) {
@@ -1336,19 +1335,15 @@ filterStockInput.addEventListener('input', () => {
 });
 filterStockInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.isComposing) {
+        filterStockInput.blur(); // ⭐️ 모바일 키보드 숨김(포커스 해제) 처리
         displayEntries(true);
-        window.scrollToFilterBox();
-        document.getElementById('filterStockList').style.display = 'none';
+        // ⭐️ 키보드가 닫히고 화면 크기가 복구된 뒤 안정적으로 스크롤되도록 지연 이동
+        setTimeout(() => window.scrollToFilterBox(), 150);
     }
-});
-filterStockInput.addEventListener('itemSelected', () => {
-    displayEntries(true);
-    window.scrollToFilterBox();
 });
 clearFilterBtn.addEventListener('click', () => {
     filterStockInput.value = '';
     clearFilterBtn.style.display = 'none';
-    document.getElementById('filterStockList').style.display = 'none';
     displayEntries(true);
 
     // 필터 초기화 시 히스토리 상단으로 부드럽게 스크롤
