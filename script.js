@@ -672,24 +672,8 @@ let editingEntryId = null;
 let portfolioChartInstance = null;
 let currentTags = [];
 
-// ⭐️ 모바일 환경에서 폼 스크롤 시 무분별한 키보드 닫힘(blur) 방지 및 커서 위치 중앙 보정 기능
-let formTouchStartY = 0;
+// ⭐️ 모바일 환경 폼 스크롤 보정 (키보드 팝업 시 폼 높이 동적 조절 및 커서 중앙 배치)
 if (formContainer) {
-    formContainer.addEventListener('touchstart', (e) => {
-        formTouchStartY = e.touches[0].clientY;
-    }, { passive: true });
-
-    formContainer.addEventListener('touchmove', () => {
-        // 손가락이 크게(30px 이상) 스크롤되었을 때만 키보드를 숨기도록 제한 (터치 시 키보드 닫힘 방해 방지)
-        const touchCurrentY = e.touches[0].clientY;
-        if (Math.abs(touchCurrentY - formTouchStartY) > 30) {
-            const active = document.activeElement;
-            if (active && (['INPUT', 'TEXTAREA'].includes(active.tagName) || active.isContentEditable)) {
-                active.blur();
-            }
-        }
-    }, { passive: true });
-
     // ⭐️ 모바일에서 가상 키보드가 올라오거나 터치로 커서를 변경할 때 해당 위치를 중앙으로 자동 스크롤
     function scrollToActiveElement() {
         if (!window.matchMedia("(max-width: 768px)").matches) return;
@@ -719,6 +703,11 @@ if (formContainer) {
     if (window.visualViewport) {
         let prevViewportHeight = window.visualViewport.height;
         window.visualViewport.addEventListener('resize', () => {
+                // ⭐️ iOS 등 모바일 환경에서 가상 키보드가 올라올 때 모달이 가려지지 않도록 팝업 최대 높이를 실제 뷰포트에 맞게 동적 보정
+                if (formModalOverlay && formModalOverlay.style.display === 'flex') {
+                    formContainer.style.maxHeight = `${window.visualViewport.height * 0.9}px`;
+                }
+
             // ⭐️ 화면 높이가 줄어들었을 때(가상 키보드가 올라올 때)만 중앙 정렬 스크롤 실행
             if (window.visualViewport.height < prevViewportHeight) {
                 scrollToActiveElement();
@@ -736,6 +725,11 @@ const defaultStocks = [
 btnFab.addEventListener('click', () => {
     formModalOverlay.style.display = 'flex';
     document.body.style.overflow = 'hidden'; // ⭐️ 모달 열림 시 배경 스크롤 방지
+    
+    // ⭐️ 팝업 열릴 때 실제 화면 높이에 맞게 사이즈 조정 (키보드 대응)
+    if (window.visualViewport) {
+        formContainer.style.maxHeight = `${window.visualViewport.height * 0.9}px`;
+    }
     
     // ⭐️ 새 글 작성 시 기록 일시를 현재 시간으로 리프레시
     const currentNow = new Date();
@@ -2458,6 +2452,11 @@ function editEntry(entry) {
     formModalOverlay.style.display = 'flex';
     document.body.style.overflow = 'hidden'; // ⭐️ 모달 열림 시 배경 스크롤 방지
     
+    // ⭐️ 팝업 열릴 때 실제 화면 높이에 맞게 사이즈 조정 (키보드 대응)
+    if (window.visualViewport) {
+        formContainer.style.maxHeight = `${window.visualViewport.height * 0.9}px`;
+    }
+
     const typeRadio = document.querySelector(`input[name="recordType"][value="${entry.type || 'trade'}"]`);
     if (typeRadio) {
         typeRadio.checked = true;
