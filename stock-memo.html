@@ -374,6 +374,21 @@
         </div>
     </div>
 
+    <!-- ⭐️ 로그인 연장 경고 팝업(모달) -->
+    <div id="sessionExtensionModalOverlay" class="modal-overlay" style="display:none; z-index: 4000;">
+        <div class="form-container" style="max-width: 320px; padding: 25px 20px; text-align: center;">
+            <div style="font-size: 40px; margin-bottom: 10px;">⏳</div>
+            <h3 style="margin-top: 0; margin-bottom: 15px; color: var(--text-strong-color); font-size: 16px;">자동 로그아웃 안내</h3>
+            <p style="font-size: 13px; color: var(--text-muted-color); line-height: 1.5; margin-bottom: 20px;">
+                보안을 위해 <strong id="sessionCountdown" style="color: var(--danger-color); font-size: 15px;">05:00</strong> 뒤<br>자동으로 로그아웃됩니다.<br><br>로그인을 연장하시겠습니까?
+            </p>
+            <div style="display: flex; gap: 10px;">
+                <button type="button" id="btnExtendSession" style="margin: 0; flex: 1; background: var(--primary-color);">연장하기</button>
+                <button type="button" id="btnLogoutNow" style="margin: 0; flex: 1; background: var(--neutral-color);">로그아웃</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ⭐️ 외부 JS 파일 연결 -->
     <script src="script.js"></script>
 </body>

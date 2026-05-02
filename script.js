@@ -29,6 +29,52 @@ window.scrollToFilterBox = function() {
     window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
 };
 
+// ⭐️ 1시간 동안 아무런 동작이 없으면 자동 로그아웃 (5분 전 경고 팝업 표시)
+let warningTimer;
+let logoutTimer;
+let countdownInterval;
+const TOTAL_SESSION_LIMIT = 60 * 60 * 1000; // 1시간 (밀리초)
+const WARNING_BEFORE = 5 * 60 * 1000;       // 5분 전 (밀리초)
+const WARNING_TRIGGER_TIME = TOTAL_SESSION_LIMIT - WARNING_BEFORE; // 55분
+
+function resetInactivityTimers() {
+    // 경고 팝업이 떠 있는 상태에서는 배경 클릭/스크롤 등으로 연장되지 않도록 방지
+    const extensionModal = document.getElementById('sessionExtensionModalOverlay');
+    if (extensionModal && extensionModal.style.display === 'flex') return;
+
+    clearTimeout(warningTimer);
+    clearTimeout(logoutTimer);
+    clearInterval(countdownInterval);
+
+    warningTimer = setTimeout(showExtensionWarning, WARNING_TRIGGER_TIME);
+}
+
+function showExtensionWarning() {
+    const extensionModal = document.getElementById('sessionExtensionModalOverlay');
+    const countdownEl = document.getElementById('sessionCountdown');
+    if (!extensionModal || !countdownEl) return;
+
+    extensionModal.style.display = 'flex';
+    let timeLeft = Math.floor(WARNING_BEFORE / 1000);
+    countdownEl.innerText = `${Math.floor(timeLeft / 60).toString().padStart(2, '0')}:${(timeLeft % 60).toString().padStart(2, '0')}`;
+
+    countdownInterval = setInterval(() => {
+        timeLeft -= 1;
+        if (timeLeft <= 0) clearInterval(countdownInterval);
+        else countdownEl.innerText = `${Math.floor(timeLeft / 60).toString().padStart(2, '0')}:${(timeLeft % 60).toString().padStart(2, '0')}`;
+    }, 1000);
+
+    logoutTimer = setTimeout(() => {
+        alert("보안을 위해 장시간 활동이 없어 자동으로 로그아웃 되었습니다.");
+        window.location.href = '/logout';
+    }, WARNING_BEFORE);
+}
+
+['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart'].forEach(evt => {
+    document.addEventListener(evt, resetInactivityTimers, { passive: true });
+});
+resetInactivityTimers(); // 초기 타이머 시작
+
 const mainApp = document.getElementById('mainApp');
 window.addEventListener('DOMContentLoaded', () => {
     const themeToggle = document.getElementById('theme-toggle');
@@ -195,6 +241,28 @@ window.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+    
+    // ⭐️ 자동 로그아웃 연장 팝업 이벤트 연결
+    const btnExtendSession = document.getElementById('btnExtendSession');
+    const btnLogoutNow = document.getElementById('btnLogoutNow');
+    const extensionModal = document.getElementById('sessionExtensionModalOverlay');
+
+    if (btnExtendSession && extensionModal) {
+        btnExtendSession.addEventListener('click', async () => {
+            try {
+                // 백엔드(Flask) 서버의 세션 만료 시간도 동기화하여 갱신
+                await fetch('/api/ping', { method: 'POST', headers: { 'ngrok-skip-browser-warning': 'true' }});
+            } catch(e) {}
+            
+            extensionModal.classList.add('closing');
+            setTimeout(() => {
+                extensionModal.style.display = 'none';
+                extensionModal.classList.remove('closing');
+                resetInactivityTimers();
+            }, 180);
+        });
+    }
+    if (btnLogoutNow) btnLogoutNow.addEventListener('click', () => window.location.href = '/logout');
 
     // ⭐️ Quill 에디터 초기화
     window.quill = new Quill('#editor-container', {

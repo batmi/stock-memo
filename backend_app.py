@@ -18,6 +18,7 @@ import io
 import tempfile
 import shutil
 import re
+from datetime import timedelta
 from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -28,6 +29,7 @@ app.secret_key = 'stock_memo_secret_key' # 세션 유지를 위한 시크릿 키
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # 자바스크립트(XSS)로 쿠키 접근 원천 차단
 app.config['SESSION_COOKIE_SECURE'] = False   # ⭐️ 로컬(HTTP) 환경 접속 시 로그인 갱신 오류 방지를 위해 비활성화
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax' # CSRF(크로스 사이트 요청 위조) 공격 방어
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1) # ⭐️ 세션 유효 기간 1시간으로 설정
 
 DATA_FILE = 'my_stock_trading_journal.json'
 DB_DIR = 'db'
@@ -253,6 +255,7 @@ def login():
                     
                     record['count'] = 0
                     record['lockout_until'] = 0
+                    session.permanent = True # ⭐️ 브라우저 종료 여부와 상관없이 설정된 시간(1시간) 후 세션 만료
                     session['logged_in'] = True
                     session['username'] = username # ⭐️ 계정별 설정 저장을 위해 세션에 저장
                     return redirect(url_for('index'))
@@ -452,6 +455,12 @@ def logout():
 @app.route('/')
 def index():
     return send_from_directory('.', 'stock-memo.html')
+
+@app.route('/api/ping', methods=['POST'])
+def ping():
+    # 세션 갱신을 위한 엔드포인트. 요청이 오면 세션 수명 1시간이 다시 연장됨
+    session.modified = True
+    return jsonify({"status": "success"})
 
 @app.route('/api/me', methods=['GET'])
 def get_me():
