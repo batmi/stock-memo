@@ -875,6 +875,47 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
     background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%);
 }
 
+/* ⭐️ 커스텀 모달 확인/취소 버튼 스타일 */
+#btnCustomModalOk, #btnCustomModalCancel {
+    margin: 0; flex: 1; padding: 8px; font-size: 12px; font-weight: bold;
+    border: none; border-radius: 8px; cursor: pointer; transition: all 0.3s ease;
+}
+/* 기본 (라이트모드) - 너무 밝지도 어둡지도 않은 적당한 톤 */
+#btnCustomModalOk {
+    background: linear-gradient(135deg, #8a40c6 0%, #6a24a3 100%); color: white;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+#btnCustomModalOk:hover {
+    transform: translateY(-2px); box-shadow: 0 6px 20px rgba(106, 36, 163, 0.4);
+    background: linear-gradient(135deg, #9b53d6 0%, #8a40c6 100%);
+}
+#btnCustomModalCancel {
+    background: linear-gradient(135deg, #c26153 0%, #9e3527 100%); color: white;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+}
+#btnCustomModalCancel:hover {
+    transform: translateY(-2px); box-shadow: 0 6px 20px rgba(158, 53, 39, 0.3);
+    background: linear-gradient(135deg, #d47668 0%, #c26153 100%);
+}
+
+/* 다크모드 전용 - 기존에 설정한 차분하고 어두운 톤 유지 */
+[data-theme="dark"] #btnCustomModalOk {
+    background: linear-gradient(135deg, #5b3b8c 0%, #3d2663 100%);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+}
+[data-theme="dark"] #btnCustomModalOk:hover {
+    box-shadow: 0 6px 20px rgba(61, 38, 99, 0.6);
+    background: linear-gradient(135deg, #704da8 0%, #5b3b8c 100%);
+}
+[data-theme="dark"] #btnCustomModalCancel {
+    background: linear-gradient(135deg, #a85749 0%, #82352e 100%);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+[data-theme="dark"] #btnCustomModalCancel:hover {
+    box-shadow: 0 6px 20px rgba(130, 53, 46, 0.5);
+    background: linear-gradient(135deg, #c76b5b 0%, #a85749 100%);
+}
+
 /* Quill 에디터 디자인 보정 및 다크모드 적용 */
 .ql-toolbar.ql-snow { font-family: inherit; border-color: var(--border-color); border-top-left-radius: 6px; border-top-right-radius: 6px; background: var(--card-bg-color); padding: 4px 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 0; }
 [data-theme="dark"] .ql-toolbar.ql-snow { border-color: var(--border-color); }

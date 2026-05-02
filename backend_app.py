@@ -224,6 +224,9 @@ def login():
     record = login_attempts[client_ip]
     error_message = None
     
+    if request.method == 'GET' and request.args.get('timeout'):
+        error_message = "보안을 위해 장시간 활동이 없어 자동으로 로그아웃 되었습니다."
+    
     if request.method == 'POST':
         # 현재 차단된 상태인지 확인
         if current_time < record['lockout_until']:
@@ -325,7 +328,7 @@ def login():
                     transform: translateX(-50%);
                     background: rgba(231, 76, 60, 0.95);
                     color: white;
-                    padding: 12px 24px;
+                    padding: 12px 40px 12px 24px;
                     border-radius: 8px;
                     box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4);
                     font-size: 14px;
@@ -334,8 +337,8 @@ def login():
                     backdrop-filter: blur(5px);
                     -webkit-backdrop-filter: blur(5px);
                     opacity: 0;
-                    pointer-events: none;
-                    animation: slideDownFadeOut 3.5s ease-in-out forwards;
+                    pointer-events: auto;
+                    animation: slideDownFadeOut 5s ease-in-out forwards;
                 }
                 @keyframes slideDownFadeOut {
                     0% { top: -20px; opacity: 0; }
@@ -347,7 +350,10 @@ def login():
         </head>
         <body>
             {% if error_message %}
-            <div class="error-banner">⚠️ {{ error_message }}</div>
+            <div class="error-banner" id="errorBanner">
+                ⚠️ {{ error_message }}
+                <span onclick="document.getElementById('errorBanner').style.display='none'" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 18px; line-height: 1;">&times;</span>
+            </div>
             {% endif %}
             <div class="login-container">
                 <div class="logo-text">
@@ -417,16 +423,22 @@ def signup():
                 input[type="text"]:focus, input[type="password"]:focus { border-color: #8a2be2; outline: none; box-shadow: 0 0 0 3px rgba(138, 43, 226, 0.3); background-color: #121212; }
                 button { width: 100%; padding: 10px; margin-top: 5px; background: linear-gradient(135deg, #9d4edd 0%, #7b2cbf 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); }
                 button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(123, 44, 191, 0.5); background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); }
-                .error-banner { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(231, 76, 60, 0.95); color: white; padding: 12px 24px; border-radius: 8px; box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4); font-size: 14px; font-weight: bold; z-index: 1000; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); opacity: 0; pointer-events: none; animation: slideDownFadeOut 3.5s ease-in-out forwards; }
+                .error-banner { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(231, 76, 60, 0.95); color: white; padding: 12px 40px 12px 24px; border-radius: 8px; box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4); font-size: 14px; font-weight: bold; z-index: 1000; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); opacity: 0; pointer-events: auto; animation: slideDownFadeOut 5s ease-in-out forwards; }
                 @keyframes slideDownFadeOut { 0% { top: -20px; opacity: 0; } 10% { top: 20px; opacity: 1; } 80% { top: 20px; opacity: 1; } 100% { top: -20px; opacity: 0; } }
             </style>
         </head>
         <body>
             {% if error_message %}
-            <div class="error-banner">⚠️ {{ error_message }}</div>
+            <div class="error-banner" id="errorBanner">
+                ⚠️ {{ error_message }}
+                <span onclick="document.getElementById('errorBanner').style.display='none'" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 18px; line-height: 1;">&times;</span>
+            </div>
             {% endif %}
             {% if success_message %}
-            <div class="error-banner" style="background: rgba(39, 174, 96, 0.95); box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4); animation: none; opacity: 1; top: 20px;">✅ {{ success_message }}</div>
+            <div class="error-banner" id="successBanner" style="background: rgba(39, 174, 96, 0.95); box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4); animation: none; opacity: 1; top: 20px;">
+                ✅ {{ success_message }}
+                <span onclick="document.getElementById('successBanner').style.display='none'" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 18px; line-height: 1;">&times;</span>
+            </div>
             <script> setTimeout(function() { window.location.href = "{{ url_for('login') }}"; }, 1500); </script>
             {% endif %}
             <div class="login-container">
@@ -450,6 +462,8 @@ def signup():
 def logout():
     session.pop('logged_in', None)
     session.pop('username', None) # ⭐️ 로그아웃 시 계정 정보 완벽 파기
+    if request.args.get('timeout'):
+        return redirect(url_for('login', timeout=1))
     return redirect(url_for('login'))
 
 @app.route('/')

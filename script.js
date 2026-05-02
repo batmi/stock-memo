@@ -29,6 +29,52 @@ window.scrollToFilterBox = function() {
     window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
 };
 
+// ⭐️ 커스텀 공통 모달 (Alert, Confirm, Prompt 대체용)
+window.customModal = function({ type = 'alert', title = '알림', message = '', inputPlaceholder = '' }) {
+    return new Promise((resolve) => {
+        const overlay = document.getElementById('customModalOverlay');
+        if (!overlay) return resolve(type === 'prompt' ? null : true); // HTML 로드 전 폴백
+        
+        const titleEl = document.getElementById('customModalTitle');
+        const messageEl = document.getElementById('customModalMessage');
+        const promptContainer = document.getElementById('customModalPromptContainer');
+        const inputEl = document.getElementById('customModalInput');
+        const btnCancel = document.getElementById('btnCustomModalCancel');
+        const btnOk = document.getElementById('btnCustomModalOk');
+
+        titleEl.innerText = title;
+        messageEl.innerText = message;
+        promptContainer.style.display = type === 'prompt' ? 'block' : 'none';
+        if (type === 'prompt') { inputEl.value = ''; inputEl.placeholder = inputPlaceholder; }
+        btnCancel.style.display = (type === 'confirm' || type === 'prompt') ? 'block' : 'none';
+
+        overlay.style.display = 'flex';
+        if (type === 'prompt') inputEl.focus();
+        else btnOk.focus();
+
+        const cleanup = () => {
+            overlay.classList.add('closing');
+            setTimeout(() => { overlay.style.display = 'none'; overlay.classList.remove('closing'); }, 180);
+            btnOk.removeEventListener('click', onOk);
+            btnCancel.removeEventListener('click', onCancel);
+            inputEl.removeEventListener('keydown', onInputKeydown);
+            document.removeEventListener('keydown', onDocKeydown);
+        };
+        const onOk = () => { cleanup(); resolve(type === 'prompt' ? inputEl.value : true); };
+        const onCancel = () => { cleanup(); resolve(type === 'prompt' ? null : false); };
+        const onInputKeydown = (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); onOk(); } };
+        const onDocKeydown = (e) => { if (e.key === 'Escape' && overlay.style.display === 'flex') { e.preventDefault(); e.stopPropagation(); onCancel(); } };
+
+        btnOk.addEventListener('click', onOk);
+        btnCancel.addEventListener('click', onCancel);
+        if (type === 'prompt') inputEl.addEventListener('keydown', onInputKeydown);
+        document.addEventListener('keydown', onDocKeydown);
+    });
+};
+window.customAlert = (message, title = '알림') => window.customModal({ type: 'alert', title, message });
+window.customConfirm = (message, title = '확인') => window.customModal({ type: 'confirm', title, message });
+window.customPrompt = (message, title = '입력', placeholder = '') => window.customModal({ type: 'prompt', title, message, inputPlaceholder: placeholder });
+
 // ⭐️ 1시간 동안 아무런 동작이 없으면 자동 로그아웃 (5분 전 경고 팝업 표시)
 let warningTimer;
 let logoutTimer;
@@ -65,8 +111,7 @@ function showExtensionWarning() {
     }, 1000);
 
     logoutTimer = setTimeout(() => {
-        alert("보안을 위해 장시간 활동이 없어 자동으로 로그아웃 되었습니다.");
-        window.location.href = '/logout';
+        window.location.href = '/logout?timeout=1';
     }, WARNING_BEFORE);
 }
 
@@ -235,8 +280,8 @@ window.addEventListener('DOMContentLoaded', () => {
     // ⭐️ 로그아웃 버튼 이벤트 연결
     const btnLogout = document.getElementById('btnLogout');
     if (btnLogout) {
-        btnLogout.addEventListener('click', () => {
-            if (confirm("로그아웃 하시겠습니까?")) {
+        btnLogout.addEventListener('click', async () => {
+            if (await customConfirm("로그아웃 하시겠습니까?")) {
                 window.location.href = '/logout';
             }
         });
@@ -398,7 +443,7 @@ async function loadDataFromLocal() {
                                 if (meData.pending_count > 0) {
                                     btnAdmin.style.position = 'relative';
                                     btnAdmin.innerHTML += `<span class="admin-notification-badge">${meData.pending_count}</span>`;
-                                    setTimeout(() => { alert(`⚠️ 가입 승인 대기 중인 신규 사용자가 ${meData.pending_count}명 있습니다.\n상단 어드민 메뉴에서 확인해주세요.`); }, 500);
+                                    setTimeout(async () => { await customAlert(`가입 승인 대기 중인 신규 사용자가 ${meData.pending_count}명 있습니다.\n상단 어드민 메뉴에서 확인해주세요.`); }, 500);
                                 }
                             }
                         }
@@ -459,7 +504,7 @@ async function loadDataFromLocal() {
         newsInterval = setInterval(fetchRealtimeNews, 300000);
     } catch (err) {
         console.error(err);
-        alert("로컬 데이터를 불러오지 못했습니다.\n서버가 실행 중인지 확인하세요.");
+        await customAlert("로컬 데이터를 불러오지 못했습니다.\n서버가 실행 중인지 확인하세요.");
     }
 }
 
@@ -605,6 +650,8 @@ btnCloseForm.addEventListener('click', resetAndCloseForm);
 // ⭐️ Esc 키로 모달 닫기
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+        const customModal = document.getElementById('customModalOverlay');
+        if (customModal && customModal.style.display === 'flex') return;
         if (formModalOverlay.style.display === 'flex') {
             const openLists = document.querySelectorAll('.autocomplete-list[style*="display: block"]');
             if (openLists.length > 0) return; // 드롭다운이 열려있을 땐 모달 닫기 방지
@@ -740,7 +787,7 @@ if (btnDeleteAccount && deleteAccountModalOverlay) {
         const pw = document.getElementById('deleteAccountPassword').value;
         if (!pw) return;
 
-        if (confirm("정말로 탈퇴하시겠습니까?\n이 작업은 되돌릴 수 없습니다!")) {
+        if (await customConfirm("정말로 탈퇴하시겠습니까?\n이 작업은 되돌릴 수 없습니다!")) {
             try {
                 const submitBtn = deleteAccountForm.querySelector('button[type="submit"]');
                 const origText = submitBtn.innerText;
@@ -754,15 +801,15 @@ if (btnDeleteAccount && deleteAccountModalOverlay) {
                 });
                 const data = await res.json();
                 if (res.ok && data.status === 'success') {
-                    alert("계정이 성공적으로 삭제되었습니다. 이용해 주셔서 감사합니다.");
+                    await customAlert("계정이 성공적으로 삭제되었습니다. 이용해 주셔서 감사합니다.");
                     window.location.href = '/login';
                 } else {
-                    alert("탈퇴 실패: " + (data.error || "알 수 없는 오류"));
+                    await customAlert("탈퇴 실패: " + (data.error || "알 수 없는 오류"));
                     submitBtn.innerText = origText;
                     submitBtn.disabled = false;
                 }
             } catch (e) {
-                alert("탈퇴 처리 중 오류가 발생했습니다.");
+                await customAlert("탈퇴 처리 중 오류가 발생했습니다.");
                 const submitBtn = deleteAccountForm.querySelector('button[type="submit"]');
                 submitBtn.innerText = '탈퇴하기';
                 submitBtn.disabled = false;
@@ -919,39 +966,39 @@ window.toggleUserAllow = async function(username) {
             loadAdminUsers();
         } else {
             const data = await res.json();
-            alert(data.error || "상태 변경에 실패했습니다.");
+                await customAlert(data.error || "상태 변경에 실패했습니다.");
         }
-    } catch(e) { alert("통신 오류가 발생했습니다."); }
+        } catch(e) { await customAlert("통신 오류가 발생했습니다."); }
 };
 
 window.resetUserPassword = async function(username) {
-    if (confirm(`'${username}' 사용자의 비밀번호를 안전한 무작위 문자열로 초기화하시겠습니까?`)) {
+    if (await customConfirm(`'${username}' 사용자의 비밀번호를 안전한 무작위 문자열로 초기화하시겠습니까?`)) {
         try {
             const res = await fetch(`/api/admin/users/${username}/reset_password`, { method: 'POST', headers: { 'ngrok-skip-browser-warning': 'true' }});
             if (res.ok) {
                 const data = await res.json();
-                alert(`'${username}' 계정의 비밀번호가 [ ${data.new_password} ] 로 초기화되었습니다.\n사용자에게 이 임시 비밀번호를 전달해 주세요.`);
+                await customAlert(`'${username}' 계정의 비밀번호가 [ ${data.new_password} ] 로 초기화되었습니다.\n사용자에게 이 임시 비밀번호를 전달해 주세요.`);
             } else {
-                alert("초기화에 실패했습니다.");
+                await customAlert("초기화에 실패했습니다.");
             }
-        } catch(e) { alert("통신 오류가 발생했습니다."); }
+        } catch(e) { await customAlert("통신 오류가 발생했습니다."); }
     }
 };
 
 window.deleteUserAccount = async function(username) {
-    const confirmName = prompt(`⚠️ 경고: '${username}' 사용자와 관련된 모든 기록과 첨부파일이 영구적으로 삭제됩니다.\n\n계속하시려면 삭제할 아이디('${username}')를 아래에 정확히 입력해주세요.`);
+    const confirmName = await customPrompt(`경고: '${username}' 사용자와 관련된 모든 기록과 첨부파일이 영구적으로 삭제됩니다.\n\n계속하시려면 삭제할 아이디('${username}')를 아래에 정확히 입력해주세요.`, '입력');
     if (confirmName === username) {
         try {
             const res = await fetch(`/api/admin/users/${username}`, { method: 'DELETE', headers: { 'ngrok-skip-browser-warning': 'true' }});
             if (res.ok) {
-                alert(`'${username}' 계정이 삭제되었습니다.`);
+                await customAlert(`'${username}' 계정이 삭제되었습니다.`);
                 loadAdminUsers();
             } else {
-                alert("삭제에 실패했습니다.");
+                await customAlert("삭제에 실패했습니다.");
             }
-        } catch(e) { alert("통신 오류가 발생했습니다."); }
+        } catch(e) { await customAlert("통신 오류가 발생했습니다."); }
     } else if (confirmName !== null) {
-        alert("입력한 아이디가 일치하지 않아 삭제가 취소되었습니다.");
+        await customAlert("입력한 아이디가 일치하지 않아 삭제가 취소되었습니다.");
     }
 };
 
@@ -1190,7 +1237,7 @@ journalForm.addEventListener('submit', async function(e) {
     const thoughtsHTML = window.quill.root.innerHTML;
     const thoughtsText = window.quill.getText().trim();
     if (!thoughtsText && !thoughtsHTML.includes('<img')) {
-        alert("내용을 입력해주세요."); return;
+        await customAlert("내용을 입력해주세요."); return;
     }
     const thoughts = thoughtsHTML === '<p><br></p>' ? '' : thoughtsHTML;
     const date = tradeDateRaw ? new Date(tradeDateRaw).toLocaleString() : new Date().toLocaleString();
@@ -1215,14 +1262,14 @@ journalForm.addEventListener('submit', async function(e) {
                 finalAttachedFile = uploadData.url;
                 finalAttachedFileName = uploadData.filename;
             } else {
-                alert("파일 첨부 실패");
+                await customAlert("파일 첨부 실패");
                 document.body.style.cursor = 'default';
                 submitBtn.innerText = editingEntryId ? "기록 수정하기" : "기록 저장하기";
                 return;
             }
         } catch (e) {
             console.error(e);
-            alert("파일 첨부 중 오류 발생");
+            await customAlert("파일 첨부 중 오류 발생");
             document.body.style.cursor = 'default';
             submitBtn.innerText = editingEntryId ? "기록 수정하기" : "기록 저장하기";
             return;
@@ -1286,19 +1333,19 @@ journalForm.addEventListener('submit', async function(e) {
             updatePortfolioSummary();
             renderCalendar();
         } else {
-            alert("저장에 실패했습니다.");
+            await customAlert("저장에 실패했습니다.");
         }
     } catch(err) {
         console.error(err);
-        alert("데이터 저장 중 오류가 발생했습니다.");
+        await customAlert("데이터 저장 중 오류가 발생했습니다.");
     }
 });
 
 // ⭐️ 전체 데이터 백업 및 원복 이벤트 연결
 const btnFullBackup = document.getElementById('btnFullBackup');
 if (btnFullBackup) {
-    btnFullBackup.addEventListener('click', () => {
-        if (confirm('에디터 서식(폰트 등) 및 첨부 이미지를 포함한 모든 데이터를 완벽하게 백업합니다.\n다운로드를 진행하시겠습니까?')) {
+    btnFullBackup.addEventListener('click', async () => {
+        if (await customConfirm('에디터 서식(폰트 등) 및 첨부 이미지를 포함한 모든 데이터를 완벽하게 백업합니다.\n다운로드를 진행하시겠습니까?')) {
             document.body.style.cursor = 'wait';
             fetch('/api/backup', {
                 headers: { 'ngrok-skip-browser-warning': 'true' }
@@ -1326,9 +1373,9 @@ if (btnFullBackup) {
                     window.URL.revokeObjectURL(url);
                     a.remove();
                 })
-                .catch(err => {
+                .catch(async err => {
                     console.error(err);
-                    alert('백업 파일 다운로드 중 오류가 발생했습니다.');
+                    await customAlert('백업 파일 다운로드 중 오류가 발생했습니다.');
                 })
                 .finally(() => {
                     document.body.style.cursor = 'default';
@@ -1345,7 +1392,7 @@ if (btnFullRestore && restoreFileInput) {
         const file = e.target.files[0];
         if (!file) return;
 
-        if (!confirm('⚠️ 경고: 원복을 진행하면 현재 작성된 모든 기록과 이미지가 백업 파일(.zip)의 내용으로 "완전히 덮어씌워"집니다.\n\n정말로 복구를 진행하시겠습니까?')) {
+        if (!(await customConfirm('경고: 원복을 진행하면 현재 작성된 모든 기록과 이미지가 백업 파일(.zip)의 내용으로 "완전히 덮어씌워"집니다.\n\n정말로 복구를 진행하시겠습니까?'))) {
             e.target.value = '';
             return;
         }
@@ -1363,14 +1410,14 @@ if (btnFullRestore && restoreFileInput) {
             
             const result = await response.json();
             if (response.ok && result.status === 'success') {
-                alert('데이터가 성공적으로 원복되었습니다.\n화면을 새로고침 합니다.');
+                await customAlert('데이터가 성공적으로 원복되었습니다.\n화면을 새로고침 합니다.');
                 window.location.reload();
             } else {
-                alert('원복 실패: ' + (result.error || '알 수 없는 오류가 발생했습니다.'));
+                await customAlert('원복 실패: ' + (result.error || '알 수 없는 오류가 발생했습니다.'));
             }
         } catch (err) {
             console.error(err);
-            alert('서버와 통신 중 오류가 발생했습니다.');
+            await customAlert('서버와 통신 중 오류가 발생했습니다.');
         } finally {
             document.body.style.cursor = 'default';
             e.target.value = '';
@@ -1378,52 +1425,54 @@ if (btnFullRestore && restoreFileInput) {
     });
 }
 
-document.getElementById('btnExportExcel').addEventListener('click', () => {
-    const header = ['작성일', '분류', '종목명', '증권사', '계좌분류', '매매종류', '단가', '수량', '태그', '메모/생각'];
-    const rows = cloudEntries.map(e => [
-        e.date, (e.type || '').toUpperCase(), e.stockName||'', e.brokerAccount||'', e.accountName||'',
-        e.tradeType||'', Number(e.price)||0, Number(e.quantity)||0, 
-        e.tags||'', (e.thoughts||'').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') // HTML 태그 제거 후 엑셀 내보내기
-    ]);
-    
-    const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
-    
-    // 단가, 수량 컬럼 숫자 포맷(천 단위 콤마) 지정
-    const range = XLSX.utils.decode_range(worksheet['!ref']);
-    for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-        const priceCell = worksheet[XLSX.utils.encode_cell({c: 6, r: R})]; // G열 (단가)
-        if (priceCell && priceCell.t === 'n') priceCell.z = '#,##0';
+document.getElementById('btnExportExcel').addEventListener('click', async () => {
+    if (await customConfirm('모든 매매 기록을 엑셀 파일(.xlsx)로 다운로드하시겠습니까?')) {
+        const header = ['작성일', '분류', '종목명', '증권사', '계좌분류', '매매종류', '단가', '수량', '태그', '메모/생각'];
+        const rows = cloudEntries.map(e => [
+            e.date, (e.type || '').toUpperCase(), e.stockName||'', e.brokerAccount||'', e.accountName||'',
+            e.tradeType||'', Number(e.price)||0, Number(e.quantity)||0, 
+            e.tags||'', (e.thoughts||'').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') // HTML 태그 제거 후 엑셀 내보내기
+        ]);
         
-        const qtyCell = worksheet[XLSX.utils.encode_cell({c: 7, r: R})]; // H열 (수량)
-        if (qtyCell && qtyCell.t === 'n') qtyCell.z = '#,##0';
-    }
+        const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
+        
+        // 단가, 수량 컬럼 숫자 포맷(천 단위 콤마) 지정
+        const range = XLSX.utils.decode_range(worksheet['!ref']);
+        for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+            const priceCell = worksheet[XLSX.utils.encode_cell({c: 6, r: R})]; // G열 (단가)
+            if (priceCell && priceCell.t === 'n') priceCell.z = '#,##0';
+            
+            const qtyCell = worksheet[XLSX.utils.encode_cell({c: 7, r: R})]; // H열 (수량)
+            if (qtyCell && qtyCell.t === 'n') qtyCell.z = '#,##0';
+        }
 
-    // 내용에 맞게 열 너비 자동 조절
-    const colWidths = header.map((h, colIdx) => {
-        let maxLen = h.length * 2; // 헤더 한글 너비 고려
-        rows.forEach(row => {
-            const val = row[colIdx] != null ? row[colIdx].toString() : '';
-            let len = 0;
-            for (let i = 0; i < val.length; i++) len += val.charCodeAt(i) > 255 ? 2 : 1.1; // 한글은 2, 영문/숫자는 1.1 비율
-            if (len > maxLen) maxLen = len;
+        // 내용에 맞게 열 너비 자동 조절
+        const colWidths = header.map((h, colIdx) => {
+            let maxLen = h.length * 2; // 헤더 한글 너비 고려
+            rows.forEach(row => {
+                const val = row[colIdx] != null ? row[colIdx].toString() : '';
+                let len = 0;
+                for (let i = 0; i < val.length; i++) len += val.charCodeAt(i) > 255 ? 2 : 1.1; // 한글은 2, 영문/숫자는 1.1 비율
+                if (len > maxLen) maxLen = len;
+            });
+            return { wch: Math.min(Math.max(Math.ceil(maxLen), 10), 100) }; // 최소 10, 최대 100 제한
         });
-        return { wch: Math.min(Math.max(Math.ceil(maxLen), 10), 100) }; // 최소 10, 최대 100 제한
-    });
-    worksheet['!cols'] = colWidths;
+        worksheet['!cols'] = colWidths;
 
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "매매일지");
-    
-    const now = new Date();
-    const yyyy = now.getFullYear();
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const dd = String(now.getDate()).padStart(2, '0');
-    const hh = String(now.getHours()).padStart(2, '0');
-    const min = String(now.getMinutes()).padStart(2, '0');
-    const ss = String(now.getSeconds()).padStart(2, '0');
-    const filename = `TradingJournal_export_${yyyy}${mm}${dd}_${hh}${min}${ss}.xlsx`;
-    
-    XLSX.writeFile(workbook, filename);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "매매일지");
+        
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const hh = String(now.getHours()).padStart(2, '0');
+        const min = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        const filename = `TradingJournal_export_${yyyy}${mm}${dd}_${hh}${min}${ss}.xlsx`;
+        
+        XLSX.writeFile(workbook, filename);
+    }
 });
 
 // ⭐️ 숫자 카운트업 애니메이션 함수 (차트 중앙 텍스트용)
@@ -2389,7 +2438,7 @@ function editEntry(entry) {
 }
 
 async function deleteEntry(id) {
-    if (confirm("정말로 이 기록을 삭제하시겠습니까?\n(삭제 후 로컬 파일에 즉시 반영됩니다)")) {
+    if (await customConfirm("정말로 이 기록을 삭제하시겠습니까?\n(삭제 후 로컬 파일에 즉시 반영됩니다)")) {
         try {
             const res = await fetch(`/api/entry/${id}`, {
                 method: 'DELETE',
@@ -2400,8 +2449,8 @@ async function deleteEntry(id) {
                 displayEntries(true);
                 updatePortfolioSummary();
                 renderCalendar();
-            } else { alert("삭제에 실패했습니다."); }
-        } catch(e) { alert("삭제 중 오류가 발생했습니다."); }
+            } else { await customAlert("삭제에 실패했습니다."); }
+        } catch(e) { await customAlert("삭제 중 오류가 발생했습니다."); }
     }
 }
 
@@ -2660,7 +2709,7 @@ if (btnChangePassword && passwordModalOverlay) {
         const new_password_confirm = document.getElementById('newPasswordConfirm').value;
         
         if (new_password !== new_password_confirm) {
-            alert("새 비밀번호가 일치하지 않습니다.");
+            await customAlert("새 비밀번호가 일치하지 않습니다.");
             return;
         }
         
@@ -2681,15 +2730,15 @@ if (btnChangePassword && passwordModalOverlay) {
             
             const data = await res.json();
             if (res.ok && data.status === 'success') {
-                alert("비밀번호가 성공적으로 변경되었습니다.\n새로운 비밀번호로 다시 로그인해주세요.");
+                await customAlert("비밀번호가 성공적으로 변경되었습니다.\n새로운 비밀번호로 다시 로그인해주세요.");
                 window.location.href = '/logout'; // 로그아웃 처리하여 새 비번으로 로그인 유도
             } else {
-                alert("변경 실패: " + (data.error || "알 수 없는 오류가 발생했습니다."));
+                await customAlert("변경 실패: " + (data.error || "알 수 없는 오류가 발생했습니다."));
                 submitBtn.innerText = origText;
                 submitBtn.disabled = false;
             }
         } catch(err) {
-            alert("비밀번호 변경 중 오류가 발생했습니다.");
+            await customAlert("비밀번호 변경 중 오류가 발생했습니다.");
             const submitBtn = passwordForm.querySelector('button[type="submit"]');
             submitBtn.innerText = '변경하기';
             submitBtn.disabled = false;

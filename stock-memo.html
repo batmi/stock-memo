@@ -389,6 +389,21 @@
         </div>
     </div>
 
+    <!-- ⭐️ 커스텀 공통 모달 (Alert, Confirm, Prompt 대체용) -->
+    <div id="customModalOverlay" class="modal-overlay" style="display:none; z-index: 5000;">
+        <div class="form-container" style="max-width: 300px; padding: 20px 15px; text-align: center;">
+            <h3 id="customModalTitle" style="margin-top: 0; margin-bottom: 10px; color: var(--text-strong-color); font-size: 15px;">알림</h3>
+            <p id="customModalMessage" style="font-size: 12.5px; color: var(--text-color); line-height: 1.4; margin-bottom: 15px; white-space: pre-wrap; word-break: break-all;"></p>
+            <div id="customModalPromptContainer" style="display: none; margin-bottom: 15px;">
+                <input type="text" id="customModalInput" style="width: 100%; text-align: center; font-size: 13px; padding: 6px; height: 30px;" autocomplete="off">
+            </div>
+            <div style="display: flex; gap: 8px; justify-content: center;" id="customModalBtnGroup">
+                <button type="button" id="btnCustomModalCancel" style="display: none;">취소</button>
+                <button type="button" id="btnCustomModalOk">확인</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ⭐️ 외부 JS 파일 연결 -->
     <script src="script.js"></script>
 </body>
