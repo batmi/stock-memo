@@ -150,6 +150,48 @@ window.addEventListener('DOMContentLoaded', () => {
     const savedTheme = localStorage.getItem('theme') || 'dark';
     applyTheme(savedTheme);
 
+    // ⭐️ 모바일/데스크탑 레이아웃 동적 전환 (뉴스 영역 및 접기 버튼 위치 이동)
+    function applyMobileResponsiveLayout() {
+        const isMobile = window.innerWidth <= 900;
+        const mainApp = document.getElementById('mainApp');
+        const portfolioSection = document.getElementById('portfolioSection');
+        const historyHeader = document.querySelector('.history-header');
+        const newsSidebar = document.getElementById('newsSidebar');
+        const mainLayout = document.querySelector('.main-layout');
+        
+        const themeSwitchWrapper = document.querySelector('.theme-switch-wrapper');
+        const themeSwitchOuter = themeSwitchWrapper ? themeSwitchWrapper.parentElement.parentElement : null;
+        const btnTogglePortfolio = document.getElementById('btnTogglePortfolio');
+        const portfolioHeaderGroup = document.querySelector('.portfolio-header > div');
+
+        if (!mainApp || !portfolioSection || !historyHeader || !newsSidebar || !mainLayout || !themeSwitchOuter || !btnTogglePortfolio || !portfolioHeaderGroup) return;
+
+        if (isMobile) {
+            // 1. 뉴스 영역을 포트폴리오와 히스토리 사이로 이동
+            if (newsSidebar.parentElement !== mainApp) {
+                mainApp.insertBefore(newsSidebar, historyHeader);
+            }
+            // 2. 포트폴리오 접기/펼치기 버튼을 테마 변경 컨테이너 옆(우측)으로 이동
+            if (btnTogglePortfolio.parentElement !== themeSwitchOuter) {
+                themeSwitchOuter.appendChild(btnTogglePortfolio);
+                btnTogglePortfolio.style.border = '1px solid var(--border-color)';
+                btnTogglePortfolio.style.borderRadius = '4px';
+            }
+        } else {
+            // 데스크탑 레이아웃 원복
+            if (newsSidebar.parentElement !== mainLayout) {
+                mainLayout.appendChild(newsSidebar);
+            }
+            if (btnTogglePortfolio.parentElement !== portfolioHeaderGroup) {
+                portfolioHeaderGroup.appendChild(btnTogglePortfolio);
+                btnTogglePortfolio.style.border = 'none';
+            }
+        }
+    }
+
+    window.addEventListener('resize', applyMobileResponsiveLayout);
+    applyMobileResponsiveLayout(); // 초기 로드 시 1회 실행
+
     // ⭐️ 모바일 환경을 위한 설정 메뉴(톱니바퀴) 터치 토글 로직
     const headerActionGroup = document.querySelector('.header-action-group');
     const headerActionIcon = document.querySelector('.header-action-icon');

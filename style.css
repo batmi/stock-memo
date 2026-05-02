@@ -751,7 +751,36 @@ button:hover {
 [data-theme="dark"] .news-stock-tag { background-color: #16324a; color: #7fa6c7; }
 @media (max-width: 900px) {
     .main-layout { flex-direction: column; }
-    .content-right { width: auto; position: static; }
+    .content-left { width: 100%; max-width: 100%; }
+    
+    /* ⭐️ 모바일에서 뉴스 영역 레이아웃 및 여백 조정 */
+    .content-right { 
+        width: 100%; 
+        position: static; 
+        margin: 15px 0 25px 0; 
+        box-sizing: border-box; 
+    }
+    
+    /* ⭐️ 뉴스 가로 스크롤(스와이프) 적용 */
+    #newsList {
+        display: flex;
+        overflow-x: auto;
+        overflow-y: hidden !important;
+        max-height: none !important;
+        padding-bottom: 10px;
+        gap: 15px;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+    }
+    #newsList::-webkit-scrollbar { height: 6px; }
+    #newsList::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+    
+    .news-item {
+        flex: 0 0 75%; max-width: 280px; margin-bottom: 0; border-bottom: none;
+        border-right: 1px solid var(--border-light-color); padding-bottom: 0; padding-right: 15px; scroll-snap-align: start;
+    }
+    .news-item:last-child { border-right: none; padding-right: 0; }
+    #newsList > div:not(.news-item) { width: 100%; flex-shrink: 0; }
 }
 @media (max-width: 768px) {
     .portfolio-content-layout { flex-direction: column; align-items: center; }
