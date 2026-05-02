@@ -672,29 +672,63 @@ let editingEntryId = null;
 let portfolioChartInstance = null;
 let currentTags = [];
 
-// ⭐️ 모바일 환경에서 입력 폼 스크롤(터치 이동) 시 키보드 자동 숨김 처리
+// ⭐️ 모바일 환경에서 폼 스크롤 시 무분별한 키보드 닫힘(blur) 방지 및 커서 위치 중앙 보정 기능
+let formTouchStartY = 0;
 if (formContainer) {
+    formContainer.addEventListener('touchstart', (e) => {
+        formTouchStartY = e.touches[0].clientY;
+    }, { passive: true });
+
     formContainer.addEventListener('touchmove', () => {
-        const active = document.activeElement;
-        if (active && (['INPUT', 'TEXTAREA'].includes(active.tagName) || active.isContentEditable)) {
-            active.blur();
+        // 손가락이 크게(30px 이상) 스크롤되었을 때만 키보드를 숨기도록 제한 (터치 시 키보드 닫힘 방해 방지)
+        const touchCurrentY = e.touches[0].clientY;
+        if (Math.abs(touchCurrentY - formTouchStartY) > 30) {
+            const active = document.activeElement;
+            if (active && (['INPUT', 'TEXTAREA'].includes(active.tagName) || active.isContentEditable)) {
+                active.blur();
+            }
         }
     }, { passive: true });
 
-    // ⭐️ 모바일에서 입력창 포커스 시 키보드가 화면을 가리지 않도록 자동 스크롤
-    formContainer.addEventListener('focusin', (e) => {
-        // 모바일 환경(가로 768px 이하)에서만 동작
-        if (window.matchMedia("(max-width: 768px)").matches) {
-            const target = e.target;
-            // 실제 입력이 가능한 요소(input, textarea, contentEditable)에만 적용
-            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
-                // 키보드가 올라오고 뷰포트가 리사이즈될 시간을 기다린 후 스크롤
-                setTimeout(() => {
-                    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }, 300);
-            }
+    // ⭐️ 모바일에서 가상 키보드가 올라오거나 터치로 커서를 변경할 때 해당 위치를 중앙으로 자동 스크롤
+    function scrollToActiveElement() {
+        if (!window.matchMedia("(max-width: 768px)").matches) return;
+        const active = document.activeElement;
+        if (active && (['INPUT', 'TEXTAREA'].includes(active.tagName) || active.isContentEditable)) {
+            setTimeout(() => {
+                if (active.isContentEditable && window.getSelection) {
+                    // 에디터(ContentEditable) 내부일 경우, 실제 커서가 위치한 텍스트 노드의 부모를 찾아 스크롤
+                    const selection = window.getSelection();
+                    if (selection.rangeCount > 0) {
+                        let targetNode = selection.focusNode;
+                        if (targetNode && targetNode.nodeType === Node.TEXT_NODE) {
+                            targetNode = targetNode.parentNode;
+                        }
+                        if (targetNode && targetNode.scrollIntoView) {
+                            targetNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            return;
+                        }
+                    }
+                }
+                // 일반 입력창인 경우
+                active.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 300); // 가상 키보드가 올라오거나 UI가 재배치될 시간 확보
+        }
+    }
+
+    formContainer.addEventListener('focusin', scrollToActiveElement);
+    
+    // 에디터 내부를 터치하여 커서를 명시적으로 변경할 때도 즉각 반응
+    formContainer.addEventListener('click', (e) => {
+        const active = document.activeElement;
+        if (active && active.isContentEditable) {
+            setTimeout(scrollToActiveElement, 100);
         }
     });
+
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', scrollToActiveElement);
+    }
 }
 
 const defaultStocks = [
