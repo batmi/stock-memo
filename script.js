@@ -1872,30 +1872,6 @@ function updatePortfolioSummary() {
                 responsive: true,
                 cutout: '72%', // 중앙 구멍 크기 확장
                 layout: { padding: 15 }, // ⭐️ 도넛 크기를 약간 줄여 주변 여유 공간 확보
-                // ⭐️ 도넛 차트 클릭 시 필터링 및 초기화 이벤트 연동
-                onClick: (e, elements, chart) => {
-                    if (isPortfolioEmpty) return;
-                    
-                    if (elements.length > 0) {
-                        // 차트의 특정 조각(종목) 클릭 시
-                        const idx = elements[0].index;
-                        const stock = chart.data.labels[idx];
-                        currentFilterDate = null;
-                        currentFilterType = 'stock_' + stock;
-                    } else {
-                        // 차트의 중앙(빈 공간) 클릭 시 필터 초기화(전체 보기)
-                        currentFilterDate = null;
-                        currentFilterType = null;
-                    }
-                    
-                    const btnListView = document.getElementById('btnListView');
-                    if (btnListView && !btnListView.classList.contains('active')) {
-                        btnListView.click();
-                    }
-                    displayEntries(true);
-                    
-                    window.scrollToFilterBox();
-                },
                 onHover: (e, elements, chart) => {
                     chart.canvas.style.cursor = isPortfolioEmpty ? 'default' : 'pointer';
                 },
