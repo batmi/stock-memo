@@ -250,6 +250,7 @@ body {
     width: 100%; max-width: 540px; max-height: 90vh; overflow-y: auto;
     animation: slideInUp 0.3s ease-out forwards;
     overscroll-behavior-y: contain; /* ⭐️ 팝업창 내 스크롤이 끝났을 때 배경 화면이 스크롤되는 현상 차단 */
+    box-sizing: border-box; /* ⭐️ 여백(Padding)이 높이를 초과하지 않도록 계산 방식을 변경하여 스크롤 짤림 현상 해결 */
 }
 .form-group {
     margin-bottom: 10px;
@@ -808,7 +809,7 @@ button:hover {
         height: 100%;
         max-height: 100vh !important;
         border-radius: 0;
-        padding: 20px 15px;
+        padding: 20px 15px 40px 15px; /* ⭐️ 스마트폰 하단 인디케이터(소프트키) 영역 침범을 막기 위해 하단 여백 추가 */
     }
 
     .portfolio-content-layout { flex-direction: column; align-items: center; }
