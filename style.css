@@ -800,6 +800,7 @@ button:hover {
     /* ⭐️ 모바일에서 팝업(모달) 전체 화면으로 꽉 차게 변경 */
     #formModalOverlay {
         padding: 0;
+        align-items: flex-start; /* ⭐️ 키보드가 올라올 때 모달이 화면 중앙으로 찌그러지는 현상 방지 (항상 최상단 고정) */
     }
     #formModalOverlay .form-container {
         max-width: 100%;

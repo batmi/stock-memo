@@ -707,9 +707,12 @@ if (formContainer) {
                 if (window.matchMedia("(max-width: 768px)").matches) {
                     formContainer.style.maxHeight = `${window.visualViewport.height}px`;
                     formContainer.style.height = `${window.visualViewport.height}px`;
+                    // ⭐️ 스마트폰에서 키보드 팝업 시 화면(Layout Viewport)이 위로 밀려 올라가는 오차를 정확히 계산하여 보정
+                    formContainer.style.marginTop = `${window.visualViewport.offsetTop}px`;
                 } else {
                     formContainer.style.maxHeight = `${window.visualViewport.height * 0.9}px`;
                     formContainer.style.height = 'auto';
+                    formContainer.style.marginTop = '0px';
                 }
             }
         }
@@ -717,6 +720,10 @@ if (formContainer) {
 
     if (window.visualViewport) {
         let prevViewportHeight = window.visualViewport.height;
+        // ⭐️ 스크롤 시에도 offsetTop 값을 지속적으로 동기화하여 키보드 위로 UI가 항상 밀착되도록 유지
+        window.visualViewport.addEventListener('scroll', () => {
+            if (typeof window.updateFormContainerHeight === 'function') window.updateFormContainerHeight();
+        });
         window.visualViewport.addEventListener('resize', () => {
             // ⭐️ iOS 등 모바일 환경에서 가상 키보드가 올라올 때 모달이 가려지지 않도록 팝업 최대 높이를 실제 뷰포트에 맞게 동적 보정
             if (typeof window.updateFormContainerHeight === 'function') window.updateFormContainerHeight();
