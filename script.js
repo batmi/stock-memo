@@ -1316,6 +1316,21 @@ window.resizeAndInsertImageToQuill = function(file) {
             
             window.quill.insertEmbed(insertIndex, 'image', dataUrl);
             window.quill.setSelection(insertIndex + 1);
+            window.quill.focus(); // ⭐️ 포커스 명시적 유지
+            
+            // ⭐️ 이미지가 DOM에 렌더링된 후, 삽입된 커서 위치로 부드럽게 스크롤 보정
+            setTimeout(() => {
+                const selection = window.getSelection();
+                if (selection && selection.rangeCount > 0) {
+                    let targetNode = selection.focusNode;
+                    if (targetNode && targetNode.nodeType === Node.TEXT_NODE) {
+                        targetNode = targetNode.parentNode;
+                    }
+                    if (targetNode && targetNode.scrollIntoView) {
+                        targetNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }
+            }, 150);
         };
         img.src = event.target.result;
     };
@@ -1518,7 +1533,7 @@ if (btnFullRestore && restoreFileInput) {
         const file = e.target.files[0];
         if (!file) return;
 
-        if (!(await customConfirm('경고: 원복을 진행하면 현재 작성된 모든 기록과 이미지가 \n백업 파일(.zip)의 내용으로 "완전히 덮어씌워"집니다.\n\n정말로 복구를 진행하시겠습니까?'))) {
+        if (!(await customConfirm('원복을 진행하면 현재 작성된 모든 기록과 이미지가 \n백업 파일(.zip)의 내용으로 "완전히 덮어씌워"집니다.\n\n정말로 복구를 진행하시겠습니까?'))) {
             e.target.value = '';
             return;
         }
