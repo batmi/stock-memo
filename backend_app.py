@@ -608,25 +608,8 @@ def uploaded_file(req_username, filename):
     if req_username != session.get('username'):
         return jsonify({"error": "Unauthorized"}), 403
     user_folder = os.path.join(UPLOAD_FOLDER, req_username)
-    return send_from_directory(user_folder, filename)
-
-@app.route('/api/upload', methods=['POST'])
-def upload_file():
-    username = session.get('username')
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-    
-    filename = os.path.basename(file.filename)
-    safe_name = f"{int(time.time())}_{uuid.uuid4().hex[:6]}_{filename.replace(' ', '_')}"
-    
-    user_folder = os.path.join(UPLOAD_FOLDER, username)
-    os.makedirs(user_folder, exist_ok=True)
-    filepath = os.path.join(user_folder, safe_name)
-    file.save(filepath)
-    return jsonify({'url': f'/uploads/{username}/{safe_name}', 'filename': file.filename})
+    # ⭐️ 브라우저(특히 Safari)가 다운로드된 ZIP 파일을 강제로 자동 압축 해제하지 않도록 attachment로 전송
+    return send_from_directory(user_folder, filename, as_attachment=True)
 
 @app.route('/api/data', methods=['GET'])
 def get_data():
@@ -689,12 +672,6 @@ def delete_entry(entry_id):
     username = session.get('username')
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT attachedFile FROM entries WHERE id=? AND username=?", (entry_id, username))
-    row = c.fetchone()
-    if row and row['attachedFile'] and row['attachedFile'].startswith(f'/uploads/{username}/'):
-        filepath = os.path.join(UPLOAD_FOLDER, username, os.path.basename(row['attachedFile']))
-        if os.path.exists(filepath):
-            os.remove(filepath)
     c.execute("DELETE FROM entries WHERE id=? AND username=?", (entry_id, username))
     conn.commit()
     conn.close()
