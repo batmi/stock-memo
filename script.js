@@ -935,15 +935,15 @@ if (btnDeleteAccount && deleteAccountModalOverlay) {
                     await customAlert("계정이 성공적으로 삭제되었습니다. 이용해 주셔서 감사합니다.");
                     window.location.href = '/login';
                 } else {
-                    await customAlert("탈퇴 실패: " + (data.error || "알 수 없는 오류"));
                     submitBtn.innerText = origText;
                     submitBtn.disabled = false;
+                    await customAlert("탈퇴 실패: " + (data.error || "알 수 없는 오류"));
                 }
             } catch (e) {
-                await customAlert("탈퇴 처리 중 오류가 발생했습니다.");
                 const submitBtn = deleteAccountForm.querySelector('button[type="submit"]');
                 submitBtn.innerText = '탈퇴하기';
                 submitBtn.disabled = false;
+                await customAlert("탈퇴 처리 중 오류가 발생했습니다.");
             }
         }
     });
@@ -2863,15 +2863,15 @@ if (btnChangePassword && passwordModalOverlay) {
                 await customAlert("비밀번호가 성공적으로 변경되었습니다.\n새로운 비밀번호로 다시 로그인해주세요.");
                 window.location.href = '/logout'; // 로그아웃 처리하여 새 비번으로 로그인 유도
             } else {
-                await customAlert("변경 실패: " + (data.error || "알 수 없는 오류가 발생했습니다."));
                 submitBtn.innerText = origText;
                 submitBtn.disabled = false;
+                await customAlert("변경 실패: " + (data.error || "알 수 없는 오류가 발생했습니다."));
             }
         } catch(err) {
-            await customAlert("비밀번호 변경 중 오류가 발생했습니다.");
             const submitBtn = passwordForm.querySelector('button[type="submit"]');
             submitBtn.innerText = '변경하기';
             submitBtn.disabled = false;
+            await customAlert("비밀번호 변경 중 오류가 발생했습니다.");
         }
     });
 }
