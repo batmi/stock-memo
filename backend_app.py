@@ -491,6 +491,10 @@ def get_me():
 @app.route('/api/account', methods=['DELETE'])
 def delete_account():
     username = session.get('username')
+    # ⭐️ 최고 관리자(batmi) 계정은 탈퇴할 수 없도록 보호
+    if username == 'batmi':
+        return jsonify({"error": "최고 관리자 계정은 탈퇴할 수 없습니다."}), 403
+
     data = request.json or {}
     password = data.get('password')
     if not password:
