@@ -1567,7 +1567,7 @@ if (btnFullRestore && restoreFileInput) {
 }
 
 document.getElementById('btnExportExcel').addEventListener('click', async () => {
-    if (await customConfirm('모든 매매 기록을 엑셀 파일(.xlsx)로 다운로드하시겠습니까?')) {
+    if (await customConfirm('모든 매매 기록을 엑셀 파일(.xlsx)로 \n다운로드하시겠습니까?')) {
         const header = ['작성일', '분류', '종목명', '증권사', '계좌분류', '매매종류', '단가', '수량', '태그', '메모/생각'];
         const rows = cloudEntries.map(e => [
             e.date, (e.type || '').toUpperCase(), e.stockName||'', e.brokerAccount||'', e.accountName||'',
