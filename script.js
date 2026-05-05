@@ -937,7 +937,13 @@ if (btnDeleteAccount && deleteAccountModalOverlay) {
                 } else {
                     submitBtn.innerText = origText;
                     submitBtn.disabled = false;
-                    await customAlert("탈퇴 실패: " + (data.error || "알 수 없는 오류"));
+                    // 최고 관리자 계정 탈퇴 차단 시 별도 알림 후 모달창 닫기
+                    if (res.status === 403 && data.error === "최고 관리자 계정은 탈퇴할 수 없습니다.") {
+                        await customAlert(data.error);
+                        closeDeleteModal();
+                    } else {
+                        await customAlert("탈퇴 실패: " + (data.error || "알 수 없는 오류"));
+                    }
                 }
             } catch (e) {
                 const submitBtn = deleteAccountForm.querySelector('button[type="submit"]');
