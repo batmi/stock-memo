@@ -451,7 +451,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 }
             }
         }
-    });
+    }, true); // ⭐️ capture 플래그 적용: Quill 내부 핸들러보다 우선 실행
 
     // ⭐️ 에디터 본문 클립보드 이미지 붙여넣기(Ctrl+V) 직접 연결 (충돌 해결)
     window.quill.root.addEventListener('paste', function(e) {
@@ -469,7 +469,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 }
             }
         }
-    });
+    }, true); // ⭐️ capture 플래그 적용: Quill 내부 핸들러보다 우선 실행하여 락 걸림 방지
 
     loadDataFromLocal();
 });
@@ -1334,6 +1334,12 @@ clearFilterBtn.addEventListener('click', () => {
 journalForm.addEventListener('submit', async function(e) {
     e.preventDefault();
 
+    // ⭐️ 중복 제출 방지 (더블 클릭 등으로 인한 동일 데이터 복제 현상 해결)
+    if (submitBtn.disabled) return;
+    submitBtn.disabled = true;
+    const origBtnText = submitBtn.innerText;
+    submitBtn.innerText = "처리 중...";
+
     const recordType = document.querySelector('input[name="recordType"]:checked').value;
     const stockName = document.getElementById('stockName').value;
     const stockCode = document.getElementById('stockCode').value;
@@ -1344,6 +1350,8 @@ journalForm.addEventListener('submit', async function(e) {
     const thoughtsHTML = window.quill.root.innerHTML;
     const thoughtsText = window.quill.getText().trim();
     if (!thoughtsText && !thoughtsHTML.includes('<img')) {
+        submitBtn.disabled = false;
+        submitBtn.innerText = origBtnText;
         await customAlert("내용을 입력해주세요."); return;
     }
     const thoughts = thoughtsHTML === '<p><br></p>' ? '' : thoughtsHTML;
@@ -1353,8 +1361,11 @@ journalForm.addEventListener('submit', async function(e) {
     const nowIso = new Date().toISOString();
     let createdAt = nowIso;
     
-    if (editingEntryId) {
-        const oldEntry = cloudEntries.find(e => e.id === editingEntryId);
+    // ⭐️ 비동기 요청 중 전역 변수(editingEntryId)가 변경될 가능성을 대비하여 지역 변수로 캡처
+    const currentEditingId = editingEntryId;
+    
+    if (currentEditingId) {
+        const oldEntry = cloudEntries.find(e => e.id === currentEditingId);
         if (oldEntry) {
             createdAt = oldEntry.createdAt || new Date(oldEntry.id).toISOString(); // 기존 시간 유지
         }
@@ -1367,17 +1378,17 @@ journalForm.addEventListener('submit', async function(e) {
         const quantity = document.getElementById('quantity').value;
 
         newEntry = {
-            id: editingEntryId || Date.now(), type: 'trade', stockName, stockCode, brokerAccount, accountName,
+            id: currentEditingId || Date.now(), type: 'trade', stockName, stockCode, brokerAccount, accountName,
             tradeType, price: price ? Number(price) : 0, quantity: quantity ? Number(quantity) : 0, thoughts, date, rawDate: tradeDateRaw, attachedImage: null,
             createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: '', attachedFileName: ''
         };
     } else {
         const memoTitle = document.getElementById('memoTitle').value;
-        newEntry = { id: editingEntryId || Date.now(), type: 'memo', stockName: '', stockCode: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: '', attachedFileName: '' };
+        newEntry = { id: currentEditingId || Date.now(), type: 'memo', stockName: '', stockCode: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: '', attachedFileName: '' };
     }
 
-    const method = editingEntryId ? 'PUT' : 'POST';
-    const url = editingEntryId ? `/api/entry/${editingEntryId}` : '/api/entry';
+    const method = currentEditingId ? 'PUT' : 'POST';
+    const url = currentEditingId ? `/api/entry/${currentEditingId}` : '/api/entry';
 
     try {
         const res = await fetch(url, {
@@ -1390,15 +1401,14 @@ journalForm.addEventListener('submit', async function(e) {
         });
         
         if (res.ok) {
-            if (editingEntryId) {
-                const index = cloudEntries.findIndex(e => e.id === editingEntryId);
+            if (currentEditingId) {
+                const index = cloudEntries.findIndex(e => e.id === currentEditingId);
                 if (index > -1) cloudEntries[index] = newEntry;
             } else {
                 cloudEntries.unshift(newEntry);
             }
             
             editingEntryId = null;
-            submitBtn.innerText = "기록";
             resetAndCloseForm();
             displayEntries(true);
             updatePortfolioSummary();
@@ -1409,6 +1419,14 @@ journalForm.addEventListener('submit', async function(e) {
     } catch(err) {
         console.error(err);
         await customAlert("데이터 저장 중 오류가 발생했습니다.");
+    } finally {
+        // ⭐️ 요청 완료 후 버튼 상태 원복 (UI 안정성 확보)
+        submitBtn.disabled = false;
+        if (editingEntryId !== null) {
+            submitBtn.innerText = origBtnText;
+        } else {
+            submitBtn.innerText = "기록";
+        }
     }
 });
 
