@@ -580,6 +580,7 @@ button:hover {
 .entry-header { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85em; color: var(--text-muted-color); }
 .entry-title { font-size: 1.05em; font-weight: bold; color: var(--text-strong-color); margin-bottom: 6px; }
 .entry-content { line-height: 1.5; font-size: 12.5px; word-wrap: break-word; }
+.entry-content .ql-editor { max-height: none !important; overflow-y: visible !important; } /* ⭐️ 히스토리 뷰어에서는 스크롤 없이 전체 내용 표시 */
 .entry-content img, .ql-editor img { max-width: 100%; height: auto; border-radius: 4px; margin: 8px 0; display: inline-block; }
 .entry-thumbnail {
     max-width: 200px;
@@ -960,8 +961,8 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 /* Quill 에디터 디자인 보정 및 다크모드 적용 */
 .ql-toolbar.ql-snow { font-family: inherit; border-color: var(--border-color); border-top-left-radius: 6px; border-top-right-radius: 6px; background: var(--card-bg-color); padding: 4px 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 0; }
 [data-theme="dark"] .ql-toolbar.ql-snow { border-color: var(--border-color); }
-.ql-container.ql-snow { font-family: inherit; border-color: var(--border-color); border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; height: auto !important; min-height: 100px; max-height: 400px; overflow-y: auto !important; }
-.ql-editor { font-size: 13px; color: var(--text-color); min-height: 100px; word-break: break-word; overflow-y: auto; }
+.ql-container.ql-snow { font-family: inherit; border-color: var(--border-color); border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; height: auto !important; min-height: 100px; }
+.ql-editor { font-size: 13px; color: var(--text-color); min-height: 100px; max-height: 400px; word-break: break-word; overflow-y: auto !important; }
 [data-theme="dark"] .ql-editor.ql-blank::before { color: var(--text-muted-color); font-style: normal; }
 /* 전역 button 스타일 충돌 방지 및 크기 최적화 */
 .ql-toolbar.ql-snow .ql-formats { margin-right: 3px !important; margin-bottom: 0 !important; display: inline-flex; align-items: center; }

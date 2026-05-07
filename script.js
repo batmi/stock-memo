@@ -422,7 +422,11 @@ window.addEventListener('DOMContentLoaded', () => {
         input.onchange = function() {
             const file = input.files[0];
             if (file) {
-                window.resizeAndInsertImageToQuill(file);
+                // ⭐️ 툴바 삽입 시에도 커서 위치 동기적 캡처
+                window.quill.focus();
+                const range = window.quill.getSelection();
+                const insertIndex = range ? range.index : window.quill.getLength();
+                window.resizeAndInsertImageToQuill(file, insertIndex);
             }
         };
     });
@@ -430,13 +434,16 @@ window.addEventListener('DOMContentLoaded', () => {
     // ⭐️ 붙여넣기 시 외부 텍스트의 글자색/배경색 서식 강제 제거 (테마 색상 자동 적용)
     window.quill.clipboard.addMatcher(Node.ELEMENT_NODE, function(node, delta) {
         delta.ops.forEach(op => {
-            if (op.attributes) {
+            // ⭐️ 텍스트(string)인 경우에만 서식(색상/배경)을 제거하여 이미지 등 임베드 요소 손상 원천 차단
+            if (typeof op.insert === 'string' && op.attributes) {
                 delete op.attributes.color;
                 delete op.attributes.background;
             }
         });
         return delta;
     });
+
+    const Delta = Quill.import('delta');
 
     // ⭐️ 에디터 본문 드래그 앤 드롭 이미지 삽입 지원
     window.quill.root.addEventListener('drop', function(e) {
@@ -446,7 +453,19 @@ window.addEventListener('DOMContentLoaded', () => {
                 if (file.type.startsWith('image/')) {
                     e.preventDefault();
                     e.stopPropagation();
-                    window.resizeAndInsertImageToQuill(file);
+                    
+                    let insertIndex;
+                    if (document.caretRangeFromPoint) {
+                        const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+                        if (range) {
+                            const sel = window.getSelection();
+                            sel.removeAllRanges();
+                            sel.addRange(range);
+                            const qRange = window.quill.getSelection();
+                            insertIndex = qRange ? qRange.index : window.quill.getLength();
+                        }
+                    }
+                    window.resizeAndInsertImageToQuill(file, insertIndex);
                     break;
                 }
             }
@@ -455,16 +474,60 @@ window.addEventListener('DOMContentLoaded', () => {
 
     // ⭐️ 에디터 본문 클립보드 이미지 붙여넣기(Ctrl+V) 직접 연결 (충돌 해결)
     window.quill.root.addEventListener('paste', function(e) {
-        if (e.clipboardData && e.clipboardData.items) {
-            const items = e.clipboardData.items;
-            for (let i = 0; i < items.length; i++) {
-                if (items[i].type.indexOf('image') !== -1) {
-                    const file = items[i].getAsFile();
-                    if (file) {
-                        e.preventDefault(); // 기본 붙여넣기(원본 용량) 방지
-                        e.stopPropagation();
-                        window.resizeAndInsertImageToQuill(file);
-                        break;
+        if (e.clipboardData) {
+            const types = e.clipboardData.types;
+            
+            // 1. 에디터 내부/웹에서 텍스트와 이미지를 함께 복사한 경우 (HTML 처리)
+            if (types && Array.from(types).indexOf('text/html') !== -1) {
+                let html = e.clipboardData.getData('text/html');
+                
+                // ⭐️ 거대한 Base64 이미지가 포함된 경우, 브라우저 DOM 파서가 개입하기 전 순수 문자열 상태에서 공백/줄바꿈을 즉각 제거 (투명화 버그 완벽 차단)
+                if (html && html.includes('data:image/')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    html = html.replace(/src\s*=\s*(['"])(data:image\/[^'"]+)\1/gi, function(match, quote, src) {
+                        return `src=${quote}${src.replace(/\s+/g, '')}${quote}`;
+                    });
+                    
+                    window.quill.focus();
+                    const range = window.quill.getSelection();
+                    const insertIndex = range ? range.index : window.quill.getLength();
+                    
+                    // 선택된 텍스트 영역이 있다면 덮어쓰기
+                    if (range && range.length > 0) {
+                        window.quill.deleteText(range.index, range.length, 'user');
+                    }
+                    
+                    // 정제된 HTML을 안전한 Delta로 변환하여 에디터에 삽입
+                    const delta = window.quill.clipboard.convert(html);
+                    window.quill.updateContents(new Delta().retain(insertIndex).concat(delta), 'user');
+                    
+                    // 삽입된 콘텐츠 끝으로 커서 자동 이동
+                    window.quill.setSelection(insertIndex + delta.length(), 'silent');
+                    return;
+                }
+                // Base64 이미지가 없는 일반 텍스트 HTML이면 Quill 기본 동작에 위임
+                return;
+            }
+
+            // 2. 스크린샷 등 순수 이미지 파일만 단독으로 붙여넣은 경우
+            if (e.clipboardData.items) {
+                const items = e.clipboardData.items;
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].type.indexOf('image') !== -1) {
+                        const file = items[i].getAsFile();
+                        if (file) {
+                            e.preventDefault(); // 스크린샷 원본 용량 제한 방지
+                            e.stopPropagation();
+                            
+                            window.quill.focus();
+                            const range = window.quill.getSelection();
+                            const insertIndex = range ? range.index : window.quill.getLength();
+                            
+                            window.resizeAndInsertImageToQuill(file, insertIndex);
+                            return;
+                        }
                     }
                 }
             }
@@ -1254,11 +1317,14 @@ document.getElementById('tagInput').addEventListener('keydown', function(e) {
 });
 
 // ⭐️ 에디터 내부에 이미지를 압축하여 삽입하는 함수
-window.resizeAndInsertImageToQuill = function(file) {
-    // ⭐️ 비동기 파일 읽기가 시작되기 전에 현재 커서 위치를 미리 캡처 (상단으로 튕기는 현상 방지)
-    window.quill.focus();
-    const range = window.quill.getSelection();
-    const insertIndex = range ? range.index : window.quill.getLength();
+window.resizeAndInsertImageToQuill = function(file, customIndex) {
+    // ⭐️ 캡처된 커서 위치(customIndex)가 없으면 현재 위치 사용
+    let insertIndex = customIndex;
+    if (insertIndex === undefined) {
+        window.quill.focus();
+        const range = window.quill.getSelection();
+        insertIndex = range ? range.index : window.quill.getLength();
+    }
 
     const reader = new FileReader();
     reader.onload = function(event) {
