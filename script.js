@@ -881,6 +881,10 @@ function setupAutocomplete(inputId, listId, getOptions) {
     input.addEventListener('input', triggerInput);
     input.addEventListener('focus', triggerInput);
     input.addEventListener('click', triggerInput);
+    
+    input.addEventListener('blur', function() {
+        list.style.display = 'none';
+    });
 
     input.addEventListener('keydown', function(e) {
         const items = list.getElementsByClassName('autocomplete-item');
@@ -1182,12 +1186,52 @@ function getBrokerOptions() {
 setupAutocomplete('stockName', 'stockNameList', getStockOptions);
 setupAutocomplete('brokerAccount', 'brokerAccountList', getBrokerOptions);
 
-// ⭐️ 종목명 자동완성 시 종목코드 자동 입력
-document.getElementById('stockName').addEventListener('itemSelected', function(e) {
-    const val = e.detail ? e.detail.value : this.value;
-    const recentEntry = cloudEntries.find(entry => entry.stockName === val && entry.stockCode);
+// ⭐️ 종목명 입력 완료(자동완성 선택, 포커스 아웃, 엔터 입력) 시 관련 정보 자동 입력
+function autoFillStockInfo(e) {
+    const val = (e.type === 'itemSelected' && e.detail) ? e.detail.value : this.value.trim();
+    if (!val) return;
+    
+    // 증권사, 투자분류 등의 정보가 있는 가장 최근의 매매(trade) 기록을 우선 탐색
+    let recentEntry = cloudEntries.find(entry => entry.stockName === val && entry.type === 'trade');
+    
+    // 매매 기록이 없으면 일반 메모 기록이라도 탐색 (종목코드가 있을 수 있으므로)
+    if (!recentEntry) {
+        recentEntry = cloudEntries.find(entry => entry.stockName === val);
+    }
+
     if (recentEntry) {
-        document.getElementById('stockCode').value = recentEntry.stockCode;
+        if (recentEntry.stockCode) document.getElementById('stockCode').value = recentEntry.stockCode;
+        if (recentEntry.brokerAccount) document.getElementById('brokerAccount').value = recentEntry.brokerAccount;
+        if (recentEntry.accountName) document.getElementById('accountName').value = recentEntry.accountName;
+    }
+}
+
+const stockNameInput = document.getElementById('stockName');
+stockNameInput.addEventListener('itemSelected', autoFillStockInfo);
+stockNameInput.addEventListener('blur', autoFillStockInfo); // 포커스 잃을 때
+stockNameInput.addEventListener('keydown', function(e) {
+    // 엔터 키 입력 시 (한글 조합 중이 아닐 때)
+    if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault(); // ⭐️ 엔터 키 입력 시 폼(Form)이 강제 제출되는 현상 방지
+        autoFillStockInfo.call(this, e);
+        
+        // ⭐️ 엔터 입력 시 빈 칸 또는 다음 주요 입력칸으로 자동 포커스 이동
+        const recordType = document.querySelector('input[name="recordType"]:checked');
+        if (recordType && recordType.value === 'trade') {
+            // 매매 일지: 비어있는 항목을 우선 찾고, 모두 채워졌으면 '매매 단가'로 직행
+            if (!document.getElementById('stockCode').value) {
+                document.getElementById('stockCode').focus();
+            } else if (!document.getElementById('brokerAccount').value) {
+                document.getElementById('brokerAccount').focus();
+            } else if (!document.getElementById('accountName').value) {
+                document.getElementById('accountName').focus();
+            } else {
+                document.getElementById('price').focus();
+            }
+        } else {
+            // 일반 메모: '메모 제목'으로 직행
+            document.getElementById('memoTitle').focus();
+        }
     }
 });
 
