@@ -388,6 +388,12 @@
         </div>
     </div>
 
+    <!-- ⭐️ 전역 로딩 오버레이 (백업, 원복, 엑셀 다운로드 등 긴 작업 시 사용) -->
+    <div id="loadingOverlay" class="modal-overlay" style="display:none; z-index: 9999; flex-direction: column; gap: 15px;">
+        <div class="loading-spinner"></div>
+        <div id="loadingText" style="color: white; font-weight: bold; font-size: 14px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); text-align: center; line-height: 1.5;">처리 중입니다...</div>
+    </div>
+
     <!-- ⭐️ 커스텀 공통 모달 (Alert, Confirm, Prompt 대체용) -->
     <div id="customModalOverlay" class="modal-overlay" style="display:none; z-index: 5000;">
         <div class="form-container" style="max-width: 300px; padding: 20px 15px; text-align: center;">

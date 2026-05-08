@@ -223,6 +223,17 @@ body {
     animation: ptrSpin 0.8s linear infinite;
 }
 
+/* ⭐️ 전역 로딩 스피너 */
+.loading-spinner {
+    width: 46px;
+    height: 46px;
+    border: 5px solid rgba(255, 255, 255, 0.2);
+    border-top: 5px solid var(--primary-color);
+    border-radius: 50%;
+    animation: ptrSpin 1s linear infinite; /* 기존에 정의된 ptrSpin 회전 애니메이션 재사용 */
+    box-shadow: 0 0 15px rgba(0,0,0,0.2);
+}
+
 /* ⭐️ 모달 오버레이 스타일 추가 */
 .modal-overlay {
     display: none;

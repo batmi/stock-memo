@@ -26,11 +26,17 @@ window.scrollToFilterBox = function() {
     window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
 };
 
+let customModalTimeout = null; // ⭐️ 연속 모달 호출 시 타이머 꼬임 방지용 전역 변수
+
 // ⭐️ 커스텀 공통 모달 (Alert, Confirm, Prompt 대체용)
 window.customModal = function({ type = 'alert', title = '알림', message = '', inputPlaceholder = '' }) {
     return new Promise((resolve) => {
         const overlay = document.getElementById('customModalOverlay');
         if (!overlay) return resolve(type === 'prompt' ? null : true); // HTML 로드 전 폴백
+        
+        // ⭐️ 이전 모달의 닫힘 애니메이션(180ms) 타이머가 새 모달을 닫아버리는 버그 완벽 차단
+        if (customModalTimeout) clearTimeout(customModalTimeout);
+        overlay.classList.remove('closing');
         
         const titleEl = document.getElementById('customModalTitle');
         const messageEl = document.getElementById('customModalMessage');
@@ -51,7 +57,7 @@ window.customModal = function({ type = 'alert', title = '알림', message = '', 
 
         const cleanup = () => {
             overlay.classList.add('closing');
-            setTimeout(() => { overlay.style.display = 'none'; overlay.classList.remove('closing'); }, 180);
+            customModalTimeout = setTimeout(() => { overlay.style.display = 'none'; overlay.classList.remove('closing'); }, 180);
             btnOk.removeEventListener('click', onOk);
             btnCancel.removeEventListener('click', onCancel);
             inputEl.removeEventListener('keydown', onInputKeydown);
@@ -71,6 +77,39 @@ window.customModal = function({ type = 'alert', title = '알림', message = '', 
 window.customAlert = (message, title = '알림') => window.customModal({ type: 'alert', title, message });
 window.customConfirm = (message, title = '확인') => window.customModal({ type: 'confirm', title, message });
 window.customPrompt = (message, title = '입력', placeholder = '') => window.customModal({ type: 'prompt', title, message, inputPlaceholder: placeholder });
+
+// ⭐️ 전역 로딩 오버레이 제어 함수 (백업/원복/엑셀 등 긴 작업 시)
+let loadingStartTime = 0;
+const MIN_LOADING_TIME = 1000; // 최소 노출 시간 설정 (1000ms = 1초)
+
+window.showLoadingOverlay = function(message = '처리 중입니다...') {
+    const overlay = document.getElementById('loadingOverlay');
+    const textEl = document.getElementById('loadingText');
+    if (overlay && textEl) {
+        loadingStartTime = Date.now(); // ⭐️ 로딩이 시작된 정확한 시간 기록
+        textEl.innerText = message;
+        overlay.style.display = 'flex';
+    }
+};
+window.hideLoadingOverlay = function() {
+    return new Promise((resolve) => {
+        const overlay = document.getElementById('loadingOverlay');
+        if (!overlay || overlay.style.display === 'none') return resolve();
+        
+        const elapsedTime = Date.now() - loadingStartTime;
+        if (elapsedTime < MIN_LOADING_TIME) {
+            // ⭐️ 작업이 너무 빨리 끝났다면, 남은 시간만큼 기다렸다가 숨김 처리
+            setTimeout(() => { 
+                overlay.style.display = 'none'; 
+                resolve();
+            }, MIN_LOADING_TIME - elapsedTime);
+        } else {
+            // ⭐️ 이미 1초 이상 지났다면 즉시 숨김 처리
+            overlay.style.display = 'none';
+            resolve();
+        }
+    });
+};
 
 // ⭐️ 1시간 동안 아무런 동작이 없으면 자동 로그아웃 (5분 전 경고 팝업 표시)
 let warningTimer;
@@ -833,6 +872,45 @@ function setupAutocomplete(inputId, listId, getOptions) {
     const list = document.getElementById(listId);
     let currentFocus = -1;
     let lastVal = input.value;
+    
+    // ⭐️ 공통 항목 선택 로직 (중복 실행 방지)
+    function selectOption(opt) {
+        if (!opt) return;
+        if (input.value === opt && list.style.display === 'none') return;
+        input.value = opt;
+        lastVal = opt;
+        list.style.display = 'none';
+        input.dispatchEvent(new Event('input'));
+        input.dispatchEvent(new CustomEvent('itemSelected', { detail: { value: opt } }));
+    }
+
+    // ⭐️ 핵심 1: 마우스를 누르는(mousedown) 즉시 항목을 선택하여 click 이벤트가 무시되는(씹히는) 현상 완벽 해결
+    list.addEventListener('mousedown', function(e) {
+        e.preventDefault(); // 스크롤바 조작 등 빈 공간 클릭 시 input의 포커스 유실 원천 차단
+        const item = e.target.closest('.autocomplete-item');
+        if (item) {
+            e.stopPropagation();
+            selectOption(item.getAttribute('data-val'));
+        }
+    });
+    
+    // ⭐️ 핵심 2: 한글 한 글자 입력(조합 중) 시, OS/브라우저가 한글 완성을 위해 첫 mousedown 이벤트를 강제로 삼켜버리는 현상 완벽 대응
+    list.addEventListener('mouseup', function(e) {
+        const item = e.target.closest('.autocomplete-item');
+        if (item) {
+            e.stopPropagation();
+            selectOption(item.getAttribute('data-val'));
+        }
+    });
+    
+    // ⭐️ 핵심 3: 키보드 방향키 이동 후 엔터(Enter) 조작으로 item.click()이 코드상에서 강제 호출될 때를 대비한 폴백(Fallback)
+    list.addEventListener('click', function(e) {
+        const item = e.target.closest('.autocomplete-item');
+        if (item) {
+            e.stopPropagation();
+            selectOption(item.getAttribute('data-val'));
+        }
+    });
 
     function triggerInput(e) {
         const val = input.value;
@@ -855,25 +933,17 @@ function setupAutocomplete(inputId, listId, getOptions) {
         matched.forEach(opt => {
             const item = document.createElement('div');
             item.className = 'autocomplete-item';
+            item.setAttribute('data-val', opt); // ⭐️ 클릭 이벤트를 위한 데이터 저장
+            
             if (val) {
-                const regex = new RegExp(`(${val})`, 'gi');
-                item.innerHTML = opt.replace(regex, "<span style='color:var(--danger-color); font-weight:var(--fw-bold, bold);'>$1</span>");
+                // ⭐️ 특수문자 에러 방지 및 클릭 타겟 충돌을 막기 위해 span에 pointer-events: none 추가
+                const safeVal = val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(`(${safeVal})`, 'gi');
+                item.innerHTML = opt.replace(regex, "<span style='color:var(--danger-color); font-weight:var(--fw-bold, bold); pointer-events: none;'>$1</span>");
             } else {
                 item.innerText = opt;
             }
-            // ⭐️ 포커스 유실 방지 (첫 클릭 무시 및 한글 입력기 충돌 해결)
-            item.addEventListener('mousedown', function(ev) {
-                ev.preventDefault(); 
-            });
-            // ⭐️ 한 번의 마우스 클릭만으로 즉시 자동 입력되도록 동작 분리
-            item.addEventListener('click', function(ev) {
-                ev.stopPropagation();
-                input.value = opt;
-                lastVal = opt;
-                list.style.display = 'none';
-                input.dispatchEvent(new Event('input'));
-                input.dispatchEvent(new CustomEvent('itemSelected', { detail: { value: opt } })); // 자동완성 클릭 시 명시적 이벤트 발생
-            });
+            
             list.appendChild(item);
         });
     }
@@ -882,8 +952,11 @@ function setupAutocomplete(inputId, listId, getOptions) {
     input.addEventListener('focus', triggerInput);
     input.addEventListener('click', triggerInput);
     
+    // ⭐️ 입력창 밖을 클릭했을 때 이벤트가 안전하게 처리될 수 있도록 닫힘 지연(150ms) 추가
     input.addEventListener('blur', function() {
-        list.style.display = 'none';
+        setTimeout(function() {
+            list.style.display = 'none';
+        }, 150);
     });
 
     input.addEventListener('keydown', function(e) {
@@ -1546,6 +1619,7 @@ if (btnFullBackup) {
     btnFullBackup.addEventListener('click', async () => {
         if (await customConfirm('에디터 서식(폰트 등) 및 첨부 이미지를 포함한 \n모든 데이터를 완벽하게 백업합니다.\n\n다운로드를 진행하시겠습니까?')) {
             document.body.style.cursor = 'wait';
+            window.showLoadingOverlay('데이터를 백업 중입니다...\n완료될 때까지 잠시만 기다려주세요.');
             fetch('/api/backup', {
                 headers: { 'ngrok-skip-browser-warning': 'true' }
             })
@@ -1574,10 +1648,13 @@ if (btnFullBackup) {
                 })
                 .catch(async err => {
                     console.error(err);
+                    document.body.style.cursor = 'default';
+                    await window.hideLoadingOverlay();
                     await customAlert('백업 파일 다운로드 중 오류가 발생했습니다.');
                 })
-                .finally(() => {
+                .finally(async () => {
                     document.body.style.cursor = 'default';
+                    await window.hideLoadingOverlay();
                 });
         }
     });
@@ -1601,6 +1678,7 @@ if (btnFullRestore && restoreFileInput) {
 
         try {
             document.body.style.cursor = 'wait'; // 로딩 커서
+            window.showLoadingOverlay('데이터를 원복하고 있습니다...\n진행 중 창을 닫거나 새로고침하지 마세요.');
             const response = await fetch('/api/restore', {
                 method: 'POST',
                 headers: { 'ngrok-skip-browser-warning': 'true' },
@@ -1608,17 +1686,28 @@ if (btnFullRestore && restoreFileInput) {
             });
             
             const result = await response.json();
+            
+            // ⭐️ 알림창(모달)이 뜨기 전에 즉시 마우스 커서를 정상으로 복구
+            document.body.style.cursor = 'default';
+            await window.hideLoadingOverlay(); // ⭐️ 로딩 애니메이션(최소 1초)이 완전히 끝날 때까지 대기
+            
             if (response.ok && result.status === 'success') {
                 await customAlert('데이터가 성공적으로 원복되었습니다.\n화면을 새로고침 합니다.');
-                window.location.reload();
+                // ⭐️ 모달 닫힘 애니메이션(180ms)이 끝난 후 안전하게 페이지 새로고침
+                setTimeout(() => {
+                    window.location.reload();
+                }, 200);
             } else {
                 await customAlert('원복 실패: ' + (result.error || '알 수 없는 오류가 발생했습니다.'));
             }
         } catch (err) {
             console.error(err);
+            document.body.style.cursor = 'default';
+            await window.hideLoadingOverlay();
             await customAlert('서버와 통신 중 오류가 발생했습니다.');
         } finally {
             document.body.style.cursor = 'default';
+            await window.hideLoadingOverlay();
             e.target.value = '';
         }
     });
@@ -1626,6 +1715,11 @@ if (btnFullRestore && restoreFileInput) {
 
 document.getElementById('btnExportExcel').addEventListener('click', async () => {
     if (await customConfirm('모든 매매 기록을 엑셀 파일(.xlsx)로 \n다운로드하시겠습니까?')) {
+        window.showLoadingOverlay('엑셀 파일을 생성 중입니다...\n잠시만 기다려주세요.');
+        
+        // ⭐️ UI 스레드가 블록되기 전에 로딩 애니메이션이 화면에 렌더링될 수 있도록 약간의 지연(setTimeout)을 줌
+        setTimeout(async () => {
+            try {
         const header = ['작성일', '분류', '종목명', '증권사', '계좌분류', '매매종류', '단가', '수량', '태그', '메모/생각'];
         const rows = cloudEntries.map(e => [
             e.date, (e.type || '').toUpperCase(), e.stockName||'', e.brokerAccount||'', e.accountName||'',
@@ -1671,6 +1765,10 @@ document.getElementById('btnExportExcel').addEventListener('click', async () => 
         const filename = `TradingJournal_export_${yyyy}${mm}${dd}_${hh}${min}${ss}.xlsx`;
         
         XLSX.writeFile(workbook, filename);
+            } finally {
+                await window.hideLoadingOverlay();
+            }
+        }, 100);
     }
 });
 
