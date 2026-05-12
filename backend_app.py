@@ -18,12 +18,33 @@ import io
 import tempfile
 import shutil
 import re
+import logging
+from logging.handlers import RotatingFileHandler
 from datetime import timedelta
 from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 app.secret_key = 'stock_memo_secret_key' # 세션 유지를 위한 시크릿 키 설정
+
+# ⭐️ 로깅(Logging) 설정
+LOG_DIR = 'logs'
+os.makedirs(LOG_DIR, exist_ok=True)
+log_file = os.path.join(LOG_DIR, 'backend_app.log')
+
+# 파일 핸들러 설정 (최대 5MB, 5개 백업 유지, UTF-8 인코딩)
+file_handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=5, encoding='utf-8')
+log_formatter = logging.Formatter('[%(asctime)s] %(levelname)s in %(module)s: %(message)s')
+file_handler.setFormatter(log_formatter)
+file_handler.setLevel(logging.DEBUG)
+
+# 기본 Flask 로거 및 Werkzeug(HTTP 요청) 로거에 파일 핸들러 추가
+app.logger.addHandler(file_handler)
+app.logger.setLevel(logging.DEBUG)
+
+werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_logger.addHandler(file_handler)
+werkzeug_logger.setLevel(logging.INFO)
 
 # ⭐️ 세션(쿠키) 보안 설정 강화
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # 자바스크립트(XSS)로 쿠키 접근 원천 차단
@@ -171,12 +192,12 @@ def init_db():
         current_time = time.strftime('%Y-%m-%d %H:%M:%S')
         c.execute("INSERT INTO users (username, password_hash, is_allowed, created_at) VALUES (?, ?, 1, ?)", ('batmi', default_hash, current_time))
         conn.commit()
-        print("🔒 기본 관리자 계정(batmi)이 DB에 안전하게 암호화되어 생성되었습니다.")
+        app.logger.info("🔒 기본 관리자 계정(batmi)이 DB에 안전하게 암호화되어 생성되었습니다.")
     
     # 기존 JSON 파일이 있고 DB가 비어있다면 자동 마이그레이션 수행
     c.execute("SELECT COUNT(*) FROM entries")
     if c.fetchone()[0] == 0 and os.path.exists(DATA_FILE):
-        print("🔄 기존 JSON 데이터를 SQLite 데이터베이스로 마이그레이션 합니다...")
+        app.logger.info("🔄 기존 JSON 데이터를 SQLite 데이터베이스로 마이그레이션 합니다...")
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
             try:
                 old_data = json.load(f)
@@ -195,9 +216,9 @@ def init_db():
                         entry.get('attachedFile', ''), entry.get('attachedFileName', '')
                     ))
                 conn.commit()
-                print("✅ 데이터 마이그레이션 완료! (이제부터 db/journal.db와 uploads 폴더를 사용합니다)")
+                app.logger.info("✅ 데이터 마이그레이션 완료! (이제부터 db/journal.db와 uploads 폴더를 사용합니다)")
             except Exception as e:
-                print(f"❌ 마이그레이션 중 오류 발생: {e}")
+                app.logger.error(f"❌ 마이그레이션 중 오류 발생: {e}")
     conn.close()
 
 @app.before_request
@@ -853,7 +874,7 @@ def get_news():
                 xml_data = response.read()
                 root = ET.fromstring(xml_data)
                 channel = root.find('channel')
-                if channel:
+                if channel is not None:
                     for idx, item in enumerate(channel.findall('item')):
                         if idx >= 3:  # 종목당 최대 3개의 주요 뉴스만 가져오기
                             break
@@ -864,7 +885,7 @@ def get_news():
                             'pubDate': item.find('pubDate').text
                         })
         except Exception as e:
-            print(f"Error fetching news for {stock}: {e}")
+            app.logger.error(f"Error fetching news for {stock}: {e}")
             
     return jsonify(all_news)
 
@@ -976,8 +997,8 @@ if __name__ == '__main__':
         try:
             port = int(sys.argv[1])
         except ValueError:
-            print(f"⚠️ 경고: 잘못된 포트 번호('{sys.argv[1]}')가 입력되어 기본 포트(5000)로 실행합니다.")
+                app.logger.warning(f"⚠️ 경고: 잘못된 포트 번호('{sys.argv[1]}')가 입력되어 기본 포트(5000)로 실행합니다.")
             
-    print(f"🚀 로컬 주식 매매 일지 서버를 시작합니다. (포트: {port})")
-    print(f"👉 웹 브라우저를 열고 http://127.0.0.1:{port} 또는 기기의 로컬 IP 주소(예: 192.168.x.x:{port})로 접속해주세요.")
+    app.logger.info(f"🚀 로컬 주식 매매 일지 서버를 시작합니다. (포트: {port})")
+    app.logger.info(f"👉 웹 브라우저를 열고 http://127.0.0.1:{port} 또는 기기의 로컬 IP 주소(예: 192.168.x.x:{port})로 접속해주세요.")
     app.run(host='0.0.0.0', debug=True, port=port)
