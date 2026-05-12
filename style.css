@@ -759,7 +759,6 @@ button:hover {
 .news-item { margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
 .news-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
 .news-item a { text-decoration: none; color: var(--text-color); font-weight: normal; font-size: 12px; display: block; margin-bottom: 4px; line-height: 1.35; }
-.news-item a:visited { color: var(--text-muted-color); }
 .news-item a:hover { color: var(--primary-hover-color); text-decoration: underline; }
 .news-meta { font-size: 10.5px; color: var(--text-muted-color); display: flex; justify-content: space-between; align-items: center; }
 .news-stock-tag { background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 3px; font-weight: bold; }
