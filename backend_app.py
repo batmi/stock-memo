@@ -369,6 +369,19 @@ def login():
                     <a href="{{ url_for('signup') }}" style="color: #b388ff; text-decoration: none; font-weight: bold;">새 계정 가입하기</a>
                 </div>
             </div>
+            <script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    const usernameInput = document.querySelector('input[name="username"]');
+                    const savedUsername = localStorage.getItem('last_username');
+                    if (savedUsername && usernameInput) {
+                        usernameInput.value = savedUsername;
+                        document.querySelector('input[name="password"]').focus(); // 아이디가 있으면 비밀번호 칸으로 포커스 이동
+                    }
+                    document.querySelector('form').addEventListener('submit', function() {
+                        if (usernameInput.value) localStorage.setItem('last_username', usernameInput.value);
+                    });
+                });
+            </script>
         </body>
         </html>
     ''', error_message=error_message)

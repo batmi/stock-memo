@@ -115,6 +115,7 @@ window.hideLoadingOverlay = function() {
 let warningTimer;
 let logoutTimer;
 let countdownInterval;
+let lastActivityTime = Date.now(); // ⭐️ 마지막 동작의 절대 시간 기록
 const TOTAL_SESSION_LIMIT = 60 * 60 * 1000; // 1시간 (밀리초)
 const WARNING_BEFORE = 5 * 60 * 1000;       // 5분 전 (밀리초)
 const WARNING_TRIGGER_TIME = TOTAL_SESSION_LIMIT - WARNING_BEFORE; // 55분
@@ -124,6 +125,8 @@ function resetInactivityTimers() {
     const extensionModal = document.getElementById('sessionExtensionModalOverlay');
     if (extensionModal && extensionModal.style.display === 'flex') return;
 
+    lastActivityTime = Date.now(); // ⭐️ 초기화 시점의 시간 갱신
+
     clearTimeout(warningTimer);
     clearTimeout(logoutTimer);
     clearInterval(countdownInterval);
@@ -132,28 +135,73 @@ function resetInactivityTimers() {
 }
 
 function showExtensionWarning() {
+    // ⭐️ 브라우저 백그라운드 지연으로 인해 이미 전체 시간이 만료된 경우 즉시 로그아웃
+    if (Date.now() - lastActivityTime >= TOTAL_SESSION_LIMIT) {
+        window.location.href = '/logout?timeout=1';
+        return;
+    }
+
     const extensionModal = document.getElementById('sessionExtensionModalOverlay');
     const countdownEl = document.getElementById('sessionCountdown');
     if (!extensionModal || !countdownEl) return;
 
     extensionModal.style.display = 'flex';
-    let timeLeft = Math.floor(WARNING_BEFORE / 1000);
+    
+    // ⭐️ 백그라운드 지연을 감안하여, 남은 시간 5분을 고정하지 않고 실제 잔여 시간 계산
+    let remainingMs = TOTAL_SESSION_LIMIT - (Date.now() - lastActivityTime);
+    if (remainingMs < 0) remainingMs = 0;
+    let timeLeft = Math.floor(remainingMs / 1000);
+
     countdownEl.innerText = `${Math.floor(timeLeft / 60).toString().padStart(2, '0')}:${(timeLeft % 60).toString().padStart(2, '0')}`;
 
     countdownInterval = setInterval(() => {
         timeLeft -= 1;
-        if (timeLeft <= 0) clearInterval(countdownInterval);
-        else countdownEl.innerText = `${Math.floor(timeLeft / 60).toString().padStart(2, '0')}:${(timeLeft % 60).toString().padStart(2, '0')}`;
+        if (timeLeft <= 0) {
+            clearInterval(countdownInterval);
+            window.location.href = '/logout?timeout=1'; // 타이머가 0이 되면 즉시 이동
+        } else {
+            countdownEl.innerText = `${Math.floor(timeLeft / 60).toString().padStart(2, '0')}:${(timeLeft % 60).toString().padStart(2, '0')}`;
+        }
     }, 1000);
 
     logoutTimer = setTimeout(() => {
         window.location.href = '/logout?timeout=1';
-    }, WARNING_BEFORE);
+    }, remainingMs);
 }
 
 ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart'].forEach(evt => {
     document.addEventListener(evt, resetInactivityTimers, { passive: true });
 });
+
+// ⭐️ 브라우저 탭 활성화 시 실제 경과 시간을 확인하여 동기화
+document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible') {
+        const elapsed = Date.now() - lastActivityTime;
+        if (elapsed >= TOTAL_SESSION_LIMIT) {
+            // 이미 1시간이 넘게 지났다면 즉시 자동 로그아웃 처리
+            window.location.href = '/logout?timeout=1';
+            return;
+        }
+
+        // ⭐️ 서버에 API를 호출하여 실제 세션 만료 여부(또는 타 탭 로그아웃 여부) 체크
+        try {
+            const res = await fetch('/api/me', { headers: { 'ngrok-skip-browser-warning': 'true' }});
+            if (res.status === 401) {
+                window.location.href = '/logout?timeout=1';
+                return;
+            }
+        } catch(e) { console.warn("세션 상태 확인 실패", e); }
+
+        if (elapsed >= WARNING_TRIGGER_TIME) {
+            // 아직 1시간이 안 지났지만, 경고창이 뜰 시간이 넘었다면 모달 띄우기
+            const extensionModal = document.getElementById('sessionExtensionModalOverlay');
+            if (!extensionModal || extensionModal.style.display !== 'flex') {
+                showExtensionWarning();
+            }
+        }
+    }
+});
+
 resetInactivityTimers(); // 초기 타이머 시작
 
 const mainApp = document.getElementById('mainApp');
