@@ -862,6 +862,17 @@ button:hover {
     #adminModalOverlay td:nth-child(5) button:last-child {
         margin-bottom: 0 !important;
     }
+
+    /* ⭐️ 모바일 환경에서 팝업 이미지 크기를 화면 폭의 90%로 확대하고, 'X' 버튼이 화면 밖으로 잘리지 않도록 위치 보정 */
+    #fullSizeImage {
+        max-width: 90vw !important;
+        max-height: 90vh !important;
+    }
+    #btnImageViewerClose {
+        top: -12px !important;
+        right: -12px !important;
+        transform-origin: 24px 12px !important;
+    }
 }
 
 /* 다크모드 시 볼드체(굵은 글씨) 최소화 */
