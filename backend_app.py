@@ -15,6 +15,7 @@ import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
 import time
+import concurrent.futures
 import zipfile
 import io
 import tempfile
@@ -901,8 +902,8 @@ def get_news():
     if not stocks:
         stocks = ['국내 증시']
         
-    all_news = []
-    for stock in stocks:
+    def fetch_news_for_stock(stock):
+        news_list = []
         try:
             # 최신 뉴스를 우선적으로 가져오기 위해 최근 7일(when:7d) 조건 추가
             query = urllib.parse.quote(f"{stock} when:7d")
@@ -916,7 +917,7 @@ def get_news():
                     for idx, item in enumerate(channel.findall('item')):
                         if idx >= 3:  # 종목당 최대 3개의 주요 뉴스만 가져오기
                             break
-                        all_news.append({
+                        news_list.append({
                             'stock': stock,
                             'title': item.find('title').text,
                             'link': item.find('link').text,
@@ -924,6 +925,14 @@ def get_news():
                         })
         except Exception as e:
             app.logger.error(f"Error fetching news for {stock}: {e}")
+        return news_list
+
+    all_news = []
+    # ⭐️ 보유 종목이 많을 경우를 대비해 스레드 풀을 활용한 병렬(비동기) 처리 (최대 10개 동시 요청)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        results = executor.map(fetch_news_for_stock, stocks)
+        for res_list in results:
+            all_news.extend(res_list)
             
     return jsonify(all_news)
 

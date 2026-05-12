@@ -881,27 +881,8 @@ async function fetchRealtimeNews() {
     const newsListEl = document.getElementById('newsList');
     if (!newsListEl) return;
     
-    const portfolioQty = {};
-    cloudEntries.forEach(entry => {
-        if (entry.type === 'trade' && entry.stockName) {
-            if (entry.tradeType === '매수' || entry.tradeType === '매도') {
-                if (portfolioQty[entry.stockName] === undefined) portfolioQty[entry.stockName] = 0;
-                if (entry.tradeType === '매수') portfolioQty[entry.stockName] += (Number(entry.quantity) || 0);
-                else if (entry.tradeType === '매도') portfolioQty[entry.stockName] -= (Number(entry.quantity) || 0);
-            }
-        }
-    });
-
-    const validStocks = new Set();
-    for (const entry of cloudEntries) {
-        const stock = entry.stockName;
-        if (!stock) continue;
-        if (portfolioQty[stock] !== undefined && portfolioQty[stock] <= 0) continue;
-        
-        validStocks.add(stock);
-        if (validStocks.size >= 5) break;
-    }
-    const stocksToFetch = Array.from(validStocks);
+    // ⭐️ 전역 변수인 currentHoldings를 활용하여 현재 실제 보유 중인 모든 종목 검색
+    const stocksToFetch = currentHoldings;
     
     try {
         newsListEl.innerHTML = '<div style="text-align:center; padding: 20px;">🔄 실시간 뉴스를 불러오는 중...</div>';
