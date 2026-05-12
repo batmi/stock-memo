@@ -297,8 +297,11 @@
     </div>
 
     <!-- ⭐️ 이미지 원본 보기 팝업(모달) -->
-        <div id="imageViewerModal" class="modal-overlay" style="display:none; z-index: 3000; cursor: zoom-out;" onclick="this.classList.add('closing'); setTimeout(() => { this.style.display='none'; this.classList.remove('closing'); document.body.style.overflow=''; }, 180)">
-        <img id="fullSizeImage" style="max-width: 95%; max-height: 95vh; border-radius: 4px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); background: var(--card-bg-color);">
+    <div id="imageViewerModal" class="modal-overlay" style="display:none; z-index: 3000; flex-direction: column; align-items: center; justify-content: center;">
+        <div id="imageViewerWrapper" style="position: relative; display: inline-block; transition: transform 0.1s ease-out; touch-action: none;">
+            <button type="button" id="btnImageViewerClose" style="position: absolute; top: -40px; right: -40px; background: rgba(0,0,0,0.6); color: white; border: none; font-size: 24px; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; display: flex; justify-content: center; align-items: center; z-index: 3001; padding: 0; line-height: 1; box-shadow: 0 2px 8px rgba(0,0,0,0.3); transition: background 0.2s, transform 0.1s ease-out; transform-origin: -4px 40px;" onmouseover="this.style.background='rgba(0,0,0,0.8)'" onmouseout="this.style.background='rgba(0,0,0,0.6)'" title="닫기">&times;</button>
+            <img id="fullSizeImage" style="max-width: 60vw; max-height: 60vh; border-radius: 4px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); background: var(--card-bg-color); display: block;">
+        </div>
     </div>
 
     <!-- ⭐️ 비밀번호 변경 팝업(모달) -->

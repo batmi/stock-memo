@@ -592,7 +592,7 @@ button:hover {
 .entry-title { font-size: 1.05em; font-weight: bold; color: var(--text-strong-color); margin-bottom: 6px; }
 .entry-content { line-height: 1.5; font-size: 12.5px; word-wrap: break-word; }
 .entry-content .ql-editor { max-height: none !important; overflow-y: visible !important; } /* ⭐️ 히스토리 뷰어에서는 스크롤 없이 전체 내용 표시 */
-.entry-content img, .ql-editor img { max-width: 100%; height: auto; border-radius: 4px; margin: 8px 0; display: inline-block; }
+.entry-content img, .ql-editor img { max-width: 100%; height: auto; border-radius: 4px; margin: 8px 0; display: inline-block; cursor: zoom-in; }
 .entry-thumbnail {
     max-width: 200px;
     max-height: 150px;

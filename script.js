@@ -621,6 +621,156 @@ window.addEventListener('DOMContentLoaded', () => {
         }
     }, true); // ⭐️ capture 플래그 적용: Quill 내부 핸들러보다 우선 실행하여 락 걸림 방지
 
+    const imageViewerModal = document.getElementById('imageViewerModal');
+    const fullSizeImage = document.getElementById('fullSizeImage');
+
+    if (imageViewerModal && fullSizeImage) {
+        // ⭐️ 배경 클릭 시 닫기
+        imageViewerModal.addEventListener('click', (e) => {
+            if (e.target === imageViewerModal || e.target.id === 'imageViewerWrapper') {
+                window.closeImageViewer();
+            }
+        });
+
+        // ⭐️ 우측 상단 닫기 버튼 이벤트
+        const btnImageViewerClose = document.getElementById('btnImageViewerClose');
+        if (btnImageViewerClose) {
+            btnImageViewerClose.addEventListener('click', (e) => {
+                e.stopPropagation();
+                window.closeImageViewer();
+            });
+        }
+
+        // ⭐️ 이미지 한 번 클릭 시 확대/축소 (드래그 직후 클릭은 무시)
+        let hasDragged = false;
+        fullSizeImage.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (hasDragged) {
+                hasDragged = false;
+                return;
+            }
+            
+            // ⭐️ 모바일 환경(터치 지원 기기)에서는 한 번 터치 시 팝업 닫기
+            if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+                window.closeImageViewer();
+                return;
+            }
+            
+            // ⭐️ 데스크탑 환경에서는 한 번 클릭 시 확대/축소 토글
+            if (imageZoom > 1) {
+                imageZoom = 1;
+                imagePanX = 0;
+                imagePanY = 0;
+            } else {
+                imageZoom = 2.5;
+            }
+            updateImageViewerTransform();
+        });
+
+        // ⭐️ 마우스 휠 확대/축소
+        imageViewerModal.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -0.15 : 0.15;
+            imageZoom += delta;
+            if (imageZoom < 1) {
+                imageZoom = 1;
+                imagePanX = 0;
+                imagePanY = 0;
+            }
+            if (imageZoom > 5) imageZoom = 5;
+            updateImageViewerTransform();
+        }, { passive: false });
+
+        // ⭐️ 마우스 드래그 (데스크탑 화면 팬 기능)
+        fullSizeImage.addEventListener('mousedown', (e) => {
+            hasDragged = false;
+            if (imageZoom > 1) {
+                e.preventDefault();
+                imageIsDragging = true;
+                imageStartX = e.clientX - imagePanX;
+                imageStartY = e.clientY - imagePanY;
+                updateImageViewerTransform();
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!imageIsDragging) return;
+            hasDragged = true;
+            imagePanX = e.clientX - imageStartX;
+            imagePanY = e.clientY - imageStartY;
+            updateImageViewerTransform();
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (imageIsDragging) {
+                imageIsDragging = false;
+                updateImageViewerTransform();
+            }
+        });
+
+        // ⭐️ 모바일 터치 (핀치 줌 및 화면 패닝 기능)
+        imageViewerModal.addEventListener('touchstart', (e) => {
+            hasDragged = false;
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                imageIsPinching = true; // ⭐️ 핀치 줌 시작 플래그 활성화
+                initialPinchDistance = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                initialPinchZoom = imageZoom;
+            } else if (e.touches.length === 1 && imageZoom > 1) {
+                imageIsDragging = true;
+                imageStartX = e.touches[0].clientX - imagePanX;
+                imageStartY = e.touches[0].clientY - imagePanY;
+            }
+        }, { passive: false });
+
+        imageViewerModal.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2) {
+                hasDragged = true;
+                e.preventDefault();
+                const currentDistance = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                imageZoom = initialPinchZoom * (currentDistance / initialPinchDistance);
+                if (imageZoom < 1) {
+                    imageZoom = 1;
+                    imagePanX = 0;
+                    imagePanY = 0;
+                }
+                if (imageZoom > 5) imageZoom = 5;
+                updateImageViewerTransform();
+            } else if (e.touches.length === 1 && imageIsDragging) {
+                hasDragged = true;
+                e.preventDefault();
+                imagePanX = e.touches[0].clientX - imageStartX;
+                imagePanY = e.touches[0].clientY - imageStartY;
+                updateImageViewerTransform();
+            }
+        }, { passive: false });
+
+        imageViewerModal.addEventListener('touchend', (e) => {
+            if (e.touches.length < 2) {
+                initialPinchDistance = null;
+                imageIsPinching = false; // ⭐️ 핀치 줌 종료
+            }
+            if (e.touches.length === 0 && imageIsDragging) {
+                imageIsDragging = false;
+            }
+            updateImageViewerTransform(); // ⭐️ 상태 해제 후 즉각 렌더링에 반영 (트랜지션 원복)
+            
+            // ⭐️ 모바일 환경: 상/하단 여백(배경) 터치 시 팝업 닫기
+            if (!hasDragged && e.changedTouches.length === 1) {
+                if (e.target === imageViewerModal || e.target.id === 'imageViewerWrapper') {
+                    if (e.cancelable) e.preventDefault(); // 중복 클릭 이벤트 방지
+                    window.closeImageViewer();
+                }
+            }
+        });
+    }
+
     loadDataFromLocal();
 });
 
@@ -900,6 +1050,12 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         const customModal = document.getElementById('customModalOverlay');
         if (customModal && customModal.style.display === 'flex') return;
+        
+        const imageViewerModal = document.getElementById('imageViewerModal');
+        if (imageViewerModal && imageViewerModal.style.display === 'flex') {
+            window.closeImageViewer();
+            return;
+        }
         if (formModalOverlay.style.display === 'flex') {
             const openLists = document.querySelectorAll('.autocomplete-list[style*="display: block"]');
             if (openLists.length > 0) return; // 드롭다운이 열려있을 땐 모달 닫기 방지
@@ -2680,6 +2836,14 @@ function renderPage() {
         const deleteBtn = card.querySelector('.btn-delete');
         deleteBtn.addEventListener('click', () => deleteEntry(entry.id));
 
+        // ⭐️ 에디터 본문 내 이미지 클릭 시 원본 보기 (확대/축소 지원)
+        const contentImages = card.querySelectorAll('.entry-content img');
+        contentImages.forEach(img => {
+            img.addEventListener('click', (e) => {
+                window.openImageViewer(img.src, e);
+            });
+        });
+
         historyList.appendChild(card);
     });
 
@@ -2764,12 +2928,68 @@ async function deleteEntry(id) {
     }
 }
 
+let imageZoom = 1;
+let imagePanX = 0;
+let imagePanY = 0;
+let imageIsDragging = false;
+let imageIsPinching = false; // ⭐️ 핀치 줌 상태 변수 추가
+let imageStartX = 0;
+let imageStartY = 0;
+let initialPinchDistance = null;
+let initialPinchZoom = 1;
+
+function updateImageViewerTransform() {
+    const wrapper = document.getElementById('imageViewerWrapper');
+    const fullSizeImage = document.getElementById('fullSizeImage');
+    const btnClose = document.getElementById('btnImageViewerClose');
+    if (!wrapper || !fullSizeImage) return;
+    
+    // ⭐️ 드래그 중이거나 핀치 줌 중일 때는 transition을 제거하여 즉각(버벅임 없이) 반응하도록 조정
+    if (imageIsDragging || imageIsPinching) {
+        wrapper.style.transition = 'none';
+        if (btnClose) btnClose.style.transition = 'background 0.2s';
+    } else {
+        wrapper.style.transition = 'transform 0.1s ease-out';
+        if (btnClose) btnClose.style.transition = 'background 0.2s, transform 0.1s ease-out';
+    }
+    
+    wrapper.style.transform = `translate(${imagePanX}px, ${imagePanY}px) scale(${imageZoom})`;
+    if (btnClose) {
+        btnClose.style.transform = `scale(${1 / imageZoom})`;
+    }
+
+    if (imageZoom > 1) {
+        fullSizeImage.style.cursor = imageIsDragging ? 'grabbing' : 'zoom-out';
+    } else {
+        fullSizeImage.style.cursor = 'zoom-in';
+    }
+}
+
 window.openImageViewer = function(src, event) {
     if (event) event.stopPropagation();
     const modal = document.getElementById('imageViewerModal');
     document.getElementById('fullSizeImage').src = src;
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden'; // ⭐️ 모달 열림 시 배경 스크롤 방지
+    
+    // ⭐️ 이미지 확대/팬 상태 초기화
+    imageZoom = 1;
+    imagePanX = 0;
+    imagePanY = 0;
+    imageIsDragging = false;
+    imageIsPinching = false;
+    updateImageViewerTransform();
+};
+
+window.closeImageViewer = function() {
+    const modal = document.getElementById('imageViewerModal');
+    if (modal.classList.contains('closing')) return; // ⭐️ 중복 실행 방지
+    modal.classList.add('closing');
+    setTimeout(() => { 
+        modal.style.display = 'none'; 
+        modal.classList.remove('closing'); 
+        document.body.style.overflow = ''; 
+    }, 180);
 };
 
 let currentDate = new Date();
