@@ -19,7 +19,7 @@ import tempfile
 import shutil
 import re
 import logging
-from logging.handlers import RotatingFileHandler
+from logging.handlers import TimedRotatingFileHandler
 from datetime import timedelta
 from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -32,9 +32,36 @@ LOG_DIR = 'logs'
 os.makedirs(LOG_DIR, exist_ok=True)
 log_file = os.path.join(LOG_DIR, 'backend_app.log')
 
-# 파일 핸들러 설정 (최대 5MB, 5개 백업 유지, UTF-8 인코딩)
-file_handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=5, encoding='utf-8')
-log_formatter = logging.Formatter('[%(asctime)s] %(levelname)s in %(module)s: %(message)s')
+# ⭐️ 백업 로그 파일명을 backend_app_YYYYMMDD.log 형태로 저장하기 위한 커스텀 핸들러
+class CustomDailyRotatingFileHandler(TimedRotatingFileHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.suffix = "%Y%m%d"
+        self.extMatch = re.compile(r"^\d{8}$")
+
+    def rotation_filename(self, default_name):
+        # 기본적으로 'backend_app.log.20231027' 로 생성되는 이름을 'backend_app_20231027.log' 로 변경
+        return default_name.replace('.log.', '_') + '.log'
+
+    def getFilesToDelete(self):
+        dirName, baseName = os.path.split(self.baseFilename)
+        fileNames = os.listdir(dirName)
+        result = []
+        prefix = baseName.replace('.log', '_')
+        for fileName in fileNames:
+            if fileName.startswith(prefix) and fileName.endswith('.log'):
+                suffix = fileName[len(prefix):-4]
+                if self.extMatch.match(suffix):
+                    result.append(os.path.join(dirName, fileName))
+        if len(result) < self.backupCount:
+            return []
+        else:
+            result.sort()
+            return result[:len(result) - self.backupCount]
+
+# 파일 핸들러 설정 (매일 자정에 갱신, 30일(약 1달)간 로그 보관, UTF-8 인코딩)
+file_handler = CustomDailyRotatingFileHandler(log_file, when='midnight', interval=1, backupCount=30, encoding='utf-8')
+log_formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(levelname)s] [%(funcName)s] %(filename)s:%(lineno)d - %(message)s', datefmt='%H:%M:%S')
 file_handler.setFormatter(log_formatter)
 file_handler.setLevel(logging.DEBUG)
 
@@ -42,7 +69,16 @@ file_handler.setLevel(logging.DEBUG)
 app.logger.addHandler(file_handler)
 app.logger.setLevel(logging.DEBUG)
 
+# ⭐️ Werkzeug 기본 로그에서 중복된 날짜/시간 포맷('- - [시간]')을 제거하기 위한 커스텀 필터
+class CleanWerkzeugLogFilter(logging.Filter):
+    def filter(self, record):
+        msg = record.getMessage()
+        record.msg = re.sub(r' - - \[[^\]]+\] ', ' ', msg)
+        record.args = ()
+        return True
+
 werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_logger.addFilter(CleanWerkzeugLogFilter())
 werkzeug_logger.addHandler(file_handler)
 werkzeug_logger.setLevel(logging.INFO)
 
@@ -997,8 +1033,8 @@ if __name__ == '__main__':
         try:
             port = int(sys.argv[1])
         except ValueError:
-                app.logger.warning(f"⚠️ 경고: 잘못된 포트 번호('{sys.argv[1]}')가 입력되어 기본 포트(5000)로 실행합니다.")
+                app.logger.warning(f"경고: 잘못된 포트 번호('{sys.argv[1]}')가 입력되어 기본 포트(5000)로 실행합니다.")
             
-    app.logger.info(f"🚀 로컬 주식 매매 일지 서버를 시작합니다. (포트: {port})")
-    app.logger.info(f"👉 웹 브라우저를 열고 http://127.0.0.1:{port} 또는 기기의 로컬 IP 주소(예: 192.168.x.x:{port})로 접속해주세요.")
+    app.logger.info(f"로컬 주식 매매 일지 서버를 시작합니다. (포트: {port})")
+    app.logger.info(f"웹 브라우저를 열고 http://127.0.0.1:{port} 또는 기기의 로컬 IP 주소(예: 192.168.x.x:{port})로 접속해주세요.")
     app.run(host='0.0.0.0', debug=True, port=port)
