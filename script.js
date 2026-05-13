@@ -1574,8 +1574,14 @@ function toggleFormUI(recordType) {
     document.getElementById('stockName').required = isTrade;
     document.getElementById('stockCode').required = isTrade;
     
+    const brokerAccountEl = document.getElementById('brokerAccount');
+    if (brokerAccountEl) brokerAccountEl.required = isTrade;
     const accountNameEl = document.getElementById('accountName');
     if (accountNameEl) accountNameEl.required = isTrade;
+    const priceEl = document.getElementById('price');
+    if (priceEl) priceEl.required = isTrade;
+    const quantityEl = document.getElementById('quantity');
+    if (quantityEl) quantityEl.required = isTrade;
     const memoTitleEl = document.getElementById('memoTitle');
     if (memoTitleEl) memoTitleEl.required = !isTrade;
     

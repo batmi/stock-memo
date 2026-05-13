@@ -84,23 +84,23 @@
 
                 <div class="form-row" id="tradeRow0">
                     <div class="form-group" id="stockNameGroup" style="position: relative; flex: 1.5;">
-                        <label for="stockName">종목명 <span style="color:var(--danger-color)">*</span></label>
+                        <label for="stockName">종목명</label>
                         <input type="text" id="stockName" placeholder="검색 또는 직접 입력 (예: 삼성전자)" autocomplete="off" required>
                         <div id="stockNameList" class="autocomplete-list"></div>
                     </div>
                     <div class="form-group" id="stockCodeGroup" style="position: relative; flex: 1;">
-                        <label for="stockCode">종목코드 <span style="color:var(--danger-color)">*</span></label>
+                        <label for="stockCode">종목코드</label>
                         <input type="text" id="stockCode" placeholder="예: 005930, AAPL" autocomplete="off" required>
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group" id="brokerAccountGroup" style="position: relative; flex: 1.5;">
                         <label for="brokerAccount">증권 계좌</label>
-                        <input type="text" id="brokerAccount" placeholder="예: 키움증권, 토스 등" autocomplete="off">
+                        <input type="text" id="brokerAccount" placeholder="예: 키움증권, 토스 등" autocomplete="off" required>
                         <div id="brokerAccountList" class="autocomplete-list"></div>
                     </div>
                     <div class="form-group" style="flex: 1;">
-                        <label for="tradeDate">기록 일시 <span style="color:var(--danger-color)">*</span></label>
+                        <label for="tradeDate">기록 일시</label>
                         <input type="text" id="tradeDate" required>
                     </div>
                 </div>
@@ -112,7 +112,7 @@
 
                 <div class="form-row" id="tradeRow1">
                     <div class="form-group">
-                        <label for="accountName">투자 분류 <span style="color:var(--danger-color)">*</span></label>
+                        <label for="accountName">투자 분류</label>
                         <select id="accountName" required>
                             <option value="" disabled selected>분류를 선택하세요</option>
                             <option value="장기투자">장기투자</option>
@@ -137,11 +137,11 @@
                 <div class="form-row" id="tradeRow2">
                     <div class="form-group">
                         <label for="price">매매 단가 (원/달러)</label>
-                        <input type="number" id="price" placeholder="예: 75000">
+                        <input type="number" id="price" placeholder="예: 75000" required>
                     </div>
                     <div class="form-group">
                         <label for="quantity">매매 수량 (주)</label>
-                        <input type="number" id="quantity" placeholder="예: 10">
+                        <input type="number" id="quantity" placeholder="예: 10" required>
                     </div>
                 </div>
                 <div id="totalAmountWrapper" style="display: none;">
@@ -154,7 +154,7 @@
                     <div id="editor-container" style="min-height: 100px; height: auto; font-family: inherit; font-size: 13px; background-color: var(--bg-color); color: var(--text-color);"></div>
                 </div>
                 <div class="form-group">
-                    <label for="tagInput">해시태그 (선택)</label>
+                    <label for="tagInput">해시태그</label>
                     <div class="tag-input-container">
                         <div id="tagList" class="tag-list"></div>
                         <input type="text" id="tagInput" placeholder="태그 입력 후 Enter (예: #돌파매매)">
