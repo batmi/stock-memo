@@ -2192,24 +2192,27 @@ function updatePortfolioSummary() {
             <div class="stat-row"><span>총 매수금액</span><span>${Math.round(data.totalCost).toLocaleString()}</span></div>
         `;
         
-        if (data.realizedProfit !== 0) {
-            const profitColor = data.realizedProfit > 0 ? 'var(--danger-color)' : 'var(--primary-color)';
-            const profitStr = (data.realizedProfit > 0 ? '+' : '') + Math.round(data.realizedProfit).toLocaleString();
-            card.innerHTML += `
-                <div class="stat-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
-                    <span>종목 실현손익</span><span style="color:${profitColor}">${profitStr}</span>
-                </div>`;
-        }
-        
-        // ⭐️ 현재가 보기 활성화 시 카드 하단에 영역 추가
-        if (!isClosed && showCurrentPrice) {
-            card.innerHTML += `
-                <div class="current-price-section" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
-                    <div class="stat-row"><span>현재가</span><span class="cp-price" data-code="${data.stockCode || ''}">조회 중...</span></div>
-                    <div class="stat-row"><span>평가금액</span><span class="cp-eval" data-code="${data.stockCode || ''}">-</span></div>
-                    <div class="stat-row"><span>평가손익</span><span class="cp-profit" data-code="${data.stockCode || ''}">-</span></div>
-                </div>
-            `;
+        // ⭐️ 현재가 보기 활성화 시에만 종목 실현손익 및 현재가 정보 표시
+        if (showCurrentPrice) {
+            if (data.realizedProfit !== 0) {
+                const profitColor = data.realizedProfit > 0 ? 'var(--danger-color)' : 'var(--primary-color)';
+                const profitStr = (data.realizedProfit > 0 ? '+' : '') + Math.round(data.realizedProfit).toLocaleString();
+                card.innerHTML += `
+                    <div class="stat-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
+                        <span>종목 실현손익</span><span style="color:${profitColor}">${profitStr}</span>
+                    </div>`;
+            }
+            
+            // ⭐️ 현재 보유 중인 종목만 현재가 영역 추가
+            if (!isClosed) {
+                card.innerHTML += `
+                    <div class="current-price-section" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
+                        <div class="stat-row"><span>현재가</span><span class="cp-price" data-code="${data.stockCode || ''}">조회 중...</span></div>
+                        <div class="stat-row"><span>평가금액</span><span class="cp-eval" data-code="${data.stockCode || ''}">-</span></div>
+                        <div class="stat-row"><span>평가손익</span><span class="cp-profit" data-code="${data.stockCode || ''}">-</span></div>
+                    </div>
+                `;
+            }
         }
         
         // ⭐️ 종목 카드 클릭 시 해당 종목 히스토리 필터링 이벤트 연동
