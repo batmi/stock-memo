@@ -263,7 +263,7 @@ def init_db():
 @app.before_request
 def check_login():
     # 로그인 및 회원가입 처리를 수행하는 라우트는 검사에서 제외
-    if request.endpoint not in ['login', 'signup']:
+    if request.endpoint not in ['login', 'signup', 'logout']:
         # 세션에 로그인 상태가 없으면 차단
         if not session.get('logged_in'):
             # 백엔드 API 요청인 경우 401 인증 에러 반환
@@ -412,7 +412,7 @@ def login():
             <!-- ⭐️ 타임아웃 메시지는 화면에 영구 고정되도록 설정 (주황색 테마) -->
             <div class="error-banner" id="timeoutBanner" style="background: rgba(243, 156, 18, 0.95); box-shadow: 0 4px 15px rgba(243, 156, 18, 0.4);">
                 ⚠️ {{ timeout_message }}
-                <span onclick="document.getElementById('timeoutBanner').style.display='none'" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 24px; padding: 5px; line-height: 1;">&times;</span>
+                <span onclick="document.getElementById('timeoutBanner').style.display='none'; const url = new URL(window.location); url.searchParams.delete('timeout'); window.history.replaceState({}, document.title, url);" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 24px; padding: 5px; line-height: 1;">&times;</span>
             </div>
             {% endif %}
             {% if error_message %}
@@ -905,26 +905,25 @@ def get_news():
     def fetch_news_for_stock(stock):
         news_list = []
         try:
-            # 최신 뉴스를 우선적으로 가져오기 위해 최근 7일(when:7d) 조건 추가
+            # ⭐️ 네이버 RSS 서비스 전면 종료(404)에 따라 안정적인 구글 뉴스 RSS로 복귀
             query = urllib.parse.quote(f"{stock} when:7d")
             url = f"https://news.google.com/rss/search?q={query}&hl=ko&gl=KR&ceid=KR:ko"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=3) as response:
                 xml_data = response.read()
                 root = ET.fromstring(xml_data)
-                channel = root.find('channel')
-                if channel is not None:
-                    for idx, item in enumerate(channel.findall('item')):
-                        if idx >= 3:  # 종목당 최대 3개의 주요 뉴스만 가져오기
-                            break
-                        news_list.append({
-                            'stock': stock,
-                            'title': item.find('title').text,
-                            'link': item.find('link').text,
-                            'pubDate': item.find('pubDate').text
-                        })
+                for idx, item in enumerate(root.findall('.//item')):
+                    if idx >= 3: break
+                    
+                    news_list.append({
+                        'stock': stock,
+                        'title': item.find('title').text,
+                        'link': item.find('link').text,
+                        'pubDate': item.find('pubDate').text
+                    })
         except Exception as e:
-            app.logger.error(f"Error fetching news for {stock}: {e}")
+            app.logger.error(f"Error fetching Google news for {stock}: {e}")
+            
         return news_list
 
     all_news = []

@@ -837,8 +837,18 @@ button:hover {
     /* ⭐️ 모바일 환경(iOS 등)에서 입력창 터치 시 화면 자동 확대(Zoom) 현상 방지 */
     input[type="text"], input[type="number"], input[type="datetime-local"], 
     input[type="password"], select, textarea, #memoTitle, #tagInput, 
-    .flatpickr-input, .flatpickr-mobile, .filter-box input, .ql-editor {
+    .flatpickr-input, .flatpickr-mobile, .filter-box input {
         font-size: 16px !important;
+    }
+
+    /* ⭐️ 모바일 에디터 14px 유지 및 iOS 자동 확대 방지 우회 기법 (Zoom Hack) */
+    #editor-container {
+        overflow-x: hidden !important; /* 비율 보정 시 가로로 삐져나오는 스크롤 방지 */
+    }
+    #editor-container .ql-editor {
+        font-size: 16px !important;  /* 1. iOS 확대 방지를 위해 실제 폰트는 16px로 속임 */
+        width: 114.285% !important;  /* 2. 축소된 만큼 너비를 강제 확장 보상 (100 / 0.875) */
+        zoom: 0.875;                 /* 3. transform 대신 zoom을 사용하여 하단 레이아웃 여백 완벽 제거 */
     }
 
     /* ⭐️ 모바일 환경 어드민 페이지 테이블 가로 스크롤 방지 및 최적화 */

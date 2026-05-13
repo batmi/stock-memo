@@ -854,7 +854,7 @@ async function loadDataFromLocal() {
         
         fetchRealtimeNews();
         if (newsInterval) clearInterval(newsInterval);
-        newsInterval = setInterval(fetchRealtimeNews, 300000);
+        newsInterval = setInterval(fetchRealtimeNews, 600000); // 10분 주기로 변경
     } catch (err) {
         console.error(err);
         await customAlert("로컬 데이터를 불러오지 못했습니다.\n서버가 실행 중인지 확인하세요.");
