@@ -911,6 +911,26 @@ button:hover {
     #portfolioGrid { grid-template-columns: 1fr !important; }
     #portfolioChartContainer { width: 100% !important; max-width: 280px; margin: 0 auto 20px auto; }
     
+    /* ⭐️ 모바일 필터 레이아웃: 좌측 4개 필터 한줄 동일 비율 배열, 내용검색창 다음 줄 배열 */
+    .filter-controls-scroll {
+        flex-wrap: wrap !important;
+        overflow-x: visible !important;
+        padding-bottom: 0 !important;
+    }
+    .filter-select-wrapper {
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+    }
+    .filter-select-wrapper select {
+        padding: 0 4px !important;
+        font-size: 14px !important; /* 4개가 한줄에 들어가도록 폰트 소폭 축소 */
+    }
+    .filter-search-wrapper {
+        flex: 1 1 100% !important;
+        min-width: 100% !important;
+        margin-top: 3px;
+    }
+
     /* ⭐️ 모바일 전체 입력창 및 풀다운 메뉴(select) 폰트 사이즈를 15px로 축소/통일 */
     input[type="text"], input[type="number"], input[type="datetime-local"], 
     input[type="password"], select, textarea, #memoTitle, #tagInput, 
