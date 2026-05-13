@@ -229,18 +229,25 @@
         </div>
 
         <div id="filterBoxContainer" class="filter-box" style="margin-bottom: 15px;">
-            <div style="display: flex; gap: 5px;">
-                <!-- ⭐️ [3안] 유형 필터링 추가 -->
-                <div id="filterTypeSelectContainer" style="display: flex; align-items: center; border: 2px solid var(--primary-color); border-radius: 4px; height: 40px; box-sizing: border-box; background-color: var(--bg-color); min-width: 120px; transition: box-shadow 0.2s;">
-                    <select id="filterTypeSelect" style="flex: 1; width: 100%; padding: 8px; border: none !important; background: transparent !important; height: 100%; outline: none; cursor: pointer; box-sizing: border-box; box-shadow: none !important; color: var(--text-color);">
-                        <option value="all">전체 보기</option>
+            <div class="filter-controls-scroll">
+                <div class="filter-select-wrapper">
+                    <select id="filterRecordTypeSelect">
+                        <option value="all">유형별</option>
                         <option value="trade">매매 기록만</option>
                         <option value="memo">일반 메모만</option>
                     </select>
-                    <span id="clearTypeFilterBtn" class="clear-input-btn" style="position: static; transform: none; display: none; padding: 0 8px; z-index: 2;" title="필터 초기화">&times;</span>
                 </div>
-                <div style="position: relative; flex: 1;">
-                    <input type="text" id="filterStock" placeholder="🔍 검색 (종목명, 증권사, 태그, 내용)" autocomplete="off" spellcheck="false" autocorrect="off">
+                <div class="filter-select-wrapper">
+                    <select id="filterStockSelect"><option value="all">종목별</option></select>
+                </div>
+                <div class="filter-select-wrapper">
+                    <select id="filterAccountSelect"><option value="all">분류별</option></select>
+                </div>
+                <div class="filter-select-wrapper">
+                    <select id="filterBrokerSelect"><option value="all">증권사별</option></select>
+                </div>
+                <div class="filter-search-wrapper">
+                    <input type="text" id="filterStock" placeholder="🔍 내용검색" autocomplete="off" spellcheck="false" autocorrect="off">
                     <span id="clearFilterBtn" class="clear-input-btn" title="검색어 지우기">&times;</span>
                 </div>
             </div>
@@ -258,9 +265,8 @@
             <div class="calendar-grid" id="calendarGrid"></div>
         </div>
         
-        <div id="activeFilterBanner" style="display:none; background-color: var(--bg-color); padding: 10px 15px; border-radius: 4px; margin-bottom: 15px; align-items: center; justify-content: space-between; border: 1px solid var(--primary-color);">
-            <span id="activeFilterText" style="color: var(--text-strong-color); font-weight: var(--fw-bold, bold); font-size: 13px;"></span>
-            <button onclick="clearDateFilter()" style="background: none; border: none; color: var(--text-strong-color); cursor: pointer; font-size: 18px; line-height: 1; padding: 0; margin: 0; width: auto;" title="필터 해제">&times;</button>
+        <div id="activeFilterBanner" style="display:none; background-color: var(--bg-color); padding: 10px 15px; border-radius: 8px; margin-bottom: 15px; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 8px; border: 1px solid var(--primary-color);">
+            <!-- 자바스크립트를 통해 개별 필터 칩(Chip)들이 동적으로 주입됩니다 -->
         </div>
 
         <div class="history-container" id="historyList"></div>

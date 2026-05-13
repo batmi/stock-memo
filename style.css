@@ -563,7 +563,80 @@ button:hover {
     margin-top: 15px;
 }
 .history-header h2 { margin: 0; color: var(--text-strong-color); font-size: 1.2em; }
-.filter-box input { width: 100%; padding: 8px 30px 8px 12px; border: 2px solid var(--primary-color); border-radius: 4px; font-size: 13px; height: 40px; box-sizing: border-box; }
+
+/* ⭐️ 필터 컨트롤 영역 가로 스크롤 허용 및 5분할 (모바일 대응) */
+.filter-controls-scroll {
+    display: flex;
+    gap: 5px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+}
+.filter-controls-scroll::-webkit-scrollbar {
+    display: none;
+}
+.filter-select-wrapper {
+    display: flex;
+    align-items: center;
+    border: 2px solid var(--primary-color);
+    border-radius: 4px;
+    height: 40px;
+    box-sizing: border-box;
+    background-color: var(--bg-color);
+    transition: box-shadow 0.2s;
+    flex: 1;
+    min-width: 90px;
+}
+.filter-select-wrapper select {
+    flex: 1;
+    width: 100%;
+    padding: 0 6px;
+    border: none !important;
+    background: transparent !important;
+    height: 100%;
+    outline: none;
+    cursor: pointer;
+    box-sizing: border-box;
+    box-shadow: none !important;
+    color: var(--text-color);
+    font-size: 13px;
+}
+.filter-search-wrapper {
+    position: relative;
+    flex: 1;
+    min-width: 90px;
+}
+
+/* ⭐️ 필터 칩(Chip) UI 스타일 */
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    background-color: var(--card-bg-color);
+    border: 1px solid var(--primary-color);
+    border-radius: 16px;
+    padding: 4px 12px;
+    font-size: 12.5px;
+    font-weight: bold;
+    color: var(--text-strong-color);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.filter-chip .chip-close {
+    margin-left: 6px;
+    font-size: 16px;
+    color: var(--text-muted-color);
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 2px;
+    border-radius: 50%;
+    transition: color 0.2s, background-color 0.2s;
+}
+.filter-chip .chip-close:hover {
+    color: var(--danger-color);
+}
+
+.filter-box input { width: 100%; padding: 8px 30px 8px 8px; border: 2px solid var(--primary-color); border-radius: 4px; font-size: 13px; height: 40px; box-sizing: border-box; }
 .clear-input-btn {
     position: absolute;
     right: 10px;
@@ -838,10 +911,6 @@ button:hover {
     #portfolioGrid { grid-template-columns: 1fr !important; }
     #portfolioChartContainer { width: 100% !important; max-width: 280px; margin: 0 auto 20px auto; }
     
-    #filterBoxContainer > div { flex-direction: column; }
-    #filterTypeSelectContainer { width: 100%; margin-bottom: 5px; }
-    #filterTypeSelect { width: 100% !important; flex: 1; }
-
     /* ⭐️ 모바일 전체 입력창 및 풀다운 메뉴(select) 폰트 사이즈를 15px로 축소/통일 */
     input[type="text"], input[type="number"], input[type="datetime-local"], 
     input[type="password"], select, textarea, #memoTitle, #tagInput, 
