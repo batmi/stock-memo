@@ -810,6 +810,14 @@ button:hover {
     #newsList.news-expanded .news-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
 }
 @media (max-width: 768px) {
+    /* ⭐️ 모바일 전체 기본 폰트 사이즈를 15px로 확대하여 가독성 향상 */
+    body {
+        font-size: 15px;
+    }
+    .entry-content, .entry-details, .autocomplete-item, .total-amount-display {
+        font-size: 14px; /* 고정된 본문 및 세부 정보 크기도 비율에 맞게 상향 조정 */
+    }
+
     /* ⭐️ 모바일에서 팝업(모달) 전체 화면으로 꽉 차게 변경 */
     #formModalOverlay {
         padding: 0;
@@ -834,21 +842,21 @@ button:hover {
     #filterTypeSelectContainer { width: 100%; margin-bottom: 5px; }
     #filterTypeSelect { width: 100% !important; flex: 1; }
 
-    /* ⭐️ 모바일 환경(iOS 등)에서 입력창 터치 시 화면 자동 확대(Zoom) 현상 방지 */
+    /* ⭐️ 모바일 전체 입력창 및 풀다운 메뉴(select) 폰트 사이즈를 15px로 축소/통일 */
     input[type="text"], input[type="number"], input[type="datetime-local"], 
     input[type="password"], select, textarea, #memoTitle, #tagInput, 
     .flatpickr-input, .flatpickr-mobile, .filter-box input {
-        font-size: 16px !important;
+        font-size: 15px !important;
     }
 
-    /* ⭐️ 모바일 에디터 14px 유지 및 iOS 자동 확대 방지 우회 기법 (Zoom Hack) */
+    /* ⭐️ 모바일 에디터 15px 통일 및 iOS 자동 확대 방지 우회 기법 (Zoom Hack) */
     #editor-container {
         overflow-x: hidden !important; /* 비율 보정 시 가로로 삐져나오는 스크롤 방지 */
     }
     #editor-container .ql-editor {
         font-size: 16px !important;  /* 1. iOS 확대 방지를 위해 실제 폰트는 16px로 속임 */
-        width: 114.285% !important;  /* 2. 축소된 만큼 너비를 강제 확장 보상 (100 / 0.875) */
-        zoom: 0.875;                 /* 3. transform 대신 zoom을 사용하여 하단 레이아웃 여백 완벽 제거 */
+        width: 106.666% !important;  /* 2. 축소된 만큼 너비를 강제 확장 보상 (100 / 0.9375) */
+        zoom: 0.9375;                /* 3. 화면에는 15px 크기로 보이도록 93.75% 축소 */
     }
 
     /* ⭐️ 모바일 환경 어드민 페이지 테이블 가로 스크롤 방지 및 최적화 */
