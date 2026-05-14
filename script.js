@@ -1022,6 +1022,59 @@ btnCloseForm.addEventListener('click', resetAndCloseForm);
 const btnCancelForm = document.getElementById('btnCancelForm');
 if (btnCancelForm) btnCancelForm.addEventListener('click', resetAndCloseForm);
 
+    // ⭐️ 폼 모달창 드래그 이동 로직 (데스크탑 전용)
+    const formHeader = document.querySelector('#formContainer .form-header-container');
+    
+    let formDragX = 0;
+    let formDragY = 0;
+    
+    window.resetFormDragPosition = function() {
+        formDragX = 0;
+        formDragY = 0;
+        if (formContainer) {
+            formContainer.style.transform = '';
+            formContainer.style.animation = ''; // ⭐️ 다음 팝업 시 등장 애니메이션 정상 동작을 위해 초기화
+        }
+    };
+
+    if (formHeader && formContainer) {
+        let isDragging = false;
+        let startX, startY;
+
+        formHeader.style.cursor = 'grab';
+        formHeader.style.userSelect = 'none';
+
+        formHeader.addEventListener('mousedown', (e) => {
+            if (window.innerWidth <= 768) return; // 모바일 환경에서는 화면에 고정
+            if (e.target.closest('.btn-close')) return; // 닫기 버튼 클릭 시 드래그 방지
+            
+            e.preventDefault(); // ⭐️ 브라우저 기본 텍스트 선택 및 드래그 앤 드롭 동작 차단
+            formContainer.style.animation = 'none'; // ⭐️ CSS 등장 애니메이션(forwards)의 transform 잠금 강제 해제
+            
+            isDragging = true;
+            formHeader.style.cursor = 'grabbing';
+            startX = e.clientX - formDragX;
+            startY = e.clientY - formDragY;
+            
+            document.body.style.userSelect = 'none'; // 드래그 중 텍스트 선택 방지
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            e.preventDefault();
+            formDragX = e.clientX - startX;
+            formDragY = e.clientY - startY;
+            formContainer.style.transform = `translate(${formDragX}px, ${formDragY}px)`;
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (!isDragging) return;
+            isDragging = false;
+            formHeader.style.cursor = 'grab';
+            document.body.style.userSelect = '';
+        });
+    }
+
 // ⭐️ Esc 키로 모달 닫기
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -1512,6 +1565,9 @@ function resetAndCloseForm() {
         } else {
             document.getElementById('tradeDate').value = resetNow.toISOString().slice(0,16);
         }
+
+        // ⭐️ 모달 닫힘 시 다음번을 위해 드래그 위치 초기화
+        if (typeof window.resetFormDragPosition === 'function') window.resetFormDragPosition();
     }, 180); // CSS 페이드아웃 애니메이션 시간과 동기화
 }
 
