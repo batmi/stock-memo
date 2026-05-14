@@ -1578,10 +1578,13 @@ function toggleFormUI(recordType) {
     if (brokerAccountEl) brokerAccountEl.required = isTrade;
     const accountNameEl = document.getElementById('accountName');
     if (accountNameEl) accountNameEl.required = isTrade;
+    
+    const tradeTypeEl = document.getElementById('tradeType');
+    const isTradeAndNotWatch = isTrade && tradeTypeEl && tradeTypeEl.value !== '주시';
     const priceEl = document.getElementById('price');
-    if (priceEl) priceEl.required = isTrade;
+    if (priceEl) priceEl.required = isTradeAndNotWatch;
     const quantityEl = document.getElementById('quantity');
-    if (quantityEl) quantityEl.required = isTrade;
+    if (quantityEl) quantityEl.required = isTradeAndNotWatch;
     const memoTitleEl = document.getElementById('memoTitle');
     if (memoTitleEl) memoTitleEl.required = !isTrade;
     
@@ -1595,6 +1598,15 @@ typeRadios.forEach(radio => {
         toggleFormUI(this.value);
     });
 });
+
+// ⭐️ 매매 포지션(tradeType) 변경 시 단가/수량 필수 여부 동적 업데이트
+const tradeTypeSelect = document.getElementById('tradeType');
+if (tradeTypeSelect) {
+    tradeTypeSelect.addEventListener('change', function() {
+        const recordType = document.querySelector('input[name="recordType"]:checked');
+        if (recordType) toggleFormUI(recordType.value);
+    });
+}
 
 // ⭐️ 해시태그 입력 로직
 function renderTags() {
@@ -2912,6 +2924,9 @@ function editEntry(entry) {
         document.getElementById('price').value = entry.price || '';
         document.getElementById('quantity').value = entry.quantity || '';
     }
+
+    // 기존 저장된 매매 포지션(tradeType)에 맞추어 필수 입력 여부 재설정
+    toggleFormUI(entry.type || 'trade');
 
     submitBtn.innerText = "수정";
 }
