@@ -196,9 +196,7 @@ def init_db():
         c.execute("ALTER TABLE entries ADD COLUMN username TEXT")
     except sqlite3.OperationalError:
         pass
-    
-    c.execute("UPDATE entries SET username = 'batmi' WHERE username IS NULL")
-        
+
     # 사용자별 환경 설정(카드 순서 등) 저장을 위한 컬럼 추가
     try:
         c.execute("ALTER TABLE users ADD COLUMN preferences TEXT")
@@ -221,43 +219,27 @@ def init_db():
         c.execute("ALTER TABLE users ADD COLUMN is_allowed INTEGER DEFAULT 1")
     except sqlite3.OperationalError:
         pass
-    c.execute("UPDATE users SET is_allowed = 1 WHERE username = 'batmi'")
+        
+    # 사용자 관리자 여부 컬럼 추가
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     
-    # ⭐️ 기본 사용자(batmi) 계정이 없으면 암호화하여 DB에 생성
-    c.execute("SELECT COUNT(*) FROM users WHERE username = 'batmi'")
-    if c.fetchone()[0] == 0:
-        default_hash = generate_password_hash('ghkswn96')
-        current_time = time.strftime('%Y-%m-%d %H:%M:%S')
-        c.execute("INSERT INTO users (username, password_hash, is_allowed, created_at) VALUES (?, ?, 1, ?)", ('batmi', default_hash, current_time))
-        conn.commit()
-        app.logger.info("🔒 기본 관리자 계정(batmi)이 DB에 안전하게 암호화되어 생성되었습니다.")
-    
-    # 기존 JSON 파일이 있고 DB가 비어있다면 자동 마이그레이션 수행
-    c.execute("SELECT COUNT(*) FROM entries")
-    if c.fetchone()[0] == 0 and os.path.exists(DATA_FILE):
-        app.logger.info("🔄 기존 JSON 데이터를 SQLite 데이터베이스로 마이그레이션 합니다...")
-        with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            try:
-                old_data = json.load(f)
-                for entry in old_data:
-                    img_url = process_image(entry.get('attachedImage'), entry.get('id'))
-                    c.execute('''
-                        INSERT INTO entries 
-                        (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
-                        VALUES (?, 'batmi', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        entry.get('id'), entry.get('type'), entry.get('stockName'), entry.get('stockCode', ''), entry.get('title'),
-                        entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), img_url,
-                        entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
-                        entry.get('price', 0), entry.get('quantity', 0),
-                        entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', ''),
-                        entry.get('attachedFile', ''), entry.get('attachedFileName', '')
-                    ))
-                conn.commit()
-                app.logger.info("✅ 데이터 마이그레이션 완료! (이제부터 db/journal.db와 uploads 폴더를 사용합니다)")
-            except Exception as e:
-                app.logger.error(f"❌ 마이그레이션 중 오류 발생: {e}")
+    # ⭐️ 쿼리 성능 최적화를 위한 인덱스 생성
+    try:
+        c.execute("CREATE INDEX IF NOT EXISTS idx_entries_username ON entries(username)")
+    except sqlite3.OperationalError:
+        pass
+    conn.commit()
+
+    # 기존 레거시 데이터 호환을 위한 처리
+    try:
+        c.execute("UPDATE entries SET username = (SELECT username FROM users WHERE is_admin = 1 LIMIT 1) WHERE username IS NULL")
+    except sqlite3.OperationalError:
+        pass
+    conn.commit()
     conn.close()
 
 @app.before_request
@@ -300,7 +282,7 @@ def login():
             # DB에서 입력한 아이디와 일치하는 암호화된 비밀번호 조회
             conn = get_db()
             c = conn.cursor()
-            c.execute("SELECT password_hash, is_allowed FROM users WHERE username = ?", (username,))
+            c.execute("SELECT password_hash, is_allowed, is_admin FROM users WHERE username = ?", (username,))
             user_record = c.fetchone()
             conn.close()
             
@@ -322,6 +304,7 @@ def login():
                     session.permanent = True # ⭐️ 브라우저 종료 여부와 상관없이 설정된 시간(1시간) 후 세션 만료
                     session['logged_in'] = True
                     session['username'] = username # ⭐️ 계정별 설정 저장을 위해 세션에 저장
+                    session['is_admin'] = bool(user_record['is_admin'])
                     return redirect(url_for('index'))
             else:
                 record['count'] += 1
@@ -469,15 +452,54 @@ def signup():
         else:
             conn = get_db()
             c = conn.cursor()
+            
+            c.execute("SELECT COUNT(*) FROM users")
+            user_count = c.fetchone()[0]
+            
             c.execute("SELECT id FROM users WHERE username = ?", (username,))
             if c.fetchone():
                 error_message = "이미 존재하는 아이디입니다."
             else:
                 hashed_pw = generate_password_hash(password)
                 current_time = time.strftime('%Y-%m-%d %H:%M:%S')
-                c.execute("INSERT INTO users (username, password_hash, is_allowed, created_at) VALUES (?, ?, 0, ?)", (username, hashed_pw, current_time))
+                
+                # ⭐️ 가장 먼저 가입하는 사용자를 자동으로 최고 관리자로 설정
+                is_admin = 1 if user_count == 0 else 0
+                is_allowed = 1 if user_count == 0 else 0
+                
+                c.execute("INSERT INTO users (username, password_hash, is_allowed, is_admin, created_at) VALUES (?, ?, ?, ?, ?)", (username, hashed_pw, is_allowed, is_admin, current_time))
                 conn.commit()
-                success_message = "회원가입이 완료되었습니다! 관리자의 승인 후 로그인할 수 있습니다. 잠시 후 로그인 화면으로 이동합니다."
+                
+                if is_admin:
+                    success_message = "최초 회원가입이 완료되어 자동으로 최고 관리자로 지정되었습니다. 잠시 후 로그인 화면으로 이동합니다."
+                    
+                    # ⭐️ 첫 관리자 가입 시 기존 JSON 파일이 있다면 자동 마이그레이션 수행
+                    c.execute("SELECT COUNT(*) FROM entries")
+                    if c.fetchone()[0] == 0 and os.path.exists(DATA_FILE):
+                        app.logger.info("🔄 기존 JSON 데이터를 SQLite 데이터베이스로 마이그레이션 합니다...")
+                        try:
+                            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                                old_data = json.load(f)
+                                for entry in old_data:
+                                    img_url = process_image(entry.get('attachedImage'), entry.get('id'))
+                                    c.execute('''
+                                        INSERT INTO entries 
+                                        (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ''', (
+                                        entry.get('id'), username, entry.get('type'), entry.get('stockName'), entry.get('stockCode', ''), entry.get('title'),
+                                        entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), img_url,
+                                        entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
+                                        entry.get('price', 0), entry.get('quantity', 0),
+                                        entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', ''),
+                                        entry.get('attachedFile', ''), entry.get('attachedFileName', '')
+                                    ))
+                                conn.commit()
+                                app.logger.info("✅ 데이터 마이그레이션 완료! (이제부터 db/journal.db와 uploads 폴더를 사용합니다)")
+                        except Exception as e:
+                            app.logger.error(f"❌ 마이그레이션 중 오류 발생: {e}")
+                else:
+                    success_message = "회원가입이 완료되었습니다! 관리자의 승인 후 로그인할 수 있습니다. 잠시 후 로그인 화면으로 이동합니다."
             conn.close()
             
     return render_template_string('''
@@ -541,6 +563,7 @@ def signup():
 def logout():
     session.pop('logged_in', None)
     session.pop('username', None) # ⭐️ 로그아웃 시 계정 정보 완벽 파기
+    session.pop('is_admin', None)
     if request.args.get('timeout'):
         return redirect(url_for('login', timeout=1))
     return redirect(url_for('login'))
@@ -559,19 +582,31 @@ def ping():
 def get_me():
     username = session.get('username')
     pending_count = 0
-    if username == 'batmi':
+    is_admin = False
+    
+    if username:
         conn = get_db()
         c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM users WHERE is_allowed = 0")
-        pending_count = c.fetchone()[0]
+        # ⭐️ 매 요청 시마다 DB에서 최신 관리자 권한을 조회하여 세션 동기화
+        c.execute("SELECT is_admin FROM users WHERE username = ?", (username,))
+        user = c.fetchone()
+        if user:
+            is_admin = bool(user['is_admin'])
+            session['is_admin'] = is_admin # 브라우저 세션에 즉각 갱신 반영
+            
+        if is_admin:
+            c.execute("SELECT COUNT(*) FROM users WHERE is_allowed = 0")
+            pending_count = c.fetchone()[0]
         conn.close()
-    return jsonify({"username": username, "pending_count": pending_count})
+        
+    return jsonify({"username": username, "is_admin": is_admin, "pending_count": pending_count})
 
 @app.route('/api/account', methods=['DELETE'])
 def delete_account():
     username = session.get('username')
-    # ⭐️ 최고 관리자(batmi) 계정은 탈퇴할 수 없도록 보호
-    if username == 'batmi':
+    is_admin_flag = session.get('is_admin', False)
+    # ⭐️ 최고 관리자 계정은 탈퇴할 수 없도록 보호
+    if is_admin_flag:
         return jsonify({"error": "최고 관리자 계정은 탈퇴할 수 없습니다."}), 403
 
     data = request.json or {}
@@ -604,7 +639,7 @@ def delete_account():
     return jsonify({"status": "success"})
 
 def is_admin():
-    return session.get('username') == 'batmi'
+    return session.get('is_admin', False)
 
 @app.route('/api/admin/users', methods=['GET'])
 def admin_get_users():
@@ -613,7 +648,7 @@ def admin_get_users():
     conn = get_db()
     c = conn.cursor()
     c.execute('''
-        SELECT u.username, u.is_allowed, u.created_at, u.last_login_at, COUNT(e.id) as entry_count
+        SELECT u.username, u.is_allowed, u.is_admin, u.created_at, u.last_login_at, COUNT(e.id) as entry_count
         FROM users u
         LEFT JOIN entries e ON u.username = e.username
         GROUP BY u.username
@@ -626,11 +661,16 @@ def admin_get_users():
 def admin_delete_user(target_username):
     if not is_admin():
         return jsonify({"error": "Unauthorized"}), 403
-    if target_username == 'batmi':
-        return jsonify({"error": "최고 관리자는 삭제할 수 없습니다."}), 400
         
     conn = get_db()
     c = conn.cursor()
+    
+    c.execute("SELECT is_admin FROM users WHERE username = ?", (target_username,))
+    target_user = c.fetchone()
+    if target_user and target_user['is_admin']:
+        conn.close()
+        return jsonify({"error": "최고 관리자는 삭제할 수 없습니다."}), 400
+        
     c.execute("DELETE FROM entries WHERE username = ?", (target_username,))
     c.execute("DELETE FROM users WHERE username = ?", (target_username,))
     conn.commit()
@@ -646,16 +686,18 @@ def admin_delete_user(target_username):
 def admin_toggle_allow(target_username):
     if not is_admin():
         return jsonify({"error": "Unauthorized"}), 403
-    if target_username == 'batmi':
-        return jsonify({"error": "최고 관리자의 상태는 변경할 수 없습니다."}), 400
         
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT is_allowed FROM users WHERE username = ?", (target_username,))
+    c.execute("SELECT is_allowed, is_admin FROM users WHERE username = ?", (target_username,))
     user = c.fetchone()
     if not user:
         conn.close()
         return jsonify({"error": "사용자를 찾을 수 없습니다."}), 404
+        
+    if user['is_admin']:
+        conn.close()
+        return jsonify({"error": "최고 관리자의 상태는 변경할 수 없습니다."}), 400
         
     new_status = 0 if user['is_allowed'] else 1
     c.execute("UPDATE users SET is_allowed = ? WHERE username = ?", (new_status, target_username))
@@ -761,14 +803,13 @@ def get_current_price():
     data = request.json or {}
     codes = data.get('codes', [])
     prices = {}
-    for code in codes:
+    
+    def fetch_price(code):
         code_str = str(code).strip().upper()
-        if not code_str: continue
+        if not code_str: return code, None
         try:
             # ⭐️ KRX 금현물(1g) 전용 처리
             if code_str in ['KRXGOLD', 'GOLD']:
-                price_found = False
-
                 try:
                     # 1순위: 네이버 증권의 새로운 금 시세 API (가장 안정적)
                     new_naver_gold_url = "https://api.stock.naver.com/marketindex/metals/M04020000"
@@ -777,29 +818,23 @@ def get_current_price():
                         res_data = json.loads(response.read())
                         price_str = res_data.get('closePrice', '')
                         if price_str:
-                            prices[code] = float(price_str.replace(',', ''))
-                            price_found = True
+                            return code, float(price_str.replace(',', ''))
                 except Exception:
                     pass
 
-                if not price_found:
-                    try:
-                        # 2순위: 한국거래소(KRX) 공식 웹사이트 직접 스크래핑 (백업)
-                        krx_url = "https://www.krx.co.kr/contents/COM/Finance/KRX_Gold_Market.jsp"
-                        krx_req = urllib.request.Request(krx_url, headers={'User-Agent': 'Mozilla/5.0'})
-                        with urllib.request.urlopen(krx_req, timeout=3) as krx_res:
-                            html = krx_res.read().decode('utf-8', errors='ignore')
-                            match = re.search(r'현재가</th>\s*<td[^>]*>\s*<strong>([\d,]+)</strong>', html)
-                            if match:
-                                prices[code] = float(match.group(1).replace(',', ''))
-                                price_found = True
-                    except Exception:
-                        pass
+                try:
+                    # 2순위: 한국거래소(KRX) 공식 웹사이트 직접 스크래핑 (백업)
+                    krx_url = "https://www.krx.co.kr/contents/COM/Finance/KRX_Gold_Market.jsp"
+                    krx_req = urllib.request.Request(krx_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(krx_req, timeout=3) as krx_res:
+                        html = krx_res.read().decode('utf-8', errors='ignore')
+                        match = re.search(r'현재가</th>\s*<td[^>]*>\s*<strong>([\d,]+)</strong>', html)
+                        if match:
+                            return code, float(match.group(1).replace(',', ''))
+                except Exception:
+                    pass
 
-                if not price_found:
-                    prices[code] = None
-
-                continue
+                return code, None
 
             if code_str.isdigit():
                 # 국내 주식 (네이버 금융 API)
@@ -810,7 +845,7 @@ def get_current_price():
                     price_str = res_data.get('closePrice', '')
                     
                 if price_str and price_str != '0':
-                    prices[code] = float(price_str.replace(',', ''))
+                    return code, float(price_str.replace(',', ''))
                 else:
                     # ⭐️ 일반 API에서 누락되는 종목을 위한 실시간 Polling API(폴백) 처리
                     fallback_url = f"https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{code_str}"
@@ -819,9 +854,9 @@ def get_current_price():
                         res_data2 = json.loads(response2.read())
                         areas2 = res_data2.get('result', {}).get('areas', [])
                         if areas2 and areas2[0].get('datas'):
-                            prices[code] = float(areas2[0]['datas'][0].get('nv', 0))
+                            return code, float(areas2[0]['datas'][0].get('nv', 0))
                         else:
-                            prices[code] = None
+                            return code, None
             else:
                 # 해외 주식 (야후 파이낸스 API)
                 url = f"https://query1.finance.yahoo.com/v8/finance/chart/{code_str}"
@@ -829,8 +864,17 @@ def get_current_price():
                 with urllib.request.urlopen(req, timeout=3) as response:
                     res_data = json.loads(response.read())
                     price = res_data['chart']['result'][0]['meta']['regularMarketPrice']
-                    prices[code] = float(price)
-        except Exception: prices[code] = None
+                    return code, float(price)
+        except Exception: 
+            return code, None
+            
+    # ⭐️ 스레드 풀을 활용한 병렬(비동기) 처리로 다수 종목 조회 속도 대폭 개선
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        results = executor.map(fetch_price, codes)
+        for code, price in results:
+            if code is not None:
+                prices[code] = price
+                
     return jsonify(prices)
 
 @app.route('/api/change_password', methods=['POST'])
@@ -1047,4 +1091,11 @@ if __name__ == '__main__':
             
     app.logger.info(f"로컬 주식 매매 일지 서버를 시작합니다. (포트: {port})")
     app.logger.info(f"웹 브라우저를 열고 http://127.0.0.1:{port} 또는 기기의 로컬 IP 주소(예: 192.168.x.x:{port})로 접속해주세요.")
-    app.run(host='0.0.0.0', debug=True, port=port)
+    
+    try:
+        from waitress import serve
+        app.logger.info("🚀 Waitress WSGI 프로덕션 서버로 실행 중입니다.")
+        serve(app, host='0.0.0.0', port=port)
+    except ImportError:
+        app.logger.warning("⚠️ Waitress가 설치되지 않아 Flask 개발 서버로 실행합니다. (프로덕션 환경 권장: pip install waitress)")
+        app.run(host='0.0.0.0', debug=True, port=port)

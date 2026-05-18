@@ -292,7 +292,11 @@ window.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    window.addEventListener('resize', applyMobileResponsiveLayout);
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(applyMobileResponsiveLayout, 150);
+    });
     applyMobileResponsiveLayout(); // 초기 로드 시 1회 실행
 
     // ⭐️ 모바일 환경을 위한 설정 메뉴(톱니바퀴) 터치 토글 로직
@@ -785,7 +789,7 @@ async function loadDataFromLocal() {
                             userDisplay.innerHTML = `<span style="font-size:12px;">👤</span> ${meData.username}`;
                             userDisplay.style.display = 'flex';
                         }
-                        if (meData.username === 'batmi') {
+                    if (meData.is_admin) {
                             const btnAdmin = document.getElementById('btnAdmin');
                             if (btnAdmin) {
                                 btnAdmin.style.display = 'flex';
@@ -1361,8 +1365,8 @@ window.renderAdminUsers = function() {
     });
 
     // 관리자와 일반 사용자 분리
-    const adminUser = adminUsersData.find(u => u.username === 'batmi');
-    const regularUsers = adminUsersData.filter(u => u.username !== 'batmi');
+    const adminUser = adminUsersData.find(u => u.is_admin);
+    const regularUsers = adminUsersData.filter(u => !u.is_admin);
 
     // 데이터 정렬 (일반 사용자만)
     const sortedData = [...regularUsers].sort((a, b) => {
@@ -2168,6 +2172,7 @@ function updatePortfolioSummary() {
 
     const portfolioGrid = document.getElementById('portfolioGrid');
     portfolioGrid.innerHTML = '';
+    const gridFragment = document.createDocumentFragment();
     let hasHoldings = false;
     currentHoldings = [];
 
@@ -2310,8 +2315,9 @@ function updatePortfolioSummary() {
             savePreferences();
         });
 
-        portfolioGrid.appendChild(card);
+        gridFragment.appendChild(card);
     });
+    portfolioGrid.appendChild(gridFragment);
     
     // ⭐️ 필터 결과가 없을 때 빈 화면 대신 안내 메시지 표시
     if (portfolioArray.length === 0) {
@@ -2378,6 +2384,9 @@ function updatePortfolioSummary() {
     const hoverColors = theme === 'dark' ? lightColors : darkColors; // ⭐️ 호버 시 반대 테마 색상 적용
 
     const chartContainer = document.getElementById('portfolioChartContainer');
+    
+    document.getElementById('portfolioSection').style.display = shouldShowDashboard ? 'block' : 'none';
+    
     if (shouldShowDashboard && !isDashboardCollapsed) {
         chartContainer.style.display = 'block';
         
@@ -2500,8 +2509,6 @@ function updatePortfolioSummary() {
             }
         }
     } else { chartContainer.style.display = 'none'; }
-
-    document.getElementById('portfolioSection').style.display = shouldShowDashboard ? 'block' : 'none';
 }
 
 // ⭐️ 드롭다운 필터에 종목명을 동적으로 추가하는 함수
@@ -2797,6 +2804,8 @@ function renderPage() {
         return result;
     }
 
+    const listFragment = document.createDocumentFragment();
+
     pageEntries.forEach(entry => {
         // ⭐️ 월별 타임라인 구분선 로직
         let entryMonth = '';
@@ -2812,7 +2821,7 @@ function renderPage() {
             const divider = document.createElement('div');
             divider.className = 'timeline-divider';
             divider.innerText = entryMonth;
-            historyList.appendChild(divider);
+            listFragment.appendChild(divider);
             lastRenderedMonth = entryMonth;
         }
 
@@ -2917,7 +2926,7 @@ function renderPage() {
             });
         });
 
-        historyList.appendChild(card);
+        listFragment.appendChild(card);
     });
 
     // 스크롤 감지용 투명 요소(Sentinel) 추가
@@ -2929,9 +2938,10 @@ function renderPage() {
         sentinel.style.color = 'var(--text-muted-color)';
         sentinel.style.fontSize = '12px';
         sentinel.innerHTML = '<span>⬇️ 스크롤하여 과거 기록 불러오는 중...</span>';
-        historyList.appendChild(sentinel);
+        listFragment.appendChild(sentinel);
         loadMoreObserver.observe(sentinel);
     }
+    historyList.appendChild(listFragment);
 }
 
 function editEntry(entry) {

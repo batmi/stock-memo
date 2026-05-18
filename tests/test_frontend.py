@@ -62,14 +62,22 @@ def test_user_login_and_dashboard_render(page: Page):
     실제로 폼에 값을 입력하고 로그인을 수행한 뒤,
     메인 대시보드(stock-memo.html) 화면으로 넘어가는지 테스트합니다.
     """
-    page.goto(BASE_URL)
-    
-    # 1. 관리자 계정 정보 자동 타이핑
-    page.fill('input[name="username"]', 'batmi')
-    page.fill('input[name="password"]', 'ghkswn96') # 초기 기본 비밀번호
-    
-    # 2. 로그인 버튼 클릭
+    # 1. 먼저 회원가입 (최고 관리자 생성)
+    page.goto(BASE_URL + '/signup')
+    page.fill('input[name="username"]', 'admin')
+    page.fill('input[name="password"]', 'admin123')
+    page.fill('input[name="password_confirm"]', 'admin123')
     page.click('button[type="submit"]')
     
-    # 3. 로그인이 완료되어 메인 대시보드의 특정 요소(예: 백업 버튼)가 뜨는지 확인
+    # 로그인 화면으로 자동 이동될 때까지 대기
+    page.wait_for_url('**/login')
+    
+    # 2. 관리자 계정 정보 자동 타이핑
+    page.fill('input[name="username"]', 'admin')
+    page.fill('input[name="password"]', 'admin123')
+    
+    # 3. 로그인 버튼 클릭
+    page.click('button[type="submit"]')
+    
+    # 4. 로그인이 완료되어 메인 대시보드의 특정 요소(예: 백업 버튼)가 뜨는지 확인
     expect(page.locator('#btnFullBackup')).to_be_visible(timeout=5000)

@@ -123,19 +123,25 @@ def test_login_process(client):
     """
     실제 /login 라우트에 폼 데이터를 전송하여 로그인 성공/실패 로직을 테스트합니다.
     """
+    # 1. 첫 가입 (최고 관리자가 됨)
+    client.post('/signup', data={
+        'username': 'admin',
+        'password': 'adminpassword',
+        'password_confirm': 'adminpassword'
+    })
+
     # 1. 비밀번호를 틀렸을 경우
     response_fail = client.post('/login', data={
-        'username': 'batmi',
+        'username': 'admin',
         'password': 'wrongpassword'
     })
     assert 'errorBanner' in response_fail.get_data(as_text=True)
     
-    # 2. 기본 생성되는 관리자(batmi) 계정으로 정상 로그인 시도 (초기 비번 ghkswn96)
+    # 2. 정상 로그인 시도
     response_success = client.post('/login', data={
-        'username': 'batmi',
-        'password': 'ghkswn96'
+        'username': 'admin',
+        'password': 'adminpassword'
     })
-    # 로그인 성공 시 메인 화면('/')으로 리다이렉트 되어야 함
     assert response_success.status_code == 302
     assert response_success.location == '/'
 
@@ -178,7 +184,8 @@ def test_preferences_api(client):
     """
     with client.session_transaction() as sess:
         sess['logged_in'] = True
-        sess['username'] = 'batmi'  # DB에 기본 존재하는 유저 사용
+        sess['username'] = 'admin'
+        sess['is_admin'] = True
         
     prefs = {"theme": "dark", "chartType": "bar"}
     post_res = client.post('/api/preferences', json=prefs)
@@ -203,7 +210,8 @@ def test_admin_api_access_control(client):
     # 최고 관리자 세션
     with client.session_transaction() as sess:
         sess['logged_in'] = True
-        sess['username'] = 'batmi'
+        sess['username'] = 'admin'
+        sess['is_admin'] = True
         
     res_allowed = client.get('/api/admin/users')
     assert res_allowed.status_code == 200
@@ -262,11 +270,12 @@ def test_login_lockout(client):
     """
     비밀번호 5회 이상 오입력 시 IP가 차단되는지 테스트합니다.
     """
+    client.post('/signup', data={'username': 'admin', 'password': 'pw', 'password_confirm': 'pw'})
     for _ in range(5):
-        res = client.post('/login', data={'username': 'batmi', 'password': 'wrong_password'})
+        res = client.post('/login', data={'username': 'admin', 'password': 'wrong_password'})
     
     # 6번째 시도 시 차단 메시지 확인
-    res = client.post('/login', data={'username': 'batmi', 'password': 'wrong_password'})
+    res = client.post('/login', data={'username': 'admin', 'password': 'wrong_password'})
     assert '차단' in res.get_data(as_text=True)
 
 def test_unallowed_user_login(client):
@@ -281,18 +290,20 @@ def test_admin_edge_cases(client):
     """
     관리자 기능의 각종 예외 상황(최고 관리자 삭제/변경 방지 등)을 테스트합니다.
     """
+    client.post('/signup', data={'username': 'admin', 'password': 'pw', 'password_confirm': 'pw'})
     client.post('/signup', data={'username': 'user2', 'password': 'pw', 'password_confirm': 'pw'})
     
     with client.session_transaction() as sess:
         sess['logged_in'] = True
-        sess['username'] = 'batmi'
+        sess['username'] = 'admin'
+        sess['is_admin'] = True
         
     # 최고 관리자 본인 삭제 시도
-    res = client.delete('/api/admin/users/batmi')
+    res = client.delete('/api/admin/users/admin')
     assert res.status_code == 400
     
     # 최고 관리자 본인 상태 변경 시도
-    res = client.post('/api/admin/users/batmi/toggle_allow')
+    res = client.post('/api/admin/users/admin/toggle_allow')
     assert res.status_code == 400
     
     # 존재하지 않는 유저 상태 변경 시도
@@ -315,7 +326,8 @@ def test_account_deletion_and_change_pw(client):
     client.post('/signup', data={'username': 'normal', 'password': 'pw1', 'password_confirm': 'pw1'})
     with client.session_transaction() as sess:
         sess['logged_in'] = True
-        sess['username'] = 'batmi'
+        sess['username'] = 'admin'
+        sess['is_admin'] = True
     client.post('/api/admin/users/normal/toggle_allow')
     
     with client.session_transaction() as sess:
@@ -337,8 +349,9 @@ def test_account_deletion_and_change_pw(client):
     # 4. 최고 관리자 탈퇴 시도 방어
     with client.session_transaction() as sess:
         sess['logged_in'] = True
-        sess['username'] = 'batmi'
-    res = client.delete('/api/account', json={'password': 'ghkswn96'})
+        sess['username'] = 'admin'
+        sess['is_admin'] = True
+    res = client.delete('/api/account', json={'password': 'pw'})
     assert res.status_code == 403
 
 def test_restore_exceptions(client):
@@ -425,7 +438,8 @@ def test_ping_and_timeout(client):
     """
     with client.session_transaction() as sess:
         sess['logged_in'] = True
-        sess['username'] = 'batmi'
+        sess['username'] = 'admin'
+        sess['is_admin'] = True
         
     res_ping = client.post('/api/ping')
     assert res_ping.status_code == 200
@@ -490,10 +504,11 @@ def test_preferences_edge_cases(client):
     # 잘못된 JSON 데이터(String)가 DB에 있을 때 빈 딕셔너리로 처리되는지 검증
     with client.session_transaction() as sess:
         sess['logged_in'] = True
-        sess['username'] = 'batmi'
+        sess['username'] = 'admin'
+        sess['is_admin'] = True
         
     conn = backend_app.get_db()
-    conn.execute("UPDATE users SET preferences = 'INVALID_JSON_DATA' WHERE username = 'batmi'")
+    conn.execute("UPDATE users SET preferences = 'INVALID_JSON_DATA' WHERE username = 'admin'")
     conn.commit()
     conn.close()
     
@@ -505,15 +520,15 @@ def test_uploaded_file_success(client):
     """정상적으로 권한이 있는 사용자의 파일 다운로드가 동작하는지 테스트합니다."""
     with client.session_transaction() as sess:
         sess['logged_in'] = True
-        sess['username'] = 'batmi'
+        sess['username'] = 'admin'
         
-    user_dir = os.path.join(backend_app.UPLOAD_FOLDER, 'batmi')
+    user_dir = os.path.join(backend_app.UPLOAD_FOLDER, 'admin')
     os.makedirs(user_dir, exist_ok=True)
     test_file_path = os.path.join(user_dir, 'test_download.txt')
     with open(test_file_path, 'w') as f:
         f.write('file_content_test')
         
-    res = client.get('/uploads/batmi/test_download.txt')
+    res = client.get('/uploads/admin/test_download.txt')
     assert res.status_code == 200
     assert b'file_content_test' in res.data
 
@@ -576,7 +591,8 @@ def test_account_deletion_and_password_exceptions(client):
     
     with client.session_transaction() as sess:
         sess['logged_in'] = True
-        sess['username'] = 'batmi'
+        sess['username'] = 'admin'
+        sess['is_admin'] = True
         
     # 비밀번호 변경 - 빈 값 전송
     res_pw_empty = client.post('/api/change_password', json={})
