@@ -836,18 +836,30 @@ def get_current_price():
 
                 return code, None
 
-            if code_str.isdigit():
-                # 국내 주식 (네이버 금융 API)
-                url = f"https://m.stock.naver.com/api/stock/{code_str}/basic"
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=3) as response:
-                    res_data = json.loads(response.read())
-                    price_str = res_data.get('closePrice', '')
-                    
-                if price_str and price_str != '0':
-                    return code, float(price_str.replace(',', ''))
-                else:
-                    # ⭐️ 일반 API에서 누락되는 종목을 위한 실시간 Polling API(폴백) 처리
+            # ⭐️ 제공해주신 종목코드/티커 국가 구분 로직 적용
+            market_type = "UNKNOWN"
+            if re.fullmatch(r'^[A-Z\.\-]{1,6}$', code_str):
+                market_type = "US"
+            elif len(code_str) == 6 and re.fullmatch(r'^\d{5}[0-9A-Z]$', code_str):
+                market_type = "KR"
+            elif len(code_str) == 6 and code_str.isalnum():
+                market_type = "KR" # 예외: 0162Z0 등 영문 혼합 국내 신주인수권/ETN 포괄용
+            elif re.fullmatch(r'^\d+$', code_str):
+                market_type = "OTHER_ASIAN"
+
+            if market_type == "KR":
+                try:
+                    # 국내 주식 (네이버 금융 API)
+                    url = f"https://m.stock.naver.com/api/stock/{code_str}/basic"
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req, timeout=3) as response:
+                        res_data = json.loads(response.read())
+                        price_str = res_data.get('closePrice', '')
+                        
+                    if price_str and price_str != '0':
+                        return code, float(price_str.replace(',', ''))
+                        
+                    # 일반 API 누락 종목용 실시간 Polling API (폴백)
                     fallback_url = f"https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{code_str}"
                     req2 = urllib.request.Request(fallback_url, headers={'User-Agent': 'Mozilla/5.0'})
                     with urllib.request.urlopen(req2, timeout=3) as response2:
@@ -855,16 +867,20 @@ def get_current_price():
                         areas2 = res_data2.get('result', {}).get('areas', [])
                         if areas2 and areas2[0].get('datas'):
                             return code, float(areas2[0]['datas'][0].get('nv', 0))
-                        else:
-                            return code, None
-            else:
-                # 해외 주식 (야후 파이낸스 API)
+                except Exception:
+                    pass # ⭐️ 네이버 API 조회에 실패하면 아래 야후 파이낸스(해외) 로직으로 자연스럽게 넘어감
+
+            # ⭐️ US, OTHER_ASIAN, UNKNOWN 이거나 국내 API에서 조회 실패한 경우 야후 파이낸스 호출
+            try:
                 url = f"https://query1.finance.yahoo.com/v8/finance/chart/{code_str}"
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req, timeout=3) as response:
                     res_data = json.loads(response.read())
                     price = res_data['chart']['result'][0]['meta']['regularMarketPrice']
                     return code, float(price)
+            except Exception:
+                pass
+                
         except Exception: 
             return code, None
             

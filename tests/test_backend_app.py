@@ -565,7 +565,22 @@ def test_current_price_edge_cases(mock_urlopen, client):
     res_naver = client.post('/api/current_price', json={'codes': ['005930']})
     assert res_naver.json.get('005930') == 95000.0
     
-    # 4. 빈 문자열 및 잘못된 코드 무시 처리
+    # 4. 6자리 해외 주식(US): 네이버 API 생략하고 즉시 야후 파이낸스 성공 패턴
+    mock_res.read.side_effect = [
+        b'{"chart": {"result": [{"meta": {"regularMarketPrice": 250.5}}]}}'
+    ]
+    res_us = client.post('/api/current_price', json={'codes': ['ABCDEF']})
+    assert res_us.json.get('ABCDEF') == 250.5
+    
+    # 5. 국내 주식 네이버 API 실패 -> 야후 파이낸스 폴백
+    mock_res.read.side_effect = [
+        Exception("Naver API Fail"),
+        b'{"chart": {"result": [{"meta": {"regularMarketPrice": 100.0}}]}}'
+    ]
+    res_fallback = client.post('/api/current_price', json={'codes': ['123456']})
+    assert res_fallback.json.get('123456') == 100.0
+    
+    # 6. 빈 문자열 및 잘못된 코드 무시 처리
     res_empty = client.post('/api/current_price', json={'codes': ['', ' ']})
     assert res_empty.status_code == 200
     assert res_empty.json == {}
