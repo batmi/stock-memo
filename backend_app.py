@@ -101,14 +101,31 @@ class CustomDailyRotatingFileHandler(TimedRotatingFileHandler):
             result.sort()
             return result[:len(result) - self.backupCount]
 
+# ⭐️ 모든 로그(Traceback 등 포함)를 개행 없이 한 줄로 출력하기 위한 커스텀 포매터
+class SingleLineFormatter(logging.Formatter):
+    def format(self, record):
+        msg = super().format(record)
+        # 개행 문자를 공백으로 대체하여 여러 줄의 로그를 한 줄로 결합
+        return msg.replace('\n', ' ').replace('\r', '')
+
 # 파일 핸들러 설정 (매일 자정에 갱신, 30일(약 1달)간 로그 보관, UTF-8 인코딩)
 file_handler = CustomDailyRotatingFileHandler(log_file, when='midnight', interval=1, backupCount=30, encoding='utf-8')
-log_formatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(levelname)s] [%(funcName)s] %(filename)s:%(lineno)d - %(message)s', datefmt='%H:%M:%S')
+log_formatter = SingleLineFormatter('%(asctime)s.%(msecs)03d [%(levelname)s] [%(funcName)s] %(filename)s:%(lineno)d - %(message)s', datefmt='%H:%M:%S')
 file_handler.setFormatter(log_formatter)
 file_handler.setLevel(logging.DEBUG)
 
-# 기본 Flask 로거 및 Werkzeug(HTTP 요청) 로거에 파일 핸들러 추가
+# ⭐️ 화면(콘솔) 출력용 핸들러 설정
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(log_formatter)
+console_handler.setLevel(logging.DEBUG)
+
+# ⭐️ 기본 Flask 로거 초기화 및 중복 출력 방지 (시간이 없는 기본 화면 로그 차단)
+app.logger.handlers.clear()
+app.logger.propagate = False
+
+# 로거에 파일 및 콘솔 핸들러 추가
 app.logger.addHandler(file_handler)
+app.logger.addHandler(console_handler)
 app.logger.setLevel(logging.DEBUG)
 
 # ⭐️ Werkzeug 기본 Access 로그 비활성화
