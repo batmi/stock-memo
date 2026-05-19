@@ -72,24 +72,16 @@ file_handler.setLevel(logging.DEBUG)
 app.logger.addHandler(file_handler)
 app.logger.setLevel(logging.DEBUG)
 
-# ⭐️ Werkzeug 기본 로그에서 중복된 날짜/시간 포맷('- - [시간]')을 제거하기 위한 커스텀 필터
-class CleanWerkzeugLogFilter(logging.Filter):
-    def filter(self, record):
-        msg = record.getMessage()
-        msg = re.sub(r' - - \[[^\]]+\] ', ' ', msg)
-        
-        username = "Guest"
-        if has_request_context():
-            username = session.get('username') or "Guest"
-            
-        record.msg = f"[{username}] {msg}"
-        record.args = ()
-        return True
-
+# ⭐️ Werkzeug 기본 Access 로그 비활성화
 werkzeug_logger = logging.getLogger('werkzeug')
-werkzeug_logger.addFilter(CleanWerkzeugLogFilter())
-werkzeug_logger.addHandler(file_handler)
-werkzeug_logger.setLevel(logging.INFO)
+werkzeug_logger.setLevel(logging.ERROR)
+
+# ⭐️ Flask 요청/응답 라이프사이클 내에서 직접 Access 로그를 기록
+@app.after_request
+def log_request_info(response):
+    username = session.get('username') or "Guest"
+    app.logger.info(f"[{username}] {request.method} {request.path} {response.status_code}")
+    return response
 
 # ⭐️ 세션(쿠키) 보안 설정 강화
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # 자바스크립트(XSS)로 쿠키 접근 원천 차단
