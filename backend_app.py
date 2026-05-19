@@ -24,7 +24,7 @@ import re
 import logging
 from logging.handlers import TimedRotatingFileHandler
 from datetime import timedelta
-from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string, send_file
+from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string, send_file, has_request_context
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__, static_folder='.', static_url_path='')
@@ -76,7 +76,13 @@ app.logger.setLevel(logging.DEBUG)
 class CleanWerkzeugLogFilter(logging.Filter):
     def filter(self, record):
         msg = record.getMessage()
-        record.msg = re.sub(r' - - \[[^\]]+\] ', ' ', msg)
+        msg = re.sub(r' - - \[[^\]]+\] ', ' ', msg)
+        
+        username = "Guest"
+        if has_request_context():
+            username = session.get('username') or "Guest"
+            
+        record.msg = f"[{username}] {msg}"
         record.args = ()
         return True
 
