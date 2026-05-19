@@ -65,6 +65,10 @@
     --entry-card-shadow: 0 2px 4px rgba(0,0,0,0.05);
     --dashboard-card-shadow: 0 2px 8px rgba(0,0,0,0.06);
     --fw-bold: bold;
+    
+    /* ⭐️ 현재가 업데이트 시 반짝임 효과 색상 (라이트) */
+    --flash-start-color: rgba(52, 152, 219, 0.05);
+    --flash-peak-color: rgba(52, 152, 219, 0.3);
 }
 
 [data-theme="dark"] {
@@ -133,6 +137,10 @@
     --badge-stock-hover-bg: #484f58;
     --badge-stock-hover-color: #ffffff;
     --badge-stock-hover-border: #8b949e;
+    
+    /* ⭐️ 현재가 업데이트 시 반짝임 효과 색상 (다크) */
+    --flash-start-color: rgba(59, 104, 140, 0.15);
+    --flash-peak-color: rgba(59, 104, 140, 0.6);
 }
 
 body {
@@ -739,6 +747,17 @@ button:hover {
 /* ⭐️ 현재가 조회 활성화 시 표시되는 섹션 */
 .current-price-section { background: rgba(52, 152, 219, 0.05); border-radius: 6px; padding: 10px; }
 [data-theme="dark"] .current-price-section { background: rgba(59, 104, 140, 0.15); }
+
+/* ⭐️ 현재가 업데이트 시 부드럽게 반짝이는(Flash) 애니메이션 */
+@keyframes flash-highlight {
+    0% { background-color: var(--flash-start-color); }
+    30% { background-color: var(--flash-peak-color); }
+    100% { background-color: var(--flash-start-color); }
+}
+.current-price-section.flash {
+    animation: flash-highlight 1.5s ease-out;
+}
+
 /* ⭐️ 드래그 앤 드롭 중인 카드의 임시 시각 효과 */
 .sortable-ghost {
     opacity: 0.2;

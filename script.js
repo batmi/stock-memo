@@ -14,6 +14,7 @@ let currentPortfolioArrayForPrice = []; // 현재가 계산용 임시 배열
 let showHistoryClosedPositions = true; // ⭐️ 기본적으로 히스토리에 청산 종목을 표시하도록 변경
 let currentDashboardBroker = 'all'; // 대시보드 증권사 필터 상태
 let currentDashboardAccount = 'all'; // 대시보드 투자 분류 필터 상태
+let priceUpdateInterval = null; // ⭐️ 타이머 변수 선언 누락 수정
 let currentFilteredEntries = [];
 let currentRenderPage = 1;
 const entriesPerPage = 15;
@@ -383,6 +384,14 @@ window.addEventListener('DOMContentLoaded', () => {
             userPreferences.showCurrentPrice = showCurrentPrice;
             savePreferences();
             updatePortfolioSummary(); // UI 리렌더링 및 현재가 fetch 트리거
+            
+            // ⭐️ 현재가 보기 상태에 따라 1분(60초) 자동 업데이트 타이머 켜기/끄기
+            if (showCurrentPrice) {
+                if (priceUpdateInterval !== null) clearInterval(priceUpdateInterval);
+                priceUpdateInterval = setInterval(() => window.fetchCurrentPricesAndUpdateUI(), 60000); // 60초(60000ms) 주기
+            } else {
+                if (priceUpdateInterval !== null) clearInterval(priceUpdateInterval);
+            }
         });
     }
 
@@ -840,6 +849,12 @@ async function loadDataFromLocal() {
                         btnCP.style.backgroundColor = showCurrentPrice ? 'var(--primary-color)' : 'transparent';
                         btnCP.style.color = showCurrentPrice ? '#fff' : 'var(--primary-color)';
                     }
+
+                // ⭐️ 초기 로드 시 현재가 보기가 켜져있다면 1분(60초) 자동 업데이트 시작
+                if (showCurrentPrice) {
+                    if (priceUpdateInterval !== null) clearInterval(priceUpdateInterval);
+                    priceUpdateInterval = setInterval(() => window.fetchCurrentPricesAndUpdateUI(), 60000);
+                }
                 }
             }
         } catch (e) {
@@ -2096,6 +2111,16 @@ window.fetchCurrentPricesAndUpdateUI = async function() {
                 const pColor = profitAmount > 0 ? 'var(--danger-color)' : (profitAmount < 0 ? 'var(--primary-color)' : 'var(--text-strong-color)');
                 pfEls.forEach(el => el.innerHTML = `<span style="color: ${pColor}; font-weight: bold;">${profitAmount > 0 ? '+' : ''}${Math.round(profitAmount).toLocaleString()}</span>`);
                 totalEval += evalAmount;
+
+                // ⭐️ 값이 업데이트될 때 카드 배경을 반짝이게 하는 애니메이션 적용
+                pEls.forEach(el => {
+                    const section = el.closest('.current-price-section');
+                    if (section) {
+                        section.classList.remove('flash');
+                        void section.offsetWidth; // 브라우저 리플로우 강제 발생 (애니메이션 재시작)
+                        section.classList.add('flash');
+                    }
+                });
             } else {
                 pEls.forEach(el => el.innerText = '조회 실패');
                 totalEval += data.totalCost; // 조회 실패 시 기본 투자원금으로 임시 합산
