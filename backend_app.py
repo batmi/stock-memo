@@ -6,6 +6,45 @@ if hasattr(sys.stdout, 'reconfigure'):
 if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8')
 
+import subprocess
+import importlib
+
+# ⭐️ 앱 실행 시 필요한 필수 패키지 목록 검사 및 자동 설치
+REQUIRED_PACKAGES = {
+    'flask': 'Flask',
+    'werkzeug': 'Werkzeug',
+    'waitress': 'waitress'
+}
+
+def install_missing_packages():
+    missing = []
+    for module, pkg in REQUIRED_PACKAGES.items():
+        try:
+            importlib.import_module(module)
+        except ImportError:
+            missing.append(pkg)
+            
+    if missing:
+        print(f"📦 필수 라이브러리가 누락되었습니다: {', '.join(missing)}")
+        while True:
+            choice = input("해당 패키지들을 지금 자동 설치하시겠습니까? (y/n): ").strip().lower()
+            if choice in ['y', 'yes']:
+                print("자동 설치를 진행합니다...")
+                try:
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
+                    print("✅ 설치가 완료되었습니다. 서버를 시작합니다...\n")
+                    break
+                except Exception as e:
+                    print(f"❌ 자동 설치 실패: {e}\n수동으로 터미널에 입력하여 설치해주세요: pip install {' '.join(missing)}")
+                    sys.exit(1)
+            elif choice in ['n', 'no']:
+                print(f"❌ 설치가 취소되었습니다. 수동으로 터미널에 입력하여 설치해주세요: pip install {' '.join(missing)}")
+                sys.exit(1)
+            else:
+                print("올바른 입력이 아닙니다. 'y' 또는 'n'을 입력해주세요.")
+
+install_missing_packages()
+
 import json
 import uuid
 import os
