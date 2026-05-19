@@ -2441,7 +2441,7 @@ function updatePortfolioSummary() {
         // ⭐️ 현재가 보기 활성화 시 도넛 차트 중앙에 총 평가금액 컨테이너 노출 및 조회 요청
         if (showCurrentPrice && !isPortfolioEmpty) {
             document.getElementById('centerTotalEvaluationContainer').style.display = 'block';
-            fetchCurrentPricesAndUpdateUI();
+            window.fetchCurrentPricesAndUpdateUI();
         } else {
             document.getElementById('centerTotalEvaluationContainer').style.display = 'none';
         }

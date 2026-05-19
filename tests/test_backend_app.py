@@ -585,6 +585,12 @@ def test_current_price_edge_cases(mock_urlopen, client):
     assert res_empty.status_code == 200
     assert res_empty.json == {}
 
+    # 7. 일반 주식 모든 API 실패 시 500 에러 없이 안전하게 통과하는지 검증 (Unpacking 버그 회귀 방지)
+    mock_res.read.side_effect = Exception("All APIs Fail")
+    res_all_fail = client.post('/api/current_price', json={'codes': ['005930', 'AAPL']})
+    assert res_all_fail.status_code == 200
+    assert res_all_fail.json.get('005930') is None
+
 @patch('urllib.request.urlopen')
 def test_news_api_exceptions(mock_urlopen, client):
     """구글 뉴스 API 파싱 시 예외가 발생해도 시스템 중단 없이 빈 배열을 리턴하는지 테스트합니다."""

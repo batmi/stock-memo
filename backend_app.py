@@ -881,6 +881,8 @@ def get_current_price():
             except Exception:
                 pass
                 
+            return code, None
+            
         except Exception: 
             return code, None
             
