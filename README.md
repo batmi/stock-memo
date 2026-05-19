@@ -24,20 +24,15 @@
 - 웹 브라우저 (Chrome, Safari, Edge 등)
 - (선택) 외부 접속을 위한 `ngrok` 및 `tmux`
 
-### 2. 라이브러리 설치
-터미널을 열고 아래 명령어를 입력하여 필요한 패키지를 설치합니다.
-```bash
-pip install Flask Werkzeug waitress
-```
-
-### 3. 서버 실행
-프로젝트 폴더로 이동한 뒤, 아래 명령어를 통해 로컬 서버를 실행합니다.
+### 2. 서버 실행
+프로젝트 폴더로 이동한 뒤, 아래 제공되는 스크립트를 통해 로컬 서버를 실행합니다.
+스크립트 실행 시 필요한 필수 패키지(`Flask`, `Werkzeug`, `waitress`)가 없다면 자동으로 설치 여부를 묻고 진행합니다.
 
 **Mac / Linux 환경**
 최초 1회 실행 권한을 부여한 뒤, 스크립트 형태로 간편하게 실행할 수 있습니다.
 ```bash
-chmod +x backend_app.py
-./backend_app.py
+chmod +x run.sh
+./run.sh
 ```
 *(기존 방식인 `python app.py` 명령어로도 동일하게 실행 가능합니다.)*
 
