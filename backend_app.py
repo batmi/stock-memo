@@ -821,7 +821,7 @@ def get_current_price():
     
     def fetch_price(code):
         code_str = str(code).strip().upper()
-        if not code_str: return code, None
+        if not code_str: return None, None
         try:
             # ⭐️ KRX 금현물(1g) 전용 처리
             if code_str in ['KRXGOLD', 'GOLD']:

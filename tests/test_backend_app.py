@@ -20,6 +20,7 @@ def test_home_page_status_with_auth(client):
     세션을 조작하여 로그인한 상태를 만든 후 메인 페이지(/) 접속 시 
     정상적으로 페이지(200)가 로드되는지 테스트합니다.
     """
+    client.post('/signup', data={'username': 'admin', 'password': 'pw', 'password_confirm': 'pw'})
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -182,6 +183,7 @@ def test_preferences_api(client):
     """
     사용자별 환경 설정(Preferences) 저장 및 조회가 잘 되는지 테스트합니다.
     """
+    client.post('/signup', data={'username': 'admin', 'password': 'pw', 'password_confirm': 'pw'})
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
@@ -282,6 +284,7 @@ def test_unallowed_user_login(client):
     """
     관리자 승인이 안 된(is_allowed=0) 계정의 로그인 차단 테스트입니다.
     """
+    client.post('/signup', data={'username': 'admin', 'password': 'pw', 'password_confirm': 'pw'})
     client.post('/signup', data={'username': 'wait_user', 'password': 'pw1', 'password_confirm': 'pw1'})
     res = client.post('/login', data={'username': 'wait_user', 'password': 'pw1'})
     assert '승인이 필요' in res.get_data(as_text=True)
@@ -333,6 +336,7 @@ def test_account_deletion_and_change_pw(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'normal'
+        sess['is_admin'] = False
         
     # 1. 비밀번호 변경 - 현재 비밀번호 오입력
     res = client.post('/api/change_password', json={'current_password': 'pw2', 'new_password': 'pw3'})
@@ -452,11 +456,12 @@ def test_ping_and_timeout(client):
     assert res_logout.status_code == 302
     assert 'timeout=1' in res_logout.location
 
-def test_json_migration(app):
+def test_json_migration(app, client):
     """기존 JSON 파일에서 SQLite DB로 데이터가 자동 마이그레이션 되는지 테스트합니다."""
     with app.app_context():
         conn = backend_app.get_db()
         conn.execute("DELETE FROM entries")
+        conn.execute("DELETE FROM users")
         conn.commit()
         conn.close()
         
@@ -469,6 +474,10 @@ def test_json_migration(app):
         
     with app.app_context():
         backend_app.init_db()
+        
+    client.post('/signup', data={'username': 'admin_mig', 'password': 'pw', 'password_confirm': 'pw'})
+    
+    with app.app_context():
         conn = backend_app.get_db()
         c = conn.cursor()
         c.execute("SELECT * FROM entries WHERE stockName='JSON_MIGRATION_TEST'")
@@ -624,6 +633,7 @@ def test_account_deletion_and_password_exceptions(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'normal_user'
+        sess['is_admin'] = False
         
     # 계정 삭제 - 빈 비밀번호 전송
     res_del_empty = client.delete('/api/account', json={})
