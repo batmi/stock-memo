@@ -2473,12 +2473,16 @@ function updatePortfolioSummary() {
                     },
                     tooltip: {
                         callbacks: {
+                                title: function(tooltipItems) {
+                                    if (isPortfolioEmpty) return '';
+                                    return tooltipItems[0].label;
+                                },
                             label: function(context) {
                                 if (isPortfolioEmpty) return '현재 보유 중인 종목이 없습니다.';
                                 let value = context.parsed;
                                 let total = context.dataset.data.reduce((a, b) => a + b, 0);
                                 let percentage = total > 0 ? ((value / total) * 100).toFixed(1) + '%' : '0%';
-                                return `${context.label}: ${Math.round(value).toLocaleString()}원 (${percentage})`;
+                                    return `금액: ${Math.round(value).toLocaleString()}원 (${percentage})`;
                             }
                         }
                     }
