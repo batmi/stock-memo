@@ -2104,12 +2104,13 @@ window.fetchCurrentPricesAndUpdateUI = async function() {
             if (cp !== undefined && cp !== null) {
                 const evalAmount = cp * data.qty;
                 const profitAmount = evalAmount - data.totalCost;
+                const profitRate = data.totalCost > 0 ? (profitAmount / data.totalCost) * 100 : 0;
                 
                 pEls.forEach(el => el.innerText = cp.toLocaleString());
                 eEls.forEach(el => el.innerText = Math.round(evalAmount).toLocaleString());
                 
                 const pColor = profitAmount > 0 ? 'var(--danger-color)' : (profitAmount < 0 ? 'var(--primary-color)' : 'var(--text-strong-color)');
-                pfEls.forEach(el => el.innerHTML = `<span style="color: ${pColor}; font-weight: bold;">${profitAmount > 0 ? '+' : ''}${Math.round(profitAmount).toLocaleString()}</span>`);
+                pfEls.forEach(el => el.innerHTML = `<span style="color: ${pColor}; font-weight: bold; text-align: right; display: inline-block;">${profitAmount > 0 ? '+' : ''}${Math.round(profitAmount).toLocaleString()}<br>(${profitRate > 0 ? '+' : ''}${profitRate.toFixed(2)}%)</span>`);
                 totalEval += evalAmount;
 
                 // ⭐️ 값이 업데이트될 때 카드 배경을 반짝이게 하는 애니메이션 적용
@@ -2161,7 +2162,7 @@ function updatePortfolioSummary() {
         const qty = Number(entry.quantity) || 0;
         const price = Number(entry.price) || 0;
 
-        if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, accountName: '', traded: false, stockCode: '' };
+        if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, realizedCost: 0, accountName: '', traded: false, stockCode: '' };
         if (entry.accountName) portfolio[stock].accountName = entry.accountName; // 가장 최근 거래의 투자 분류 기록
         if (entry.stockCode) portfolio[stock].stockCode = entry.stockCode; // 종목코드 기록
 
@@ -2186,7 +2187,9 @@ function updatePortfolioSummary() {
             portfolio[stock].traded = true;
             const currentAvgPrice = portfolio[stock].avgPrice;
             const profit = (price - currentAvgPrice) * qty;
+            const cost = currentAvgPrice * qty;
             portfolio[stock].realizedProfit += profit;
+            portfolio[stock].realizedCost += cost;
             totalRealizedProfit += profit;
 
             portfolio[stock].qty -= qty;
@@ -2307,9 +2310,9 @@ function updatePortfolioSummary() {
             if (!isClosed) {
                 card.innerHTML += `
                     <div class="current-price-section" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
-                        <div class="stat-row"><span>현재가</span><span class="cp-price" data-code="${data.stockCode || ''}">조회 중...</span></div>
-                        <div class="stat-row"><span>평가금액</span><span class="cp-eval" data-code="${data.stockCode || ''}">-</span></div>
-                        <div class="stat-row"><span>평가손익</span><span class="cp-profit" data-code="${data.stockCode || ''}">-</span></div>
+                        <div class="stat-row" style="align-items: center;"><span>현재가</span><span class="cp-price" data-code="${data.stockCode || ''}">조회 중...</span></div>
+                        <div class="stat-row" style="align-items: center;"><span>평가금액</span><span class="cp-eval" data-code="${data.stockCode || ''}">-</span></div>
+                        <div class="stat-row" style="align-items: center;"><span>평가손익</span><span class="cp-profit" data-code="${data.stockCode || ''}">-</span></div>
                     </div>
                 `;
             }
