@@ -180,12 +180,12 @@
             <div class="portfolio-content-layout">
                 <div id="portfolioChartContainer" class="chart-container" style="display: none;">
                     <div style="position: relative;">
-                        <!-- ⭐️ 캔버스의 z-index를 높여 툴팁이 가장 위에 표시되도록 수정 -->
+                        <!-- ⭐️ 클릭 이벤트를 받기 위해 중앙 텍스트의 z-index를 캔버스(10)보다 높게(11) 수정 -->
                         <canvas id="portfolioChart" style="position: relative; z-index: 10;"></canvas>
-                        <div id="chartCenterText" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; text-align: center; width: 68%; display: flex; flex-direction: column; gap: 2px; z-index: 1;">
+                        <div id="chartCenterText" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; text-align: center; width: 68%; display: flex; flex-direction: column; gap: 2px; z-index: 11;">
                             <div style="font-size: 11px; color: var(--text-muted-color);">현재 총 투자 금액</div>
                             <div id="centerTotalInvested" style="font-size: 17px; font-weight: 800; color: var(--text-strong-color); letter-spacing: -0.5px; white-space: nowrap; transition: font-size 0.2s ease;">0원</div>
-                            <div id="centerTotalEvaluationContainer" style="display: none; margin-top: 5px;">
+                            <div id="centerTotalEvaluationContainer" class="clickable-evaluation" style="display: none; margin-top: 5px; pointer-events: auto;" title="클릭하여 전체 현재가 갱신" onclick="window.fetchCurrentPricesAndUpdateUI()">
                                 <div style="font-size: 11px; color: var(--text-muted-color);">총 평가금액</div>
                                 <div id="centerTotalEvaluation" style="font-size: 15px; font-weight: 800; color: var(--info-color); letter-spacing: -0.5px; white-space: nowrap; transition: font-size 0.2s ease;">0원</div>
                             </div>

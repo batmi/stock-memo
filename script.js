@@ -2129,7 +2129,9 @@ window.fetchCurrentPricesAndUpdateUI = async function() {
         });
         
         const centerEvalEl = document.getElementById('centerTotalEvaluation');
-        if (centerEvalEl) animateValue(centerEvalEl, Math.round(totalEval), 1000, false);
+        if (centerEvalEl) {
+            animateValue(centerEvalEl, Math.round(totalEval), 1000, false);
+        }
     } catch(e) { console.error("현재가 가져오기 실패", e); }
 };
 
@@ -2309,7 +2311,7 @@ function updatePortfolioSummary() {
             // ⭐️ 현재 보유 중인 종목만 현재가 영역 추가
             if (!isClosed) {
                 card.innerHTML += `
-                    <div class="current-price-section" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
+                    <div class="current-price-section" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);" title="클릭하여 현재가 갱신">
                         <div class="stat-row" style="align-items: center;"><span>현재가</span><span class="cp-price" data-code="${data.stockCode || ''}">조회 중...</span></div>
                         <div class="stat-row" style="align-items: center;"><span>평가금액</span><span class="cp-eval" data-code="${data.stockCode || ''}">-</span></div>
                         <div class="stat-row" style="align-items: center;"><span>평가손익</span><span class="cp-profit" data-code="${data.stockCode || ''}">-</span></div>
@@ -2320,7 +2322,14 @@ function updatePortfolioSummary() {
         
         // ⭐️ 종목 카드 클릭 시 해당 종목 히스토리 필터링 이벤트 연동
         card.title = `${stock} 기록 모아보기`;
-        card.addEventListener('click', () => {
+        card.addEventListener('click', (e) => {
+            // ⭐️ 현재가 영역 클릭 시에는 히스토리 필터링 대신 현재가 즉시 갱신 수행
+            if (e.target.closest('.current-price-section')) {
+                e.stopPropagation();
+                window.fetchCurrentPricesAndUpdateUI();
+                return;
+            }
+            
             clearAllFilters(false);
             currentFilterStock = stock;
             

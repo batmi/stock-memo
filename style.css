@@ -745,8 +745,10 @@ button:hover {
 /* ⭐️ 포트폴리오 카드 투자 종류 배지 스타일 */
 .account-badge { font-size: 10.5px; padding: 2px 5px; border-radius: 4px; margin-right: 5px; font-weight: bold; }
 /* ⭐️ 현재가 조회 활성화 시 표시되는 섹션 */
-.current-price-section { background: rgba(52, 152, 219, 0.05); border-radius: 6px; padding: 10px; }
+.current-price-section { background: rgba(52, 152, 219, 0.05); border-radius: 6px; padding: 10px; cursor: pointer; transition: background-color 0.2s; }
+.current-price-section:hover { background: rgba(52, 152, 219, 0.1); }
 [data-theme="dark"] .current-price-section { background: rgba(59, 104, 140, 0.15); }
+[data-theme="dark"] .current-price-section:hover { background: rgba(59, 104, 140, 0.25); }
 
 /* ⭐️ 현재가 업데이트 시 부드럽게 반짝이는(Flash) 애니메이션 */
 @keyframes flash-highlight {
@@ -756,6 +758,21 @@ button:hover {
 }
 .current-price-section.flash {
     animation: flash-highlight 1.5s ease-out;
+}
+
+/* ⭐️ 차트 중앙 총 평가금액 클릭 영역 스타일 */
+.clickable-evaluation {
+    cursor: pointer;
+    transition: transform 0.1s ease, opacity 0.2s ease;
+    border-radius: 6px;
+    padding: 2px 8px;
+}
+.clickable-evaluation:hover {
+    transform: scale(1.05);
+}
+.clickable-evaluation:active {
+    transform: scale(0.98);
+    opacity: 0.9;
 }
 
 /* ⭐️ 드래그 앤 드롭 중인 카드의 임시 시각 효과 */
