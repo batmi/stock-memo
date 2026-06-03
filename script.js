@@ -2478,6 +2478,15 @@ function updatePortfolioSummary() {
                 layout: { padding: 15 }, // ⭐️ 도넛 크기를 약간 줄여 주변 여유 공간 확보
                 onHover: (e, elements, chart) => {
                     chart.canvas.style.cursor = isPortfolioEmpty ? 'default' : 'pointer';
+                    // ⭐️ 마우스를 올렸을 때 중앙 텍스트가 툴팁을 가리지 않도록 z-index 조절
+                    const centerText = document.getElementById('chartCenterText');
+                    if (centerText) {
+                        if (elements.length > 0) {
+                            centerText.style.zIndex = '5';
+                        } else {
+                            centerText.style.zIndex = '11';
+                        }
+                    }
                 },
                 plugins: { 
                     legend: { 

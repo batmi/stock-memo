@@ -747,8 +747,10 @@ button:hover {
 /* ⭐️ 현재가 조회 활성화 시 표시되는 섹션 */
 .current-price-section { background: rgba(52, 152, 219, 0.05); border-radius: 6px; padding: 10px; cursor: pointer; transition: background-color 0.2s; }
 .current-price-section:hover { background: rgba(52, 152, 219, 0.1); }
+.current-price-section .cp-price { color: var(--text-strong-color) !important; font-weight: bold; }
 [data-theme="dark"] .current-price-section { background: rgba(59, 104, 140, 0.15); }
 [data-theme="dark"] .current-price-section:hover { background: rgba(59, 104, 140, 0.25); }
+[data-theme="dark"] .current-price-section .cp-price { color: var(--text-strong-color) !important; font-weight: bold; }
 
 /* ⭐️ 현재가 업데이트 시 부드럽게 반짝이는(Flash) 애니메이션 */
 @keyframes flash-highlight {
