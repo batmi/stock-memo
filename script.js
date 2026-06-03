@@ -3008,10 +3008,10 @@ function displayEntries(isFilterUpdate = false) {
         
         // 편의 기능: 조건이 2개 이상 섞여 있을 때는 '전체 초기화' 단축 버튼 추가
         if (activeFilterCount >= 2) {
-            chipsHtml += `<span onclick="clearAllFilters()" style="font-size: 12px; color: var(--danger-color); cursor: pointer; text-decoration: underline; margin-left: 5px;" title="모든 조건 해제">전체 초기화</span>`;
+            chipsHtml += `<span onclick="clearAllFilters()" style="font-size: 11px; color: var(--danger-color); cursor: pointer; text-decoration: underline; margin-left: 5px;" title="모든 조건 해제">전체 초기화</span>`;
         }
         
-        chipsHtml += `<span style="margin-left: auto; color: var(--danger-color); font-size: 13px; font-weight: bold; padding-top: 4px;">총 ${filteredEntries.length}건</span>`;
+        chipsHtml += `<span style="margin-left: auto; color: var(--danger-color); font-size: 12px; font-weight: bold;">총 ${filteredEntries.length}건</span>`;
         
         banner.innerHTML = chipsHtml;
     } else { 
