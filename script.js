@@ -281,8 +281,14 @@ window.addEventListener('DOMContentLoaded', () => {
             if (btnToggleNews && btnToggleNews.parentElement !== themeSwitchOuter) {
                 themeSwitchOuter.appendChild(btnToggleNews);
                 btnToggleNews.style.display = 'inline-block';
+                const isExpanded = document.getElementById('newsList')?.classList.contains('news-expanded');
+                btnToggleNews.style.backgroundColor = isExpanded ? 'transparent' : 'var(--primary-color)';
+                btnToggleNews.style.color = isExpanded ? 'var(--primary-color)' : '#fff';
             } else if (btnToggleNews) {
                 btnToggleNews.style.display = 'inline-block';
+                const isExpanded = document.getElementById('newsList')?.classList.contains('news-expanded');
+                btnToggleNews.style.backgroundColor = isExpanded ? 'transparent' : 'var(--primary-color)';
+                btnToggleNews.style.color = isExpanded ? 'var(--primary-color)' : '#fff';
             }
         } else {
             // 데스크탑 레이아웃 원복
@@ -299,7 +305,11 @@ window.addEventListener('DOMContentLoaded', () => {
             const newsList = document.getElementById('newsList');
             if (newsList && newsList.classList.contains('news-expanded')) {
                 newsList.classList.remove('news-expanded');
-                if (btnToggleNews) btnToggleNews.innerText = '펼치기 ▼';
+            }
+            if (btnToggleNews) {
+                btnToggleNews.innerText = '펼치기 ▼';
+                btnToggleNews.style.backgroundColor = 'var(--primary-color)';
+                btnToggleNews.style.color = '#fff';
             }
         }
     }
@@ -340,6 +350,8 @@ window.addEventListener('DOMContentLoaded', () => {
             if (!newsList) return;
             const isExpanded = newsList.classList.toggle('news-expanded');
             btnToggleNews.innerText = isExpanded ? '접기 ▲' : '펼치기 ▼';
+                    btnToggleNews.style.backgroundColor = isExpanded ? 'transparent' : 'var(--primary-color)';
+                    btnToggleNews.style.color = isExpanded ? 'var(--primary-color)' : '#fff';
             if (!isExpanded) {
                 newsList.scrollLeft = 0; // 가로 스크롤 원위치
             }
@@ -411,6 +423,8 @@ window.addEventListener('DOMContentLoaded', () => {
     if (dashboardBrokerFilter) {
         dashboardBrokerFilter.addEventListener('change', (e) => {
             currentDashboardBroker = e.target.value;
+            window.updateDashboardFilterStyle(e.target);
+            window.saveFilterPreferences();
             updatePortfolioSummary();
         });
     }
@@ -420,6 +434,8 @@ window.addEventListener('DOMContentLoaded', () => {
     if (dashboardSubAccountFilter) {
         dashboardSubAccountFilter.addEventListener('change', (e) => {
             currentDashboardSubAccount = e.target.value;
+            window.updateDashboardFilterStyle(e.target);
+            window.saveFilterPreferences();
             updatePortfolioSummary();
         });
     }
@@ -429,6 +445,8 @@ window.addEventListener('DOMContentLoaded', () => {
     if (dashboardAccountFilter) {
         dashboardAccountFilter.addEventListener('change', (e) => {
             currentDashboardAccount = e.target.value;
+            window.updateDashboardFilterStyle(e.target);
+            window.saveFilterPreferences();
             updatePortfolioSummary();
         });
     }
@@ -471,6 +489,8 @@ window.addEventListener('DOMContentLoaded', () => {
         if (el) {
             el.addEventListener('change', (e) => {
                 sel.setter(e.target.value);
+                window.updateDashboardFilterStyle(e.target);
+                window.saveFilterPreferences();
                 displayEntries(true);
                 window.scrollToFilterBox();
             });
@@ -879,6 +899,16 @@ async function loadDataFromLocal() {
                     priceUpdateInterval = setInterval(() => window.fetchCurrentPricesAndUpdateUI(), 60000);
                 }
                 }
+                
+                // ⭐️ 대시보드 및 하단 리스트 필터 상태 복원
+                if (userPreferences.currentDashboardBroker) currentDashboardBroker = userPreferences.currentDashboardBroker;
+                if (userPreferences.currentDashboardSubAccount) currentDashboardSubAccount = userPreferences.currentDashboardSubAccount;
+                if (userPreferences.currentDashboardAccount) currentDashboardAccount = userPreferences.currentDashboardAccount;
+                if (userPreferences.currentFilterRecordType) currentFilterRecordType = userPreferences.currentFilterRecordType;
+                if (userPreferences.currentFilterStock) currentFilterStock = userPreferences.currentFilterStock;
+                if (userPreferences.currentFilterAccount) currentFilterAccount = userPreferences.currentFilterAccount;
+                if (userPreferences.currentFilterBroker) currentFilterBroker = userPreferences.currentFilterBroker;
+                if (userPreferences.currentFilterSubAccount) currentFilterSubAccount = userPreferences.currentFilterSubAccount;
             }
         } catch (e) {
             console.warn("환경설정 로드 실패:", e);
@@ -917,6 +947,19 @@ async function savePreferences() {
         console.error("환경설정 저장 실패:", err);
     }
 }
+
+// ⭐️ 모든 필터 상태를 DB에 저장
+window.saveFilterPreferences = function() {
+    userPreferences.currentDashboardBroker = currentDashboardBroker;
+    userPreferences.currentDashboardSubAccount = currentDashboardSubAccount;
+    userPreferences.currentDashboardAccount = currentDashboardAccount;
+    userPreferences.currentFilterRecordType = currentFilterRecordType;
+    userPreferences.currentFilterStock = currentFilterStock;
+    userPreferences.currentFilterAccount = currentFilterAccount;
+    userPreferences.currentFilterBroker = currentFilterBroker;
+    userPreferences.currentFilterSubAccount = currentFilterSubAccount;
+    savePreferences();
+};
 
 async function fetchRealtimeNews() {
     const newsListEl = document.getElementById('newsList');
@@ -2373,9 +2416,13 @@ function updatePortfolioSummary() {
             
             clearAllFilters(false);
             currentFilterStock = stock;
+            window.saveFilterPreferences();
             
             const stockSelect = document.getElementById('filterStockSelect');
-            if (stockSelect && stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) stockSelect.value = currentFilterStock;
+            if (stockSelect && stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) {
+                stockSelect.value = currentFilterStock;
+                window.updateDashboardFilterStyle(stockSelect);
+            }
             
             // 캘린더 뷰인 경우 리스트 뷰로 자동 전환
             const btnListView = document.getElementById('btnListView');
@@ -2409,6 +2456,8 @@ function updatePortfolioSummary() {
 
     if (toggleBtn) {
         toggleBtn.innerHTML = isDashboardCollapsed ? '펼치기 ▼' : '접기 ▲';
+        toggleBtn.style.backgroundColor = isDashboardCollapsed ? 'var(--primary-color)' : 'transparent';
+        toggleBtn.style.color = isDashboardCollapsed ? '#fff' : 'var(--primary-color)';
         toggleBtn.style.display = shouldShowDashboard ? 'inline-block' : 'none';
     }
 
@@ -2586,9 +2635,13 @@ function updatePortfolioSummary() {
                     legendItem.addEventListener('click', () => {
                         clearAllFilters(false);
                         currentFilterStock = label;
+                        window.saveFilterPreferences();
                         
                         const stockSelect = document.getElementById('filterStockSelect');
-                        if (stockSelect && stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) stockSelect.value = currentFilterStock;
+                        if (stockSelect && stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) {
+                            stockSelect.value = currentFilterStock;
+                            window.updateDashboardFilterStyle(stockSelect);
+                        }
                         
                         const btnListView = document.getElementById('btnListView');
                         if (btnListView && !btnListView.classList.contains('active')) btnListView.click();
@@ -2602,6 +2655,18 @@ function updatePortfolioSummary() {
     } else { chartContainer.style.display = 'none'; }
 }
 
+// ⭐️ 대시보드 필터 선택 시 활성화 색상(피드백) 변경 함수
+window.updateDashboardFilterStyle = function(element) {
+    if (!element) return;
+    if (element.value !== 'all') {
+        element.style.backgroundColor = 'var(--primary-color)';
+        element.style.color = '#fff';
+    } else {
+        element.style.backgroundColor = 'transparent';
+        element.style.color = 'var(--primary-color)';
+    }
+};
+
 // ⭐️ 드롭다운 필터에 종목명을 동적으로 추가하는 함수
 function updateFilterDropdown() {
     const stockSelect = document.getElementById('filterStockSelect');
@@ -2610,7 +2675,10 @@ function updateFilterDropdown() {
     const subAccountSelect = document.getElementById('filterSubAccountSelect');
     const recordTypeSelect = document.getElementById('filterRecordTypeSelect');
     
-    if (recordTypeSelect) recordTypeSelect.value = currentFilterRecordType;
+    if (recordTypeSelect) {
+        recordTypeSelect.value = currentFilterRecordType;
+        window.updateDashboardFilterStyle(recordTypeSelect);
+    }
 
     const stocks = [...new Set(cloudEntries.map(e => e.stockName).filter(Boolean))].sort();
     if (stockSelect) {
@@ -2621,6 +2689,7 @@ function updateFilterDropdown() {
         stockSelect.innerHTML = html;
         if (stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) stockSelect.value = currentFilterStock;
         else stockSelect.value = 'all';
+        window.updateDashboardFilterStyle(stockSelect);
     }
 
     const accountSortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "기타": 7 };
@@ -2638,6 +2707,7 @@ function updateFilterDropdown() {
         accountSelect.innerHTML = html;
         if (accountSelect.querySelector(`option[value="${currentFilterAccount.replace(/"/g, '\\"')}"]`)) accountSelect.value = currentFilterAccount;
         else accountSelect.value = 'all';
+        window.updateDashboardFilterStyle(accountSelect);
     }
     
     const brokers = [...new Set(cloudEntries.map(e => e.brokerAccount).filter(Boolean))].sort();
@@ -2649,6 +2719,7 @@ function updateFilterDropdown() {
         brokerSelect.innerHTML = html;
         if (brokerSelect.querySelector(`option[value="${currentFilterBroker.replace(/"/g, '\\"')}"]`)) brokerSelect.value = currentFilterBroker;
         else brokerSelect.value = 'all';
+        window.updateDashboardFilterStyle(brokerSelect);
     }
 
     const subAccounts = [...new Set(cloudEntries.map(e => e.subAccount).filter(Boolean))].sort();
@@ -2660,6 +2731,7 @@ function updateFilterDropdown() {
         subAccountSelect.innerHTML = html;
         if (subAccountSelect.querySelector(`option[value="${currentFilterSubAccount.replace(/"/g, '\\"')}"]`)) subAccountSelect.value = currentFilterSubAccount;
         else subAccountSelect.value = 'all';
+        window.updateDashboardFilterStyle(subAccountSelect);
     }
     
     // ⭐️ 대시보드의 증권사 필터 옵션도 동적으로 업데이트
@@ -2679,6 +2751,7 @@ function updateFilterDropdown() {
             dashboardBrokerFilter.value = 'all';
             currentDashboardBroker = 'all';
         }
+        window.updateDashboardFilterStyle(dashboardBrokerFilter);
     }
     
     // ⭐️ 대시보드의 증권계좌 필터 옵션도 동적으로 업데이트
@@ -2698,6 +2771,7 @@ function updateFilterDropdown() {
             dashboardSubAccountFilter.value = 'all';
             currentDashboardSubAccount = 'all';
         }
+        window.updateDashboardFilterStyle(dashboardSubAccountFilter);
     }
 
     // ⭐️ 대시보드의 투자 분류 필터 옵션도 동적으로 업데이트
@@ -2717,6 +2791,7 @@ function updateFilterDropdown() {
             dashboardAccountFilter.value = 'all';
             currentDashboardAccount = 'all';
         }
+        window.updateDashboardFilterStyle(dashboardAccountFilter);
     }
 }
 
@@ -3328,11 +3403,19 @@ window.showDetailsForDate = function(date, typeArg, event) {
         currentFilterStock = typeArg.substring(11);
     }
     
+    window.saveFilterPreferences();
+    
     // ⭐️ 새로 설정된 필터 상태를 UI에 동기화
     const typeSelect = document.getElementById('filterRecordTypeSelect');
-    if (typeSelect) typeSelect.value = currentFilterRecordType;
+    if (typeSelect) {
+        typeSelect.value = currentFilterRecordType;
+        window.updateDashboardFilterStyle(typeSelect);
+    }
     const stockSelect = document.getElementById('filterStockSelect');
-    if (stockSelect && stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) stockSelect.value = currentFilterStock;
+    if (stockSelect && stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) {
+        stockSelect.value = currentFilterStock;
+        window.updateDashboardFilterStyle(stockSelect);
+    }
     
     document.getElementById('btnListView').click();
     displayEntries(true);
@@ -3344,9 +3427,13 @@ window.filterByStock = function(stockName, event) {
     if (event) event.stopPropagation();
     clearAllFilters(false);
     currentFilterStock = stockName;
+    window.saveFilterPreferences();
     
     const stockSelect = document.getElementById('filterStockSelect');
-    if (stockSelect && stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) stockSelect.value = currentFilterStock;
+    if (stockSelect && stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) {
+        stockSelect.value = currentFilterStock;
+        window.updateDashboardFilterStyle(stockSelect);
+    }
     
     const btnListView = document.getElementById('btnListView');
     if (btnListView && !btnListView.classList.contains('active')) {
@@ -3366,32 +3453,42 @@ window.clearDateFilter = function() {
 
 window.clearRecordTypeFilter = function() {
     currentFilterRecordType = 'all';
-    document.getElementById('filterRecordTypeSelect').value = 'all';
+    const el = document.getElementById('filterRecordTypeSelect');
+    if (el) { el.value = 'all'; window.updateDashboardFilterStyle(el); }
+    window.saveFilterPreferences();
     displayEntries(true);
     window.scrollToFilterBox();
 };
 window.clearStockFilter = function() {
     currentFilterStock = 'all';
-    document.getElementById('filterStockSelect').value = 'all';
+    const el = document.getElementById('filterStockSelect');
+    if (el) { el.value = 'all'; window.updateDashboardFilterStyle(el); }
+    window.saveFilterPreferences();
     displayEntries(true);
     window.scrollToFilterBox();
 };
 window.clearAccountFilter = function() {
     currentFilterAccount = 'all';
-    document.getElementById('filterAccountSelect').value = 'all';
+    const el = document.getElementById('filterAccountSelect');
+    if (el) { el.value = 'all'; window.updateDashboardFilterStyle(el); }
+    window.saveFilterPreferences();
     displayEntries(true);
     window.scrollToFilterBox();
 };
 window.clearBrokerFilter = function() {
     currentFilterBroker = 'all';
-    document.getElementById('filterBrokerSelect').value = 'all';
+    const el = document.getElementById('filterBrokerSelect');
+    if (el) { el.value = 'all'; window.updateDashboardFilterStyle(el); }
+    window.saveFilterPreferences();
     displayEntries(true);
     window.scrollToFilterBox();
 };
 
 window.clearSubAccountFilter = function() {
     currentFilterSubAccount = 'all';
-    document.getElementById('filterSubAccountSelect').value = 'all';
+    const el = document.getElementById('filterSubAccountSelect');
+    if (el) { el.value = 'all'; window.updateDashboardFilterStyle(el); }
+    window.saveFilterPreferences();
     displayEntries(true);
     window.scrollToFilterBox();
 };
@@ -3413,11 +3510,16 @@ window.clearAllFilters = function(shouldRender = true) {
     currentFilterSubAccount = 'all';
     currentFilterKeywords = [];
     
+    window.saveFilterPreferences();
+    
     // ⭐️ 필터 UI 컨트롤(셀렉트 박스)도 명시적으로 모두 초기화
     const selects = ['filterRecordTypeSelect', 'filterStockSelect', 'filterAccountSelect', 'filterBrokerSelect', 'filterSubAccountSelect'];
     selects.forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.value = 'all';
+        if (el) {
+            el.value = 'all';
+            window.updateDashboardFilterStyle(el);
+        }
     });
     
     if (filterStockInput) filterStockInput.value = '';

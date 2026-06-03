@@ -293,6 +293,11 @@ input[type="text"], select, textarea, input[type="number"], input[type="datetime
     font-family: inherit;
     transition: border-color 0.2s, box-shadow 0.2s;
 }
+/* ⭐️ select 박스의 배경색이 변해도 옵션 항목 글자가 잘 보이도록 고정 */
+select option {
+    background-color: var(--card-bg-color);
+    color: var(--text-color);
+}
 input[type="text"]:focus, select:focus, textarea:focus, input[type="number"]:focus, input[type="datetime-local"]:focus, input[type="password"]:focus {
     border-color: var(--primary-color);
     outline: none;
@@ -609,7 +614,7 @@ button:hover {
     box-sizing: border-box;
     box-shadow: none !important;
     color: var(--text-color);
-    font-size: 13px;
+    font-size: 12px;
     text-align: center;
     text-align-last: center; /* ⭐️ 드롭다운 메뉴 텍스트를 중앙으로 정렬하는 필수 속성 */
 }
@@ -647,7 +652,7 @@ button:hover {
 }
 
 /* ⭐️ 검색창 텍스트 좌측 정렬 및 X버튼 여백 확보를 위한 padding 설정 */
-.filter-box input { width: 100%; padding: 8px 30px 8px 12px; border: 2px solid var(--primary-color); border-radius: 4px; font-size: 13px; height: 40px; box-sizing: border-box; text-align: left; }
+.filter-box input { width: 100%; padding: 8px 30px 8px 12px; border: 2px solid var(--primary-color); border-radius: 4px; font-size: 12px; height: 40px; box-sizing: border-box; text-align: left; }
 .clear-input-btn {
     position: absolute;
     right: 10px;
@@ -964,7 +969,7 @@ button:hover {
     }
     .filter-select-wrapper select {
         padding: 0 4px !important;
-        font-size: 14px !important; /* 4개가 한줄에 들어가도록 폰트 소폭 축소 */
+        font-size: 12px !important; /* 5개가 한줄에 들어가도록 폰트 소폭 축소 */
     }
     .filter-search-wrapper {
         flex: 1 1 100% !important;
@@ -975,8 +980,11 @@ button:hover {
     /* ⭐️ 모바일 전체 입력창 및 풀다운 메뉴(select) 폰트 사이즈를 15px로 축소/통일 */
     input[type="text"], input[type="number"], input[type="datetime-local"], 
     input[type="password"], select, textarea, #memoTitle, #tagInput, 
-    .flatpickr-input, .flatpickr-mobile, .filter-box input {
+    .flatpickr-input, .flatpickr-mobile {
         font-size: 15px !important;
+    }
+    .filter-box input {
+        font-size: 13px !important;
     }
 
     /* ⭐️ 모바일 에디터 15px 통일 및 iOS 자동 확대 방지 우회 기법 (Zoom Hack) */
