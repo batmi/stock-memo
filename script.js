@@ -1,3 +1,11 @@
+// ⭐️ 전역 에러 핸들러 추가 (화면 렌더링 전 발생하는 치명적 에러 감지용)
+window.addEventListener('error', function(e) {
+    console.error("[Global Error] JS 에러 발생:", e.message, "위치:", e.filename, "라인:", e.lineno);
+});
+window.addEventListener('unhandledrejection', function(e) {
+    console.error("[Unhandled Promise Rejection] 처리되지 않은 비동기 에러:", e.reason);
+});
+
 let cloudEntries = [];
 let currentHoldings = [];
 let newsInterval = null;
@@ -6,6 +14,7 @@ let currentFilterRecordType = 'all'; // ⭐️ 독립 필터 1 (기록/매매)
 let currentFilterStock = 'all';      // ⭐️ 독립 필터 2 (종목별)
 let currentFilterAccount = 'all';    // ⭐️ 독립 필터 3 (분류별)
 let currentFilterBroker = 'all';     // ⭐️ 독립 필터 4 (증권사별)
+let currentFilterSubAccount = 'all'; // ⭐️ 독립 필터 5 (계좌별)
 let currentFilterKeywords = []; // ⭐️ 다중 키워드 필터용 배열
 let isDashboardCollapsed = false;
 let showClosedPositions = false; // 청산 종목 보기 상태
@@ -13,6 +22,7 @@ let showCurrentPrice = false; // ⭐️ 현재가 및 평가금액 보기 상태
 let currentPortfolioArrayForPrice = []; // 현재가 계산용 임시 배열
 let showHistoryClosedPositions = true; // ⭐️ 기본적으로 히스토리에 청산 종목을 표시하도록 변경
 let currentDashboardBroker = 'all'; // 대시보드 증권사 필터 상태
+let currentDashboardSubAccount = 'all'; // 대시보드 계좌 필터 상태
 let currentDashboardAccount = 'all'; // 대시보드 투자 분류 필터 상태
 let priceUpdateInterval = null; // ⭐️ 타이머 변수 선언 누락 수정
 let currentFilteredEntries = [];
@@ -211,6 +221,7 @@ resetInactivityTimers(); // 초기 타이머 시작
 
 const mainApp = document.getElementById('mainApp');
 window.addEventListener('DOMContentLoaded', () => {
+    console.log("[App Init] DOMContentLoaded 이벤트 시작 - DOM 로드 완료");
     const themeToggle = document.getElementById('theme-toggle');
 
     function applyTheme(theme) {
@@ -404,6 +415,15 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ⭐️ 대시보드 증권계좌 필터 이벤트 연결
+    const dashboardSubAccountFilter = document.getElementById('dashboardSubAccountFilter');
+    if (dashboardSubAccountFilter) {
+        dashboardSubAccountFilter.addEventListener('change', (e) => {
+            currentDashboardSubAccount = e.target.value;
+            updatePortfolioSummary();
+        });
+    }
+
     // ⭐️ 대시보드 투자 분류 필터 이벤트 연결
     const dashboardAccountFilter = document.getElementById('dashboardAccountFilter');
     if (dashboardAccountFilter) {
@@ -442,7 +462,8 @@ window.addEventListener('DOMContentLoaded', () => {
         { id: 'filterRecordTypeSelect', setter: (val) => currentFilterRecordType = val },
         { id: 'filterStockSelect', setter: (val) => currentFilterStock = val },
         { id: 'filterAccountSelect', setter: (val) => currentFilterAccount = val },
-        { id: 'filterBrokerSelect', setter: (val) => currentFilterBroker = val }
+        { id: 'filterBrokerSelect', setter: (val) => currentFilterBroker = val },
+        { id: 'filterSubAccountSelect', setter: (val) => currentFilterSubAccount = val }
     ];
 
     selectors.forEach(sel => {
@@ -784,12 +805,14 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 async function loadDataFromLocal() {
+    console.log("[Data Load] loadDataFromLocal() 시작 - 사용자 데이터 호출 중...");
     try {
         // ⭐️ 사용자 환경설정 먼저 불러오기
         try {
             // ⭐️ 사용자 정보 및 관리자 여부 확인
             try {
                 const meRes = await fetch('/api/me', { headers: { 'ngrok-skip-browser-warning': 'true' }});
+                console.log("[Data Load] /api/me 상태 코드:", meRes.status);
                 if (meRes.ok) {
                     const meData = await meRes.json();
                     if (meData.username) {
@@ -861,17 +884,20 @@ async function loadDataFromLocal() {
             console.warn("환경설정 로드 실패:", e);
         }
         
+        console.log("[Data Load] /api/data 매매 기록 호출 중...");
         const response = await fetch('/api/data', {
             headers: { 'ngrok-skip-browser-warning': 'true' }
         });
+        console.log("[Data Load] /api/data 상태 코드:", response.status);
         cloudEntries = await response.json();
         displayEntries();
+        console.log("[Data Load] 화면 렌더링(displayEntries) 완료");
         
         fetchRealtimeNews();
         if (newsInterval) clearInterval(newsInterval);
         newsInterval = setInterval(fetchRealtimeNews, 600000); // 10분 주기로 변경
     } catch (err) {
-        console.error(err);
+        console.error("[Data Load Critical Error] 데이터 로딩 중 치명적 에러 발생:", err);
         await customAlert("로컬 데이터를 불러오지 못했습니다.\n서버가 실행 중인지 확인하세요.");
     }
 }
@@ -1508,9 +1534,14 @@ function getBrokerOptions() {
     const historyBrokers = cloudEntries.map(entry => entry.brokerAccount).filter(Boolean);
     return [...new Set([...defaultBrokers, ...historyBrokers])].sort();
 }
+function getSubAccountOptions() {
+    const historySubAccounts = cloudEntries.map(entry => entry.subAccount).filter(Boolean);
+    return [...new Set(historySubAccounts)].sort();
+}
 
 setupAutocomplete('stockName', 'stockNameList', getStockOptions);
 setupAutocomplete('brokerAccount', 'brokerAccountList', getBrokerOptions);
+setupAutocomplete('subAccount', 'subAccountList', getSubAccountOptions);
 
 // ⭐️ 종목명 입력 완료(자동완성 선택, 포커스 아웃, 엔터 입력) 시 관련 정보 자동 입력
 function autoFillStockInfo(e) {
@@ -1528,6 +1559,7 @@ function autoFillStockInfo(e) {
     if (recentEntry) {
         if (recentEntry.stockCode) document.getElementById('stockCode').value = recentEntry.stockCode;
         if (recentEntry.brokerAccount) document.getElementById('brokerAccount').value = recentEntry.brokerAccount;
+        if (recentEntry.subAccount) document.getElementById('subAccount').value = recentEntry.subAccount;
         if (recentEntry.accountName) document.getElementById('accountName').value = recentEntry.accountName;
     }
 }
@@ -1549,6 +1581,8 @@ stockNameInput.addEventListener('keydown', function(e) {
                 document.getElementById('stockCode').focus();
             } else if (!document.getElementById('brokerAccount').value) {
                 document.getElementById('brokerAccount').focus();
+            } else if (!document.getElementById('subAccount').value) {
+                document.getElementById('subAccount').focus();
             } else if (!document.getElementById('accountName').value) {
                 document.getElementById('accountName').focus();
             } else {
@@ -1645,12 +1679,15 @@ function toggleFormUI(recordType) {
     document.getElementById('tradeRow2').style.display = isTrade ? 'flex' : 'none';
     document.getElementById('memoTitleGroup').style.display = isTrade ? 'none' : 'block';
     document.getElementById('brokerAccountGroup').style.display = isTrade ? 'block' : 'none';
+    document.getElementById('subAccountGroup').style.display = isTrade ? 'block' : 'none';
     
     document.getElementById('stockName').required = isTrade;
     document.getElementById('stockCode').required = isTrade;
     
     const brokerAccountEl = document.getElementById('brokerAccount');
     if (brokerAccountEl) brokerAccountEl.required = isTrade;
+    const subAccountEl = document.getElementById('subAccount');
+    if (subAccountEl) subAccountEl.required = isTrade;
     const accountNameEl = document.getElementById('accountName');
     if (accountNameEl) accountNameEl.required = isTrade;
     
@@ -1801,6 +1838,7 @@ journalForm.addEventListener('submit', async function(e) {
     const stockName = document.getElementById('stockName').value;
     const stockCode = document.getElementById('stockCode').value;
     const brokerAccount = document.getElementById('brokerAccount').value;
+    const subAccount = document.getElementById('subAccount').value;
     const tradeDateRaw = document.getElementById('tradeDate').value;
     
     // ⭐️ 에디터에서 작성한 내용 가져오기 및 필수 입력 검증
@@ -1835,13 +1873,13 @@ journalForm.addEventListener('submit', async function(e) {
         const quantity = document.getElementById('quantity').value;
 
         newEntry = {
-            id: currentEditingId || Date.now(), type: 'trade', stockName, stockCode, brokerAccount, accountName,
+            id: currentEditingId || Date.now(), type: 'trade', stockName, stockCode, brokerAccount, subAccount, accountName,
             tradeType, price: price ? Number(price) : 0, quantity: quantity ? Number(quantity) : 0, thoughts, date, rawDate: tradeDateRaw, attachedImage: null,
             createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: '', attachedFileName: ''
         };
     } else {
         const memoTitle = document.getElementById('memoTitle').value;
-        newEntry = { id: currentEditingId || Date.now(), type: 'memo', stockName: '', stockCode: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: '', attachedFileName: '' };
+        newEntry = { id: currentEditingId || Date.now(), type: 'memo', stockName: '', stockCode: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: '', attachedFileName: '', brokerAccount: '', subAccount: '' };
     }
 
     const method = currentEditingId ? 'PUT' : 'POST';
@@ -1994,9 +2032,9 @@ document.getElementById('btnExportExcel').addEventListener('click', async () => 
         // ⭐️ UI 스레드가 블록되기 전에 로딩 애니메이션이 화면에 렌더링될 수 있도록 약간의 지연(setTimeout)을 줌
         setTimeout(async () => {
             try {
-        const header = ['작성일', '분류', '종목명', '증권사', '계좌분류', '매매종류', '단가', '수량', '태그', '메모/생각'];
+        const header = ['작성일', '분류', '종목명', '증권사', '증권계좌', '계좌분류', '매매종류', '단가', '수량', '태그', '메모/생각'];
         const rows = cloudEntries.map(e => [
-            e.date, (e.type || '').toUpperCase(), e.stockName||'', e.brokerAccount||'', e.accountName||'',
+            e.date, (e.type || '').toUpperCase(), e.stockName||'', e.brokerAccount||'', e.subAccount||'', e.accountName||'',
             e.tradeType||'', Number(e.price)||0, Number(e.quantity)||0, 
             e.tags||'', (e.thoughts||'').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') // HTML 태그 제거 후 엑셀 내보내기
         ]);
@@ -2006,10 +2044,10 @@ document.getElementById('btnExportExcel').addEventListener('click', async () => 
         // 단가, 수량 컬럼 숫자 포맷(천 단위 콤마) 지정
         const range = XLSX.utils.decode_range(worksheet['!ref']);
         for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-            const priceCell = worksheet[XLSX.utils.encode_cell({c: 6, r: R})]; // G열 (단가)
+            const priceCell = worksheet[XLSX.utils.encode_cell({c: 7, r: R})]; // H열 (단가)
             if (priceCell && priceCell.t === 'n') priceCell.z = '#,##0';
             
-            const qtyCell = worksheet[XLSX.utils.encode_cell({c: 7, r: R})]; // H열 (수량)
+            const qtyCell = worksheet[XLSX.utils.encode_cell({c: 8, r: R})]; // I열 (수량)
             if (qtyCell && qtyCell.t === 'n') qtyCell.z = '#,##0';
         }
 
@@ -2156,6 +2194,9 @@ function updatePortfolioSummary() {
         
         // ⭐️ 대시보드 증권사 필터 적용
         if (currentDashboardBroker !== 'all' && (entry.brokerAccount || '') !== currentDashboardBroker) return;
+        
+        // ⭐️ 대시보드 증권계좌 필터 적용
+        if (currentDashboardSubAccount !== 'all' && (entry.subAccount || '') !== currentDashboardSubAccount) return;
         
         // ⭐️ 대시보드 투자 분류 필터 적용
         if (currentDashboardAccount !== 'all' && (entry.accountName || '') !== currentDashboardAccount) return;
@@ -2566,6 +2607,7 @@ function updateFilterDropdown() {
     const stockSelect = document.getElementById('filterStockSelect');
     const accountSelect = document.getElementById('filterAccountSelect');
     const brokerSelect = document.getElementById('filterBrokerSelect');
+    const subAccountSelect = document.getElementById('filterSubAccountSelect');
     const recordTypeSelect = document.getElementById('filterRecordTypeSelect');
     
     if (recordTypeSelect) recordTypeSelect.value = currentFilterRecordType;
@@ -2608,6 +2650,17 @@ function updateFilterDropdown() {
         if (brokerSelect.querySelector(`option[value="${currentFilterBroker.replace(/"/g, '\\"')}"]`)) brokerSelect.value = currentFilterBroker;
         else brokerSelect.value = 'all';
     }
+
+    const subAccounts = [...new Set(cloudEntries.map(e => e.subAccount).filter(Boolean))].sort();
+    if (subAccountSelect) {
+        let html = '<option value="all">계좌별</option>';
+        subAccounts.forEach(sa => {
+            html += `<option value="${sa.replace(/"/g, '&quot;')}">${sa}</option>`;
+        });
+        subAccountSelect.innerHTML = html;
+        if (subAccountSelect.querySelector(`option[value="${currentFilterSubAccount.replace(/"/g, '\\"')}"]`)) subAccountSelect.value = currentFilterSubAccount;
+        else subAccountSelect.value = 'all';
+    }
     
     // ⭐️ 대시보드의 증권사 필터 옵션도 동적으로 업데이트
     const dashboardBrokerFilter = document.getElementById('dashboardBrokerFilter');
@@ -2625,6 +2678,25 @@ function updateFilterDropdown() {
         } else {
             dashboardBrokerFilter.value = 'all';
             currentDashboardBroker = 'all';
+        }
+    }
+    
+    // ⭐️ 대시보드의 증권계좌 필터 옵션도 동적으로 업데이트
+    const dashboardSubAccountFilter = document.getElementById('dashboardSubAccountFilter');
+    if (dashboardSubAccountFilter) {
+        const currentSubAccountVal = currentDashboardSubAccount || 'all';
+        let subAccountHtml = `<option value="all">모든 계좌</option>`;
+        if (subAccounts.length > 0) {
+            subAccounts.forEach(sa => {
+                subAccountHtml += `<option value="${sa.replace(/"/g, '&quot;')}">${sa}</option>`;
+            });
+        }
+        dashboardSubAccountFilter.innerHTML = subAccountHtml;
+        if (dashboardSubAccountFilter.querySelector(`option[value="${currentSubAccountVal}"]`)) {
+            dashboardSubAccountFilter.value = currentSubAccountVal;
+        } else {
+            dashboardSubAccountFilter.value = 'all';
+            currentDashboardSubAccount = 'all';
         }
     }
 
@@ -2688,6 +2760,10 @@ function displayEntries(isFilterUpdate = false) {
     if (currentFilterBroker !== 'all') {
         cloudEntries.forEach(e => { if ((e.type || 'trade') === 'trade' && e.brokerAccount === currentFilterBroker && e.stockName) relatedStocksForBrokerFilter.add(e.stockName); });
     }
+    const relatedStocksForSubAccountFilter = new Set();
+    if (currentFilterSubAccount !== 'all') {
+        cloudEntries.forEach(e => { if ((e.type || 'trade') === 'trade' && e.subAccount === currentFilterSubAccount && e.stockName) relatedStocksForSubAccountFilter.add(e.stockName); });
+    }
     
     // ⭐️ 검색창에 입력 중인 텍스트가 있다면 다중 키워드 배열에 자동 등록하고 창 비움
     const pendingKeyword = filterStockInput.value.trim();
@@ -2705,11 +2781,12 @@ function displayEntries(isFilterUpdate = false) {
                 const lowerKw = kw.toLowerCase();
                 const matchStock = entry.stockName && entry.stockName.toLowerCase().includes(lowerKw);
                 const matchBroker = entry.brokerAccount && entry.brokerAccount.toLowerCase().includes(lowerKw);
+                const matchSubAccount = entry.subAccount && entry.subAccount.toLowerCase().includes(lowerKw);
                 const matchTags = entry.tags && entry.tags.toLowerCase().includes(lowerKw);
                 const plainThoughts = entry.thoughts ? entry.thoughts.replace(/<[^>]*>?/gm, '').toLowerCase() : '';
                 const matchThoughts = plainThoughts.includes(lowerKw);
                 const matchTitle = entry.title && entry.title.toLowerCase().includes(lowerKw);
-                if (!(matchStock || matchBroker || matchTags || matchThoughts || matchTitle)) return false;
+                if (!(matchStock || matchBroker || matchSubAccount || matchTags || matchThoughts || matchTitle)) return false;
             }
         }
         
@@ -2742,6 +2819,12 @@ function displayEntries(isFilterUpdate = false) {
             const isMatchMemo = entryType === 'memo' && relatedStocksForBrokerFilter.has(entry.stockName);
             if (!isMatchTrade && !isMatchMemo) return false;
         }
+        if (currentFilterSubAccount !== 'all') {
+            const entryType = entry.type || 'trade';
+            const isMatchTrade = entryType === 'trade' && (entry.subAccount || '') === currentFilterSubAccount;
+            const isMatchMemo = entryType === 'memo' && relatedStocksForSubAccountFilter.has(entry.stockName);
+            if (!isMatchTrade && !isMatchMemo) return false;
+        }
         
         // ⭐️ 청산 종목 숨기기 상태일 때 (보유 수량이 0인 종목을 검색 및 필터에서 제외)
         if (!showHistoryClosedPositions) {
@@ -2761,9 +2844,10 @@ function displayEntries(isFilterUpdate = false) {
     const hasStock = currentFilterStock !== 'all';
     const hasAccount = currentFilterAccount !== 'all';
     const hasBroker = currentFilterBroker !== 'all';
+    const hasSubAccount = currentFilterSubAccount !== 'all';
     const hasKeyword = currentFilterKeywords.length > 0;
 
-    if (hasDate || hasRecordType || hasStock || hasAccount || hasBroker || hasKeyword) {
+    if (hasDate || hasRecordType || hasStock || hasAccount || hasBroker || hasSubAccount || hasKeyword) {
         banner.style.display = 'flex';
         if (filterBoxContainer) filterBoxContainer.classList.add('filter-active');
         
@@ -2789,6 +2873,10 @@ function displayEntries(isFilterUpdate = false) {
         }
         if (hasBroker) {
             chipsHtml += `<span class="filter-chip">🏦 ${currentFilterBroker} <span class="chip-close" onclick="clearBrokerFilter()">&times;</span></span>`;
+            activeFilterCount++;
+        }
+        if (hasSubAccount) {
+            chipsHtml += `<span class="filter-chip">💳 ${currentFilterSubAccount} <span class="chip-close" onclick="clearSubAccountFilter()">&times;</span></span>`;
             activeFilterCount++;
         }
         if (hasKeyword) {
@@ -2898,7 +2986,8 @@ function renderPage() {
         if (entryType === 'memo') {
             card.style.borderLeftColor = 'var(--info-color)';
             const displayBroker = highlight(entry.brokerAccount);
-            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.85em; color: var(--text-muted-color); font-weight: normal; margin:0;">🏦 ${displayBroker}</span>` : '';
+            const displaySubAccount = highlight(entry.subAccount);
+            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.85em; color: var(--text-muted-color); font-weight: normal; margin:0;">🏦 ${displayBroker}${entry.subAccount ? ` - ${displaySubAccount}` : ''}</span>` : '';
             const displayTitle = highlight(entry.title);
             const displayThoughts = highlight(entry.thoughts, true);
             card.innerHTML = `
@@ -2947,7 +3036,8 @@ function renderPage() {
             }
             const tradeBadge = `<span style="background-color: ${typeColor}; color: white; padding:4px 8px; border-radius:12px; font-size:0.85em; font-weight:bold; margin:0;">${entry.tradeType}</span>`;
             const displayBroker = highlight(entry.brokerAccount);
-            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.85em; color: var(--text-muted-color); font-weight: normal; margin:0;">🏦 ${displayBroker}</span>` : '';
+            const displaySubAccount = highlight(entry.subAccount);
+            const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.85em; color: var(--text-muted-color); font-weight: normal; margin:0;">🏦 ${displayBroker}${entry.subAccount ? ` - ${displaySubAccount}` : ''}</span>` : '';
             const displayThoughts = highlight(entry.thoughts, true);
             card.innerHTML = `
             <div class="entry-header">
@@ -3012,6 +3102,7 @@ function editEntry(entry) {
     document.getElementById('stockName').value = entry.stockName || '';
     document.getElementById('stockCode').value = entry.stockCode || '';
     document.getElementById('brokerAccount').value = entry.brokerAccount || '';
+    document.getElementById('subAccount').value = entry.subAccount || '';
     
     // ⭐️ 과거 하단에 첨부했던 이미지가 있다면 에디터 본문으로 자동 이동(마이그레이션)
     let contentHtml = entry.thoughts || '';
@@ -3298,6 +3389,13 @@ window.clearBrokerFilter = function() {
     window.scrollToFilterBox();
 };
 
+window.clearSubAccountFilter = function() {
+    currentFilterSubAccount = 'all';
+    document.getElementById('filterSubAccountSelect').value = 'all';
+    displayEntries(true);
+    window.scrollToFilterBox();
+};
+
 window.clearKeywordFilter = function(index) {
     if (typeof index === 'number' && index >= 0) {
         currentFilterKeywords.splice(index, 1);
@@ -3312,10 +3410,11 @@ window.clearAllFilters = function(shouldRender = true) {
     currentFilterStock = 'all';
     currentFilterAccount = 'all';
     currentFilterBroker = 'all';
+    currentFilterSubAccount = 'all';
     currentFilterKeywords = [];
     
     // ⭐️ 필터 UI 컨트롤(셀렉트 박스)도 명시적으로 모두 초기화
-    const selects = ['filterRecordTypeSelect', 'filterStockSelect', 'filterAccountSelect', 'filterBrokerSelect'];
+    const selects = ['filterRecordTypeSelect', 'filterStockSelect', 'filterAccountSelect', 'filterBrokerSelect', 'filterSubAccountSelect'];
     selects.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = 'all';

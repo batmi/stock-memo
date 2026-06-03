@@ -94,10 +94,15 @@
                     </div>
                 </div>
                 <div class="form-row">
-                    <div class="form-group" id="brokerAccountGroup" style="position: relative; flex: 1.5;">
-                        <label for="brokerAccount">증권 계좌</label>
-                        <input type="text" id="brokerAccount" placeholder="예: 키움증권, 토스 등" autocomplete="off" required>
+                    <div class="form-group" id="brokerAccountGroup" style="position: relative; flex: 1;">
+                        <label for="brokerAccount">증권사</label>
+                        <input type="text" id="brokerAccount" placeholder="예: 키움증권" autocomplete="off" required>
                         <div id="brokerAccountList" class="autocomplete-list"></div>
+                    </div>
+                    <div class="form-group" id="subAccountGroup" style="position: relative; flex: 1;">
+                        <label for="subAccount">증권 계좌</label>
+                        <input type="text" id="subAccount" placeholder="예: 일반, 연금저축" autocomplete="off" required>
+                        <div id="subAccountList" class="autocomplete-list"></div>
                     </div>
                     <div class="form-group" style="flex: 1;">
                         <label for="tradeDate">기록 일시</label>
@@ -210,6 +215,9 @@
                         <select id="dashboardBrokerFilter" style="flex: 1; background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; padding: 4px 8px; font-size: 12px; cursor: pointer; outline: none; height: auto;" title="증권사별 포트폴리오 보기">
                             <option value="all">모든 증권사</option>
                         </select>
+                        <select id="dashboardSubAccountFilter" style="flex: 1; background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; padding: 4px 8px; font-size: 12px; cursor: pointer; outline: none; height: auto;" title="증권계좌별 포트폴리오 보기">
+                            <option value="all">모든 계좌</option>
+                        </select>
                     </div>
                     <div class="portfolio-grid" id="portfolioGrid"></div>
                 </div>
@@ -245,6 +253,9 @@
                 </div>
                 <div class="filter-select-wrapper">
                     <select id="filterBrokerSelect"><option value="all">증권사별</option></select>
+                </div>
+                <div class="filter-select-wrapper">
+                    <select id="filterSubAccountSelect"><option value="all">계좌별</option></select>
                 </div>
                 <div class="filter-search-wrapper">
                     <input type="text" id="filterStock" placeholder="🔍 내용검색" autocomplete="off" spellcheck="false" autocorrect="off">

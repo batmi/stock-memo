@@ -100,6 +100,12 @@ def log_request_info(response):
     app.logger.info(f"[{username}] {request.method} {request.path} {response.status_code}")
     return response
 
+# ⭐️ 전역 서버 에러 핸들러 추가 (서버 중단/500 에러 발생 시 상세 로그 기록)
+@app.errorhandler(Exception)
+def handle_exception(e):
+    app.logger.error(f"Unhandled Exception: {e}", exc_info=True)
+    return jsonify(error=str(e)), 500
+
 # ⭐️ 세션(쿠키) 보안 설정 강화
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # 자바스크립트(XSS)로 쿠키 접근 원천 차단
 app.config['SESSION_COOKIE_SECURE'] = False   # ⭐️ 로컬(HTTP) 환경 접속 시 로그인 갱신 오류 방지를 위해 비활성화
@@ -159,6 +165,7 @@ def init_db():
             rawDate TEXT,
             attachedImage TEXT,
             brokerAccount TEXT,
+            subAccount TEXT,
             accountName TEXT,
             tradeType TEXT,
             price REAL,
@@ -203,6 +210,11 @@ def init_db():
         pass
     try:
         c.execute("ALTER TABLE entries ADD COLUMN attachedFileName TEXT")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        c.execute("ALTER TABLE entries ADD COLUMN subAccount TEXT")
     except sqlite3.OperationalError:
         pass
         
@@ -499,12 +511,12 @@ def signup():
                                     img_url = process_image(entry.get('attachedImage'), entry.get('id'))
                                     c.execute('''
                                         INSERT INTO entries 
-                                        (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
-                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, subAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                     ''', (
                                         entry.get('id'), username, entry.get('type'), entry.get('stockName'), entry.get('stockCode', ''), entry.get('title'),
                                         entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), img_url,
-                                        entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
+                                        entry.get('brokerAccount'), entry.get('subAccount', ''), entry.get('accountName'), entry.get('tradeType'),
                                         entry.get('price', 0), entry.get('quantity', 0),
                                         entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', ''),
                                         entry.get('attachedFile', ''), entry.get('attachedFileName', '')
@@ -585,6 +597,7 @@ def logout():
 
 @app.route('/')
 def index():
+    app.logger.debug("index() route 호출됨: stock-memo.html 파일을 반환합니다.")
     return send_from_directory('.', 'stock-memo.html')
 
 @app.route('/api/ping', methods=['POST'])
@@ -766,12 +779,12 @@ def create_entry():
     c = conn.cursor()
     c.execute('''
         INSERT INTO entries 
-        (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, subAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         entry.get('id'), username, entry.get('type'), entry.get('stockName'), entry.get('stockCode', ''), entry.get('title'),
         entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), entry.get('attachedImage'),
-        entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
+        entry.get('brokerAccount'), entry.get('subAccount', ''), entry.get('accountName'), entry.get('tradeType'),
         entry.get('price', 0), entry.get('quantity', 0),
         entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', ''),
         entry.get('attachedFile', ''), entry.get('attachedFileName', '')
@@ -788,12 +801,12 @@ def update_entry(entry_id):
     c = conn.cursor()
     c.execute('''
         UPDATE entries SET
-        type=?, stockName=?, stockCode=?, title=?, thoughts=?, date=?, rawDate=?, attachedImage=?, brokerAccount=?, accountName=?, tradeType=?, price=?, quantity=?, updatedAt=?, tags=?, attachedFile=?, attachedFileName=?
+        type=?, stockName=?, stockCode=?, title=?, thoughts=?, date=?, rawDate=?, attachedImage=?, brokerAccount=?, subAccount=?, accountName=?, tradeType=?, price=?, quantity=?, updatedAt=?, tags=?, attachedFile=?, attachedFileName=?
         WHERE id=? AND username=?
     ''', (
         entry.get('type'), entry.get('stockName'), entry.get('stockCode', ''), entry.get('title'),
         entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), entry.get('attachedImage'),
-        entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
+        entry.get('brokerAccount'), entry.get('subAccount', ''), entry.get('accountName'), entry.get('tradeType'),
         entry.get('price', 0), entry.get('quantity', 0),
         entry.get('updatedAt'), entry.get('tags', ''),
         entry.get('attachedFile', ''), entry.get('attachedFileName', ''),
@@ -1080,12 +1093,12 @@ def full_restore():
         for entry in entries:
             c.execute('''
                 INSERT INTO entries 
-                (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, subAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 entry.get('id'), username, entry.get('type'), entry.get('stockName'), entry.get('stockCode', ''), entry.get('title'),
                 entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), entry.get('attachedImage'),
-                entry.get('brokerAccount'), entry.get('accountName'), entry.get('tradeType'),
+                entry.get('brokerAccount'), entry.get('subAccount', ''), entry.get('accountName'), entry.get('tradeType'),
                 entry.get('price', 0), entry.get('quantity', 0),
                 entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', ''),
                 entry.get('attachedFile', ''), entry.get('attachedFileName', '')
