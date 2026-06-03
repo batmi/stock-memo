@@ -18,7 +18,7 @@ let currentFilterSubAccount = 'all'; // ⭐️ 독립 필터 5 (계좌별)
 let currentFilterKeywords = []; // ⭐️ 다중 키워드 필터용 배열
 let isDashboardCollapsed = false;
 let showClosedPositions = false; // 청산 종목 보기 상태
-let showCurrentPrice = false; // ⭐️ 현재가 및 평가금액 보기 상태
+let showCurrentPrice = true; // ⭐️ 현재가 및 평가금액 보기 상태 (기본값: 보기)
 let currentPortfolioArrayForPrice = []; // 현재가 계산용 임시 배열
 let showHistoryClosedPositions = true; // ⭐️ 기본적으로 히스토리에 청산 종목을 표시하도록 변경
 let currentDashboardBroker = 'all'; // 대시보드 증권사 필터 상태
@@ -396,14 +396,14 @@ window.addEventListener('DOMContentLoaded', () => {
     const btnToggleCurrentPrice = document.getElementById('btnToggleCurrentPrice');
     if (btnToggleCurrentPrice) {
         btnToggleCurrentPrice.innerText = showCurrentPrice ? '현재가 숨기기' : '현재가 보기';
-        btnToggleCurrentPrice.style.backgroundColor = showCurrentPrice ? 'var(--primary-color)' : 'transparent';
-        btnToggleCurrentPrice.style.color = showCurrentPrice ? '#fff' : 'var(--primary-color)';
+        btnToggleCurrentPrice.style.backgroundColor = showCurrentPrice ? 'transparent' : 'var(--primary-color)';
+        btnToggleCurrentPrice.style.color = showCurrentPrice ? 'var(--primary-color)' : '#fff';
 
         btnToggleCurrentPrice.addEventListener('click', () => {
             showCurrentPrice = !showCurrentPrice;
             btnToggleCurrentPrice.innerText = showCurrentPrice ? '현재가 숨기기' : '현재가 보기';
-            btnToggleCurrentPrice.style.backgroundColor = showCurrentPrice ? 'var(--primary-color)' : 'transparent';
-            btnToggleCurrentPrice.style.color = showCurrentPrice ? '#fff' : 'var(--primary-color)';
+            btnToggleCurrentPrice.style.backgroundColor = showCurrentPrice ? 'transparent' : 'var(--primary-color)';
+            btnToggleCurrentPrice.style.color = showCurrentPrice ? 'var(--primary-color)' : '#fff';
             userPreferences.showCurrentPrice = showCurrentPrice;
             savePreferences();
             updatePortfolioSummary(); // UI 리렌더링 및 현재가 fetch 트리거
@@ -934,8 +934,8 @@ async function loadDataFromLocal() {
                     const btnCP = document.getElementById('btnToggleCurrentPrice');
                     if (btnCP) {
                         btnCP.innerText = showCurrentPrice ? '현재가 숨기기' : '현재가 보기';
-                        btnCP.style.backgroundColor = showCurrentPrice ? 'var(--primary-color)' : 'transparent';
-                        btnCP.style.color = showCurrentPrice ? '#fff' : 'var(--primary-color)';
+                        btnCP.style.backgroundColor = showCurrentPrice ? 'transparent' : 'var(--primary-color)';
+                        btnCP.style.color = showCurrentPrice ? 'var(--primary-color)' : '#fff';
                     }
 
                 // ⭐️ 초기 로드 시 현재가 보기가 켜져있다면 1분(60초) 자동 업데이트 시작
