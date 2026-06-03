@@ -423,9 +423,18 @@ window.addEventListener('DOMContentLoaded', () => {
     if (dashboardBrokerFilter) {
         dashboardBrokerFilter.addEventListener('change', (e) => {
             currentDashboardBroker = e.target.value;
+            currentFilterBroker = e.target.value; // ⭐️ 하단 필터 동기화
             window.updateDashboardFilterStyle(e.target);
+            
+            const bottomEl = document.getElementById('filterBrokerSelect');
+            if (bottomEl) {
+                bottomEl.value = e.target.value;
+                window.updateDashboardFilterStyle(bottomEl);
+            }
+            
             window.saveFilterPreferences();
             updatePortfolioSummary();
+            displayEntries(true); // ⭐️ 하단 리스트 업데이트
         });
     }
 
@@ -434,9 +443,18 @@ window.addEventListener('DOMContentLoaded', () => {
     if (dashboardSubAccountFilter) {
         dashboardSubAccountFilter.addEventListener('change', (e) => {
             currentDashboardSubAccount = e.target.value;
+            currentFilterSubAccount = e.target.value; // ⭐️ 하단 필터 동기화
             window.updateDashboardFilterStyle(e.target);
+            
+            const bottomEl = document.getElementById('filterSubAccountSelect');
+            if (bottomEl) {
+                bottomEl.value = e.target.value;
+                window.updateDashboardFilterStyle(bottomEl);
+            }
+            
             window.saveFilterPreferences();
             updatePortfolioSummary();
+            displayEntries(true); // ⭐️ 하단 리스트 업데이트
         });
     }
 
@@ -445,9 +463,18 @@ window.addEventListener('DOMContentLoaded', () => {
     if (dashboardAccountFilter) {
         dashboardAccountFilter.addEventListener('change', (e) => {
             currentDashboardAccount = e.target.value;
+            currentFilterAccount = e.target.value; // ⭐️ 하단 필터 동기화
             window.updateDashboardFilterStyle(e.target);
+            
+            const bottomEl = document.getElementById('filterAccountSelect');
+            if (bottomEl) {
+                bottomEl.value = e.target.value;
+                window.updateDashboardFilterStyle(bottomEl);
+            }
+            
             window.saveFilterPreferences();
             updatePortfolioSummary();
+            displayEntries(true); // ⭐️ 하단 리스트 업데이트
         });
     }
 
@@ -479,9 +506,27 @@ window.addEventListener('DOMContentLoaded', () => {
     const selectors = [
         { id: 'filterRecordTypeSelect', setter: (val) => currentFilterRecordType = val },
         { id: 'filterStockSelect', setter: (val) => currentFilterStock = val },
-        { id: 'filterAccountSelect', setter: (val) => currentFilterAccount = val },
-        { id: 'filterBrokerSelect', setter: (val) => currentFilterBroker = val },
-        { id: 'filterSubAccountSelect', setter: (val) => currentFilterSubAccount = val }
+        { id: 'filterAccountSelect', setter: (val) => {
+            currentFilterAccount = val;
+            currentDashboardAccount = val; // ⭐️ 상단 필터 동기화
+            const topEl = document.getElementById('dashboardAccountFilter');
+            if (topEl) { topEl.value = val; window.updateDashboardFilterStyle(topEl); }
+            updatePortfolioSummary();
+        }},
+        { id: 'filterBrokerSelect', setter: (val) => {
+            currentFilterBroker = val;
+            currentDashboardBroker = val; // ⭐️ 상단 필터 동기화
+            const topEl = document.getElementById('dashboardBrokerFilter');
+            if (topEl) { topEl.value = val; window.updateDashboardFilterStyle(topEl); }
+            updatePortfolioSummary();
+        }},
+        { id: 'filterSubAccountSelect', setter: (val) => {
+            currentFilterSubAccount = val;
+            currentDashboardSubAccount = val; // ⭐️ 상단 필터 동기화
+            const topEl = document.getElementById('dashboardSubAccountFilter');
+            if (topEl) { topEl.value = val; window.updateDashboardFilterStyle(topEl); }
+            updatePortfolioSummary();
+        }}
     ];
 
     selectors.forEach(sel => {
@@ -3469,26 +3514,38 @@ window.clearStockFilter = function() {
 };
 window.clearAccountFilter = function() {
     currentFilterAccount = 'all';
+    currentDashboardAccount = 'all'; // ⭐️ 상단 필터 동기화
     const el = document.getElementById('filterAccountSelect');
     if (el) { el.value = 'all'; window.updateDashboardFilterStyle(el); }
+    const topEl = document.getElementById('dashboardAccountFilter');
+    if (topEl) { topEl.value = 'all'; window.updateDashboardFilterStyle(topEl); }
     window.saveFilterPreferences();
+    updatePortfolioSummary(); // ⭐️ 대시보드 업데이트
     displayEntries(true);
     window.scrollToFilterBox();
 };
 window.clearBrokerFilter = function() {
     currentFilterBroker = 'all';
+    currentDashboardBroker = 'all'; // ⭐️ 상단 필터 동기화
     const el = document.getElementById('filterBrokerSelect');
     if (el) { el.value = 'all'; window.updateDashboardFilterStyle(el); }
+    const topEl = document.getElementById('dashboardBrokerFilter');
+    if (topEl) { topEl.value = 'all'; window.updateDashboardFilterStyle(topEl); }
     window.saveFilterPreferences();
+    updatePortfolioSummary(); // ⭐️ 대시보드 업데이트
     displayEntries(true);
     window.scrollToFilterBox();
 };
 
 window.clearSubAccountFilter = function() {
     currentFilterSubAccount = 'all';
+    currentDashboardSubAccount = 'all'; // ⭐️ 상단 필터 동기화
     const el = document.getElementById('filterSubAccountSelect');
     if (el) { el.value = 'all'; window.updateDashboardFilterStyle(el); }
+    const topEl = document.getElementById('dashboardSubAccountFilter');
+    if (topEl) { topEl.value = 'all'; window.updateDashboardFilterStyle(topEl); }
     window.saveFilterPreferences();
+    updatePortfolioSummary(); // ⭐️ 대시보드 업데이트
     displayEntries(true);
     window.scrollToFilterBox();
 };
@@ -3510,6 +3567,10 @@ window.clearAllFilters = function(shouldRender = true) {
     currentFilterSubAccount = 'all';
     currentFilterKeywords = [];
     
+    currentDashboardAccount = 'all'; // ⭐️ 상단 필터 동기화
+    currentDashboardBroker = 'all'; // ⭐️ 상단 필터 동기화
+    currentDashboardSubAccount = 'all'; // ⭐️ 상단 필터 동기화
+    
     window.saveFilterPreferences();
     
     // ⭐️ 필터 UI 컨트롤(셀렉트 박스)도 명시적으로 모두 초기화
@@ -3522,11 +3583,21 @@ window.clearAllFilters = function(shouldRender = true) {
         }
     });
     
+    const topSelects = ['dashboardAccountFilter', 'dashboardBrokerFilter', 'dashboardSubAccountFilter'];
+    topSelects.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.value = 'all';
+            window.updateDashboardFilterStyle(el);
+        }
+    });
+    
     if (filterStockInput) filterStockInput.value = '';
     const clearFilterBtn = document.getElementById('clearFilterBtn');
     if (clearFilterBtn) clearFilterBtn.style.display = 'none';
     
     if (shouldRender !== false) {
+        updatePortfolioSummary(); // ⭐️ 대시보드 리렌더링
         displayEntries(true);
         window.scrollToFilterBox();
     }
