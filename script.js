@@ -2628,6 +2628,7 @@ function updatePortfolioSummary() {
                         display: false // ⭐️ 기본 캔버스 범례 숨기기 (도넛 크기 고정을 위해)
                     },
                     tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.7)', // ⭐️ 기본값(0.8)보다 약간 더 투명하게 설정
                         callbacks: {
                                 title: function(tooltipItems) {
                                     if (isPortfolioEmpty) return '';
