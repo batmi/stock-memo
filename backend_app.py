@@ -983,6 +983,10 @@ def save_preferences():
     conn.close()
     return jsonify({"status": "success"})
 
+# ⭐️ 뉴스 검색 결과를 임시 보관할 캐시 딕셔너리와 유효 시간(초) 설정
+news_cache = {}
+NEWS_CACHE_TTL = 600  # 10분(600초) 동안 캐시 유지
+
 @app.route('/api/news', methods=['POST'])
 def get_news():
     data = request.json or {}
@@ -993,6 +997,14 @@ def get_news():
         stocks = ['국내 증시']
         
     def fetch_news_for_stock(stock):
+        current_time = time.time()
+        
+        # ⭐️ 1. 캐시에 데이터가 있고, 유효 시간(10분)이 지나지 않았다면 구글에 요청하지 않고 캐시 반환
+        if stock in news_cache:
+            cached_data, timestamp = news_cache[stock]
+            if current_time - timestamp < NEWS_CACHE_TTL:
+                return cached_data
+                
         news_list = []
         try:
             # ⭐️ 네이버 RSS 서비스 전면 종료(404)에 따라 안정적인 구글 뉴스 RSS로 복귀
@@ -1014,6 +1026,9 @@ def get_news():
         except Exception as e:
             app.logger.error(f"Error fetching Google news for {stock}: {e}")
             
+        # ⭐️ 2. 새로 가져온 뉴스 데이터를 현재 시간과 함께 캐시에 저장
+        news_cache[stock] = (news_list, current_time)
+        
         return news_list
 
     all_news = []
