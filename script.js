@@ -1030,15 +1030,24 @@ async function fetchRealtimeNews() {
         });
         const newsData = await response.json();
         
-        if (newsData.length === 0) {
+        // ⭐️ 일주일 이전에 작성된 기사 제외
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+        
+        const filteredNewsData = newsData.filter(news => {
+            const pubDate = new Date(news.pubDate);
+            return isNaN(pubDate) || pubDate >= oneWeekAgo;
+        });
+        
+        if (filteredNewsData.length === 0) {
             newsListEl.innerHTML = '<div style="text-align:center; padding: 20px;">관련 뉴스가 없습니다.</div>';
             return;
         }
         
-        newsData.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
+        filteredNewsData.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
 
         newsListEl.innerHTML = '';
-        newsData.forEach(news => {
+        filteredNewsData.forEach(news => {
             const dateObj = new Date(news.pubDate);
             const dateStr = !isNaN(dateObj) ? (dateObj.getMonth()+1) + '/' + dateObj.getDate() + ' ' + String(dateObj.getHours()).padStart(2,'0') + ':' + String(dateObj.getMinutes()).padStart(2,'0') : news.pubDate;
             
