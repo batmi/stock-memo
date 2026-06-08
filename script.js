@@ -31,6 +31,7 @@ const entriesPerPage = 15;
 let lastRenderedMonth = '';
 let userPreferences = {};       // ⭐️ 사용자별 설정(포트폴리오 정렬 순서 등) 저장
 let portfolioSortable = null;   // ⭐️ SortableJS 드래그 앤 드롭 인스턴스
+window.currentPriceCache = {};  // ⭐️ 장 종료 시 이전 가격을 유지하기 위한 전역 캐시
 
 // ⭐️ 공통 스크롤 함수: 스크롤 튐 현상을 막기 위해 window.scrollTo 절대 좌표 사용
 window.scrollToFilterBox = function() {
@@ -411,7 +412,9 @@ window.addEventListener('DOMContentLoaded', () => {
             // ⭐️ 현재가 보기 상태에 따라 1분(60초) 자동 업데이트 타이머 켜기/끄기
             if (showCurrentPrice) {
                 if (priceUpdateInterval !== null) clearInterval(priceUpdateInterval);
-                priceUpdateInterval = setInterval(() => window.fetchCurrentPricesAndUpdateUI(), 60000); // 60초(60000ms) 주기
+                priceUpdateInterval = setInterval(() => {
+                    window.fetchCurrentPricesAndUpdateUI(true); // isAuto = true 로 자동 갱신 요청
+                }, 60000); // 60초(60000ms) 주기
             } else {
                 if (priceUpdateInterval !== null) clearInterval(priceUpdateInterval);
             }
@@ -941,7 +944,9 @@ async function loadDataFromLocal() {
                 // ⭐️ 초기 로드 시 현재가 보기가 켜져있다면 1분(60초) 자동 업데이트 시작
                 if (showCurrentPrice) {
                     if (priceUpdateInterval !== null) clearInterval(priceUpdateInterval);
-                    priceUpdateInterval = setInterval(() => window.fetchCurrentPricesAndUpdateUI(), 60000);
+                    priceUpdateInterval = setInterval(() => {
+                        window.fetchCurrentPricesAndUpdateUI(true); // isAuto = true 로 자동 갱신 요청
+                    }, 60000);
                 }
                 }
                 
@@ -2204,25 +2209,87 @@ function animateValue(element, endValue, duration, isProfit = false) {
     element.dataset.animId = requestAnimationFrame(step);
 }
 
+// ⭐️ 정규장 오픈 시간(한국 및 미국)인지 확인하는 함수 (자동 갱신 타이머용)
+window.getMarketStatus = function() {
+    const now = new Date();
+    // 브라우저 지역에 상관없이 KST(한국 표준시) 기준으로 변환하여 일관된 시간 체크
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const kst = new Date(utc + (9 * 3600000));
+    
+    const day = kst.getDay(); // 0: 일, 1: 월, 2: 화, 3: 수, 4: 목, 5: 금, 6: 토
+    const timeNum = kst.getHours() * 100 + kst.getMinutes();
+    
+    // 1. 한국 정규장: 평일(월~금) 09:00 ~ 15:30
+    const isKrOpen = (day >= 1 && day <= 5) && (timeNum >= 900 && timeNum <= 1530);
+    
+    // 2. 미국 정규장: 평일(월~금) 밤 22:30 ~ 23:59 또는 (화~토) 새벽 00:00 ~ 06:00
+    const isUsOpenEvening = (day >= 1 && day <= 5) && (timeNum >= 2230);
+    const isUsOpenMorning = (day >= 2 && day <= 6) && (timeNum <= 600);
+    
+    return {
+        kr: isKrOpen,
+        us: isUsOpenEvening || isUsOpenMorning
+    };
+};
+
+// ⭐️ 하위 호환성을 위한 래퍼 함수
+window.isMarketOpen = function() {
+    const status = window.getMarketStatus();
+    return status.kr || status.us;
+};
+
 // ⭐️ 백엔드 API를 통해 현재가와 평가금액을 가져와 DOM에 반영하는 함수
-window.fetchCurrentPricesAndUpdateUI = async function() {
+window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
     if (!showCurrentPrice || currentPortfolioArrayForPrice.length === 0) return;
     
-    const codes = [...new Set(currentPortfolioArrayForPrice.filter(p => !p.isClosed && p.stockCode).map(p => p.stockCode))];
-    if (codes.length === 0) return;
+    const marketStatus = window.getMarketStatus();
+    let codesToFetch = [];
+    
+    currentPortfolioArrayForPrice.forEach(p => {
+        if (p.isClosed || !p.stockCode) return;
+        
+        const codeStr = String(p.stockCode).trim().toUpperCase();
+        // 국가 구분 로직 (백엔드와 동일하게 적용)
+        const isUS = /^[A-Z\.\-]{1,6}$/.test(codeStr);
+        const isKR = (codeStr.length === 6 && /^[0-9A-Z]{6}$/.test(codeStr)) || codeStr === 'KRXGOLD' || codeStr === 'GOLD';
+        
+        if (isAuto) {
+            if (isKR && !marketStatus.kr) return; // 한국장 닫혀있으면 건너뜀
+            if (isUS && !marketStatus.us) return; // 미국장 닫혀있으면 건너뜀
+            if (!isKR && !isUS && !marketStatus.kr && !marketStatus.us) return; // 기타 종목은 두 시장 모두 닫혀있을 때만 건너뜀
+        }
+        
+        codesToFetch.push(p.stockCode);
+    });
+    
+    codesToFetch = [...new Set(codesToFetch)];
+    if (codesToFetch.length === 0) return; // ⭐️ 업데이트할 종목이 없으면 리턴 (평가액 유지를 위해 기존 UI 상태 유지)
     
     try {
         const res = await fetch('/api/current_price', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
-            body: JSON.stringify({ codes })
+            body: JSON.stringify({ codes: codesToFetch })
         });
         const prices = await res.json();
         
         let totalEval = 0;
         currentPortfolioArrayForPrice.forEach(data => {
             if (data.isClosed) return;
-            const cp = prices[data.stockCode];
+            
+            let cp;
+            let isFresh = false;
+            
+            // 이번 요청에 포함된 종목이면 새로 가져온 가격을 캐시에 저장
+            if (codesToFetch.includes(data.stockCode)) {
+                cp = prices[data.stockCode];
+                window.currentPriceCache[data.stockCode] = cp;
+                isFresh = true;
+            } else {
+                // 요청에서 제외된 종목(장 종료)은 캐시된 가격을 사용
+                cp = window.currentPriceCache[data.stockCode];
+            }
+            
             const pEls = document.querySelectorAll(`.cp-price[data-code="${data.stockCode || ''}"]`);
             const eEls = document.querySelectorAll(`.cp-eval[data-code="${data.stockCode || ''}"]`);
             const pfEls = document.querySelectorAll(`.cp-profit[data-code="${data.stockCode || ''}"]`);
@@ -2232,24 +2299,28 @@ window.fetchCurrentPricesAndUpdateUI = async function() {
                 const profitAmount = evalAmount - data.totalCost;
                 const profitRate = data.totalCost > 0 ? (profitAmount / data.totalCost) * 100 : 0;
                 
-                pEls.forEach(el => el.innerText = cp.toLocaleString());
-                eEls.forEach(el => el.innerText = Math.round(evalAmount).toLocaleString());
-                
-                const pColor = profitAmount > 0 ? 'var(--danger-color)' : (profitAmount < 0 ? 'var(--primary-color)' : 'var(--text-strong-color)');
-                pfEls.forEach(el => el.innerHTML = `<span style="color: ${pColor}; font-weight: bold; text-align: right; display: inline-block;">${profitAmount > 0 ? '+' : ''}${Math.round(profitAmount).toLocaleString()}<br>(${profitRate > 0 ? '+' : ''}${profitRate.toFixed(2)}%)</span>`);
+                if (isFresh) {
+                    pEls.forEach(el => el.innerText = cp.toLocaleString());
+                    eEls.forEach(el => el.innerText = Math.round(evalAmount).toLocaleString());
+                    
+                    const pColor = profitAmount > 0 ? 'var(--danger-color)' : (profitAmount < 0 ? 'var(--primary-color)' : 'var(--text-strong-color)');
+                    pfEls.forEach(el => el.innerHTML = `<span style="color: ${pColor}; font-weight: bold; text-align: right; display: inline-block;">${profitAmount > 0 ? '+' : ''}${Math.round(profitAmount).toLocaleString()}<br>(${profitRate > 0 ? '+' : ''}${profitRate.toFixed(2)}%)</span>`);
+                    
+                    // ⭐️ 값이 새로 업데이트될 때만 카드 배경 반짝임(Flash) 애니메이션 적용
+                    pEls.forEach(el => {
+                        const section = el.closest('.current-price-section');
+                        if (section) {
+                            section.classList.remove('flash');
+                            void section.offsetWidth; // 브라우저 리플로우 강제 발생
+                            section.classList.add('flash');
+                        }
+                    });
+                }
                 totalEval += evalAmount;
-
-                // ⭐️ 값이 업데이트될 때 카드 배경을 반짝이게 하는 애니메이션 적용
-                pEls.forEach(el => {
-                    const section = el.closest('.current-price-section');
-                    if (section) {
-                        section.classList.remove('flash');
-                        void section.offsetWidth; // 브라우저 리플로우 강제 발생 (애니메이션 재시작)
-                        section.classList.add('flash');
-                    }
-                });
             } else {
-                pEls.forEach(el => el.innerText = '조회 실패');
+                if (isFresh) {
+                    pEls.forEach(el => el.innerText = '조회 실패');
+                }
                 totalEval += data.totalCost; // 조회 실패 시 기본 투자원금으로 임시 합산
             }
         });
