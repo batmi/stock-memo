@@ -1030,16 +1030,17 @@ async function fetchRealtimeNews() {
         });
         const newsData = await response.json();
         
-        // ⭐️ 일주일 이전에 작성된 기사 엄격하게 제외
+        // ⭐️ 일주일 이전에 작성된 기사 및 미래 날짜(오기입) 기사 엄격하게 제외
+        const now = new Date();
         const oneWeekAgo = new Date();
-        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+        oneWeekAgo.setDate(now.getDate() - 7);
         
         const filteredNewsData = newsData.filter(news => {
             if (!news.pubDate) return false; // 작성 시간이 아예 없는 기사 제외
             const pubDate = new Date(news.pubDate);
-            // ⭐️ 작성 시간을 정상적으로 파싱할 수 없거나 일주일이 지난 과거 기사는 명시적으로 전부 제외
+            // ⭐️ 작성 시간을 정상적으로 파싱할 수 없거나, 일주일이 지난 과거 기사, 그리고 미래 시간(기자 오기입) 기사 모두 제외
             if (isNaN(pubDate.getTime())) return false;
-            return pubDate >= oneWeekAgo;
+            return pubDate >= oneWeekAgo && pubDate <= now;
         });
         
         if (filteredNewsData.length === 0) {
