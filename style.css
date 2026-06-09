@@ -999,6 +999,19 @@ button:hover {
         padding: 2px 30px 2px 8px !important;
     }
 
+    /* ⭐️ 모바일 폼(모달) 내 입력창 높이 확대 (이모티콘 및 텍스트 잘림 방지) */
+    .form-container input[type="text"]:not(#tagInput),
+    .form-container input[type="number"],
+    .form-container input[type="datetime-local"],
+    .form-container input[type="password"],
+    .form-container select,
+    .flatpickr-input, .flatpickr-mobile {
+        height: 42px !important;
+    }
+    .tag-input-container {
+        min-height: 42px !important;
+    }
+
     /* ⭐️ 모바일 에디터 15px 통일 및 iOS 자동 확대 방지 우회 기법 (Zoom Hack) */
     #editor-container {
         overflow-x: hidden !important; /* 비율 보정 시 가로로 삐져나오는 스크롤 방지 */
