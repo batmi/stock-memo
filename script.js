@@ -2543,14 +2543,61 @@ function updatePortfolioSummary() {
                 return;
             }
             
+            // ⭐️ 대시보드에 적용된 필터 상태 임시 저장
+            const prevDashboardBroker = currentDashboardBroker;
+            const prevDashboardSubAccount = currentDashboardSubAccount;
+            const prevDashboardAccount = currentDashboardAccount;
+
             clearAllFilters(false);
+
+            // ⭐️ 종목 필터 적용 및 저장해둔 대시보드 필터를 하단 필터에도 동기화 유지
             currentFilterStock = stock;
+            currentFilterBroker = prevDashboardBroker;
+            currentDashboardBroker = prevDashboardBroker;
+            currentFilterSubAccount = prevDashboardSubAccount;
+            currentDashboardSubAccount = prevDashboardSubAccount;
+            currentFilterAccount = prevDashboardAccount;
+            currentDashboardAccount = prevDashboardAccount;
+            
             window.saveFilterPreferences();
             
             const stockSelect = document.getElementById('filterStockSelect');
             if (stockSelect && stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) {
                 stockSelect.value = currentFilterStock;
                 window.updateDashboardFilterStyle(stockSelect);
+            }
+
+            const brokerSelect = document.getElementById('filterBrokerSelect');
+            if (brokerSelect && brokerSelect.querySelector(`option[value="${currentFilterBroker.replace(/"/g, '\\"')}"]`)) {
+                brokerSelect.value = currentFilterBroker;
+                window.updateDashboardFilterStyle(brokerSelect);
+            }
+            const dashBrokerSelect = document.getElementById('dashboardBrokerFilter');
+            if (dashBrokerSelect) {
+                dashBrokerSelect.value = currentDashboardBroker;
+                window.updateDashboardFilterStyle(dashBrokerSelect);
+            }
+
+            const subAccountSelect = document.getElementById('filterSubAccountSelect');
+            if (subAccountSelect && subAccountSelect.querySelector(`option[value="${currentFilterSubAccount.replace(/"/g, '\\"')}"]`)) {
+                subAccountSelect.value = currentFilterSubAccount;
+                window.updateDashboardFilterStyle(subAccountSelect);
+            }
+            const dashSubAccountSelect = document.getElementById('dashboardSubAccountFilter');
+            if (dashSubAccountSelect) {
+                dashSubAccountSelect.value = currentDashboardSubAccount;
+                window.updateDashboardFilterStyle(dashSubAccountSelect);
+            }
+
+            const accountSelect = document.getElementById('filterAccountSelect');
+            if (accountSelect && accountSelect.querySelector(`option[value="${currentFilterAccount.replace(/"/g, '\\"')}"]`)) {
+                accountSelect.value = currentFilterAccount;
+                window.updateDashboardFilterStyle(accountSelect);
+            }
+            const dashAccountSelect = document.getElementById('dashboardAccountFilter');
+            if (dashAccountSelect) {
+                dashAccountSelect.value = currentDashboardAccount;
+                window.updateDashboardFilterStyle(dashAccountSelect);
             }
             
             // 캘린더 뷰인 경우 리스트 뷰로 자동 전환
@@ -2763,14 +2810,59 @@ function updatePortfolioSummary() {
                     legendItem.innerHTML = `<span style="display:inline-block; width:10px; height:10px; background-color:${color}; border-radius:2px;"></span><span>${label}</span>`;
                     
                     legendItem.addEventListener('click', () => {
+                        const prevDashboardBroker = currentDashboardBroker;
+                        const prevDashboardSubAccount = currentDashboardSubAccount;
+                        const prevDashboardAccount = currentDashboardAccount;
+
                         clearAllFilters(false);
+
                         currentFilterStock = label;
+                        currentFilterBroker = prevDashboardBroker;
+                        currentDashboardBroker = prevDashboardBroker;
+                        currentFilterSubAccount = prevDashboardSubAccount;
+                        currentDashboardSubAccount = prevDashboardSubAccount;
+                        currentFilterAccount = prevDashboardAccount;
+                        currentDashboardAccount = prevDashboardAccount;
+                        
                         window.saveFilterPreferences();
                         
                         const stockSelect = document.getElementById('filterStockSelect');
                         if (stockSelect && stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) {
                             stockSelect.value = currentFilterStock;
                             window.updateDashboardFilterStyle(stockSelect);
+                        }
+
+                        const brokerSelect = document.getElementById('filterBrokerSelect');
+                        if (brokerSelect && brokerSelect.querySelector(`option[value="${currentFilterBroker.replace(/"/g, '\\"')}"]`)) {
+                            brokerSelect.value = currentFilterBroker;
+                            window.updateDashboardFilterStyle(brokerSelect);
+                        }
+                        const dashBrokerSelect = document.getElementById('dashboardBrokerFilter');
+                        if (dashBrokerSelect) {
+                            dashBrokerSelect.value = currentDashboardBroker;
+                            window.updateDashboardFilterStyle(dashBrokerSelect);
+                        }
+
+                        const subAccountSelect = document.getElementById('filterSubAccountSelect');
+                        if (subAccountSelect && subAccountSelect.querySelector(`option[value="${currentFilterSubAccount.replace(/"/g, '\\"')}"]`)) {
+                            subAccountSelect.value = currentFilterSubAccount;
+                            window.updateDashboardFilterStyle(subAccountSelect);
+                        }
+                        const dashSubAccountSelect = document.getElementById('dashboardSubAccountFilter');
+                        if (dashSubAccountSelect) {
+                            dashSubAccountSelect.value = currentDashboardSubAccount;
+                            window.updateDashboardFilterStyle(dashSubAccountSelect);
+                        }
+
+                        const accountSelect = document.getElementById('filterAccountSelect');
+                        if (accountSelect && accountSelect.querySelector(`option[value="${currentFilterAccount.replace(/"/g, '\\"')}"]`)) {
+                            accountSelect.value = currentFilterAccount;
+                            window.updateDashboardFilterStyle(accountSelect);
+                        }
+                        const dashAccountSelect = document.getElementById('dashboardAccountFilter');
+                        if (dashAccountSelect) {
+                            dashAccountSelect.value = currentDashboardAccount;
+                            window.updateDashboardFilterStyle(dashAccountSelect);
                         }
                         
                         const btnListView = document.getElementById('btnListView');
