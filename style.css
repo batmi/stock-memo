@@ -954,9 +954,6 @@ button:hover {
 
     /* ⭐️ 모바일 환경 포트폴리오 헤더 최적화: 가로 스크롤 없이 다음 줄로 버튼들 감싸기 */
     .portfolio-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 10px;
         height: auto;
     }
     .portfolio-header > div {
@@ -964,6 +961,11 @@ button:hover {
         flex-wrap: wrap;
         gap: 6px !important;
         width: 100%;
+    }
+    /* ⭐️ PORTFOLIO 타이틀을 전체 너비로 설정하여 버튼들을 아래 줄로 강제 이동 */
+    .portfolio-header > div > .section-title {
+        width: 100%;
+        margin-bottom: 2px;
     }
     .portfolio-header > div button {
         margin: 0 !important;
