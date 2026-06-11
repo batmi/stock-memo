@@ -339,6 +339,60 @@ def auto_backup_job():
         except Exception as e:
             app.logger.error(f"❌ 자동 백업 중 오류 발생: {e}")
 
+# ⭐️ 시간외 단일가(NXT) 종가를 자동 갱신하는 백그라운드 스레드 함수
+def auto_fetch_nxt_close_job():
+    while True:
+        try:
+            # 10분(600초) 단위로 동작
+            time.sleep(600)
+            
+            # 한국 시간(KST) 기준 시간 계산
+            import datetime as dt
+            kst_now = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=9)
+            time_num = kst_now.hour * 100 + kst_now.minute
+            
+            # 15:30 ~ 18:30 (장 종료 후 시간외 단일가 운영 및 마감 직후 시간)에만 캐시 갱신 수행
+            if 1530 <= time_num <= 1830:
+                app.logger.info("🔄 백그라운드: 시간외 단일가(NXT) 자동 캐싱을 시작합니다...")
+                conn = get_db()
+                c = conn.cursor()
+                c.execute("SELECT DISTINCT stockCode FROM entries WHERE stockCode IS NOT NULL AND stockCode != ''")
+                codes = [row['stockCode'].strip().upper() for row in c.fetchall()]
+                
+                api_headers = {
+                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)',
+                    'Accept': 'application/json, text/plain, */*',
+                    'Referer': 'https://m.stock.naver.com/'
+                }
+
+                updated_count = 0
+                for code in codes:
+                    # 국내 주식(6자리 영숫자) 여부 간단 체크
+                    if len(code) == 6 and code.isalnum():
+                        try:
+                            url = f"https://m.stock.naver.com/api/stock/{code}/basic"
+                            req = urllib.request.Request(url, headers=api_headers)
+                            with urllib.request.urlopen(req, timeout=3) as response:
+                                res_data = json.loads(response.read())
+                                over_info = res_data.get('overMarketPriceInfo', {})
+                                if isinstance(over_info, dict) and over_info.get('overPrice'):
+                                    price_str = str(over_info.get('overPrice'))
+                                    price_val = float(price_str.replace(',', ''))
+                                    
+                                    now_str = dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                    c.execute("REPLACE INTO price_cache (code, price, updated_at) VALUES (?, ?, ?)", (code, price_val, now_str))
+                                    updated_count += 1
+                        except Exception:
+                            pass
+                        # 네이버 서버에 부담을 주지 않기 위해 약간의 지연 시간 추가
+                        time.sleep(0.3)
+                        
+                conn.commit()
+                conn.close()
+                app.logger.info(f"✅ 백그라운드: 시간외 단일가 캐싱 완료 (총 {updated_count}개 종목 업데이트 됨)")
+        except Exception as e:
+            app.logger.error(f"❌ 시간외 단일가 자동 캐싱 스레드 오류: {e}")
+
 @app.before_request
 def check_login():
     # 로그인 및 회원가입 처리를 수행하는 라우트는 검사에서 제외
