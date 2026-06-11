@@ -730,6 +730,7 @@ button:hover {
 .btn-close:hover { color: var(--danger-hover-color); background: none; }
 .portfolio-summary-container { margin-top: 20px; margin-bottom: 30px; }
 .portfolio-header { margin: 0 0 15px 0; color: var(--text-strong-color); font-size: 1.2em; display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
+.portfolio-header > div { display: flex; align-items: center; gap: 8px; }
 .total-profit { font-size: 0.9em; padding: 5px 10px; border-radius: 4px; background: var(--card-bg-color); border: 1px solid var(--border-color); }
 .profit-positive { color: var(--danger-color); font-weight: bold; }
 .profit-negative { color: var(--primary-color); font-weight: bold; }
