@@ -400,6 +400,81 @@ window.addEventListener('DOMContentLoaded', () => {
         btnToggleCurrentPrice.style.backgroundColor = showCurrentPrice ? 'transparent' : 'var(--primary-color)';
         btnToggleCurrentPrice.style.color = showCurrentPrice ? 'var(--primary-color)' : '#fff';
 
+        // ⭐️ KRX / NXT 시장 수동 토글 박스(버튼) 동적 추가
+        const btnMarketToggle = document.createElement('button');
+        btnMarketToggle.id = 'btnMarketToggle';
+        btnMarketToggle.title = '클릭 시 KRX / NXT 현재가 수동 전환';
+        
+        // ⭐️ 옆 버튼('현재가 보기')과 스타일(높이/테두리/크기) 완벽 동기화
+        btnMarketToggle.className = btnToggleCurrentPrice.className;
+        btnMarketToggle.style.cssText = btnToggleCurrentPrice.style.cssText;
+        
+        // ⭐️ 박스 간 여백 동일하게 조정 (부모 영역의 flex gap 속성을 그대로 따름)
+        btnMarketToggle.style.margin = '0';
+
+        // ⭐️ '접기' 버튼 왼쪽에 위치하도록 삽입 (예외 시 '현재가 보기' 우측에 폴백)
+        const targetPortfolioBtn = document.getElementById('btnTogglePortfolio');
+        if (targetPortfolioBtn && targetPortfolioBtn.parentNode) {
+            targetPortfolioBtn.parentNode.insertBefore(btnMarketToggle, targetPortfolioBtn);
+        } else {
+            btnToggleCurrentPrice.parentNode.insertBefore(btnMarketToggle, btnToggleCurrentPrice.nextSibling);
+        }
+
+        window.forcedMarketMode = null;
+        
+        window.getAutoMarket = function() {
+            const kst = new Date(new Date().getTime() + (new Date().getTimezoneOffset() * 60000) + (9 * 3600000));
+            const timeNum = kst.getHours() * 100 + kst.getMinutes();
+            return (timeNum >= 900 && timeNum < 1530) ? 'KRX' : 'NXT';
+        };
+
+        window.getDisplayMarket = function() {
+            if (window.forcedMarketMode) return window.forcedMarketMode;
+            return window.getAutoMarket();
+        };
+
+        window.lastAutoMarket = window.getAutoMarket();
+
+        // ⭐️ 시간대가 변경될 때(예: 15:30) 사용자의 수동 조작 상태를 해제하고 자동 전환
+        window.checkMarketTransition = function() {
+            const currentAutoMarket = window.getAutoMarket();
+            if (window.lastAutoMarket && window.lastAutoMarket !== currentAutoMarket) {
+                window.forcedMarketMode = null; 
+            }
+            window.lastAutoMarket = currentAutoMarket;
+        };
+
+        window.updateMarketToggleBtn = function() {
+            const btn = document.getElementById('btnMarketToggle');
+            if (!btn) return;
+            
+            if (!showCurrentPrice) {
+                btn.style.display = 'none';
+                return;
+            }
+            btn.style.display = 'inline-block';
+
+            const displayMarket = window.getDisplayMarket();
+            if (displayMarket === 'KRX') {
+                btn.innerText = 'KRX';
+                btn.style.backgroundColor = 'transparent';
+                btn.style.color = 'var(--primary-color)';
+            } else {
+                btn.innerText = 'NXT';
+                btn.style.backgroundColor = 'var(--primary-color)';
+                btn.style.color = '#fff';
+            }
+        };
+
+        btnMarketToggle.addEventListener('click', () => {
+            const current = window.getDisplayMarket();
+            window.forcedMarketMode = current === 'KRX' ? 'NXT' : 'KRX';
+            window.updateMarketToggleBtn();
+            window.fetchCurrentPricesAndUpdateUI(false);
+        });
+
+        window.updateMarketToggleBtn(); // 초기 상태 렌더링
+
         btnToggleCurrentPrice.addEventListener('click', () => {
             showCurrentPrice = !showCurrentPrice;
             btnToggleCurrentPrice.innerText = showCurrentPrice ? '현재가 숨기기' : '현재가 보기';
@@ -407,6 +482,8 @@ window.addEventListener('DOMContentLoaded', () => {
             btnToggleCurrentPrice.style.color = showCurrentPrice ? 'var(--primary-color)' : '#fff';
             userPreferences.showCurrentPrice = showCurrentPrice;
             savePreferences();
+            
+            if (typeof window.updateMarketToggleBtn === 'function') window.updateMarketToggleBtn();
             updatePortfolioSummary(); // UI 리렌더링 및 현재가 fetch 트리거
             
             // ⭐️ 현재가 보기 상태에 따라 1분(60초) 자동 업데이트 타이머 켜기/끄기
@@ -2264,6 +2341,12 @@ window.isMarketOpen = function() {
 window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
     if (!showCurrentPrice || currentPortfolioArrayForPrice.length === 0) return;
     
+    // ⭐️ 1분 타이머 갱신 또는 클릭 시 시장 전환점(09:00, 15:30)을 감지하여 자동 리셋
+    if (typeof window.checkMarketTransition === 'function') window.checkMarketTransition();
+    
+    if (typeof window.updateMarketToggleBtn === 'function') window.updateMarketToggleBtn();
+    const displayMarket = typeof window.getDisplayMarket === 'function' ? window.getDisplayMarket() : 'AUTO';
+    
     const marketStatus = window.getMarketStatus();
     let codesToFetch = [];
     
@@ -2291,7 +2374,7 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
         const res = await fetch('/api/current_price', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
-            body: JSON.stringify({ codes: codesToFetch })
+            body: JSON.stringify({ codes: codesToFetch, market_mode: displayMarket })
         });
         const prices = await res.json();
         

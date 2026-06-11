@@ -891,6 +891,7 @@ def delete_entry(entry_id):
 def get_current_price():
     data = request.json or {}
     codes = data.get('codes', [])
+    market_mode = data.get('market_mode', 'AUTO')
     prices = {}
     
     def fetch_price(code):
@@ -941,6 +942,13 @@ def get_current_price():
                 kst_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
                 time_num = kst_now.hour * 100 + kst_now.minute
                 
+                # ⭐️ 사용자가 선택한 시장 모드(KRX/NXT)에 따라 장외 시간 적용 강제/해제
+                is_out_of_hours = not (900 <= time_num < 1530)
+                if market_mode == 'KRX':
+                    is_out_of_hours = False
+                elif market_mode == 'NXT':
+                    is_out_of_hours = True
+
                 # ⭐️ 모바일 API 전용 위장 헤더 (PC 스크래핑을 제거하여 봇 차단 원천 방지)
                 api_headers = {
                     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
@@ -956,8 +964,8 @@ def get_current_price():
                         res_data = json.loads(response.read())
                         price_str = str(res_data.get('closePrice', ''))
                         
-                        # ⭐️ 정규장(09:00~15:30)이 아닌 장외/NXT 시간대에 overPrice 적용
-                        if not (900 <= time_num < 1530):
+                        # ⭐️ 정규장 외 시간(혹은 NXT 수동 모드)일 경우 overPrice 적용
+                        if is_out_of_hours:
                             over_info = res_data.get('overMarketPriceInfo', {})
                             if isinstance(over_info, dict) and over_info.get('overPrice'):
                                 price_str = str(over_info.get('overPrice'))
