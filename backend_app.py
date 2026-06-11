@@ -876,20 +876,37 @@ def get_current_price():
                 market_type = "OTHER_ASIAN"
 
             if market_type == "KR":
+                import datetime
+                kst_now = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+                time_num = kst_now.hour * 100 + kst_now.minute
+                
+                # ⭐️ 모바일 API 전용 위장 헤더 (PC 스크래핑을 제거하여 봇 차단 원천 방지)
+                api_headers = {
+                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+                    'Accept': 'application/json, text/plain, */*',
+                    'Referer': 'https://m.stock.naver.com/'
+                }
+
                 try:
-                    # 국내 주식 (네이버 금융 API)
+                    # 국내 주식 (네이버 금융 모바일 API)
                     url = f"https://m.stock.naver.com/api/stock/{code_str}/basic"
-                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    req = urllib.request.Request(url, headers=api_headers)
                     with urllib.request.urlopen(req, timeout=3) as response:
                         res_data = json.loads(response.read())
-                        price_str = res_data.get('closePrice', '')
+                        price_str = str(res_data.get('closePrice', ''))
+                        
+                        # ⭐️ 정규장(09:00~15:30)이 아닌 장외/NXT 시간대에 overPrice 적용
+                        if not (900 <= time_num < 1530):
+                            over_info = res_data.get('overMarketPriceInfo', {})
+                            if isinstance(over_info, dict) and over_info.get('overPrice'):
+                                price_str = str(over_info.get('overPrice'))
                         
                     if price_str and price_str != '0':
                         return code, float(price_str.replace(',', ''))
                         
                     # 일반 API 누락 종목용 실시간 Polling API (폴백)
                     fallback_url = f"https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{code_str}"
-                    req2 = urllib.request.Request(fallback_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    req2 = urllib.request.Request(fallback_url, headers=api_headers)
                     with urllib.request.urlopen(req2, timeout=3) as response2:
                         res_data2 = json.loads(response2.read())
                         areas2 = res_data2.get('result', {}).get('areas', [])
@@ -901,7 +918,9 @@ def get_current_price():
             # ⭐️ US, OTHER_ASIAN, UNKNOWN 이거나 국내 API에서 조회 실패한 경우 야후 파이낸스 호출
             try:
                 url = f"https://query1.finance.yahoo.com/v8/finance/chart/{code_str}"
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                req = urllib.request.Request(url, headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                })
                 with urllib.request.urlopen(req, timeout=3) as response:
                     res_data = json.loads(response.read())
                     price = res_data['chart']['result'][0]['meta']['regularMarketPrice']

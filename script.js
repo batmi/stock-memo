@@ -2241,8 +2241,8 @@ window.getMarketStatus = function() {
     const day = kst.getDay(); // 0: 일, 1: 월, 2: 화, 3: 수, 4: 목, 5: 금, 6: 토
     const timeNum = kst.getHours() * 100 + kst.getMinutes();
     
-    // 1. 한국 정규장: 평일(월~금) 09:00 ~ 15:30
-    const isKrOpen = (day >= 1 && day <= 5) && (timeNum >= 900 && timeNum <= 1530);
+    // 1. 한국 정규장 및 장전/NXT(장후) 시간외 포함: 평일(월~금) 08:00 ~ 20:00
+    const isKrOpen = (day >= 1 && day <= 5) && (timeNum >= 800 && timeNum <= 2000);
     
     // 2. 미국 정규장: 평일(월~금) 밤 22:30 ~ 23:59 또는 (화~토) 새벽 00:00 ~ 06:00
     const isUsOpenEvening = (day >= 1 && day <= 5) && (timeNum >= 2230);
