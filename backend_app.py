@@ -255,6 +255,15 @@ def init_db():
         c.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+        
+    # ⭐️ 시간외 단일가(NXT) 전일 종가 유지를 위한 캐시 테이블 생성
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS price_cache (
+            code TEXT PRIMARY KEY,
+            price REAL,
+            updated_at TEXT
+        )
+    ''')
     conn.commit()
     
     # ⭐️ 쿼리 성능 최적화를 위한 인덱스 생성
@@ -894,6 +903,31 @@ def get_current_price():
     market_mode = data.get('market_mode', 'AUTO')
     prices = {}
     
+    # ⭐️ 시간외 단일가 유지를 위한 DB 캐시 저장/조회 헬퍼 함수
+    def save_price_cache(code_val, price_val):
+        try:
+            conn = get_db()
+            c = conn.cursor()
+            now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            c.execute("REPLACE INTO price_cache (code, price, updated_at) VALUES (?, ?, ?)", (code_val, price_val, now_str))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+            
+    def load_price_cache(code_val):
+        try:
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("SELECT price FROM price_cache WHERE code = ?", (code_val,))
+            row = c.fetchone()
+            conn.close()
+            if row:
+                return row['price']
+        except Exception:
+            pass
+        return None
+
     def fetch_price(code):
         code_str = str(code).strip().upper()
         if not code_str: return None, None
@@ -965,10 +999,31 @@ def get_current_price():
                         price_str = str(res_data.get('closePrice', ''))
                         
                         # ⭐️ 정규장 외 시간(혹은 NXT 수동 모드)일 경우 overPrice 적용
-                        if is_out_of_hours:
+                        if is_out_of_hours and price_str and price_str != '0':
                             over_info = res_data.get('overMarketPriceInfo', {})
                             if isinstance(over_info, dict) and over_info.get('overPrice'):
                                 price_str = str(over_info.get('overPrice'))
+                                # ⭐️ 정상적인 시간외 종가를 가져왔다면 다음 날 아침을 대비해 DB 캐시에 저장
+                                save_price_cache(code_str, float(price_str.replace(',', '')))
+                            else:
+                                # ⭐️ 자정 이후 등 API 데이터가 비워졌을 경우, 최우선적으로 DB 캐시에서 전일 시간외 종가 획득 시도
+                                cached_price = load_price_cache(code_str)
+                                if cached_price:
+                                    return code, cached_price
+                                
+                                # 캐시가 없을 경우 PC 웹 크롤링으로 획득 시도 (최후의 보루)
+                                try:
+                                    pc_url = f"https://finance.naver.com/item/main.naver?code={code_str}"
+                                    pc_req = urllib.request.Request(pc_url, headers={'User-Agent': 'Mozilla/5.0'})
+                                    with urllib.request.urlopen(pc_req, timeout=3) as pc_res:
+                                        html = pc_res.read().decode('euc-kr', errors='ignore')
+                                        # 네이버 금융 PC 버전의 '시간외단일가' 영역 파싱
+                                        match = re.search(r'시간외단일가.*?<span class="blind">([\d,]+)</span>', html, re.DOTALL)
+                                        if match:
+                                            price_str = match.group(1)
+                                            save_price_cache(code_str, float(price_str.replace(',', '')))
+                                except Exception:
+                                    pass
                         
                     if price_str and price_str != '0':
                         return code, float(price_str.replace(',', ''))
@@ -982,7 +1037,11 @@ def get_current_price():
                         if areas2 and areas2[0].get('datas'):
                             return code, float(areas2[0]['datas'][0].get('nv', 0))
                 except Exception:
-                    pass # ⭐️ 네이버 API 조회에 실패하면 아래 야후 파이낸스(해외) 로직으로 자연스럽게 넘어감
+                    # ⭐️ 네이버 API 조회에 완전히 실패(통신 에러 등)했을 경우에도 장외 시간이라면 DB 캐시를 최후의 보루로 사용
+                    if is_out_of_hours:
+                        cached_price = load_price_cache(code_str)
+                        if cached_price:
+                            return code, cached_price
 
             # ⭐️ US, OTHER_ASIAN, UNKNOWN 이거나 국내 API에서 조회 실패한 경우 야후 파이낸스 호출
             try:
@@ -1234,6 +1293,10 @@ if __name__ == '__main__':
     # 자동 백업 스레드 시작
     backup_thread = threading.Thread(target=auto_backup_job, daemon=True)
     backup_thread.start()
+    
+    # ⭐️ NXT 종가 자동 캐싱 스레드 시작
+    nxt_thread = threading.Thread(target=auto_fetch_nxt_close_job, daemon=True)
+    nxt_thread.start()
     
     port = 5000
     if len(sys.argv) > 1:
