@@ -2341,11 +2341,7 @@ window.isMarketOpen = function() {
 window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
     if (!showCurrentPrice || currentPortfolioArrayForPrice.length === 0) return;
     
-    // ⭐️ 1분 타이머 갱신 또는 클릭 시 시장 전환점(09:00, 15:30)을 감지하여 자동 리셋
-    if (typeof window.checkMarketTransition === 'function') window.checkMarketTransition();
-    
-    if (typeof window.updateMarketToggleBtn === 'function') window.updateMarketToggleBtn();
-    const displayMarket = typeof window.getDisplayMarket === 'function' ? window.getDisplayMarket() : 'AUTO';
+    const displayMarket = 'AUTO';
     
     const marketStatus = window.getMarketStatus();
     let codesToFetch = [];
