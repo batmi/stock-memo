@@ -951,6 +951,23 @@ button:hover {
         padding: 20px 15px 40px 15px; /* ⭐️ 스마트폰 하단 인디케이터(소프트키) 영역 침범을 막기 위해 하단 여백 추가 */
     }
 
+    /* ⭐️ 모바일 환경 포트폴리오 헤더 최적화: 가로 스크롤 없이 다음 줄로 버튼들 감싸기 */
+    .portfolio-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+        height: auto;
+    }
+    .portfolio-header > div {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px !important;
+        width: 100%;
+    }
+    .portfolio-header > div button {
+        margin: 0 !important;
+    }
+
     .portfolio-content-layout { flex-direction: column; align-items: center; }
     .portfolio-details { width: 100%; }
     
