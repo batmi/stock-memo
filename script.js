@@ -421,23 +421,54 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ⭐️ 대시보드 필터(큰 범위) 조작 시, 종목 등 세부 필터는 해제하여 직관적인 결과 제공
+    function handleDashboardFilterChange(type, value) {
+        const prevBroker = currentDashboardBroker;
+        const prevSubAccount = currentDashboardSubAccount;
+        const prevAccount = currentDashboardAccount;
+
+        // 세부 필터를 포함해 완전히 초기화
+        clearAllFilters(false);
+
+        let newBroker = prevBroker;
+        let newSubAccount = prevSubAccount;
+        let newAccount = prevAccount;
+
+        if (type === 'broker') newBroker = value;
+        if (type === 'subAccount') newSubAccount = value;
+        if (type === 'account') newAccount = value;
+
+        currentDashboardBroker = newBroker;
+        currentFilterBroker = newBroker;
+        currentDashboardSubAccount = newSubAccount;
+        currentFilterSubAccount = newSubAccount;
+        currentDashboardAccount = newAccount;
+        currentFilterAccount = newAccount;
+
+        const topBroker = document.getElementById('dashboardBrokerFilter');
+        if (topBroker) { topBroker.value = newBroker; window.updateDashboardFilterStyle(topBroker); }
+        const topSubAccount = document.getElementById('dashboardSubAccountFilter');
+        if (topSubAccount) { topSubAccount.value = newSubAccount; window.updateDashboardFilterStyle(topSubAccount); }
+        const topAccount = document.getElementById('dashboardAccountFilter');
+        if (topAccount) { topAccount.value = newAccount; window.updateDashboardFilterStyle(topAccount); }
+
+        const bottomBroker = document.getElementById('filterBrokerSelect');
+        if (bottomBroker) { bottomBroker.value = newBroker; window.updateDashboardFilterStyle(bottomBroker); }
+        const bottomSubAccount = document.getElementById('filterSubAccountSelect');
+        if (bottomSubAccount) { bottomSubAccount.value = newSubAccount; window.updateDashboardFilterStyle(bottomSubAccount); }
+        const bottomAccount = document.getElementById('filterAccountSelect');
+        if (bottomAccount) { bottomAccount.value = newAccount; window.updateDashboardFilterStyle(bottomAccount); }
+
+        window.saveFilterPreferences();
+        updatePortfolioSummary();
+        displayEntries(true);
+    }
+
     // ⭐️ 대시보드 증권사 필터 이벤트 연결
     const dashboardBrokerFilter = document.getElementById('dashboardBrokerFilter');
     if (dashboardBrokerFilter) {
         dashboardBrokerFilter.addEventListener('change', (e) => {
-            currentDashboardBroker = e.target.value;
-            currentFilterBroker = e.target.value; // ⭐️ 하단 필터 동기화
-            window.updateDashboardFilterStyle(e.target);
-            
-            const bottomEl = document.getElementById('filterBrokerSelect');
-            if (bottomEl) {
-                bottomEl.value = e.target.value;
-                window.updateDashboardFilterStyle(bottomEl);
-            }
-            
-            window.saveFilterPreferences();
-            updatePortfolioSummary();
-            displayEntries(true); // ⭐️ 하단 리스트 업데이트
+            handleDashboardFilterChange('broker', e.target.value);
         });
     }
 
@@ -445,19 +476,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const dashboardSubAccountFilter = document.getElementById('dashboardSubAccountFilter');
     if (dashboardSubAccountFilter) {
         dashboardSubAccountFilter.addEventListener('change', (e) => {
-            currentDashboardSubAccount = e.target.value;
-            currentFilterSubAccount = e.target.value; // ⭐️ 하단 필터 동기화
-            window.updateDashboardFilterStyle(e.target);
-            
-            const bottomEl = document.getElementById('filterSubAccountSelect');
-            if (bottomEl) {
-                bottomEl.value = e.target.value;
-                window.updateDashboardFilterStyle(bottomEl);
-            }
-            
-            window.saveFilterPreferences();
-            updatePortfolioSummary();
-            displayEntries(true); // ⭐️ 하단 리스트 업데이트
+            handleDashboardFilterChange('subAccount', e.target.value);
         });
     }
 
@@ -465,19 +484,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const dashboardAccountFilter = document.getElementById('dashboardAccountFilter');
     if (dashboardAccountFilter) {
         dashboardAccountFilter.addEventListener('change', (e) => {
-            currentDashboardAccount = e.target.value;
-            currentFilterAccount = e.target.value; // ⭐️ 하단 필터 동기화
-            window.updateDashboardFilterStyle(e.target);
-            
-            const bottomEl = document.getElementById('filterAccountSelect');
-            if (bottomEl) {
-                bottomEl.value = e.target.value;
-                window.updateDashboardFilterStyle(bottomEl);
-            }
-            
-            window.saveFilterPreferences();
-            updatePortfolioSummary();
-            displayEntries(true); // ⭐️ 하단 리스트 업데이트
+            handleDashboardFilterChange('account', e.target.value);
         });
     }
 
@@ -950,15 +957,17 @@ async function loadDataFromLocal() {
                 }
                 }
                 
-                // ⭐️ 대시보드 및 하단 리스트 필터 상태 복원
-                if (userPreferences.currentDashboardBroker) currentDashboardBroker = userPreferences.currentDashboardBroker;
-                if (userPreferences.currentDashboardSubAccount) currentDashboardSubAccount = userPreferences.currentDashboardSubAccount;
-                if (userPreferences.currentDashboardAccount) currentDashboardAccount = userPreferences.currentDashboardAccount;
+                // ⭐️ 대시보드 및 하단 리스트 필터 상태 복원 (어긋난 상태를 방지하기 위해 강제 동기화)
+                if (userPreferences.currentDashboardBroker) { currentDashboardBroker = userPreferences.currentDashboardBroker; currentFilterBroker = currentDashboardBroker; }
+                if (userPreferences.currentDashboardSubAccount) { currentDashboardSubAccount = userPreferences.currentDashboardSubAccount; currentFilterSubAccount = currentDashboardSubAccount; }
+                if (userPreferences.currentDashboardAccount) { currentDashboardAccount = userPreferences.currentDashboardAccount; currentFilterAccount = currentDashboardAccount; }
                 if (userPreferences.currentFilterRecordType) currentFilterRecordType = userPreferences.currentFilterRecordType;
                 if (userPreferences.currentFilterStock) currentFilterStock = userPreferences.currentFilterStock;
-                if (userPreferences.currentFilterAccount) currentFilterAccount = userPreferences.currentFilterAccount;
-                if (userPreferences.currentFilterBroker) currentFilterBroker = userPreferences.currentFilterBroker;
-                if (userPreferences.currentFilterSubAccount) currentFilterSubAccount = userPreferences.currentFilterSubAccount;
+                
+                // 만약 하단 필터 설정이 따로 저장되어 있다면 덮어쓰기하며 대시보드와 동기화
+                if (userPreferences.currentFilterAccount) { currentFilterAccount = userPreferences.currentFilterAccount; currentDashboardAccount = currentFilterAccount; }
+                if (userPreferences.currentFilterBroker) { currentFilterBroker = userPreferences.currentFilterBroker; currentDashboardBroker = currentFilterBroker; }
+                if (userPreferences.currentFilterSubAccount) { currentFilterSubAccount = userPreferences.currentFilterSubAccount; currentDashboardSubAccount = currentFilterSubAccount; }
             }
         } catch (e) {
             console.warn("환경설정 로드 실패:", e);
@@ -2909,8 +2918,12 @@ function updateFilterDropdown() {
             html += `<option value="${stock.replace(/"/g, '&quot;')}">${stock}</option>`;
         });
         stockSelect.innerHTML = html;
-        if (stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) stockSelect.value = currentFilterStock;
-        else stockSelect.value = 'all';
+        if (stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) {
+            stockSelect.value = currentFilterStock;
+        } else {
+            stockSelect.value = 'all';
+            currentFilterStock = 'all';
+        }
         window.updateDashboardFilterStyle(stockSelect);
     }
 
@@ -2927,8 +2940,13 @@ function updateFilterDropdown() {
             html += `<option value="${account.replace(/"/g, '&quot;')}">${account}</option>`;
         });
         accountSelect.innerHTML = html;
-        if (accountSelect.querySelector(`option[value="${currentFilterAccount.replace(/"/g, '\\"')}"]`)) accountSelect.value = currentFilterAccount;
-        else accountSelect.value = 'all';
+        if (accountSelect.querySelector(`option[value="${currentFilterAccount.replace(/"/g, '\\"')}"]`)) {
+            accountSelect.value = currentFilterAccount;
+        } else {
+            accountSelect.value = 'all';
+            currentFilterAccount = 'all';
+            currentDashboardAccount = 'all'; // ⭐️ 상단 필터 동기화
+        }
         window.updateDashboardFilterStyle(accountSelect);
     }
     
@@ -2939,8 +2957,13 @@ function updateFilterDropdown() {
             html += `<option value="${broker.replace(/"/g, '&quot;')}">${broker}</option>`;
         });
         brokerSelect.innerHTML = html;
-        if (brokerSelect.querySelector(`option[value="${currentFilterBroker.replace(/"/g, '\\"')}"]`)) brokerSelect.value = currentFilterBroker;
-        else brokerSelect.value = 'all';
+        if (brokerSelect.querySelector(`option[value="${currentFilterBroker.replace(/"/g, '\\"')}"]`)) {
+            brokerSelect.value = currentFilterBroker;
+        } else {
+            brokerSelect.value = 'all';
+            currentFilterBroker = 'all';
+            currentDashboardBroker = 'all'; // ⭐️ 상단 필터 동기화
+        }
         window.updateDashboardFilterStyle(brokerSelect);
     }
 
@@ -2951,8 +2974,13 @@ function updateFilterDropdown() {
             html += `<option value="${sa.replace(/"/g, '&quot;')}">${sa}</option>`;
         });
         subAccountSelect.innerHTML = html;
-        if (subAccountSelect.querySelector(`option[value="${currentFilterSubAccount.replace(/"/g, '\\"')}"]`)) subAccountSelect.value = currentFilterSubAccount;
-        else subAccountSelect.value = 'all';
+        if (subAccountSelect.querySelector(`option[value="${currentFilterSubAccount.replace(/"/g, '\\"')}"]`)) {
+            subAccountSelect.value = currentFilterSubAccount;
+        } else {
+            subAccountSelect.value = 'all';
+            currentFilterSubAccount = 'all';
+            currentDashboardSubAccount = 'all'; // ⭐️ 상단 필터 동기화
+        }
         window.updateDashboardFilterStyle(subAccountSelect);
     }
     
@@ -2967,11 +2995,12 @@ function updateFilterDropdown() {
             });
         }
         dashboardBrokerFilter.innerHTML = brokerHtml;
-        if (dashboardBrokerFilter.querySelector(`option[value="${currentBrokerVal}"]`)) {
+        if (dashboardBrokerFilter.querySelector(`option[value="${currentBrokerVal.replace(/"/g, '\\"')}"]`)) {
             dashboardBrokerFilter.value = currentBrokerVal;
         } else {
             dashboardBrokerFilter.value = 'all';
             currentDashboardBroker = 'all';
+            currentFilterBroker = 'all'; // ⭐️ 하단 필터 동기화
         }
         window.updateDashboardFilterStyle(dashboardBrokerFilter);
     }
@@ -2987,11 +3016,12 @@ function updateFilterDropdown() {
             });
         }
         dashboardSubAccountFilter.innerHTML = subAccountHtml;
-        if (dashboardSubAccountFilter.querySelector(`option[value="${currentSubAccountVal}"]`)) {
+        if (dashboardSubAccountFilter.querySelector(`option[value="${currentSubAccountVal.replace(/"/g, '\\"')}"]`)) {
             dashboardSubAccountFilter.value = currentSubAccountVal;
         } else {
             dashboardSubAccountFilter.value = 'all';
             currentDashboardSubAccount = 'all';
+            currentFilterSubAccount = 'all'; // ⭐️ 하단 필터 동기화
         }
         window.updateDashboardFilterStyle(dashboardSubAccountFilter);
     }
@@ -3007,11 +3037,12 @@ function updateFilterDropdown() {
             });
         }
         dashboardAccountFilter.innerHTML = accountHtml;
-        if (dashboardAccountFilter.querySelector(`option[value="${currentAccountVal}"]`)) {
+        if (dashboardAccountFilter.querySelector(`option[value="${currentAccountVal.replace(/"/g, '\\"')}"]`)) {
             dashboardAccountFilter.value = currentAccountVal;
         } else {
             dashboardAccountFilter.value = 'all';
             currentDashboardAccount = 'all';
+            currentFilterAccount = 'all'; // ⭐️ 하단 필터 동기화
         }
         window.updateDashboardFilterStyle(dashboardAccountFilter);
     }
