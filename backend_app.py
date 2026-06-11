@@ -22,8 +22,9 @@ import tempfile
 import shutil
 import re
 import logging
+import threading
 from logging.handlers import TimedRotatingFileHandler
-from datetime import timedelta
+from datetime import timedelta, datetime
 from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string, send_file, has_request_context
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -116,10 +117,12 @@ DATA_FILE = 'my_stock_trading_journal.json'
 DB_DIR = 'db'
 DB_FILE = os.path.join(DB_DIR, 'journal.db')
 UPLOAD_FOLDER = 'uploads'
+BACKUP_DIR = 'backup'
 
 # 필요한 폴더들 생성
 os.makedirs(DB_DIR, exist_ok=True)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(BACKUP_DIR, exist_ok=True)
 
 # 로그인 시도 횟수 및 차단 시간 관리를 위한 전역 변수 (IP 기준)
 login_attempts = {}
@@ -268,6 +271,64 @@ def init_db():
         pass
     conn.commit()
     conn.close()
+
+# ⭐️ 자동 백업 스레드 함수
+def auto_backup_job():
+    while True:
+        now = datetime.now()
+        # 다음 자정 시간 계산
+        next_midnight = datetime(now.year, now.month, now.day) + timedelta(days=1)
+        # 자정까지 대기
+        time_to_sleep = (next_midnight - now).total_seconds()
+        time.sleep(time_to_sleep)
+        
+        try:
+            app.logger.info("🔄 일일 자동 백업을 시작합니다.")
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("SELECT username FROM users")
+            users = c.fetchall()
+            conn.close()
+            
+            for user in users:
+                username = user['username']
+                
+                conn = get_db()
+                c = conn.cursor()
+                c.execute("SELECT * FROM entries WHERE username = ?", (username,))
+                rows = [dict(row) for row in c.fetchall()]
+                conn.close()
+
+                user_backup_dir = os.path.join(BACKUP_DIR, username)
+                os.makedirs(user_backup_dir, exist_ok=True)
+                
+                current_time_str = time.strftime('%Y%m%d')
+                filename = f'TradingJournal_backup_{username}_{current_time_str}.zip'
+                filepath = os.path.join(user_backup_dir, filename)
+
+                with zipfile.ZipFile(filepath, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    json_data = json.dumps(rows, ensure_ascii=False, indent=2)
+                    zf.writestr('data.json', json_data)
+                    
+                    user_folder = os.path.join(UPLOAD_FOLDER, username)
+                    if os.path.exists(user_folder):
+                        for root, dirs, files in os.walk(user_folder):
+                            for file in files:
+                                file_path = os.path.join(root, file)
+                                arcname = os.path.join('uploads', file)
+                                zf.write(file_path, arcname=arcname)
+                                
+                # 7일 지난 백업 파일 삭제 (7일 = 604800초)
+                current_time_sec = time.time()
+                for f in os.listdir(user_backup_dir):
+                    f_path = os.path.join(user_backup_dir, f)
+                    if os.path.isfile(f_path):
+                        if os.stat(f_path).st_mtime < current_time_sec - 7 * 86400:
+                            os.remove(f_path)
+                            
+            app.logger.info("✅ 일일 자동 백업이 완료되었습니다.")
+        except Exception as e:
+            app.logger.error(f"❌ 자동 백업 중 오류 발생: {e}")
 
 @app.before_request
 def check_login():
@@ -877,7 +938,7 @@ def get_current_price():
 
             if market_type == "KR":
                 import datetime
-                kst_now = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+                kst_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
                 time_num = kst_now.hour * 100 + kst_now.minute
                 
                 # ⭐️ 모바일 API 전용 위장 헤더 (PC 스크래핑을 제거하여 봇 차단 원천 방지)
@@ -1161,6 +1222,10 @@ def full_restore():
 
 if __name__ == '__main__':
     init_db()
+    
+    # 자동 백업 스레드 시작
+    backup_thread = threading.Thread(target=auto_backup_job, daemon=True)
+    backup_thread.start()
     
     port = 5000
     if len(sys.argv) > 1:

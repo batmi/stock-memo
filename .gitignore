@@ -12,6 +12,7 @@ coverage.json
 json/
 db/
 logs/
+backup/
 uploads/
 htmlcov/
 

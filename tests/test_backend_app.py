@@ -639,3 +639,68 @@ def test_account_deletion_and_password_exceptions(client):
     res_del_empty = client.delete('/api/account', json={})
     assert res_del_empty.status_code == 400
     assert '비밀번호를 입력' in res_del_empty.json['error']
+
+@patch('time.sleep')
+def test_auto_backup_job(mock_sleep, client, app):
+    """
+    자동 백업 스레드 함수가 실행될 때 ZIP 파일이 잘 생성되는지,
+    그리고 7일이 지난 오래된 백업 파일이 정상적으로 삭제되는지(보관 주기) 테스트합니다.
+    무한 루프를 탈출하기 위해 두 번째 time.sleep 호출 시 예외를 발생시킵니다.
+    """
+    # 1. 테스트 유저 및 매매 기록 생성
+    client.post('/signup', data={'username': 'autobackupuser', 'password': 'pw', 'password_confirm': 'pw'})
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'autobackupuser'
+        
+    client.post('/api/entry', json={"type": "buy", "stockName": "자동백업테스트", "price": 10000, "quantity": 1})
+
+    backup_dir = os.path.join(backend_app.BACKUP_DIR, 'autobackupuser')
+    os.makedirs(backup_dir, exist_ok=True)
+    
+    # 2. 7일이 지난 가짜 백업 파일 생성 (os.utime으로 수정 시간 조작)
+    old_file_path = os.path.join(backup_dir, 'TradingJournal_backup_autobackupuser_old.zip')
+    with open(old_file_path, 'w') as f:
+        f.write("old data")
+        
+    import time
+    old_time = time.time() - (8 * 86400) # 8일 전 시간
+    os.utime(old_file_path, (old_time, old_time))
+
+    # 3. 무한 루프 탈출 설정 (첫 번째 sleep은 통과, 두 번째에서 예외 발생시켜 종료)
+    sleep_calls = [0]
+    def side_effect(*args):
+        sleep_calls[0] += 1
+        if sleep_calls[0] > 1:
+            raise RuntimeError("Break Loop")
+    mock_sleep.side_effect = side_effect
+
+    # 4. 백업 작업 1회 실행
+    with app.app_context():
+        try:
+            backend_app.auto_backup_job()
+        except RuntimeError:
+            pass
+
+    # 5. 백업 결과 검증
+    assert os.path.exists(backup_dir)
+    files = os.listdir(backup_dir)
+    
+    # 8일 전 생성된 가짜 백업 파일이 삭제되었는지 확인
+    assert 'TradingJournal_backup_autobackupuser_old.zip' not in files
+    
+    # 새로 생성된 백업 zip 파일이 존재하는지 확인
+    zip_files = [f for f in files if f.endswith('.zip')]
+    assert len(zip_files) == 1
+    
+    # zip 파일 내용(JSON) 검증
+    with zipfile.ZipFile(os.path.join(backup_dir, zip_files[0]), 'r') as zf:
+        assert 'data.json' in zf.namelist()
+        with zf.open('data.json') as f:
+            data = json.loads(f.read().decode('utf-8'))
+            assert len(data) >= 1
+            assert data[0]['stockName'] == "자동백업테스트"
+            
+    # 테스트 후 폴더 정리
+    import shutil
+    shutil.rmtree(backup_dir)
