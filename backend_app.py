@@ -370,7 +370,8 @@ def auto_fetch_nxt_close_job():
                     # 국내 주식(6자리 영숫자) 여부 간단 체크
                     if len(code) == 6 and code.isalnum():
                         try:
-                            url = f"https://m.stock.naver.com/api/stock/{code}/basic"
+                            ts = int(time.time() * 1000)
+                            url = f"https://m.stock.naver.com/api/stock/{code}/basic?_={ts}"
                             req = urllib.request.Request(url, headers=api_headers)
                             with urllib.request.urlopen(req, timeout=3) as response:
                                 res_data = json.loads(response.read())
@@ -1045,23 +1046,25 @@ def get_current_price():
                 }
 
                 try:
-                    # ⭐️ 정규장 시간일 경우 실시간 시세 반영을 위해 Polling API 우선 조회
+                    # ⭐️ 정규장 실시간 시세: 모바일 API의 CDN 지연(1~3분)을 완벽히 우회하기 위해 PC용 실시간 siseJson API 최우선 호출
                     if not is_out_of_hours:
                         try:
-                            polling_url = f"https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{code_str}"
-                            req_poll = urllib.request.Request(polling_url, headers=api_headers)
-                            with urllib.request.urlopen(req_poll, timeout=3) as response_poll:
-                                res_data_poll = json.loads(response_poll.read())
-                                areas = res_data_poll.get('result', {}).get('areas', [])
-                                if areas and areas[0].get('datas'):
-                                    nv = areas[0]['datas'][0].get('nv')
-                                    if nv:
-                                        return code, float(nv)
+                            sise_url = f"https://api.finance.naver.com/siseJson.naver?symbol={code_str}&requestType=1"
+                            sise_req = urllib.request.Request(sise_url, headers={'User-Agent': 'Mozilla/5.0'})
+                            with urllib.request.urlopen(sise_req, timeout=3) as sise_res:
+                                sise_data = sise_res.read().decode('euc-kr', errors='ignore')
+                                # 정규식을 통해 nowVal 추출 (캐시 없는 실시간 현재가)
+                                match = re.search(r'"nowVal"\s*:\s*(\d+)', sise_data)
+                                if match:
+                                    realtime_price = float(match.group(1))
+                                    if realtime_price > 0:
+                                        return code, realtime_price
                         except Exception:
                             pass
 
-                    # 국내 주식 (네이버 금융 모바일 API)
-                    url = f"https://m.stock.naver.com/api/stock/{code_str}/basic"
+                    # 국내 주식 (네이버 증권 최신 API 적용 및 캐시 방지 파라미터 추가)
+                    ts = int(time.time() * 1000)
+                    url = f"https://m.stock.naver.com/api/stock/{code_str}/basic?_={ts}"
                     req = urllib.request.Request(url, headers=api_headers)
                     with urllib.request.urlopen(req, timeout=3) as response:
                         res_data = json.loads(response.read())
@@ -1096,15 +1099,6 @@ def get_current_price():
                         
                     if price_str and price_str != '0':
                         return code, float(price_str.replace(',', ''))
-                        
-                    # 일반 API 누락 종목용 실시간 Polling API (폴백)
-                    fallback_url = f"https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{code_str}"
-                    req2 = urllib.request.Request(fallback_url, headers=api_headers)
-                    with urllib.request.urlopen(req2, timeout=3) as response2:
-                        res_data2 = json.loads(response2.read())
-                        areas2 = res_data2.get('result', {}).get('areas', [])
-                        if areas2 and areas2[0].get('datas'):
-                            return code, float(areas2[0]['datas'][0].get('nv', 0))
                 except Exception:
                     # ⭐️ 네이버 API 조회에 완전히 실패(통신 에러 등)했을 경우에도 장외 시간이라면 DB 캐시를 최후의 보루로 사용
                     if is_out_of_hours:

@@ -565,12 +565,14 @@ def test_current_price_edge_cases(mock_urlopen, client):
             if getattr(urlopen_side_effect, 'gold_fail_all', False):
                 raise Exception("All Fail")
             return create_mock_res(b"<th>\xed\x98\x84\xec\x9e\xac\xea\xb0\x80</th><td><strong>88,000</strong></td>")
+        elif 'siseJson' in url:
+            if getattr(urlopen_side_effect, 'all_fail', False):
+                raise Exception("All APIs Fail")
+            return create_mock_res(b'var u_js= { "result": { "nowVal": 95000 } };')
         elif '005930' in url:
             if getattr(urlopen_side_effect, 'all_fail', False):
                 raise Exception("All APIs Fail")
-            if 'polling' in url:
-                return create_mock_res(b'{"result": {"areas": [{"datas": [{"nv": 95000}]}]}}')
-            return create_mock_res(b'{"closePrice": "0"}')
+            return create_mock_res(b'{"closePrice": "95000"}')
         elif 'ABCDEF' in url:
             return create_mock_res(b'{"chart": {"result": [{"meta": {"regularMarketPrice": 250.5}}]}}')
         elif '123456' in url:
@@ -592,7 +594,7 @@ def test_current_price_edge_cases(mock_urlopen, client):
     res_gold_fail = client.post('/api/current_price', json={'codes': ['KRXGOLD']})
     assert res_gold_fail.json.get('KRXGOLD') is None
     
-    # 3. 네이버 주가: 기본 API 데이터 0 -> Polling API 우회 성공 패턴
+    # 3. 네이버 주가: 실시간 API 정상 응답
     res_naver = client.post('/api/current_price', json={'codes': ['005930']})
     assert res_naver.json.get('005930') == 95000.0
     
