@@ -28,7 +28,7 @@
     <!-- ⭐️ SheetJS (Excel 내보내기/가져오기) 라이브러리 추가 -->
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <!-- ⭐️ 외부 CSS 파일 연결 -->
-    <link rel="stylesheet" href="style.css?v=1.1">
+    <link rel="stylesheet" href="style.css?v=1.8">
 </head>
 <body>
 
@@ -135,6 +135,7 @@
                             <option value="매수">🔴 매수 (Buy)</option>
                             <option value="매도">🔵 매도 (Sell)</option>
                             <option value="주시">🟢 주시 (Watch)</option>
+                            <option value="배당">🟡 배당 (Dividend)</option>
                         </select>
                     </div>
                 </div>
@@ -264,8 +265,10 @@
             </div>
         </div>
         
-        <div id="calendarViewSection" style="display:none; background: var(--card-bg-color); padding: 15px; border-radius: 8px; box-shadow: var(--entry-card-shadow); margin-bottom: 15px;">
-            <div style="display:flex; justify-content:space-between; align-items: center; margin-bottom: 15px;">
+        <!-- ⭐️ 캘린더와 차트 영역을 묶어주는 래퍼 (드래그 앤 드롭용) -->
+        <div id="calendarLayoutWrapper">
+            <div id="calendarViewSection" data-layout-id="calendar" style="display:none; background: var(--card-bg-color); padding: 15px; border-radius: 8px; box-shadow: var(--entry-card-shadow); margin-bottom: 15px; position: relative;">
+                <div style="display:flex; justify-content:space-between; align-items: center; margin-bottom: 15px;">
                 <button id="btnPrevMonth" class="btn-edit">◀ 이전달</button>
                 <h3 id="calendarMonthTitle" style="margin:0; color: var(--text-strong-color);"></h3>
                 <button id="btnNextMonth" class="btn-edit">다음달 ▶</button>
@@ -274,6 +277,19 @@
                 <div style="color:var(--danger-color)">일</div><div style="color:var(--text-strong-color)">월</div><div style="color:var(--text-strong-color)">화</div><div style="color:var(--text-strong-color)">수</div><div style="color:var(--text-strong-color)">목</div><div style="color:var(--text-strong-color)">금</div><div style="color:var(--primary-color)">토</div>
             </div>
             <div class="calendar-grid" id="calendarGrid"></div>
+        </div>
+        
+        <!-- ⭐️ 이동된 월별 손익/매매금액 바 차트 영역 (스위칭 버튼 포함) -->
+            <div id="monthlyChartSection" data-layout-id="chart" style="display: none; background: var(--card-bg-color); padding: 15px; border-radius: 8px; box-shadow: var(--entry-card-shadow); margin-bottom: 15px; position: relative;">
+                <div style="display: flex; gap: 8px; justify-content: center; margin-bottom: 15px; flex-wrap: wrap;">
+                <button type="button" class="chart-type-btn" data-type="realized" onclick="window.setMonthlyChartType('realized')" style="background: var(--primary-color); color: white; border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;">월간 실현손익</button>
+                <button type="button" class="chart-type-btn" data-type="evaluated" onclick="window.setMonthlyChartType('evaluated')" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;">월간 평가손익</button>
+                <button type="button" class="chart-type-btn" data-type="volume" onclick="window.setMonthlyChartType('volume')" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;">월간 매매금액</button>
+            </div>
+            <div id="monthlyProfitChartContainer" style="width: 100%; height: 180px;">
+                <canvas id="monthlyProfitChart"></canvas>
+            </div>
+        </div>
         </div>
         
         <div id="activeFilterBanner" style="display:none; background-color: var(--bg-color); padding: 10px 15px; border-radius: 8px; margin-bottom: 15px; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 8px; border: 1px solid var(--primary-color);">
@@ -430,6 +446,6 @@
     </div>
 
     <!-- ⭐️ 외부 JS 파일 연결 -->
-    <script src="script.js?v=1.1"></script>
+    <script src="script.js?v=1.8"></script>
 </body>
 </html>

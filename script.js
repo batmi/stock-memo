@@ -32,6 +32,7 @@ let lastRenderedMonth = '';
 let userPreferences = {};       // ⭐️ 사용자별 설정(포트폴리오 정렬 순서 등) 저장
 let portfolioSortable = null;   // ⭐️ SortableJS 드래그 앤 드롭 인스턴스
 window.currentPriceCache = {};  // ⭐️ 장 종료 시 이전 가격을 유지하기 위한 전역 캐시
+window.monthlyProfitChartInstance = null; // ⭐️ 월별 손익 차트 인스턴스 변수 추가
 
 // ⭐️ 공통 스크롤 함수: 스크롤 튐 현상을 막기 위해 window.scrollTo 절대 좌표 사용
 window.scrollToFilterBox = function() {
@@ -255,6 +256,9 @@ window.addEventListener('DOMContentLoaded', () => {
         // 차트가 이미 생성되었다면 색상을 업데이트하기 위해 다시 렌더링
         if (portfolioChartInstance) {
             updatePortfolioSummary();
+        }
+        if (window.monthlyProfitChartInstance) {
+            window.renderMonthlyProfitChart();
         }
     }
 
@@ -609,6 +613,28 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
     if (btnLogoutNow) btnLogoutNow.addEventListener('click', () => window.location.href = '/logout');
+
+    // ⭐️ 캘린더 뷰와 차트 영역 드래그 앤 드롭 정렬 (SortableJS)
+    const calendarLayoutWrapper = document.getElementById('calendarLayoutWrapper');
+    if (calendarLayoutWrapper) {
+        Sortable.create(calendarLayoutWrapper, {
+            animation: 300,
+            filter: '.calendar-grid, button, canvas', // ⭐️ 날짜 그리드, 모든 버튼, 차트 영역 제외
+            preventOnFilter: true, // ⭐️ 제외된 영역 클릭 시 드래그 방지
+            ghostClass: 'sortable-ghost',
+            dragClass: 'sortable-drag',
+            forceFallback: true,
+            fallbackClass: 'sortable-fallback',
+            fallbackOnBody: true,
+            onEnd: function () {
+                const newOrder = Array.from(calendarLayoutWrapper.children)
+                    .map(el => el.getAttribute('data-layout-id'))
+                    .filter(id => id);
+                userPreferences.calendarLayoutOrder = newOrder;
+                savePreferences();
+            }
+        });
+    }
 
     // ⭐️ 커스텀 글자 크기(medium) 추가
     const Size = Quill.import('formats/size');
@@ -999,6 +1025,17 @@ async function loadDataFromLocal() {
                 if (userPreferences.currentFilterAccount) { currentFilterAccount = userPreferences.currentFilterAccount; currentDashboardAccount = currentFilterAccount; }
                 if (userPreferences.currentFilterBroker) { currentFilterBroker = userPreferences.currentFilterBroker; currentDashboardBroker = currentFilterBroker; }
                 if (userPreferences.currentFilterSubAccount) { currentFilterSubAccount = userPreferences.currentFilterSubAccount; currentDashboardSubAccount = currentFilterSubAccount; }
+                
+                // ⭐️ 캘린더 뷰 레이아웃 순서 복원
+                if (userPreferences.calendarLayoutOrder) {
+                    const wrapper = document.getElementById('calendarLayoutWrapper');
+                    if (wrapper) {
+                        userPreferences.calendarLayoutOrder.forEach(id => {
+                            const el = wrapper.querySelector(`[data-layout-id="${id}"]`);
+                            if (el) wrapper.appendChild(el);
+                        });
+                    }
+                }
             }
         } catch (e) {
             console.warn("환경설정 로드 실패:", e);
@@ -1807,11 +1844,20 @@ function calcTotalAmount() {
     if (!recordType || recordType.value !== 'trade') {
         totalWrapper.style.display = 'none'; return;
     }
+    const tradeType = document.getElementById('tradeType').value;
     const price = Number(document.getElementById('price').value) || 0;
-    const qty = Number(document.getElementById('quantity').value) || 0;
+    const qtyInput = document.getElementById('quantity').value;
+    let qty = Number(qtyInput) || 0;
+    
+    // ⭐️ 배당일 경우 수량이 없으면 1로 계산하여 단가 금액을 총액에 그대로 표시
+    if (tradeType === '배당' && (!qtyInput || qty === 0)) {
+        qty = 1;
+    }
+
     if (price > 0 && qty > 0) {
         totalWrapper.style.display = 'block';
-            document.getElementById('totalAmountDisplay').innerText = `총 매매 금액: ${(price * qty).toLocaleString()}원`;
+        const textLabel = tradeType === '배당' ? '총 배당 금액' : '총 매매 금액';
+        document.getElementById('totalAmountDisplay').innerText = `${textLabel}: ${(price * qty).toLocaleString()}원`;
     } else { totalWrapper.style.display = 'none'; }
 }
 document.getElementById('price').addEventListener('input', calcTotalAmount);
@@ -1838,11 +1884,15 @@ function toggleFormUI(recordType) {
     if (accountNameEl) accountNameEl.required = isTrade;
     
     const tradeTypeEl = document.getElementById('tradeType');
-    const isTradeAndNotWatch = isTrade && tradeTypeEl && tradeTypeEl.value !== '주시';
+    const tradeTypeValue = tradeTypeEl ? tradeTypeEl.value : '';
+    const isTradeAndNotWatch = isTrade && tradeTypeEl && tradeTypeValue !== '주시' && tradeTypeValue !== '관망';
+    const isDividend = tradeTypeValue === '배당';
     const priceEl = document.getElementById('price');
     if (priceEl) priceEl.required = isTradeAndNotWatch;
     const quantityEl = document.getElementById('quantity');
-    if (quantityEl) quantityEl.required = isTradeAndNotWatch;
+    if (quantityEl) {
+        quantityEl.required = isTradeAndNotWatch && !isDividend; // ⭐️ 배당일 때는 수량이 필수값이 아니도록 처리
+    }
     const memoTitleEl = document.getElementById('memoTitle');
     if (memoTitleEl) memoTitleEl.required = !isTrade;
     
@@ -1863,6 +1913,7 @@ if (tradeTypeSelect) {
     tradeTypeSelect.addEventListener('change', function() {
         const recordType = document.querySelector('input[name="recordType"]:checked');
         if (recordType) toggleFormUI(recordType.value);
+        calcTotalAmount(); // 배당/매매에 따른 텍스트 레이블 변경 반영
     });
 }
 
@@ -2016,7 +2067,12 @@ journalForm.addEventListener('submit', async function(e) {
         const accountName = document.getElementById('accountName').value;
         const tradeType = document.getElementById('tradeType').value;
         const price = document.getElementById('price').value;
-        const quantity = document.getElementById('quantity').value;
+        let quantity = document.getElementById('quantity').value;
+
+        // ⭐️ 배당일 때 수량이 입력되지 않았으면 자동으로 1로 보정
+        if (tradeType === '배당' && (!quantity || Number(quantity) === 0)) {
+            quantity = 1;
+        }
 
         newEntry = {
             id: currentEditingId || Date.now(), type: 'trade', stockName, stockCode, brokerAccount, subAccount, accountName,
@@ -2452,6 +2508,11 @@ function updatePortfolioSummary() {
             portfolio[stock].qty -= qty;
             portfolio[stock].totalCost -= (currentAvgPrice * qty);
             if (portfolio[stock].qty <= 0) { portfolio[stock].qty = 0; portfolio[stock].totalCost = 0; portfolio[stock].avgPrice = 0; }
+        } else if (entry.tradeType === '배당') {
+            portfolio[stock].traded = true;
+            const dividendAmount = price * qty;
+            portfolio[stock].realizedProfit += dividendAmount;
+            totalRealizedProfit += dividendAmount;
         }
     });
 
@@ -3378,12 +3439,23 @@ function renderPage() {
                 typeColor = 'var(--success-color)';
                 borderColor = 'var(--success-color)';
                 badgeClass = 'watch';
+            } else if(entry.tradeType === '배당') {
+                typeColor = 'var(--warning-color)';
+                borderColor = 'var(--warning-color)';
+                badgeClass = 'dividend';
             }
             
             card.style.borderLeftColor = borderColor;
 
             let detailsHtml = '';
-            if (entry.tradeType !== '관망' && entry.tradeType !== '주시' && (entry.price > 0 || entry.quantity > 0)) {
+            if (entry.tradeType === '배당' && (entry.price > 0 || entry.quantity > 0)) {
+                const totalAmount = (entry.price * (entry.quantity || 1)).toLocaleString();
+                detailsHtml = `
+                    <div class="entry-details">
+                        <div class="detail-item">💰 총 배당금: <span style="color: var(--danger-color); font-weight: bold; font-size: 13.5px;">${totalAmount}원</span></div>
+                    </div>
+                `;
+            } else if (entry.tradeType !== '관망' && entry.tradeType !== '주시' && (entry.price > 0 || entry.quantity > 0)) {
                 const priceStr = entry.price ? entry.price.toLocaleString() : '0';
                 const qtyStr = entry.quantity ? entry.quantity.toLocaleString() : '0';
                 const totalAmount = (entry.price * entry.quantity).toLocaleString();
@@ -3598,12 +3670,13 @@ function renderCalendar() {
         if (!dailyStats[dateKey]) dailyStats[dateKey] = { profit: 0, details: {} };
         
         const stockKey = entry.stockName || '';
-        if (!dailyStats[dateKey].details[stockKey]) dailyStats[dateKey].details[stockKey] = { buyCount: 0, sellCount: 0, watchCount: 0, memoCount: 0 };
+        if (!dailyStats[dateKey].details[stockKey]) dailyStats[dateKey].details[stockKey] = { buyCount: 0, sellCount: 0, watchCount: 0, memoCount: 0, dividendCount: 0 };
         
         if (entry.type === 'trade') {
             if (entry.tradeType === '매수') dailyStats[dateKey].details[stockKey].buyCount++;
             else if (entry.tradeType === '매도') dailyStats[dateKey].details[stockKey].sellCount++;
             else if (entry.tradeType === '주시' || entry.tradeType === '관망') dailyStats[dateKey].details[stockKey].watchCount++;
+            else if (entry.tradeType === '배당') dailyStats[dateKey].details[stockKey].dividendCount++;
 
             if (entry.stockName) {
                 const stock = entry.stockName, qty = Number(entry.quantity) || 0, price = Number(entry.price) || 0;
@@ -3616,6 +3689,8 @@ function renderCalendar() {
                     dailyStats[dateKey].profit += (price - portfolio[stock].avgPrice) * qty;
                     portfolio[stock].qty -= qty; portfolio[stock].totalCost -= (portfolio[stock].avgPrice * qty);
                     if (portfolio[stock].qty <= 0) { portfolio[stock].qty = 0; portfolio[stock].totalCost = 0; portfolio[stock].avgPrice = 0; }
+                } else if (entry.tradeType === '배당') {
+                    dailyStats[dateKey].profit += (price * qty);
                 }
             }
         } else if (entry.type === 'memo') {
@@ -3658,6 +3733,10 @@ function renderCalendar() {
                 const typeArg = `stock_trade_${safeStock}`;
                 badgesHtml += `<div class="cal-badge watch" onclick="showDetailsForDate('${key}', '${typeArg}', event)">${prefix}주시 ${counts.watchCount}건</div>`;
             }
+            if (counts.dividendCount > 0) {
+                const typeArg = `stock_trade_${safeStock}`;
+                badgesHtml += `<div class="cal-badge dividend" onclick="showDetailsForDate('${key}', '${typeArg}', event)">${prefix}배당 ${counts.dividendCount}건</div>`;
+            }
             if (counts.memoCount > 0) {
                 const typeArg = `stock_memo_${safeStock}`;
                 badgesHtml += `<div class="cal-badge memo" onclick="showDetailsForDate('${key}', '${typeArg}', event)">${prefix}메모 ${counts.memoCount}건</div>`;
@@ -3674,6 +3753,9 @@ function renderCalendar() {
         
         calendarGrid.innerHTML += `<div class="calendar-day${todayClass}" onclick="showDetailsForDate('${key}', 'all', event)" title="클릭하여 상세 보기">${daySpanHtml}<div style="text-align:right;">${profitHtml}${badgesHtml}</div></div>`;
     }
+    
+    // ⭐️ 캘린더 렌더링 시 월별 실현 손익 차트 업데이트
+    window.renderMonthlyProfitChart();
 }
 
 window.showDetailsForDate = function(date, typeArg, event) {
@@ -3728,6 +3810,209 @@ window.filterByStock = function(stockName, event) {
     
     displayEntries(true);
     window.scrollToFilterBox();
+};
+
+// ⭐️ 캘린더 하단 차트 종류 스위칭 함수
+window.setMonthlyChartType = function(type) {
+    window.currentMonthlyChartType = type;
+    document.querySelectorAll('.chart-type-btn').forEach(btn => {
+        if (btn.dataset.type === type) {
+            btn.style.backgroundColor = 'var(--primary-color)';
+            btn.style.color = 'white';
+        } else {
+            btn.style.backgroundColor = 'transparent';
+            btn.style.color = 'var(--primary-color)';
+        }
+    });
+    window.renderMonthlyProfitChart();
+};
+
+// ⭐️ 최근 12개월 월별 실현손익/평가손익/매매금액 바 차트 렌더링 함수 (통합)
+window.renderMonthlyProfitChart = function() {
+    console.log("[Chart] 월별 실현/평가/매매금액 차트 렌더링 시작...");
+    const monthlyData = {};
+    const now = new Date();
+    const labels = [];
+    
+    for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        monthlyData[key] = { realized: 0, evaluated: 0, buy_volume: 0, sell_volume: 0 };
+        labels.push(key);
+    }
+    
+    const chronological = [...cloudEntries].sort((a, b) => {
+        const timeA = a.rawDate ? new Date(a.rawDate).getTime() : a.id;
+        const timeB = b.rawDate ? new Date(b.rawDate).getTime() : b.id;
+        return timeA - timeB;
+    });
+
+    const portfolio = {};
+    const stockRemainingBuys = {}; // ⭐️ 선입선출(FIFO) 기반 각 매수 건의 잔여 수량 추적
+    
+    chronological.forEach(entry => {
+        if (entry.type !== 'trade' || !entry.stockName) return;
+        
+        let dateKey = '';
+        if (entry.rawDate) {
+            dateKey = entry.rawDate.substring(0, 7);
+        } else if (entry.date) {
+            const parts = entry.date.split('. ');
+            if (parts.length >= 2) dateKey = `${parts[0]}-${parts[1].padStart(2,'0')}`;
+        }
+        if (!dateKey) return;
+
+        const stock = entry.stockName;
+        const qty = Number(entry.quantity) || 0;
+        const price = Number(entry.price) || 0;
+
+        if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0, stockCode: entry.stockCode || '' };
+        if (entry.stockCode) portfolio[stock].stockCode = entry.stockCode; // 최신 종목코드 갱신
+        if (!stockRemainingBuys[stock]) stockRemainingBuys[stock] = [];
+
+        if (entry.tradeType === '매수') {
+            portfolio[stock].qty += qty;
+            portfolio[stock].totalCost += (price * qty);
+            if (portfolio[stock].qty > 0) portfolio[stock].avgPrice = portfolio[stock].totalCost / portfolio[stock].qty;
+            
+            // ⭐️ 잔여 수량 큐에 삽입 및 거래대금(매매금액) 합산
+            stockRemainingBuys[stock].push({ dateKey, qty, price });
+            if (monthlyData[dateKey]) monthlyData[dateKey].buy_volume += (price * qty);
+            
+        } else if (entry.tradeType === '매도') {
+            const profit = (price - portfolio[stock].avgPrice) * qty;
+            if (monthlyData[dateKey]) {
+                monthlyData[dateKey].realized += profit;
+                monthlyData[dateKey].sell_volume += (price * qty);
+            }
+            portfolio[stock].qty -= qty;
+            portfolio[stock].totalCost -= (portfolio[stock].avgPrice * qty);
+            if (portfolio[stock].qty <= 0) { portfolio[stock].qty = 0; portfolio[stock].totalCost = 0; portfolio[stock].avgPrice = 0; }
+            
+            // ⭐️ 매도 시 과거 매수 기록부터 선입선출(FIFO)로 차감하여 현재 미청산 매수건 파악
+            let sellQty = qty;
+            while(sellQty > 0 && stockRemainingBuys[stock].length > 0) {
+                let firstBuy = stockRemainingBuys[stock][0];
+                if (firstBuy.qty <= sellQty) {
+                    sellQty -= firstBuy.qty;
+                    stockRemainingBuys[stock].shift(); // 전량 청산
+                } else {
+                    firstBuy.qty -= sellQty;
+                    sellQty = 0; // 일부만 청산
+                }
+            }
+        } else if (entry.tradeType === '배당') {
+            if (monthlyData[dateKey]) {
+                monthlyData[dateKey].realized += (price * qty);
+                // ⭐️ 배당금은 '실현 손익'에는 포함되지만 순수 '매매(거래) 금액' 차트에서는 제외합니다.
+            }
+        }
+    });
+
+    // ⭐️ 현재가(Cache)를 바탕으로 현재 청산되지 않고 남은 매수 건들의 평가 손익 계산
+    for (const stock in stockRemainingBuys) {
+        const stockCode = portfolio[stock]?.stockCode;
+        const currentPrice = window.currentPriceCache[stockCode];
+        if (currentPrice !== undefined && currentPrice !== null) {
+            stockRemainingBuys[stock].forEach(buy => {
+                if (monthlyData[buy.dateKey]) {
+                    monthlyData[buy.dateKey].evaluated += (currentPrice - buy.price) * buy.qty;
+                }
+            });
+        }
+    }
+
+    const theme = document.documentElement.getAttribute('data-theme') || 'light';
+    const isDark = theme === 'dark';
+    
+    const type = window.currentMonthlyChartType || 'realized';
+    let datasets = [];
+
+    if (type === 'realized') {
+        const data = labels.map(l => monthlyData[l].realized);
+        const backgroundColors = data.map(val => val > 0 ? (isDark ? 'rgba(163, 78, 78, 0.85)' : 'rgba(231, 76, 60, 0.85)') : (val < 0 ? (isDark ? 'rgba(59, 104, 140, 0.85)' : 'rgba(52, 152, 219, 0.85)') : (isDark ? 'rgba(85, 85, 85, 0.85)' : 'rgba(189, 195, 199, 0.85)')));
+        datasets = [{
+            label: '월간 실현 손익 (배당 포함)',
+            data: data,
+            backgroundColor: backgroundColors,
+            borderRadius: 4
+        }];
+    } else if (type === 'evaluated') {
+        const data = labels.map(l => monthlyData[l].evaluated);
+        const backgroundColors = data.map(val => val > 0 ? (isDark ? 'rgba(163, 78, 78, 0.85)' : 'rgba(231, 76, 60, 0.85)') : (val < 0 ? (isDark ? 'rgba(59, 104, 140, 0.85)' : 'rgba(52, 152, 219, 0.85)') : (isDark ? 'rgba(85, 85, 85, 0.85)' : 'rgba(189, 195, 199, 0.85)')));
+        datasets = [{
+            label: '해당 월 매수분의 현재 평가 손익',
+            data: data,
+            backgroundColor: backgroundColors,
+            borderRadius: 4
+        }];
+    } else if (type === 'volume') {
+        datasets = [
+            {
+                label: '매수 금액 (하단)',
+                data: labels.map(l => monthlyData[l].buy_volume),
+                backgroundColor: isDark ? 'rgba(163, 78, 78, 0.85)' : 'rgba(231, 76, 60, 0.85)',
+                borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 4, bottomRight: 4 }
+            },
+            {
+                label: '매도 금액 (상단)',
+                data: labels.map(l => monthlyData[l].sell_volume),
+                backgroundColor: isDark ? 'rgba(59, 104, 140, 0.85)' : 'rgba(52, 152, 219, 0.85)',
+                borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 }
+            }
+        ];
+    }
+    
+    const displayLabels = labels.map(l => l.split('-')[1].replace(/^0+/, '') + '월');
+
+    const ctx = document.getElementById('monthlyProfitChart');
+    if (!ctx) {
+        console.warn("[Chart Error] 'monthlyProfitChart' 캔버스를 찾을 수 없습니다! HTML 파일이 정상적으로 업데이트되었는지 확인해 주세요.");
+        return;
+    }
+
+    if (window.monthlyProfitChartInstance) window.monthlyProfitChartInstance.destroy();
+    
+    Chart.defaults.color = isDark ? '#aaaaaa' : '#7f8c8d';
+
+    window.monthlyProfitChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: displayLabels,
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let value = context.parsed.y;
+                            if (type === 'volume') {
+                                let prefix = context.datasetIndex === 0 ? '매수: ' : '매도: ';
+                                return prefix + Math.round(value).toLocaleString() + '원';
+                            }
+                            return (value > 0 ? '+' : '') + Math.round(value).toLocaleString() + '원';
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    stacked: type === 'volume',
+                    beginAtZero: true,
+                    grid: { color: isDark ? '#333333' : '#eeeeee' },
+                    ticks: { callback: function(value) { return value.toLocaleString(); } }
+                },
+                x: { 
+                    stacked: type === 'volume',
+                    grid: { display: false } 
+                }
+            }
+        }
+    });
 };
 
 // ⭐️ 개별 칩(Chip)용 필터 초기화 함수 세트
@@ -3848,6 +4133,8 @@ document.getElementById('btnListView').addEventListener('click', function() {
     this.classList.add('active'); document.getElementById('btnCalendarView').classList.remove('active');
     document.getElementById('historyList').style.display = 'flex';
     document.getElementById('calendarViewSection').style.display = 'none';
+    const monthlyChartSection = document.getElementById('monthlyChartSection');
+    if (monthlyChartSection) monthlyChartSection.style.display = 'none';
     document.getElementById('filterBoxContainer').style.display = 'block';
     const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
     if (btnToggleHistoryClosed) btnToggleHistoryClosed.style.display = 'inline-block';
@@ -3857,6 +4144,8 @@ document.getElementById('btnCalendarView').addEventListener('click', function() 
     this.classList.add('active'); document.getElementById('btnListView').classList.remove('active');
     document.getElementById('historyList').style.display = 'none';
     document.getElementById('calendarViewSection').style.display = 'block';
+    const monthlyChartSection = document.getElementById('monthlyChartSection');
+    if (monthlyChartSection) monthlyChartSection.style.display = 'block';
     document.getElementById('filterBoxContainer').style.display = 'none';
     const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
     if (btnToggleHistoryClosed) btnToggleHistoryClosed.style.display = 'none';

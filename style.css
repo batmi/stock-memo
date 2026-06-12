@@ -33,6 +33,14 @@
     --badge-trade-color: #0369a1;
     --badge-trade-border: #bae6fd;
 
+    /* ⭐️ 캘린더 배지 배당 색상 (라이트: 노란색/주황색 계열) */
+    --badge-dividend-cal-bg: #fef08a;
+    --badge-dividend-cal-color: #854d0e;
+    --badge-dividend-cal-border: #fde047;
+    --badge-dividend-cal-hover-bg: #fde047;
+    --badge-dividend-cal-hover-color: #713f12;
+    --badge-dividend-cal-hover-border: #facc15;
+
     /* ⭐️ 종목명 배지 (매수/매도/주시) 색상 (라이트) */
     --badge-buy-bg: #fee2e2;
     --badge-buy-color: #b91c1c;
@@ -109,6 +117,14 @@
     --badge-trade-bg: #16324a;
     --badge-trade-color: #7fa6c7;
     --badge-trade-border: #234866;
+
+    /* ⭐️ 캘린더 배지 배당 색상 (다크) */
+    --badge-dividend-cal-bg: #422006;
+    --badge-dividend-cal-color: #facc15;
+    --badge-dividend-cal-border: #713f12;
+    --badge-dividend-cal-hover-bg: #713f12;
+    --badge-dividend-cal-hover-color: #fef08a;
+    --badge-dividend-cal-hover-border: #854d0e;
 
     /* ⭐️ 종목명 배지 (매수/매도/주시) 색상 (다크) */
     --badge-buy-bg: #451a1a;
@@ -798,6 +814,19 @@ button:hover {
     z-index: 9999 !important;
     transition: none !important; /* ⭐️ 핵심: 터치 드래그 시 카드가 늦게 따라오는(Rubber-band) 지연 현상 제거 */
 }
+
+/* ⭐️ 캘린더/차트 섹션 전체 드래그 커서 스타일 */
+#calendarViewSection, #monthlyChartSection {
+    cursor: grab;
+}
+#calendarViewSection:active, #monthlyChartSection:active {
+    cursor: grabbing;
+}
+/* ⭐️ 내부 상호작용 요소(날짜, 캔버스 등)는 기본 커서로 복구하여 드래그 불가 영역임을 암시 */
+#calendarViewSection .calendar-grid, #monthlyChartSection canvas {
+    cursor: default;
+}
+
 .badge-long { background-color: #e0f2fe; color: #0369a1; }
 .badge-mid { background-color: #dcfce7; color: #15803d; }
 .badge-swing { background-color: #fef9c3; color: #a16207; }
@@ -841,6 +870,8 @@ button:hover {
 .cal-badge.buy { background-color: var(--badge-buy-bg); color: var(--badge-buy-color); border: 1px solid var(--badge-buy-border); }
 .cal-badge.sell { background-color: var(--badge-sell-bg); color: var(--badge-sell-color); border: 1px solid var(--badge-sell-border); }
 .cal-badge.watch { background-color: var(--badge-watch-bg); color: var(--badge-watch-color); border: 1px solid var(--badge-watch-border); }
+.cal-badge.dividend { background-color: var(--badge-dividend-cal-bg); color: var(--badge-dividend-cal-color); border: 1px solid var(--badge-dividend-cal-border); }
+.cal-badge.dividend:hover { background-color: var(--badge-dividend-cal-hover-bg); color: var(--badge-dividend-cal-hover-color); border-color: var(--badge-dividend-cal-hover-border); }
 .cal-badge.stock { background-color: var(--badge-stock-bg); color: var(--badge-stock-color); border: 1px solid var(--badge-stock-border); }
 .cal-badge.memo:hover { background-color: var(--badge-memo-hover-bg); color: var(--badge-memo-hover-color); border-color: var(--badge-memo-hover-border); }
 .cal-badge.trade:hover { background-color: var(--badge-trade-hover-bg); color: var(--badge-trade-hover-color); border-color: var(--badge-trade-hover-border); }
