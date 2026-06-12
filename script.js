@@ -185,9 +185,26 @@ function showExtensionWarning() {
     }, remainingMs);
 }
 
-['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart'].forEach(evt => {
+// ⭐️ 사용자의 미세한 마우스 흔들림으로 인한 무의도적인 세션 연장을 막기 위해 'mousemove' 이벤트 제거
+['mousedown', 'keydown', 'scroll', 'touchstart', 'click'].forEach(evt => {
     document.addEventListener(evt, resetInactivityTimers, { passive: true });
 });
+
+// ⭐️ 사용자가 조작 중일 때 서버 세션도 만료되지 않도록 주기적으로 Ping을 보내 동기화
+let lastPingSentTime = Date.now();
+function sendPingToServerIfActive() {
+    const now = Date.now();
+    // 마지막 핑을 보낸 지 10분이 지났고, 최근 10분 내에 사용자의 동작이 있었다면 서버에 연장 신호 전송
+    if (now - lastPingSentTime >= 10 * 60 * 1000) {
+        if (now - lastActivityTime < 10 * 60 * 1000) {
+            fetch('/api/ping', { method: 'POST', headers: { 'ngrok-skip-browser-warning': 'true' } })
+                .catch(() => console.warn('세션 연장 Ping 전송 실패'));
+            lastPingSentTime = now;
+        }
+    }
+}
+// 1분마다 상태 검사
+setInterval(sendPingToServerIfActive, 60000);
 
 // ⭐️ 브라우저 탭 활성화 시 실제 경과 시간을 확인하여 동기화
 document.addEventListener('visibilitychange', async () => {
