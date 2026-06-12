@@ -548,44 +548,59 @@ def test_current_price_edge_cases(mock_urlopen, client):
         sess['logged_in'] = True
         sess['username'] = 'testuser'
         
-    mock_res = MagicMock()
-    mock_res.__enter__.return_value = mock_res
+    def create_mock_res(content):
+        mock_res = MagicMock()
+        mock_res.read.return_value = content
+        mock_res.__enter__.return_value = mock_res
+        return mock_res
+
+    def urlopen_side_effect(req, timeout=3):
+        url = req.full_url if hasattr(req, 'full_url') else req
+        
+        if 'M04020000' in url:
+            if getattr(urlopen_side_effect, 'gold_fail_all', False):
+                raise Exception("All Fail")
+            raise Exception("Naver Gold API Fail")
+        elif 'KRX_Gold_Market' in url:
+            if getattr(urlopen_side_effect, 'gold_fail_all', False):
+                raise Exception("All Fail")
+            return create_mock_res(b"<th>\xed\x98\x84\xec\x9e\xac\xea\xb0\x80</th><td><strong>88,000</strong></td>")
+        elif '005930' in url:
+            if getattr(urlopen_side_effect, 'all_fail', False):
+                raise Exception("All APIs Fail")
+            if 'polling' in url:
+                return create_mock_res(b'{"result": {"areas": [{"datas": [{"nv": 95000}]}]}}')
+            return create_mock_res(b'{"closePrice": "0"}')
+        elif 'ABCDEF' in url:
+            return create_mock_res(b'{"chart": {"result": [{"meta": {"regularMarketPrice": 250.5}}]}}')
+        elif '123456' in url:
+            if 'yahoo' in url:
+                return create_mock_res(b'{"chart": {"result": [{"meta": {"regularMarketPrice": 100.0}}]}}')
+            raise Exception("Naver API Fail")
+        elif 'AAPL' in url:
+            raise Exception("All APIs Fail")
+        return create_mock_res(b'')
+
+    mock_urlopen.side_effect = urlopen_side_effect
     
     # 1. 금 주가: 기본 API 에러 -> KRX 크롤링 성공 패턴
-    mock_res.read.side_effect = [
-        Exception("Naver Gold API Fail"),
-        b"<th>\xed\x98\x84\xec\x9e\xac\xea\xb0\x80</th><td><strong>88,000</strong></td>"
-    ]
-    mock_urlopen.return_value = mock_res
-    
     res_gold = client.post('/api/current_price', json={'codes': ['KRXGOLD']})
     assert res_gold.json.get('KRXGOLD') == 88000.0
     
     # 2. 금 주가: 모든 API 실패 시 None 반환
-    mock_res.read.side_effect = Exception("All Fail")
+    urlopen_side_effect.gold_fail_all = True
     res_gold_fail = client.post('/api/current_price', json={'codes': ['KRXGOLD']})
     assert res_gold_fail.json.get('KRXGOLD') is None
     
     # 3. 네이버 주가: 기본 API 데이터 0 -> Polling API 우회 성공 패턴
-    mock_res.read.side_effect = [
-        b'{"closePrice": "0"}',
-        b'{"result": {"areas": [{"datas": [{"nv": 95000}]}]}}'
-    ]
     res_naver = client.post('/api/current_price', json={'codes': ['005930']})
     assert res_naver.json.get('005930') == 95000.0
     
     # 4. 6자리 해외 주식(US): 네이버 API 생략하고 즉시 야후 파이낸스 성공 패턴
-    mock_res.read.side_effect = [
-        b'{"chart": {"result": [{"meta": {"regularMarketPrice": 250.5}}]}}'
-    ]
     res_us = client.post('/api/current_price', json={'codes': ['ABCDEF']})
     assert res_us.json.get('ABCDEF') == 250.5
     
     # 5. 국내 주식 네이버 API 실패 -> 야후 파이낸스 폴백
-    mock_res.read.side_effect = [
-        Exception("Naver API Fail"),
-        b'{"chart": {"result": [{"meta": {"regularMarketPrice": 100.0}}]}}'
-    ]
     res_fallback = client.post('/api/current_price', json={'codes': ['123456']})
     assert res_fallback.json.get('123456') == 100.0
     
@@ -595,7 +610,7 @@ def test_current_price_edge_cases(mock_urlopen, client):
     assert res_empty.json == {}
 
     # 7. 일반 주식 모든 API 실패 시 500 에러 없이 안전하게 통과하는지 검증 (Unpacking 버그 회귀 방지)
-    mock_res.read.side_effect = Exception("All APIs Fail")
+    urlopen_side_effect.all_fail = True
     res_all_fail = client.post('/api/current_price', json={'codes': ['005930', 'AAPL']})
     assert res_all_fail.status_code == 200
     assert res_all_fail.json.get('005930') is None

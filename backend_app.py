@@ -1045,6 +1045,21 @@ def get_current_price():
                 }
 
                 try:
+                    # ⭐️ 정규장 시간일 경우 실시간 시세 반영을 위해 Polling API 우선 조회
+                    if not is_out_of_hours:
+                        try:
+                            polling_url = f"https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{code_str}"
+                            req_poll = urllib.request.Request(polling_url, headers=api_headers)
+                            with urllib.request.urlopen(req_poll, timeout=3) as response_poll:
+                                res_data_poll = json.loads(response_poll.read())
+                                areas = res_data_poll.get('result', {}).get('areas', [])
+                                if areas and areas[0].get('datas'):
+                                    nv = areas[0]['datas'][0].get('nv')
+                                    if nv:
+                                        return code, float(nv)
+                        except Exception:
+                            pass
+
                     # 국내 주식 (네이버 금융 모바일 API)
                     url = f"https://m.stock.naver.com/api/stock/{code_str}/basic"
                     req = urllib.request.Request(url, headers=api_headers)
