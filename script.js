@@ -359,6 +359,14 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ⭐️ 뉴스 수동 새로고침 버튼 이벤트 (HTML에 id="btnRefreshNews" 버튼이 있을 경우 동작)
+    const btnRefreshNews = document.getElementById('btnRefreshNews');
+    if (btnRefreshNews) {
+        btnRefreshNews.addEventListener('click', () => {
+            fetchRealtimeNews(true); // 수동 갱신 시 캐시 무시 강제 갱신
+        });
+    }
+
     // 대시보드 접기/펴기 버튼 이벤트 연결
     const btnTogglePortfolio = document.getElementById('btnTogglePortfolio');
     if (btnTogglePortfolio) {
@@ -1021,7 +1029,7 @@ window.saveFilterPreferences = function() {
     savePreferences();
 };
 
-async function fetchRealtimeNews() {
+async function fetchRealtimeNews(forceRefresh = false) {
     const newsListEl = document.getElementById('newsList');
     if (!newsListEl) return;
     
@@ -1036,7 +1044,7 @@ async function fetchRealtimeNews() {
                 'Content-Type': 'application/json',
                 'ngrok-skip-browser-warning': 'true'
             },
-            body: JSON.stringify({ stocks: stocksToFetch })
+            body: JSON.stringify({ stocks: stocksToFetch, force_refresh: forceRefresh })
         });
         const newsData = await response.json();
         

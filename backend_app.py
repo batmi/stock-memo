@@ -1201,6 +1201,7 @@ NEWS_CACHE_TTL = 600  # 10분(600초) 동안 캐시 유지
 def get_news():
     data = request.json or {}
     stocks = data.get('stocks', [])
+    force_refresh = data.get('force_refresh', False)
     
     # 보유 종목이 없을 경우 기본 검색어 사용
     if not stocks:
@@ -1209,8 +1210,8 @@ def get_news():
     def fetch_news_for_stock(stock):
         current_time = time.time()
         
-        # ⭐️ 1. 캐시에 데이터가 있고, 유효 시간(10분)이 지나지 않았다면 구글에 요청하지 않고 캐시 반환
-        if stock in news_cache:
+        # ⭐️ 1. 수동 새로고침이 아니고, 캐시에 데이터가 유효 시간(10분) 내에 있다면 구글에 요청하지 않고 캐시 반환
+        if not force_refresh and stock in news_cache:
             cached_data, timestamp = news_cache[stock]
             if current_time - timestamp < NEWS_CACHE_TTL:
                 return cached_data
@@ -1219,13 +1220,14 @@ def get_news():
         try:
             # ⭐️ 네이버 RSS 서비스 전면 종료(404)에 따라 안정적인 구글 뉴스 RSS로 복귀
             query = urllib.parse.quote(f"{stock} when:7d")
-            url = f"https://news.google.com/rss/search?q={query}&hl=ko&gl=KR&ceid=KR:ko"
+            ts = int(time.time() * 1000)
+            url = f"https://news.google.com/rss/search?q={query}&hl=ko&gl=KR&ceid=KR:ko&_={ts}"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=3) as response:
                 xml_data = response.read()
                 root = ET.fromstring(xml_data)
                 for idx, item in enumerate(root.findall('.//item')):
-                    if idx >= 3: break
+                    if idx >= 5: break
                     
                     news_list.append({
                         'stock': stock,
