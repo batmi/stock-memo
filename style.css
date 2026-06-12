@@ -1193,3 +1193,10 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 [data-theme="dark"] .ql-stroke { stroke: var(--text-color) !important; }
 [data-theme="dark"] .ql-fill { fill: var(--text-color) !important; }
 [data-theme="dark"] .ql-picker { color: var(--text-color) !important; }
+
+/* ⭐️ Quill 에디터 커스텀 폰트 사이즈(Medium) 스타일 및 드롭다운 라벨 추가 */
+.ql-editor .ql-size-medium { font-size: 1.25em; }
+.ql-snow .ql-picker.ql-size .ql-picker-label[data-value="medium"]::before,
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="medium"]::before {
+    content: 'Medium';
+}

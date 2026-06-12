@@ -593,6 +593,11 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     if (btnLogoutNow) btnLogoutNow.addEventListener('click', () => window.location.href = '/logout');
 
+    // ⭐️ 커스텀 글자 크기(medium) 추가
+    const Size = Quill.import('formats/size');
+    Size.whitelist = ['small', false, 'medium', 'large', 'huge'];
+    Quill.register(Size, true);
+
     // ⭐️ Quill 에디터 초기화
     window.quill = new Quill('#editor-container', {
         theme: 'snow',
@@ -601,7 +606,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 displaySize: true // 리사이즈 시 이미지 크기 툴팁 표시
             },
             toolbar: [
-                [{ 'header': [1, 2, 3, false] }, { 'size': ['small', false, 'large', 'huge'] }], // 헤더, 글자 크기
+                [{ 'header': [1, 2, 3, false] }, { 'size': ['small', false, 'medium', 'large', 'huge'] }], // 헤더, 글자 크기
                 ['bold', 'italic', 'underline', 'strike'],       // 텍스트 강조
                 [{ 'color': [] }, { 'background': [] }],         // 글자/배경 색상
                 [{ 'align': [] }],                               // 정렬
