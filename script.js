@@ -3867,6 +3867,7 @@ window.renderMonthlyProfitChart = function() {
     const monthlyData = {};
     const now = new Date();
     const labels = [];
+    const allProfitByMonth = {}; // ⭐️ 전체 기간의 월별 실현손익을 추적하여 누적 계산에 활용
     
     for (let i = 11; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -3903,6 +3904,8 @@ window.renderMonthlyProfitChart = function() {
         if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0, stockCode: entry.stockCode || '' };
         if (entry.stockCode) portfolio[stock].stockCode = entry.stockCode; // 최신 종목코드 갱신
         if (!stockRemainingBuys[stock]) stockRemainingBuys[stock] = [];
+        
+        if (!allProfitByMonth[dateKey]) allProfitByMonth[dateKey] = 0;
 
         if (entry.tradeType === '매수') {
             portfolio[stock].qty += qty;
@@ -3915,6 +3918,7 @@ window.renderMonthlyProfitChart = function() {
             
         } else if (entry.tradeType === '매도') {
             const profit = (price - portfolio[stock].avgPrice) * qty;
+            allProfitByMonth[dateKey] += profit; // ⭐️ 전체 기간 수익 누적용
             if (monthlyData[dateKey]) {
                 monthlyData[dateKey].realized += profit;
                 monthlyData[dateKey].sell_volume += (price * qty);
@@ -3936,6 +3940,7 @@ window.renderMonthlyProfitChart = function() {
                 }
             }
         } else if (entry.tradeType === '배당') {
+            allProfitByMonth[dateKey] += (price * qty); // ⭐️ 배당금 누적용
             if (monthlyData[dateKey]) {
                 monthlyData[dateKey].realized += (price * qty);
                 // ⭐️ 배당금은 '실현 손익'에는 포함되지만 순수 '매매(거래) 금액' 차트에서는 제외합니다.
@@ -3955,6 +3960,15 @@ window.renderMonthlyProfitChart = function() {
             });
         }
     }
+    
+    // ⭐️ 12개월 라벨별로 과거부터 해당 월까지의 총 누적 수익금 계산
+    labels.forEach(label => {
+        let cum = 0;
+        for (const key in allProfitByMonth) {
+            if (key <= label) cum += allProfitByMonth[key];
+        }
+        monthlyData[label].cumulative = cum;
+    });
 
     const theme = document.documentElement.getAttribute('data-theme') || 'light';
     const isDark = theme === 'dark';
@@ -3995,6 +4009,22 @@ window.renderMonthlyProfitChart = function() {
                 borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 }
             }
         ];
+    } else if (type === 'cumulative') {
+        const data = labels.map(l => monthlyData[l].cumulative);
+        const lineColor = isDark ? '#3a7a4f' : '#27ae60'; // ⭐️ 자산 우상향을 상징하는 초록색 계열
+        const bgColor = isDark ? 'rgba(58, 122, 79, 0.3)' : 'rgba(39, 174, 96, 0.2)';
+        datasets = [{
+            type: 'line',
+            label: '누적 수익금 (전체 기간)',
+            data: data,
+            borderColor: lineColor,
+            backgroundColor: bgColor,
+            borderWidth: 2,
+            pointBackgroundColor: lineColor,
+            pointBorderColor: isDark ? '#1e1e1e' : '#fff',
+            fill: true,
+            tension: 0.3 // ⭐️ 꺾은선 곡선을 부드럽게 처리
+        }];
     }
     
     const displayLabels = labels.map(l => l.split('-')[1].replace(/^0+/, '') + '월');
@@ -4027,6 +4057,9 @@ window.renderMonthlyProfitChart = function() {
                             if (type === 'volume') {
                                 let prefix = context.datasetIndex === 0 ? '매수: ' : '매도: ';
                                 return prefix + Math.round(value).toLocaleString() + '원';
+                            }
+                            if (type === 'cumulative') {
+                                return '누적: ' + (value > 0 ? '+' : '') + Math.round(value).toLocaleString() + '원';
                             }
                             return (value > 0 ? '+' : '') + Math.round(value).toLocaleString() + '원';
                         }
