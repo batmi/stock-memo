@@ -3300,8 +3300,10 @@ function displayEntries(isFilterUpdate = false) {
     const hasBroker = currentFilterBroker !== 'all';
     const hasSubAccount = currentFilterSubAccount !== 'all';
     const hasKeyword = currentFilterKeywords.length > 0;
+    
+    const isListView = document.getElementById('btnListView') && document.getElementById('btnListView').classList.contains('active');
 
-    if (hasDate || hasRecordType || hasStock || hasAccount || hasBroker || hasSubAccount || hasKeyword) {
+    if (isListView && (hasDate || hasRecordType || hasStock || hasAccount || hasBroker || hasSubAccount || hasKeyword)) {
         banner.style.display = 'flex';
         if (filterBoxContainer) filterBoxContainer.classList.add('filter-active');
         
@@ -4170,6 +4172,8 @@ document.getElementById('btnListView').addEventListener('click', function() {
     document.getElementById('filterBoxContainer').style.display = 'block';
     const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
     if (btnToggleHistoryClosed) btnToggleHistoryClosed.style.display = 'inline-block';
+    
+    displayEntries(true); // ⭐️ 리스트 뷰 전환 시 활성화된 필터에 맞춰 배너 다시 표시
 });
 
 document.getElementById('btnCalendarView').addEventListener('click', function() {
@@ -4181,6 +4185,10 @@ document.getElementById('btnCalendarView').addEventListener('click', function() 
     document.getElementById('filterBoxContainer').style.display = 'none';
     const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
     if (btnToggleHistoryClosed) btnToggleHistoryClosed.style.display = 'none';
+    
+    const banner = document.getElementById('activeFilterBanner');
+    if (banner) banner.style.display = 'none'; // ⭐️ 캘린더 뷰에서는 필터 배너 강제 숨김
+    
     renderCalendar();
 });
 
