@@ -643,6 +643,7 @@ button:hover {
     }
     #chartFiltersContainer .filter-select-wrapper {
         min-width: 0 !important;
+        height: 20px !important;
     }
     #chartFiltersContainer select {
         font-size: 11px !important;
