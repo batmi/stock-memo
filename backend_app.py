@@ -84,6 +84,14 @@ console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
 console_handler.setLevel(logging.DEBUG)
 
+# ⭐️ 특정 백그라운드 작업 로그는 화면(콘솔)에 출력하지 않고 파일에만 남기도록 필터 추가
+class ConsoleFilter(logging.Filter):
+    def filter(self, record):
+        if record.funcName == 'auto_fetch_nxt_close_job':
+            return False
+        return True
+console_handler.addFilter(ConsoleFilter())
+
 # ⭐️ 기본 Flask 로거 초기화 및 중복 출력 방지 (시간이 없는 기본 화면 로그 차단)
 app.logger.handlers.clear()
 app.logger.propagate = False
@@ -371,9 +379,10 @@ def auto_fetch_nxt_close_job():
             import datetime as dt
             kst_now = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=9)
             time_num = kst_now.hour * 100 + kst_now.minute
+            day_of_week = kst_now.weekday() # 0: 월, 1: 화, ..., 4: 금, 5: 토, 6: 일
             
-            # 15:30 ~ 18:30 (장 종료 후 시간외 단일가 운영 및 마감 직후 시간)에만 캐시 갱신 수행
-            if 1530 <= time_num <= 1830:
+            # 평일(월~금) 15:30 ~ 18:30 (장 종료 후 시간외 단일가 운영 및 마감 직후 시간)에만 캐시 갱신 수행
+            if 0 <= day_of_week <= 4 and 1530 <= time_num <= 1830:
                 app.logger.info("🔄 백그라운드: 시간외 단일가(NXT) 자동 캐싱을 시작합니다...")
                 conn = get_db()
                 c = conn.cursor()

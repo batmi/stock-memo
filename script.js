@@ -35,6 +35,12 @@ let portfolioSortable = null;   // ⭐️ SortableJS 드래그 앤 드롭 인스
 window.currentPriceCache = {};  // ⭐️ 장 종료 시 이전 가격을 유지하기 위한 전역 캐시
 window.monthlyProfitChartInstance = null; // ⭐️ 월별 손익 차트 인스턴스 변수 추가
 
+// ⭐️ 차트 전용 독립 필터 상태 변수
+let currentChartStock = 'all';
+let currentChartAccount = 'all';
+let currentChartBroker = 'all';
+let currentChartSubAccount = 'all';
+
 // ⭐️ 공통 스크롤 함수: 스크롤 튐 현상을 막기 위해 window.scrollTo 절대 좌표 사용
 window.scrollToFilterBox = function() {
     // "TRADE HISTORY" 타이틀이 포함된 history-header 영역을 찾아 최상단으로 스크롤
@@ -603,6 +609,25 @@ window.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // ⭐️ 캘린더 차트 전용 필터 컨트롤 이벤트 연결
+    const chartFilters = [
+        { id: 'chartStockFilter', setter: (val) => currentChartStock = val },
+        { id: 'chartAccountFilter', setter: (val) => currentChartAccount = val },
+        { id: 'chartBrokerFilter', setter: (val) => currentChartBroker = val },
+        { id: 'chartSubAccountFilter', setter: (val) => currentChartSubAccount = val }
+    ];
+    chartFilters.forEach(sel => {
+        const el = document.getElementById(sel.id);
+        if (el) {
+            el.addEventListener('change', (e) => {
+                sel.setter(e.target.value);
+                window.updateDashboardFilterStyle(e.target);
+                window.saveChartFilterPreferences();
+                window.renderMonthlyProfitChart(); // ⭐️ 필터 변경 시 차트 즉시 재렌더링
+            });
+        }
+    });
+
     // ⭐️ 로그아웃 버튼 이벤트 연결
     const btnLogout = document.getElementById('btnLogout');
     if (btnLogout) {
@@ -1058,6 +1083,12 @@ async function loadDataFromLocal() {
                 if (userPreferences.currentFilterBroker) { currentFilterBroker = userPreferences.currentFilterBroker; currentDashboardBroker = currentFilterBroker; }
                 if (userPreferences.currentFilterSubAccount) { currentFilterSubAccount = userPreferences.currentFilterSubAccount; currentDashboardSubAccount = currentFilterSubAccount; }
                 
+                // ⭐️ 차트 필터 상태 복원
+                if (userPreferences.currentChartStock) currentChartStock = userPreferences.currentChartStock;
+                if (userPreferences.currentChartAccount) currentChartAccount = userPreferences.currentChartAccount;
+                if (userPreferences.currentChartBroker) currentChartBroker = userPreferences.currentChartBroker;
+                if (userPreferences.currentChartSubAccount) currentChartSubAccount = userPreferences.currentChartSubAccount;
+
                 // ⭐️ 캘린더 뷰 레이아웃 순서 복원
                 if (userPreferences.calendarLayoutOrder) {
                     const wrapper = document.getElementById('calendarLayoutWrapper');
@@ -1117,6 +1148,15 @@ window.saveFilterPreferences = function() {
     userPreferences.currentFilterAccount = currentFilterAccount;
     userPreferences.currentFilterBroker = currentFilterBroker;
     userPreferences.currentFilterSubAccount = currentFilterSubAccount;
+    savePreferences();
+};
+
+// ⭐️ 차트 필터 상태를 DB에 저장
+window.saveChartFilterPreferences = function() {
+    userPreferences.currentChartStock = currentChartStock;
+    userPreferences.currentChartAccount = currentChartAccount;
+    userPreferences.currentChartBroker = currentChartBroker;
+    userPreferences.currentChartSubAccount = currentChartSubAccount;
     savePreferences();
 };
 
@@ -3015,11 +3055,20 @@ function updatePortfolioSummary() {
 // ⭐️ 대시보드 필터 선택 시 활성화 색상(피드백) 변경 함수
 window.updateDashboardFilterStyle = function(element) {
     if (!element) return;
+    const wrapper = element.closest('.filter-select-wrapper');
     if (element.value !== 'all') {
-        element.style.backgroundColor = 'var(--primary-color)';
+        if (wrapper) {
+            wrapper.style.backgroundColor = 'var(--primary-color)';
+        } else {
+            element.style.backgroundColor = 'var(--primary-color)';
+        }
         element.style.color = '#fff';
     } else {
-        element.style.backgroundColor = 'transparent';
+        if (wrapper) {
+            wrapper.style.backgroundColor = 'transparent';
+        } else {
+            element.style.backgroundColor = 'transparent';
+        }
         element.style.color = 'var(--primary-color)';
     }
 };
@@ -3171,6 +3220,83 @@ function updateFilterDropdown() {
             currentFilterAccount = 'all'; // ⭐️ 하단 필터 동기화
         }
         window.updateDashboardFilterStyle(dashboardAccountFilter);
+    }
+    
+    // ⭐️ 차트 필터 옵션도 동적으로 업데이트
+    const chartStockFilter = document.getElementById('chartStockFilter');
+    if (chartStockFilter) {
+        const currentStockVal = currentChartStock || 'all';
+        let stockHtml = `<option value="all">모든 종목</option>`;
+        if (stocks.length > 0) {
+            stocks.forEach(stock => {
+                stockHtml += `<option value="${stock.replace(/"/g, '&quot;')}">${stock}</option>`;
+            });
+        }
+        chartStockFilter.innerHTML = stockHtml;
+        if (chartStockFilter.querySelector(`option[value="${currentStockVal.replace(/"/g, '\\"')}"]`)) {
+            chartStockFilter.value = currentStockVal;
+        } else {
+            chartStockFilter.value = 'all';
+            currentChartStock = 'all';
+        }
+        window.updateDashboardFilterStyle(chartStockFilter);
+    }
+
+    const chartAccountFilter = document.getElementById('chartAccountFilter');
+    if (chartAccountFilter) {
+        const currentAccountVal = currentChartAccount || 'all';
+        let accountHtml = `<option value="all">모든 분류</option>`;
+        if (accounts.length > 0) {
+            accounts.forEach(account => {
+                accountHtml += `<option value="${account.replace(/"/g, '&quot;')}">${account}</option>`;
+            });
+        }
+        chartAccountFilter.innerHTML = accountHtml;
+        if (chartAccountFilter.querySelector(`option[value="${currentAccountVal.replace(/"/g, '\\"')}"]`)) {
+            chartAccountFilter.value = currentAccountVal;
+        } else {
+            chartAccountFilter.value = 'all';
+            currentChartAccount = 'all';
+        }
+        window.updateDashboardFilterStyle(chartAccountFilter);
+    }
+
+    const chartBrokerFilter = document.getElementById('chartBrokerFilter');
+    if (chartBrokerFilter) {
+        const currentBrokerVal = currentChartBroker || 'all';
+        let brokerHtml = `<option value="all">모든 증권사</option>`;
+        if (brokers.length > 0) {
+            brokers.forEach(broker => {
+                brokerHtml += `<option value="${broker.replace(/"/g, '&quot;')}">${broker}</option>`;
+            });
+        }
+        chartBrokerFilter.innerHTML = brokerHtml;
+        if (chartBrokerFilter.querySelector(`option[value="${currentBrokerVal.replace(/"/g, '\\"')}"]`)) {
+            chartBrokerFilter.value = currentBrokerVal;
+        } else {
+            chartBrokerFilter.value = 'all';
+            currentChartBroker = 'all';
+        }
+        window.updateDashboardFilterStyle(chartBrokerFilter);
+    }
+
+    const chartSubAccountFilter = document.getElementById('chartSubAccountFilter');
+    if (chartSubAccountFilter) {
+        const currentSubAccountVal = currentChartSubAccount || 'all';
+        let subAccountHtml = `<option value="all">모든 계좌</option>`;
+        if (subAccounts.length > 0) {
+            subAccounts.forEach(sa => {
+                subAccountHtml += `<option value="${sa.replace(/"/g, '&quot;')}">${sa}</option>`;
+            });
+        }
+        chartSubAccountFilter.innerHTML = subAccountHtml;
+        if (chartSubAccountFilter.querySelector(`option[value="${currentSubAccountVal.replace(/"/g, '\\"')}"]`)) {
+            chartSubAccountFilter.value = currentSubAccountVal;
+        } else {
+            chartSubAccountFilter.value = 'all';
+            currentChartSubAccount = 'all';
+        }
+        window.updateDashboardFilterStyle(chartSubAccountFilter);
     }
 }
 
@@ -3887,6 +4013,12 @@ window.renderMonthlyProfitChart = function() {
     
     chronological.forEach(entry => {
         if (entry.type !== 'trade' || !entry.stockName) return;
+        
+        // ⭐️ 차트 전용 필터 적용
+        if (currentChartStock !== 'all' && entry.stockName !== currentChartStock) return;
+        if (currentChartAccount !== 'all' && (entry.accountName || '') !== currentChartAccount) return;
+        if (currentChartBroker !== 'all' && (entry.brokerAccount || '') !== currentChartBroker) return;
+        if (currentChartSubAccount !== 'all' && (entry.subAccount || '') !== currentChartSubAccount) return;
         
         let dateKey = '';
         if (entry.rawDate) {
