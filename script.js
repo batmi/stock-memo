@@ -3452,7 +3452,7 @@ function renderPage() {
                 const totalAmount = (entry.price * (entry.quantity || 1)).toLocaleString();
                 detailsHtml = `
                     <div class="entry-details">
-                        <div class="detail-item">💰 총 배당금: <span style="color: var(--danger-color); font-weight: bold; font-size: 13.5px;">${totalAmount}원</span></div>
+                        <div class="detail-item">배당금: <span>${totalAmount}</span></div>
                     </div>
                 `;
             } else if (entry.tradeType !== '관망' && entry.tradeType !== '주시' && (entry.price > 0 || entry.quantity > 0)) {
