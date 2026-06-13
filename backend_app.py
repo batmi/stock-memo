@@ -1022,7 +1022,9 @@ def get_current_price():
                         res_data = json.loads(response.read())
                         price_str = res_data.get('closePrice', '')
                         if price_str:
-                            return code, float(price_str.replace(',', ''))
+                            price_val = float(price_str.replace(',', ''))
+                            save_price_cache(code_str, price_val)
+                            return code, price_val
                 except Exception:
                     pass
 
@@ -1034,7 +1036,9 @@ def get_current_price():
                         html = krx_res.read().decode('utf-8', errors='ignore')
                         match = re.search(r'현재가</th>\s*<td[^>]*>\s*<strong>([\d,]+)</strong>', html)
                         if match:
-                            return code, float(match.group(1).replace(',', ''))
+                            price_val = float(match.group(1).replace(',', ''))
+                            save_price_cache(code_str, price_val)
+                            return code, price_val
                 except Exception:
                     pass
 
@@ -1083,6 +1087,7 @@ def get_current_price():
                                 if match:
                                     realtime_price = float(match.group(1))
                                     if realtime_price > 0:
+                                        save_price_cache(code_str, realtime_price)
                                         return code, realtime_price
                         except Exception:
                             pass
@@ -1121,6 +1126,9 @@ def get_current_price():
                                             save_price_cache(code_str, float(price_str.replace(',', '')))
                                 except Exception:
                                     pass
+                        elif not is_out_of_hours and price_str and price_str != '0':
+                            # ⭐️ 정규장 시간에는 실시간(혹은 종가) 가격을 NXT 캐시에 업데이트하여 동일하게 유지
+                            save_price_cache(code_str, float(price_str.replace(',', '')))
                         
                     if price_str and price_str != '0':
                         return code, float(price_str.replace(',', ''))
@@ -1140,9 +1148,15 @@ def get_current_price():
                 with urllib.request.urlopen(req, timeout=3) as response:
                     res_data = json.loads(response.read())
                     price = res_data['chart']['result'][0]['meta']['regularMarketPrice']
+                    save_price_cache(code_str, float(price))
                     return code, float(price)
             except Exception:
                 pass
+                
+            # ⭐️ 최후의 보루: 야후 파이낸스마저 통신에 실패했을 때, 만약 캐시에 저장된 마지막 가격이 있다면 (정규장이든 아니든) 방어용으로 반환
+            cached_price = load_price_cache(code_str)
+            if cached_price:
+                return code, cached_price
                 
             return code, None
             

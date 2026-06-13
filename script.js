@@ -19,6 +19,7 @@ let currentFilterKeywords = []; // ⭐️ 다중 키워드 필터용 배열
 let isDashboardCollapsed = false;
 let showClosedPositions = false; // 청산 종목 보기 상태
 let showCurrentPrice = true; // ⭐️ 현재가 및 평가금액 보기 상태 (기본값: 보기)
+let currentMarketMode = 'NXT'; // ⭐️ KRX/NXT 토글 상태 (기본값 NXT)
 let currentPortfolioArrayForPrice = []; // 현재가 계산용 임시 배열
 let showHistoryClosedPositions = true; // ⭐️ 기본적으로 히스토리에 청산 종목을 표시하도록 변경
 let currentDashboardBroker = 'all'; // 대시보드 증권사 필터 상태
@@ -448,6 +449,26 @@ window.addEventListener('DOMContentLoaded', () => {
             } else {
                 if (priceUpdateInterval !== null) clearInterval(priceUpdateInterval);
             }
+        });
+    }
+
+    // ⭐️ KRX/NXT 토글 버튼 이벤트 연결
+    const btnToggleMarketMode = document.getElementById('btnToggleMarketMode');
+    if (btnToggleMarketMode) {
+        btnToggleMarketMode.innerText = currentMarketMode === 'NXT' ? 'NXT' : 'KRX';
+        btnToggleMarketMode.style.backgroundColor = currentMarketMode === 'NXT' ? 'transparent' : 'var(--primary-color)';
+        btnToggleMarketMode.style.color = currentMarketMode === 'NXT' ? 'var(--primary-color)' : '#fff';
+
+        btnToggleMarketMode.addEventListener('click', () => {
+            currentMarketMode = currentMarketMode === 'NXT' ? 'KRX' : 'NXT';
+            btnToggleMarketMode.innerText = currentMarketMode === 'NXT' ? 'NXT' : 'KRX';
+            btnToggleMarketMode.style.backgroundColor = currentMarketMode === 'NXT' ? 'transparent' : 'var(--primary-color)';
+            btnToggleMarketMode.style.color = currentMarketMode === 'NXT' ? 'var(--primary-color)' : '#fff';
+            
+            userPreferences.currentMarketMode = currentMarketMode;
+            savePreferences();
+            
+            window.fetchCurrentPricesAndUpdateUI(false); // 모드 변경 시 즉시 갱신
         });
     }
 
@@ -1012,6 +1033,17 @@ async function loadDataFromLocal() {
                         window.fetchCurrentPricesAndUpdateUI(true); // isAuto = true 로 자동 갱신 요청
                     }, 60000);
                 }
+                }
+                
+                // ⭐️ KRX/NXT 버튼 상태 복원
+                if (typeof userPreferences.currentMarketMode !== 'undefined') {
+                    currentMarketMode = userPreferences.currentMarketMode;
+                    const btnMM = document.getElementById('btnToggleMarketMode');
+                    if (btnMM) {
+                        btnMM.innerText = currentMarketMode === 'NXT' ? 'NXT' : 'KRX';
+                        btnMM.style.backgroundColor = currentMarketMode === 'NXT' ? 'transparent' : 'var(--primary-color)';
+                        btnMM.style.color = currentMarketMode === 'NXT' ? 'var(--primary-color)' : '#fff';
+                    }
                 }
                 
                 // ⭐️ 대시보드 및 하단 리스트 필터 상태 복원 (어긋난 상태를 방지하기 위해 강제 동기화)
@@ -2351,7 +2383,7 @@ window.isMarketOpen = function() {
 window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
     if (!showCurrentPrice || currentPortfolioArrayForPrice.length === 0) return;
     
-    const displayMarket = 'AUTO';
+    const displayMarket = currentMarketMode; // ⭐️ 토글된 시장 모드(KRX 또는 NXT) 사용
     
     const marketStatus = window.getMarketStatus();
     let codesToFetch = [];
@@ -2734,7 +2766,7 @@ function updatePortfolioSummary() {
     const shouldShowDashboard = hasAnyTrade;
 
     if (toggleBtn) {
-        toggleBtn.innerHTML = isDashboardCollapsed ? '펼치기 ▼' : '접기 ▲';
+        toggleBtn.innerHTML = isDashboardCollapsed ? '▼' : '▲';
         toggleBtn.style.backgroundColor = isDashboardCollapsed ? 'var(--primary-color)' : 'transparent';
         toggleBtn.style.color = isDashboardCollapsed ? '#fff' : 'var(--primary-color)';
         toggleBtn.style.display = shouldShowDashboard ? 'inline-block' : 'none';
