@@ -826,18 +826,6 @@ button:hover {
     transition: none !important; /* ⭐️ 핵심: 터치 드래그 시 카드가 늦게 따라오는(Rubber-band) 지연 현상 제거 */
 }
 
-/* ⭐️ 캘린더/차트 섹션 전체 드래그 커서 스타일 */
-#calendarViewSection, #monthlyChartSection {
-    cursor: grab;
-}
-#calendarViewSection:active, #monthlyChartSection:active {
-    cursor: grabbing;
-}
-/* ⭐️ 내부 상호작용 요소(날짜, 캔버스 등)는 기본 커서로 복구하여 드래그 불가 영역임을 암시 */
-#calendarViewSection .calendar-grid, #monthlyChartSection canvas {
-    cursor: default;
-}
-
 .badge-long { background-color: #e0f2fe; color: #0369a1; }
 .badge-mid { background-color: #dcfce7; color: #15803d; }
 .badge-swing { background-color: #fef9c3; color: #a16207; }

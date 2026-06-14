@@ -304,9 +304,7 @@
             </div>
         </div>
 
-        <!-- ⭐️ 캘린더와 차트 영역을 묶어주는 래퍼 (드래그 앤 드롭용) -->
-        <div id="calendarLayoutWrapper">
-            <div id="calendarViewSection" data-layout-id="calendar" style="display:none; background: var(--card-bg-color); padding: 15px; border-radius: 8px; box-shadow: var(--entry-card-shadow); margin-bottom: 15px; position: relative;">
+        <div id="calendarViewSection" style="display:none; background: var(--card-bg-color); padding: 15px; border-radius: 8px; box-shadow: var(--entry-card-shadow); margin-bottom: 15px; position: relative;">
                 <div style="display:flex; justify-content:space-between; align-items: center; margin-bottom: 15px;">
                 <button id="btnPrevMonth" class="btn-edit">◀ 이전달</button>
                 <h3 id="calendarMonthTitle" style="margin:0; color: var(--text-strong-color);"></h3>
@@ -319,7 +317,7 @@
         </div>
         
         <!-- ⭐️ 이동된 월별 손익/매매금액 바 차트 영역 (스위칭 버튼 포함) -->
-            <div id="monthlyChartSection" data-layout-id="chart" style="display: none; background: var(--card-bg-color); padding: 15px; border-radius: 8px; box-shadow: var(--entry-card-shadow); margin-bottom: 15px; position: relative;">
+        <div id="monthlyChartSection" style="display: none; background: var(--card-bg-color); padding: 15px; border-radius: 8px; box-shadow: var(--entry-card-shadow); margin-bottom: 15px; position: relative;">
                 <div style="display: flex; gap: 8px; justify-content: center; margin-bottom: 15px; flex-wrap: wrap;">
                 <button type="button" class="chart-type-btn" data-type="realized" onclick="window.setMonthlyChartType('realized')" style="background: var(--primary-color); color: white; border: 1px solid var(--primary-color); border-radius: 4px; width: auto; height: 20px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;">월간 실현손익</button>
                 <button type="button" class="chart-type-btn" data-type="evaluated" onclick="window.setMonthlyChartType('evaluated')" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; height: 20px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;">월간 평가손익</button>
@@ -331,7 +329,6 @@
             </div>
             <!-- ⭐️ 차트 막대 클릭 시 나타나는 종목별 상세 내역 영역 -->
             <div id="chartDetailList" style="display: none; margin-top: 15px; border-top: 1px dashed var(--border-color); padding-top: 15px;"></div>
-        </div>
         </div>
         
         <div id="activeFilterBanner" style="display:none; background-color: var(--bg-color); padding: 10px 15px; border-radius: 8px; margin-bottom: 15px; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 8px; border: 1px solid var(--primary-color);">

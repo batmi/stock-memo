@@ -660,28 +660,6 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     if (btnLogoutNow) btnLogoutNow.addEventListener('click', () => window.location.href = '/logout');
 
-    // ⭐️ 캘린더 뷰와 차트 영역 드래그 앤 드롭 정렬 (SortableJS)
-    const calendarLayoutWrapper = document.getElementById('calendarLayoutWrapper');
-    if (calendarLayoutWrapper) {
-        Sortable.create(calendarLayoutWrapper, {
-            animation: 300,
-            filter: '.calendar-grid, button, canvas', // ⭐️ 날짜 그리드, 모든 버튼, 차트 영역 제외
-            preventOnFilter: true, // ⭐️ 제외된 영역 클릭 시 드래그 방지
-            ghostClass: 'sortable-ghost',
-            dragClass: 'sortable-drag',
-            forceFallback: true,
-            fallbackClass: 'sortable-fallback',
-            fallbackOnBody: true,
-            onEnd: function () {
-                const newOrder = Array.from(calendarLayoutWrapper.children)
-                    .map(el => el.getAttribute('data-layout-id'))
-                    .filter(id => id);
-                userPreferences.calendarLayoutOrder = newOrder;
-                savePreferences();
-            }
-        });
-    }
-
     // ⭐️ 커스텀 글자 크기(medium) 추가
     const Size = Quill.import('formats/size');
     Size.whitelist = ['small', false, 'medium', 'large', 'huge'];
@@ -1089,16 +1067,6 @@ async function loadDataFromLocal() {
                 if (userPreferences.currentChartBroker) currentChartBroker = userPreferences.currentChartBroker;
                 if (userPreferences.currentChartSubAccount) currentChartSubAccount = userPreferences.currentChartSubAccount;
 
-                // ⭐️ 캘린더 뷰 레이아웃 순서 복원
-                if (userPreferences.calendarLayoutOrder) {
-                    const wrapper = document.getElementById('calendarLayoutWrapper');
-                    if (wrapper) {
-                        userPreferences.calendarLayoutOrder.forEach(id => {
-                            const el = wrapper.querySelector(`[data-layout-id="${id}"]`);
-                            if (el) wrapper.appendChild(el);
-                        });
-                    }
-                }
             }
         } catch (e) {
             console.warn("환경설정 로드 실패:", e);
