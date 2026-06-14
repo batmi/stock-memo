@@ -1853,6 +1853,32 @@ window.tradeDatePicker = flatpickr("#tradeDate", {
     dateFormat: "Y-m-d\\TH:i",
     locale: "ko",
     time_24hr: false,
+    // ⭐️ 모바일 네이티브 스크롤 픽커 대신 커스텀 UI를 강제하여 조작 즉시 실시간 반영되도록 처리
+    disableMobile: true,
+    // ⭐️ 캘린더/시간 변경 시 입력창에 즉각적으로 반영
+    onChange: function(selectedDates, dateStr, instance) {
+        if (instance.input) instance.input.value = dateStr;
+    },
+    onValueUpdate: function(selectedDates, dateStr, instance) {
+        if (instance.input) instance.input.value = dateStr;
+    },
+    // ⭐️ 월 또는 연도 변경 시 기존에 선택된 '일(Day)'과 '시간'을 유지하여 즉각 반영되도록 처리
+    onMonthChange: function(selectedDates, dateStr, instance) {
+        if (selectedDates.length > 0) {
+            const cd = selectedDates[0];
+            const maxDays = new Date(instance.currentYear, instance.currentMonth + 1, 0).getDate();
+            const nd = new Date(instance.currentYear, instance.currentMonth, Math.min(cd.getDate(), maxDays), cd.getHours(), cd.getMinutes());
+            instance.setDate(nd, true);
+        }
+    },
+    onYearChange: function(selectedDates, dateStr, instance) {
+        if (selectedDates.length > 0) {
+            const cd = selectedDates[0];
+            const maxDays = new Date(instance.currentYear, instance.currentMonth + 1, 0).getDate();
+            const nd = new Date(instance.currentYear, instance.currentMonth, Math.min(cd.getDate(), maxDays), cd.getHours(), cd.getMinutes());
+            instance.setDate(nd, true);
+        }
+    },
     onReady: function(selectedDates, dateStr, instance) {
         const nowBtn = document.createElement('button');
         nowBtn.type = 'button';
@@ -3999,6 +4025,8 @@ window.renderMonthlyProfitChart = function() {
     const labels = [];
     const allProfitByMonth = {}; // ⭐️ 전체 기간의 월별 실현손익을 추적하여 누적 계산에 활용
     const allProfitByMonthStock = {}; // ⭐️ 전체 기간의 누적 계산용 '종목별' 실현손익 추적
+    const dividendByMonth = {}; // ⭐️ 전체 기간의 월별 배당금 추적
+    const dividendByMonthStock = {}; // ⭐️ 전체 기간의 종목별 배당금 추적
     
     // ⭐️ 렌더링 초기화 시 하단 상세 내역 영역 닫기
     const detailListEl = document.getElementById('chartDetailList');
@@ -4008,8 +4036,8 @@ window.renderMonthlyProfitChart = function() {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         monthlyData[key] = { 
-            realized: 0, evaluated: 0, buy_volume: 0, sell_volume: 0,
-            realized_breakdown: {}, evaluated_breakdown: {}, buy_volume_breakdown: {}, sell_volume_breakdown: {}, cumulative_breakdown: {}
+            realized: 0, evaluated: 0, buy_volume: 0, sell_volume: 0, dividend: 0,
+            realized_breakdown: {}, evaluated_breakdown: {}, buy_volume_breakdown: {}, sell_volume_breakdown: {}, cumulative_breakdown: {}, dividend_breakdown: {}
         };
         labels.push(key);
     }
@@ -4052,6 +4080,10 @@ window.renderMonthlyProfitChart = function() {
         if (!allProfitByMonth[dateKey]) allProfitByMonth[dateKey] = 0;
         if (!allProfitByMonthStock[dateKey]) allProfitByMonthStock[dateKey] = {};
         if (!allProfitByMonthStock[dateKey][stock]) allProfitByMonthStock[dateKey][stock] = 0;
+        
+        if (!dividendByMonth[dateKey]) dividendByMonth[dateKey] = 0;
+        if (!dividendByMonthStock[dateKey]) dividendByMonthStock[dateKey] = {};
+        if (!dividendByMonthStock[dateKey][stock]) dividendByMonthStock[dateKey][stock] = 0;
 
         if (entry.tradeType === '매수') {
             portfolio[stock].qty += qty;
@@ -4096,10 +4128,13 @@ window.renderMonthlyProfitChart = function() {
         } else if (entry.tradeType === '배당') {
             allProfitByMonth[dateKey] += (price * qty); // ⭐️ 배당금 누적용
             allProfitByMonthStock[dateKey][stock] += (price * qty);
+            
+            dividendByMonth[dateKey] += (price * qty); // ⭐️ 순수 배당금 누적용
+            dividendByMonthStock[dateKey][stock] += (price * qty);
+            
             if (monthlyData[dateKey]) {
-                monthlyData[dateKey].realized += (price * qty);
-                monthlyData[dateKey].realized_breakdown[stock] = (monthlyData[dateKey].realized_breakdown[stock] || 0) + (price * qty);
-                // ⭐️ 배당금은 '실현 손익'에는 포함되지만 순수 '매매(거래) 금액' 차트에서는 제외합니다.
+                monthlyData[dateKey].dividend += (price * qty);
+                monthlyData[dateKey].dividend_breakdown[stock] = (monthlyData[dateKey].dividend_breakdown[stock] || 0) + (price * qty);
             }
         }
     });
@@ -4122,19 +4157,31 @@ window.renderMonthlyProfitChart = function() {
     // ⭐️ 12개월 라벨별로 과거부터 해당 월까지의 총 누적 수익금 계산 및 상세 내역 생성
     labels.forEach(label => {
         let cum = 0;
+        let cumDiv = 0;
         let cumBreakdown = {};
+        let cumDivBreakdown = {};
+        
         for (const key in allProfitByMonth) {
             if (key <= label) {
                 cum += allProfitByMonth[key];
+                cumDiv += (dividendByMonth[key] || 0);
+                
                 if (allProfitByMonthStock[key]) {
                     for (const s in allProfitByMonthStock[key]) {
                         cumBreakdown[s] = (cumBreakdown[s] || 0) + allProfitByMonthStock[key][s];
                     }
                 }
+                if (dividendByMonthStock[key]) {
+                    for (const s in dividendByMonthStock[key]) {
+                        cumDivBreakdown[s] = (cumDivBreakdown[s] || 0) + dividendByMonthStock[key][s];
+                    }
+                }
             }
         }
         monthlyData[label].cumulative = cum;
+        monthlyData[label].cumulative_dividend = cumDiv;
         monthlyData[label].cumulative_breakdown = cumBreakdown;
+        monthlyData[label].cumulative_div_breakdown = cumDivBreakdown;
     });
 
     const theme = document.documentElement.getAttribute('data-theme') || 'light';
@@ -4144,14 +4191,26 @@ window.renderMonthlyProfitChart = function() {
     let datasets = [];
 
     if (type === 'realized') {
-        const data = labels.map(l => monthlyData[l].realized);
-        const backgroundColors = data.map(val => val > 0 ? (isDark ? 'rgba(163, 78, 78, 0.85)' : 'rgba(231, 76, 60, 0.85)') : (val < 0 ? (isDark ? 'rgba(59, 104, 140, 0.85)' : 'rgba(52, 152, 219, 0.85)') : (isDark ? 'rgba(85, 85, 85, 0.85)' : 'rgba(189, 195, 199, 0.85)')));
-        datasets = [{
-            label: '월간 실현 손익 (배당 포함)',
-            data: data,
-            backgroundColor: backgroundColors,
-            borderRadius: 4
-        }];
+        const dataRealized = labels.map(l => monthlyData[l].realized);
+        const dataDividend = labels.map(l => monthlyData[l].dividend || 0);
+        
+        const bgColors = dataRealized.map(val => val > 0 ? (isDark ? 'rgba(163, 78, 78, 0.85)' : 'rgba(231, 76, 60, 0.85)') : (val < 0 ? (isDark ? 'rgba(59, 104, 140, 0.85)' : 'rgba(52, 152, 219, 0.85)') : (isDark ? 'rgba(85, 85, 85, 0.85)' : 'rgba(189, 195, 199, 0.85)')));
+        const divBgColor = isDark ? 'rgba(214, 137, 16, 0.85)' : 'rgba(243, 156, 18, 0.85)';
+        
+        datasets = [
+            {
+                label: '배당 수익금',
+                data: dataDividend,
+                backgroundColor: divBgColor,
+                borderRadius: 4
+            },
+            {
+                label: '매매 실현손익',
+                data: dataRealized,
+                backgroundColor: bgColors,
+                borderRadius: 4
+            }
+        ];
     } else if (type === 'evaluated') {
         const data = labels.map(l => monthlyData[l].evaluated);
         const backgroundColors = data.map(val => val > 0 ? (isDark ? 'rgba(163, 78, 78, 0.85)' : 'rgba(231, 76, 60, 0.85)') : (val < 0 ? (isDark ? 'rgba(59, 104, 140, 0.85)' : 'rgba(52, 152, 219, 0.85)') : (isDark ? 'rgba(85, 85, 85, 0.85)' : 'rgba(189, 195, 199, 0.85)')));
@@ -4178,20 +4237,40 @@ window.renderMonthlyProfitChart = function() {
         ];
     } else if (type === 'cumulative') {
         const data = labels.map(l => monthlyData[l].cumulative);
+        const divData = labels.map(l => monthlyData[l].cumulative_dividend || 0);
+        
         const lineColor = isDark ? '#3a7a4f' : '#27ae60'; // ⭐️ 자산 우상향을 상징하는 초록색 계열
         const bgColor = isDark ? 'rgba(58, 122, 79, 0.3)' : 'rgba(39, 174, 96, 0.2)';
-        datasets = [{
-            type: 'line',
-            label: '누적 수익금 (전체 기간)',
-            data: data,
-            borderColor: lineColor,
-            backgroundColor: bgColor,
-            borderWidth: 2,
-            pointBackgroundColor: lineColor,
-            pointBorderColor: isDark ? '#1e1e1e' : '#fff',
-            fill: true,
-            tension: 0.3 // ⭐️ 꺾은선 곡선을 부드럽게 처리
-        }];
+        
+        const divLineColor = isDark ? '#d68910' : '#f39c12'; // ⭐️ 배당을 상징하는 노란색/주황색 계열
+        const divBgColor = isDark ? 'rgba(214, 137, 16, 0.3)' : 'rgba(243, 156, 18, 0.2)';
+        
+        datasets = [
+            {
+                type: 'line',
+                label: '총 누적 수익금',
+                data: data,
+                borderColor: lineColor,
+                backgroundColor: bgColor,
+                borderWidth: 2,
+                pointBackgroundColor: lineColor,
+                pointBorderColor: isDark ? '#1e1e1e' : '#fff',
+                fill: true,
+                tension: 0.3
+            },
+            {
+                type: 'line',
+                label: '누적 배당 수익금',
+                data: divData,
+                borderColor: divLineColor,
+                backgroundColor: divBgColor,
+                borderWidth: 2,
+                pointBackgroundColor: divLineColor,
+                pointBorderColor: isDark ? '#1e1e1e' : '#fff',
+                fill: true,
+                tension: 0.3
+            }
+        ];
     }
     
     const displayLabels = labels.map(l => l.split('-')[1].replace(/^0+/, '') + '월');
@@ -4225,8 +4304,9 @@ window.renderMonthlyProfitChart = function() {
                                 let prefix = context.datasetIndex === 0 ? '매수: ' : '매도: ';
                                 return prefix + Math.round(value).toLocaleString() + '원';
                             }
-                            if (type === 'cumulative') {
-                                return '누적: ' + (value > 0 ? '+' : '') + Math.round(value).toLocaleString() + '원';
+                            if (type === 'realized' || type === 'cumulative') {
+                                const labelStr = context.dataset.label;
+                                return labelStr + ': ' + (value > 0 ? '+' : '') + Math.round(value).toLocaleString() + '원';
                             }
                             return (value > 0 ? '+' : '') + Math.round(value).toLocaleString() + '원';
                         }
@@ -4235,13 +4315,13 @@ window.renderMonthlyProfitChart = function() {
             },
             scales: {
                 y: {
-                    stacked: type === 'volume',
+                    stacked: type === 'volume' || type === 'realized',
                     beginAtZero: true,
                     grid: { color: isDark ? '#333333' : '#eeeeee' },
                     ticks: { callback: function(value) { return value.toLocaleString(); } }
                 },
                 x: { 
-                    stacked: type === 'volume',
+                    stacked: type === 'volume' || type === 'realized',
                     grid: { display: false } 
                 }
             },
@@ -4263,8 +4343,14 @@ window.renderMonthlyProfitChart = function() {
                 let isProfit = true;
                 
                 if (type === 'realized') {
-                    breakdown = dataObj.realized_breakdown;
-                    title = `${monthLabel} 실현 손익 상세`;
+                    // ⭐️ 배열 순서를 바꿨으므로 인덱스 0이 배당수익금
+                    if (datasetIndex === 0) {
+                        breakdown = dataObj.dividend_breakdown;
+                        title = `${monthLabel} 배당 수익 상세`;
+                    } else {
+                        breakdown = dataObj.realized_breakdown;
+                        title = `${monthLabel} 매매 실현손익 상세`;
+                    }
                 } else if (type === 'evaluated') {
                     breakdown = dataObj.evaluated_breakdown;
                     title = `${monthLabel} 매수분 평가 손익 상세`;
@@ -4273,8 +4359,13 @@ window.renderMonthlyProfitChart = function() {
                     if (datasetIndex === 0) { breakdown = dataObj.buy_volume_breakdown; title = `${monthLabel} 매수 금액 상세`; } 
                     else { breakdown = dataObj.sell_volume_breakdown; title = `${monthLabel} 매도 금액 상세`; }
                 } else if (type === 'cumulative') {
-                    breakdown = dataObj.cumulative_breakdown;
-                    title = `${monthLabel} 누적 수익금 상세`;
+                    if (datasetIndex === 1) {
+                        breakdown = dataObj.cumulative_div_breakdown;
+                        title = `${monthLabel} 누적 배당 수익금 상세`;
+                    } else {
+                        breakdown = dataObj.cumulative_breakdown;
+                        title = `${monthLabel} 총 누적 수익금 상세`;
+                    }
                 }
                 
                 // 계산된 내역을 하단 영역에 렌더링
