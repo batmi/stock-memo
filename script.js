@@ -4294,6 +4294,11 @@ window.renderMonthlyProfitChart = function() {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            // ⭐️ 정확히 점을 찌르지 않고 근처 영역(초록/노란색)만 터치해도 반응하도록 설정
+            interaction: {
+                mode: 'nearest',
+                intersect: false
+            },
             plugins: {
                 legend: { display: false },
                 tooltip: {
