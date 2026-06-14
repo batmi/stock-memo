@@ -1027,12 +1027,12 @@ button:hover {
         border-width: 1px !important;
     }
     
-    /* ⭐️ 모바일에서는 중앙 정렬 스페이서 비율 축소 및 검색창 더미 표시 */
+    /* ⭐️ 모바일에서는 스페이서와 검색창 더미를 숨겨 좌우 전체 폭 사용 및 하단 공백 제거 */
     .chart-filter-spacer {
-        flex: 0.5 1 0 !important;
+        display: none !important;
     }
     .chart-search-dummy {
-        display: block !important;
+        display: none !important;
     }
 
     .filter-select-wrapper select {
