@@ -3987,6 +3987,42 @@ window.setMonthlyChartType = function(type) {
     window.renderMonthlyProfitChart();
 };
 
+// ⭐️ 차트 막대 클릭 시 하단에 종목별 상세 내역을 그려주는 함수
+window.renderChartDetailList = function(title, breakdown, isProfit) {
+    const container = document.getElementById('chartDetailList');
+    if (!container) return;
+    
+    let html = `<div style="font-size: 13px; font-weight: bold; margin-bottom: 10px; color: var(--text-strong-color); display: flex; justify-content: space-between; align-items: center;">
+                    <span>📊 ${title}</span>
+                    <span style="font-size: 11px; color: var(--text-muted-color); font-weight: normal; cursor: pointer;" onclick="document.getElementById('chartDetailList').style.display='none';">닫기 &times;</span>
+                </div>`;
+    
+    const stocks = Object.keys(breakdown).filter(s => breakdown[s] !== 0);
+    stocks.sort((a, b) => breakdown[b] - breakdown[a]); // 금액(손익) 기준 내림차순 정렬
+    
+    if (stocks.length === 0) {
+        html += `<div style="color: var(--text-muted-color); font-size: 12px; text-align: center; padding: 10px 0;">해당 내역이 없습니다.</div>`;
+    } else {
+        html += `<div style="display: grid; gap: 6px;">`;
+        stocks.forEach(s => {
+            const val = breakdown[s];
+            let color = 'var(--text-strong-color)';
+            let prefix = '';
+            if (isProfit) {
+                if (val > 0) { color = 'var(--danger-color)'; prefix = '+'; }
+                else if (val < 0) { color = 'var(--primary-color)'; }
+            }
+            html += `<div style="display: flex; justify-content: space-between; font-size: 12px; padding: 6px 10px; background: var(--bg-color); border-radius: 6px; border: 1px solid var(--border-light-color);">
+                <span style="font-weight: bold; color: var(--text-strong-color);">${s}</span>
+                <span style="color: ${color};">${prefix}${Math.round(val).toLocaleString()}원</span>
+            </div>`;
+        });
+        html += `</div>`;
+    }
+    container.innerHTML = html;
+    container.style.display = 'block';
+};
+
 // ⭐️ 최근 12개월 월별 실현손익/평가손익/매매금액 바 차트 렌더링 함수 (통합)
 window.renderMonthlyProfitChart = function() {
     console.log("[Chart] 월별 실현/평가/매매금액 차트 렌더링 시작...");
@@ -3994,11 +4030,19 @@ window.renderMonthlyProfitChart = function() {
     const now = new Date();
     const labels = [];
     const allProfitByMonth = {}; // ⭐️ 전체 기간의 월별 실현손익을 추적하여 누적 계산에 활용
+    const allProfitByMonthStock = {}; // ⭐️ 전체 기간의 누적 계산용 '종목별' 실현손익 추적
+    
+    // ⭐️ 렌더링 초기화 시 하단 상세 내역 영역 닫기
+    const detailListEl = document.getElementById('chartDetailList');
+    if (detailListEl) detailListEl.style.display = 'none';
     
     for (let i = 11; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        monthlyData[key] = { realized: 0, evaluated: 0, buy_volume: 0, sell_volume: 0 };
+        monthlyData[key] = { 
+            realized: 0, evaluated: 0, buy_volume: 0, sell_volume: 0,
+            realized_breakdown: {}, evaluated_breakdown: {}, buy_volume_breakdown: {}, sell_volume_breakdown: {}, cumulative_breakdown: {}
+        };
         labels.push(key);
     }
     
@@ -4038,6 +4082,8 @@ window.renderMonthlyProfitChart = function() {
         if (!stockRemainingBuys[stock]) stockRemainingBuys[stock] = [];
         
         if (!allProfitByMonth[dateKey]) allProfitByMonth[dateKey] = 0;
+        if (!allProfitByMonthStock[dateKey]) allProfitByMonthStock[dateKey] = {};
+        if (!allProfitByMonthStock[dateKey][stock]) allProfitByMonthStock[dateKey][stock] = 0;
 
         if (entry.tradeType === '매수') {
             portfolio[stock].qty += qty;
@@ -4046,14 +4092,22 @@ window.renderMonthlyProfitChart = function() {
             
             // ⭐️ 잔여 수량 큐에 삽입 및 거래대금(매매금액) 합산
             stockRemainingBuys[stock].push({ dateKey, qty, price });
-            if (monthlyData[dateKey]) monthlyData[dateKey].buy_volume += (price * qty);
+            if (monthlyData[dateKey]) {
+                const vol = price * qty;
+                monthlyData[dateKey].buy_volume += vol;
+                monthlyData[dateKey].buy_volume_breakdown[stock] = (monthlyData[dateKey].buy_volume_breakdown[stock] || 0) + vol;
+            }
             
         } else if (entry.tradeType === '매도') {
             const profit = (price - portfolio[stock].avgPrice) * qty;
             allProfitByMonth[dateKey] += profit; // ⭐️ 전체 기간 수익 누적용
+            allProfitByMonthStock[dateKey][stock] += profit;
+            
             if (monthlyData[dateKey]) {
                 monthlyData[dateKey].realized += profit;
                 monthlyData[dateKey].sell_volume += (price * qty);
+                monthlyData[dateKey].realized_breakdown[stock] = (monthlyData[dateKey].realized_breakdown[stock] || 0) + profit;
+                monthlyData[dateKey].sell_volume_breakdown[stock] = (monthlyData[dateKey].sell_volume_breakdown[stock] || 0) + (price * qty);
             }
             portfolio[stock].qty -= qty;
             portfolio[stock].totalCost -= (portfolio[stock].avgPrice * qty);
@@ -4073,8 +4127,10 @@ window.renderMonthlyProfitChart = function() {
             }
         } else if (entry.tradeType === '배당') {
             allProfitByMonth[dateKey] += (price * qty); // ⭐️ 배당금 누적용
+            allProfitByMonthStock[dateKey][stock] += (price * qty);
             if (monthlyData[dateKey]) {
                 monthlyData[dateKey].realized += (price * qty);
+                monthlyData[dateKey].realized_breakdown[stock] = (monthlyData[dateKey].realized_breakdown[stock] || 0) + (price * qty);
                 // ⭐️ 배당금은 '실현 손익'에는 포함되지만 순수 '매매(거래) 금액' 차트에서는 제외합니다.
             }
         }
@@ -4087,19 +4143,30 @@ window.renderMonthlyProfitChart = function() {
         if (currentPrice !== undefined && currentPrice !== null) {
             stockRemainingBuys[stock].forEach(buy => {
                 if (monthlyData[buy.dateKey]) {
-                    monthlyData[buy.dateKey].evaluated += (currentPrice - buy.price) * buy.qty;
+                    const evalProfit = (currentPrice - buy.price) * buy.qty;
+                    monthlyData[buy.dateKey].evaluated += evalProfit;
+                    monthlyData[buy.dateKey].evaluated_breakdown[stock] = (monthlyData[buy.dateKey].evaluated_breakdown[stock] || 0) + evalProfit;
                 }
             });
         }
     }
     
-    // ⭐️ 12개월 라벨별로 과거부터 해당 월까지의 총 누적 수익금 계산
+    // ⭐️ 12개월 라벨별로 과거부터 해당 월까지의 총 누적 수익금 계산 및 상세 내역 생성
     labels.forEach(label => {
         let cum = 0;
+        let cumBreakdown = {};
         for (const key in allProfitByMonth) {
-            if (key <= label) cum += allProfitByMonth[key];
+            if (key <= label) {
+                cum += allProfitByMonth[key];
+                if (allProfitByMonthStock[key]) {
+                    for (const s in allProfitByMonthStock[key]) {
+                        cumBreakdown[s] = (cumBreakdown[s] || 0) + allProfitByMonthStock[key][s];
+                    }
+                }
+            }
         }
         monthlyData[label].cumulative = cum;
+        monthlyData[label].cumulative_breakdown = cumBreakdown;
     });
 
     const theme = document.documentElement.getAttribute('data-theme') || 'light';
@@ -4209,6 +4276,41 @@ window.renderMonthlyProfitChart = function() {
                     stacked: type === 'volume',
                     grid: { display: false } 
                 }
+            },
+            // ⭐️ 마우스 호버 시 포인터 변경 (클릭 가능함 암시)
+            onHover: (e, elements, chart) => {
+                chart.canvas.style.cursor = elements.length ? 'pointer' : 'default';
+            },
+            // ⭐️ 막대 클릭 이벤트 로직 추가
+            onClick: (e, elements, chart) => {
+                if (elements.length === 0) return;
+                
+                const index = elements[0].index;
+                const datasetIndex = elements[0].datasetIndex; // 매수(0)/매도(1) 구분용
+                const monthLabel = labels[index]; // 예: '2023-10'
+                const dataObj = monthlyData[monthLabel];
+                
+                let breakdown = {};
+                let title = `${monthLabel} 상세 내역`;
+                let isProfit = true;
+                
+                if (type === 'realized') {
+                    breakdown = dataObj.realized_breakdown;
+                    title = `${monthLabel} 실현 손익 상세`;
+                } else if (type === 'evaluated') {
+                    breakdown = dataObj.evaluated_breakdown;
+                    title = `${monthLabel} 매수분 평가 손익 상세`;
+                } else if (type === 'volume') {
+                    isProfit = false;
+                    if (datasetIndex === 0) { breakdown = dataObj.buy_volume_breakdown; title = `${monthLabel} 매수 금액 상세`; } 
+                    else { breakdown = dataObj.sell_volume_breakdown; title = `${monthLabel} 매도 금액 상세`; }
+                } else if (type === 'cumulative') {
+                    breakdown = dataObj.cumulative_breakdown;
+                    title = `${monthLabel} 누적 수익금 상세`;
+                }
+                
+                // 계산된 내역을 하단 영역에 렌더링
+                window.renderChartDetailList(title, breakdown, isProfit);
             }
         }
     });
