@@ -4330,11 +4330,15 @@ window.clearAllFilters = function(shouldRender = true) {
 
 document.getElementById('btnListView').addEventListener('click', function() {
     this.classList.add('active'); document.getElementById('btnCalendarView').classList.remove('active');
+    const btnChartView = document.getElementById('btnChartView');
+    if (btnChartView) btnChartView.classList.remove('active');
     document.getElementById('historyList').style.display = 'flex';
     document.getElementById('calendarViewSection').style.display = 'none';
     const monthlyChartSection = document.getElementById('monthlyChartSection');
     if (monthlyChartSection) monthlyChartSection.style.display = 'none';
     document.getElementById('filterBoxContainer').style.display = 'block';
+    const chartFilterBoxContainer = document.getElementById('chartFilterBoxContainer');
+    if (chartFilterBoxContainer) chartFilterBoxContainer.style.display = 'none';
     const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
     if (btnToggleHistoryClosed) btnToggleHistoryClosed.style.display = 'inline-block';
     
@@ -4343,11 +4347,15 @@ document.getElementById('btnListView').addEventListener('click', function() {
 
 document.getElementById('btnCalendarView').addEventListener('click', function() {
     this.classList.add('active'); document.getElementById('btnListView').classList.remove('active');
+    const btnChartView = document.getElementById('btnChartView');
+    if (btnChartView) btnChartView.classList.remove('active');
     document.getElementById('historyList').style.display = 'none';
     document.getElementById('calendarViewSection').style.display = 'block';
     const monthlyChartSection = document.getElementById('monthlyChartSection');
-    if (monthlyChartSection) monthlyChartSection.style.display = 'block';
+    if (monthlyChartSection) monthlyChartSection.style.display = 'none';
     document.getElementById('filterBoxContainer').style.display = 'none';
+    const chartFilterBoxContainer = document.getElementById('chartFilterBoxContainer');
+    if (chartFilterBoxContainer) chartFilterBoxContainer.style.display = 'none';
     const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
     if (btnToggleHistoryClosed) btnToggleHistoryClosed.style.display = 'none';
     
@@ -4356,6 +4364,32 @@ document.getElementById('btnCalendarView').addEventListener('click', function() 
     
     renderCalendar();
 });
+
+const btnChartViewEl = document.getElementById('btnChartView');
+if (btnChartViewEl) {
+    btnChartViewEl.addEventListener('click', function() {
+        this.classList.add('active');
+        document.getElementById('btnListView').classList.remove('active');
+        document.getElementById('btnCalendarView').classList.remove('active');
+        
+        document.getElementById('historyList').style.display = 'none';
+        document.getElementById('calendarViewSection').style.display = 'none';
+        
+        const monthlyChartSection = document.getElementById('monthlyChartSection');
+        if (monthlyChartSection) monthlyChartSection.style.display = 'block';
+        
+        document.getElementById('filterBoxContainer').style.display = 'none';
+        const chartFilterBoxContainer = document.getElementById('chartFilterBoxContainer');
+        if (chartFilterBoxContainer) chartFilterBoxContainer.style.display = 'block';
+        const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
+        if (btnToggleHistoryClosed) btnToggleHistoryClosed.style.display = 'none';
+        
+        const banner = document.getElementById('activeFilterBanner');
+        if (banner) banner.style.display = 'none';
+        
+        window.renderMonthlyProfitChart();
+    });
+}
 
 document.getElementById('btnPrevMonth').addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); renderCalendar(); });
 document.getElementById('btnNextMonth').addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); renderCalendar(); });

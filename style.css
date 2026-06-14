@@ -635,24 +635,20 @@ button:hover {
     text-align-last: center; /* ⭐️ 드롭다운 메뉴 텍스트를 중앙으로 정렬하는 필수 속성 */
 }
 
-    /* ⭐️ 차트 하단 전용 필터 (스크롤 없이 한 줄 배치 및 좁은 폭 적용) */
-    #chartFiltersContainer {
-        width: 65% !important;
-        margin-left: auto !important;
-        margin-right: auto !important;
-    }
-    #chartFiltersContainer .filter-select-wrapper {
-        min-width: 0 !important;
-        height: 20px !important;
-    }
-    #chartFiltersContainer select {
-        font-size: 11px !important;
-        padding: 0 2px !important;
-    }
 .filter-search-wrapper {
     position: relative;
     flex: 2;
     min-width: 120px;
+}
+
+/* ⭐️ 차트 뷰 필터 중앙 정렬용 클래스 */
+.chart-filter-spacer {
+    flex: 1.5;
+    visibility: hidden;
+    pointer-events: none;
+}
+.chart-search-dummy {
+    display: none;
 }
 
 /* ⭐️ 필터 칩(Chip) UI 스타일 */
@@ -1030,6 +1026,15 @@ button:hover {
         height: 22px !important;
         border-width: 1px !important;
     }
+    
+    /* ⭐️ 모바일에서는 중앙 정렬 스페이서 비율 축소 및 검색창 더미 표시 */
+    .chart-filter-spacer {
+        flex: 0.5 1 0 !important;
+    }
+    .chart-search-dummy {
+        display: block !important;
+    }
+
     .filter-select-wrapper select {
         padding: 0 4px !important;
         font-size: 12px !important; /* 5개가 한줄에 들어가도록 폰트 소폭 축소 */
@@ -1058,11 +1063,6 @@ button:hover {
         height: 22px !important;
         border-width: 1px !important;
         padding: 2px 30px 2px 8px !important;
-    }
-
-    /* ⭐️ 모바일에서는 차트 하단 필터 폭을 전체로 넓게 사용 */
-    #chartFiltersContainer {
-        width: 100% !important;
     }
 
     /* ⭐️ 모바일 폼(모달) 내 입력창 높이 확대 (이모티콘 및 텍스트 잘림 방지) */
