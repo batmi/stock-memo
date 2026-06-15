@@ -4020,6 +4020,20 @@ window.renderChartDetailList = function(title, breakdown, isProfit) {
 // ⭐️ 최근 12개월 월별 실현손익/평가손익/매매금액 바 차트 렌더링 함수 (통합)
 window.renderMonthlyProfitChart = function() {
     console.log("[Chart] 월별 실현/평가/매매금액 차트 렌더링 시작...");
+    
+    // ⭐️ 차트 필터 초기화 버튼 노출 제어 로직
+    const chartClearAllBtnWrapper = document.getElementById('chartClearAllBtnWrapper');
+    if (chartClearAllBtnWrapper) {
+        let activeFilterCount = 0;
+        if (currentChartStock !== 'all') activeFilterCount++;
+        if (currentChartAccount !== 'all') activeFilterCount++;
+        if (currentChartBroker !== 'all') activeFilterCount++;
+        if (currentChartSubAccount !== 'all') activeFilterCount++;
+
+        // 필터가 1개 이상 적용되었을 때 우측 끝에 초기화 버튼 노출
+        chartClearAllBtnWrapper.style.display = activeFilterCount >= 1 ? 'flex' : 'none';
+    }
+    
     const monthlyData = {};
     const now = new Date();
     const labels = [];
@@ -4492,6 +4506,57 @@ window.clearAllFilters = function(shouldRender = true) {
         displayEntries(true);
         window.scrollToFilterBox();
     }
+};
+
+window.clearChartStockFilter = function() {
+    currentChartStock = 'all';
+    const el = document.getElementById('chartStockFilter');
+    if (el) { el.value = 'all'; window.updateDashboardFilterStyle(el); }
+    window.saveChartFilterPreferences();
+    window.renderMonthlyProfitChart();
+};
+
+window.clearChartAccountFilter = function() {
+    currentChartAccount = 'all';
+    const el = document.getElementById('chartAccountFilter');
+    if (el) { el.value = 'all'; window.updateDashboardFilterStyle(el); }
+    window.saveChartFilterPreferences();
+    window.renderMonthlyProfitChart();
+};
+
+window.clearChartBrokerFilter = function() {
+    currentChartBroker = 'all';
+    const el = document.getElementById('chartBrokerFilter');
+    if (el) { el.value = 'all'; window.updateDashboardFilterStyle(el); }
+    window.saveChartFilterPreferences();
+    window.renderMonthlyProfitChart();
+};
+
+window.clearChartSubAccountFilter = function() {
+    currentChartSubAccount = 'all';
+    const el = document.getElementById('chartSubAccountFilter');
+    if (el) { el.value = 'all'; window.updateDashboardFilterStyle(el); }
+    window.saveChartFilterPreferences();
+    window.renderMonthlyProfitChart();
+};
+
+window.clearAllChartFilters = function() {
+    currentChartStock = 'all';
+    currentChartAccount = 'all';
+    currentChartBroker = 'all';
+    currentChartSubAccount = 'all';
+    
+    const selects = ['chartStockFilter', 'chartAccountFilter', 'chartBrokerFilter', 'chartSubAccountFilter'];
+    selects.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.value = 'all';
+            window.updateDashboardFilterStyle(el);
+        }
+    });
+    
+    window.saveChartFilterPreferences();
+    window.renderMonthlyProfitChart();
 };
 
 document.getElementById('btnListView').addEventListener('click', function() {
