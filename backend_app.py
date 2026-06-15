@@ -1069,12 +1069,8 @@ def get_current_price():
                 kst_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
                 time_num = kst_now.hour * 100 + kst_now.minute
                 
-                # ⭐️ 사용자가 선택한 시장 모드(KRX/NXT)에 따라 장외 시간 적용 강제/해제
-                is_out_of_hours = not (900 <= time_num < 1530)
-                if market_mode == 'KRX':
-                    is_out_of_hours = False
-                elif market_mode == 'NXT':
-                    is_out_of_hours = True
+                # ⭐️ 실제 현재 시간이 정규장인지 판단
+                is_real_out_of_hours = not (900 <= time_num < 1530)
 
                 # ⭐️ 모바일 API 전용 위장 헤더 (PC 스크래핑을 제거하여 봇 차단 원천 방지)
                 api_headers = {
@@ -1084,8 +1080,10 @@ def get_current_price():
                 }
 
                 try:
+                    realtime_krx_price = None
                     # ⭐️ 정규장 실시간 시세: 모바일 API의 CDN 지연(1~3분)을 완벽히 우회하기 위해 PC용 실시간 siseJson API 최우선 호출
-                    if not is_out_of_hours:
+                    # 시장 모드와 상관없이 실제 정규장 시간이면 KRX 실시간 시세를 가져옴
+                    if not is_real_out_of_hours:
                         try:
                             sise_url = f"https://api.finance.naver.com/siseJson.naver?symbol={code_str}&requestType=1"
                             sise_req = urllib.request.Request(sise_url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -1094,10 +1092,9 @@ def get_current_price():
                                 # 정규식을 통해 nowVal 추출 (캐시 없는 실시간 현재가)
                                 match = re.search(r'"nowVal"\s*:\s*(\d+)', sise_data)
                                 if match:
-                                    realtime_price = float(match.group(1))
-                                    if realtime_price > 0:
-                                        save_price_cache(code_str, realtime_price)
-                                        return code, realtime_price
+                                    val = float(match.group(1))
+                                    if val > 0:
+                                        realtime_krx_price = val
                         except Exception:
                             pass
 
@@ -1108,45 +1105,62 @@ def get_current_price():
                     with urllib.request.urlopen(req, timeout=3) as response:
                         res_data = json.loads(response.read())
                         price_str = str(res_data.get('closePrice', ''))
+                        close_price = float(price_str.replace(',', '')) if price_str and price_str != '0' else None
                         
-                        # ⭐️ 정규장 외 시간(혹은 NXT 수동 모드)일 경우 overPrice 적용
-                        if is_out_of_hours and price_str and price_str != '0':
+                        # KRX 기본 시세 (siseJson 값이 있으면 우선, 없으면 모바일 API의 closePrice)
+                        current_krx_price = realtime_krx_price if realtime_krx_price else close_price
+                        
+                        if market_mode == 'NXT':
+                            # ⭐️ 1. 정규장(09:00~15:30)에는 무조건 KRX 실시간 시세 우선 반환
+                            if not is_real_out_of_hours:
+                                if current_krx_price:
+                                    save_price_cache(code_str, current_krx_price)
+                                    return code, current_krx_price
+                                    
+                            # ⭐️ 2. 장외 시간(15:30~익일 09:00)에는 NXT 시세 획득 시도
                             over_info = res_data.get('overMarketPriceInfo', {})
                             if isinstance(over_info, dict) and over_info.get('overPrice'):
-                                price_str = str(over_info.get('overPrice'))
-                                # ⭐️ 정상적인 시간외 종가를 가져왔다면 다음 날 아침을 대비해 DB 캐시에 저장
-                                save_price_cache(code_str, float(price_str.replace(',', '')))
-                            else:
-                                # ⭐️ 자정 이후 등 API 데이터가 비워졌을 경우, 최우선적으로 DB 캐시에서 전일 시간외 종가 획득 시도
-                                cached_price = load_price_cache(code_str)
-                                if cached_price:
-                                    return code, cached_price
+                                nxt_price_str = str(over_info.get('overPrice'))
+                                nxt_price = float(nxt_price_str.replace(',', ''))
+                                save_price_cache(code_str, nxt_price)
+                                return code, nxt_price
+                            
+                            # ⭐️ 3. 자정 이후 등 모바일 API 데이터가 비워졌을 경우 PC 웹 크롤링
+                            try:
+                                pc_url = f"https://finance.naver.com/item/main.naver?code={code_str}"
+                                pc_req = urllib.request.Request(pc_url, headers={'User-Agent': 'Mozilla/5.0'})
+                                with urllib.request.urlopen(pc_req, timeout=3) as pc_res:
+                                    html = pc_res.read().decode('euc-kr', errors='ignore')
+                                    match = re.search(r'시간외단일가.*?<span class="blind">([\d,]+)</span>', html, re.DOTALL)
+                                    if match:
+                                        nxt_price = float(match.group(1).replace(',', ''))
+                                        save_price_cache(code_str, nxt_price)
+                                        return code, nxt_price
+                            except Exception:
+                                pass
                                 
-                                # 캐시가 없을 경우 PC 웹 크롤링으로 획득 시도 (최후의 보루)
-                                try:
-                                    pc_url = f"https://finance.naver.com/item/main.naver?code={code_str}"
-                                    pc_req = urllib.request.Request(pc_url, headers={'User-Agent': 'Mozilla/5.0'})
-                                    with urllib.request.urlopen(pc_req, timeout=3) as pc_res:
-                                        html = pc_res.read().decode('euc-kr', errors='ignore')
-                                        # 네이버 금융 PC 버전의 '시간외단일가' 영역 파싱
-                                        match = re.search(r'시간외단일가.*?<span class="blind">([\d,]+)</span>', html, re.DOTALL)
-                                        if match:
-                                            price_str = match.group(1)
-                                            save_price_cache(code_str, float(price_str.replace(',', '')))
-                                except Exception:
-                                    pass
-                        elif not is_out_of_hours and price_str and price_str != '0':
-                            # ⭐️ 정규장 시간에는 실시간(혹은 종가) 가격을 NXT 캐시에 업데이트하여 동일하게 유지
-                            save_price_cache(code_str, float(price_str.replace(',', '')))
+                            # ⭐️ 4. API 및 크롤링 모두 실패 시 DB 캐시(전일 18:00 종가) 방어 최우선
+                            cached_price = load_price_cache(code_str)
+                            if cached_price:
+                                return code, cached_price
+                                
+                            # ⭐️ 5. 캐시마저 없을 경우(새로운 종목 등) 기본 KRX 종가 반환
+                            if current_krx_price:
+                                save_price_cache(code_str, current_krx_price)
+                                return code, current_krx_price
+                        else:
+                            # KRX 모드일 경우: NXT 가격은 무시하고 KRX 가격만 반환
+                            if current_krx_price:
+                                save_price_cache(code_str, current_krx_price)
+                                return code, current_krx_price
                         
-                    if price_str and price_str != '0':
-                        return code, float(price_str.replace(',', ''))
+                    if current_krx_price:
+                        return code, current_krx_price
                 except Exception:
-                    # ⭐️ 네이버 API 조회에 완전히 실패(통신 에러 등)했을 경우에도 장외 시간이라면 DB 캐시를 최후의 보루로 사용
-                    if is_out_of_hours:
-                        cached_price = load_price_cache(code_str)
-                        if cached_price:
-                            return code, cached_price
+                    # ⭐️ 네이버 API 조회에 완전히 실패(통신 에러 등)했을 경우, 캐시를 최후의 보루로 사용
+                    cached_price = load_price_cache(code_str)
+                    if cached_price:
+                        return code, cached_price
 
             # ⭐️ US, OTHER_ASIAN, UNKNOWN 이거나 국내 API에서 조회 실패한 경우 야후 파이낸스 호출
             try:
