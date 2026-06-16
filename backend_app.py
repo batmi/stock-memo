@@ -1131,23 +1131,29 @@ def get_current_price():
                                 pc_req = urllib.request.Request(pc_url, headers={'User-Agent': 'Mozilla/5.0'})
                                 with urllib.request.urlopen(pc_req, timeout=3) as pc_res:
                                     html = pc_res.read().decode('euc-kr', errors='ignore')
-                                    match = re.search(r'시간외단일가.*?<span class="blind">([\d,]+)</span>', html, re.DOTALL)
-                                    if match:
-                                        nxt_price = float(match.group(1).replace(',', ''))
-                                        save_price_cache(code_str, nxt_price)
-                                        return code, nxt_price
+                                    
+                                    # ⭐️ 시간외단일가 테이블 영역만 정확히 추출하여 엉뚱한 전일 종가를 오인식하지 않도록 수정
+                                    nxt_area_match = re.search(r'시간외단일가.*?</table>', html, re.DOTALL)
+                                    if nxt_area_match:
+                                        nxt_html = nxt_area_match.group(0)
+                                        if '거래 내역이 없습니다' not in nxt_html:
+                                            price_match = re.search(r'<span class="blind">([\d,]+)</span>', nxt_html)
+                                            if price_match:
+                                                nxt_price = float(price_match.group(1).replace(',', ''))
+                                                save_price_cache(code_str, nxt_price)
+                                                return code, nxt_price
                             except Exception:
                                 pass
                                 
-                            # ⭐️ 4. API 및 크롤링 모두 실패 시 DB 캐시(전일 18:00 종가) 방어 최우선
-                            cached_price = load_price_cache(code_str)
-                            if cached_price:
-                                return code, cached_price
-                                
-                            # ⭐️ 5. 캐시마저 없을 경우(새로운 종목 등) 기본 KRX 종가 반환
+                            # ⭐️ 4. NXT 가격을 구하지 못했다면 (미거래 등), 현재 KRX 기본 시세를 반환
                             if current_krx_price:
                                 save_price_cache(code_str, current_krx_price)
                                 return code, current_krx_price
+
+                            # ⭐️ 5. API 및 크롤링 모두 실패 시 DB 캐시 방어 최우선
+                            cached_price = load_price_cache(code_str)
+                            if cached_price:
+                                return code, cached_price
                         else:
                             # KRX 모드일 경우: NXT 가격은 무시하고 KRX 가격만 반환
                             if current_krx_price:
