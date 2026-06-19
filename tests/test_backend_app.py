@@ -542,7 +542,7 @@ def test_uploaded_file_success(client):
     assert b'file_content_test' in res.data
 
 @patch('urllib.request.urlopen')
-def test_current_price_edge_cases(mock_urlopen, client):
+def test_current_price_edge_cases(mock_urlopen, client, app):
     """현재 주가 API(/api/current_price)의 다양한 파싱 폴백 및 네트워크 에러 처리를 검증합니다."""
     with client.session_transaction() as sess:
         sess['logged_in'] = True
@@ -610,6 +610,13 @@ def test_current_price_edge_cases(mock_urlopen, client):
     res_empty = client.post('/api/current_price', json={'codes': ['', ' ']})
     assert res_empty.status_code == 200
     assert res_empty.json == {}
+
+    # 캐시 초기화: 이전 테스트(3번)에서 성공한 값이 DB에 캐시되어 있으면, 모든 API가 실패해도 캐시값을 리턴하므로 실패 케이스를 검증하기 위해 비워줍니다.
+    with app.app_context():
+        conn = backend_app.get_db()
+        conn.execute("DELETE FROM price_cache")
+        conn.commit()
+        conn.close()
 
     # 7. 일반 주식 모든 API 실패 시 500 에러 없이 안전하게 통과하는지 검증 (Unpacking 버그 회귀 방지)
     urlopen_side_effect.all_fail = True
