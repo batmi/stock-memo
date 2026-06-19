@@ -34,7 +34,7 @@
 chmod +x run.sh
 ./run.sh
 ```
-*(기존 방식인 `python app.py` 명령어로도 동일하게 실행 가능합니다.)*
+*(기존 방식인 `python backend_app.py` 명령어로도 동일하게 실행 가능합니다.)*
 
 **Windows 환경**
 ```bash
