@@ -1068,9 +1068,10 @@ def get_current_price():
                 import datetime
                 kst_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
                 time_num = kst_now.hour * 100 + kst_now.minute
+                day_of_week = kst_now.weekday()
                 
-                # ⭐️ 실제 현재 시간이 정규장인지 판단
-                is_real_out_of_hours = not (900 <= time_num < 1530)
+                # ⭐️ 실제 현재 시간이 정규장인지 판단 (주말 포함)
+                is_real_out_of_hours = (day_of_week >= 5) or not (900 <= time_num < 1530)
 
                 # ⭐️ 모바일 API 전용 위장 헤더 (PC 스크래핑을 제거하여 봇 차단 원천 방지)
                 api_headers = {
