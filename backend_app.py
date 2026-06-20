@@ -26,6 +26,29 @@ import threading
 from logging.handlers import TimedRotatingFileHandler
 from datetime import timedelta, datetime
 from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string, send_file, has_request_context
+
+# ⭐️ 2026년 한국거래소(KRX) 휴장일 목록 (매년 연초에 갱신 필요)
+# 출처: KRX 공식 공지, 대체공휴일법 반영
+KRX_HOLIDAYS = {
+    (2026, 1, 1),    # 신정
+    (2026, 2, 16),   # 설날 연휴
+    (2026, 2, 17),   # 설날
+    (2026, 2, 18),   # 설날 연휴
+    (2026, 3, 2),    # 삼일절 대체공휴일 (3/1 일요일)
+    (2026, 5, 1),    # 근로자의 날
+    (2026, 5, 5),    # 어린이날
+    (2026, 5, 25),   # 석가탄신일 대체공휴일 (5/24 일요일)
+    (2026, 6, 3),    # 지방선거일
+    (2026, 6, 6),    # 현충일 (토요일이지만 목록에 포함)
+    (2026, 7, 17),   # 제헌절
+    (2026, 8, 17),   # 광복절 대체공휴일 (8/15 토요일)
+    (2026, 9, 24),   # 추석 연휴
+    (2026, 9, 25),   # 추석
+    (2026, 10, 5),   # 개천절 대체공휴일 (10/3 토요일)
+    (2026, 10, 9),   # 한글날
+    (2026, 12, 25),  # 성탄절
+    (2026, 12, 31),  # 연말 휴장일
+}
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__, static_folder='.', static_url_path='')
@@ -285,12 +308,21 @@ def init_db():
     except sqlite3.OperationalError:
         pass
         
-    # ⭐️ 시간외 단일가(NXT) 전일 종가 유지를 위한 캐시 테이블 생성
+    # ⭐️ 시간외 단일가(NXT) 전일 종가 유지를 위한 캐시 테이블 (KRX/NXT 분리 저장)
+    # 기존 단일 키(code) 테이블에서 복합 키(code, market_type)로 마이그레이션
+    try:
+        c.execute("SELECT market_type FROM price_cache LIMIT 1")
+    except sqlite3.OperationalError:
+        # 기존 스키마(market_type 컬럼 없음) → 테이블 재생성
+        c.execute("DROP TABLE IF EXISTS price_cache")
+        app.logger.info("🔄 price_cache 테이블을 KRX/NXT 분리 저장 스키마로 마이그레이션합니다.")
     c.execute('''
         CREATE TABLE IF NOT EXISTS price_cache (
-            code TEXT PRIMARY KEY,
+            code TEXT,
+            market_type TEXT DEFAULT 'KRX',
             price REAL,
-            updated_at TEXT
+            updated_at TEXT,
+            PRIMARY KEY (code, market_type)
         )
     ''')
     conn.commit()
@@ -411,7 +443,7 @@ def auto_fetch_nxt_close_job():
                                     price_val = float(price_str.replace(',', ''))
                                     
                                     now_str = dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                    c.execute("REPLACE INTO price_cache (code, price, updated_at) VALUES (?, ?, ?)", (code, price_val, now_str))
+                                    c.execute("REPLACE INTO price_cache (code, market_type, price, updated_at) VALUES (?, ?, ?, ?)", (code, 'NXT', price_val, now_str))
                                     updated_count += 1
                         except Exception:
                             pass
@@ -993,28 +1025,40 @@ def get_current_price():
     prices = {}
     
     # ⭐️ 시간외 단일가 유지를 위한 DB 캐시 저장/조회 헬퍼 함수
-    def save_price_cache(code_val, price_val):
+    def save_price_cache(code_val, price_val, cache_market_type='KRX'):
+        conn = None
         try:
             conn = get_db()
             c = conn.cursor()
             now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            c.execute("REPLACE INTO price_cache (code, price, updated_at) VALUES (?, ?, ?)", (code_val, price_val, now_str))
+            c.execute("REPLACE INTO price_cache (code, market_type, price, updated_at) VALUES (?, ?, ?, ?)", (code_val, cache_market_type, price_val, now_str))
             conn.commit()
-            conn.close()
         except Exception:
             pass
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
             
-    def load_price_cache(code_val):
+    def load_price_cache(code_val, cache_market_type='KRX'):
+        conn = None
         try:
             conn = get_db()
             c = conn.cursor()
-            c.execute("SELECT price FROM price_cache WHERE code = ?", (code_val,))
+            c.execute("SELECT price FROM price_cache WHERE code = ? AND market_type = ?", (code_val, cache_market_type))
             row = c.fetchone()
-            conn.close()
             if row:
                 return row['price']
         except Exception:
             pass
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
         return None
 
     def fetch_price(code):
@@ -1069,9 +1113,10 @@ def get_current_price():
                 kst_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
                 time_num = kst_now.hour * 100 + kst_now.minute
                 day_of_week = kst_now.weekday()
+                is_holiday = (kst_now.year, kst_now.month, kst_now.day) in KRX_HOLIDAYS
                 
-                # ⭐️ 실제 현재 시간이 정규장인지 판단 (주말 포함)
-                is_real_out_of_hours = (day_of_week >= 5) or not (900 <= time_num < 1530)
+                # ⭐️ 실제 현재 시간이 정규장인지 판단 (주말 + 공휴일 포함)
+                is_real_out_of_hours = (day_of_week >= 5) or is_holiday or not (900 <= time_num < 1530)
 
                 # ⭐️ 모바일 API 전용 위장 헤더 (PC 스크래핑을 제거하여 봇 차단 원천 방지)
                 api_headers = {
@@ -1115,7 +1160,7 @@ def get_current_price():
                             # ⭐️ 1. 정규장(09:00~15:30)에는 무조건 KRX 실시간 시세 우선 반환
                             if not is_real_out_of_hours:
                                 if current_krx_price:
-                                    save_price_cache(code_str, current_krx_price)
+                                    save_price_cache(code_str, current_krx_price, 'KRX')
                                     return code, current_krx_price
                                     
                             # ⭐️ 2. 장외 시간(15:30~익일 09:00)에는 NXT 시세 획득 시도
@@ -1123,7 +1168,7 @@ def get_current_price():
                             if isinstance(over_info, dict) and over_info.get('overPrice'):
                                 nxt_price_str = str(over_info.get('overPrice'))
                                 nxt_price = float(nxt_price_str.replace(',', ''))
-                                save_price_cache(code_str, nxt_price)
+                                save_price_cache(code_str, nxt_price, 'NXT')
                                 return code, nxt_price
                             
                             # ⭐️ 3. 자정 이후 등 모바일 API 데이터가 비워졌을 경우 PC 웹 크롤링
@@ -1141,31 +1186,39 @@ def get_current_price():
                                             price_match = re.search(r'<span class="blind">([\d,]+)</span>', nxt_html)
                                             if price_match:
                                                 nxt_price = float(price_match.group(1).replace(',', ''))
-                                                save_price_cache(code_str, nxt_price)
+                                                save_price_cache(code_str, nxt_price, 'NXT')
                                                 return code, nxt_price
                             except Exception:
                                 pass
                                 
-                            # ⭐️ 4. NXT 가격을 구하지 못했다면 (미거래 등), 현재 KRX 기본 시세를 반환
+                            # ⭐️ 4. NXT 전용 캐시 확인 (KRX 가격 오염 방지)
+                            cached_nxt_price = load_price_cache(code_str, 'NXT')
+                            if cached_nxt_price:
+                                return code, cached_nxt_price
+
+                            # ⭐️ 5. NXT 캐시도 없을 경우 KRX 기본 시세로 폴백
                             if current_krx_price:
-                                save_price_cache(code_str, current_krx_price)
                                 return code, current_krx_price
 
-                            # ⭐️ 5. API 및 크롤링 모두 실패 시 DB 캐시 방어 최우선
-                            cached_price = load_price_cache(code_str)
+                            # ⭐️ 6. API 및 크롤링 모두 실패 시 KRX 캐시로 최종 방어
+                            cached_price = load_price_cache(code_str, 'KRX')
                             if cached_price:
                                 return code, cached_price
                         else:
                             # KRX 모드일 경우: NXT 가격은 무시하고 KRX 가격만 반환
                             if current_krx_price:
-                                save_price_cache(code_str, current_krx_price)
+                                save_price_cache(code_str, current_krx_price, 'KRX')
                                 return code, current_krx_price
                         
                     if current_krx_price:
                         return code, current_krx_price
                 except Exception:
                     # ⭐️ 네이버 API 조회에 완전히 실패(통신 에러 등)했을 경우, 캐시를 최후의 보루로 사용
-                    cached_price = load_price_cache(code_str)
+                    if market_mode == 'NXT':
+                        cached_price = load_price_cache(code_str, 'NXT')
+                        if cached_price:
+                            return code, cached_price
+                    cached_price = load_price_cache(code_str, 'KRX')
                     if cached_price:
                         return code, cached_price
 
@@ -1178,13 +1231,17 @@ def get_current_price():
                 with urllib.request.urlopen(req, timeout=3) as response:
                     res_data = json.loads(response.read())
                     price = res_data['chart']['result'][0]['meta']['regularMarketPrice']
-                    save_price_cache(code_str, float(price))
+                    save_price_cache(code_str, float(price), 'KRX')
                     return code, float(price)
             except Exception:
                 pass
                 
             # ⭐️ 최후의 보루: 야후 파이낸스마저 통신에 실패했을 때, 만약 캐시에 저장된 마지막 가격이 있다면 (정규장이든 아니든) 방어용으로 반환
-            cached_price = load_price_cache(code_str)
+            if market_mode == 'NXT':
+                cached_price = load_price_cache(code_str, 'NXT')
+                if cached_price:
+                    return code, cached_price
+            cached_price = load_price_cache(code_str, 'KRX')
             if cached_price:
                 return code, cached_price
                 
