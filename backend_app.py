@@ -343,6 +343,33 @@ def init_db():
     conn.close()
 
 # ⭐️ 자동 백업 스레드 함수
+def verify_backup_zip(filepath, expected_count):
+    """백업 ZIP 파일의 무결성을 검증합니다.
+
+    1) ZIP 아카이브가 손상되지 않고 열람 가능한지 (CRC 검사)
+    2) data.json 항목이 존재하고 정상적으로 파싱되는지
+    3) 복원될 레코드 수가 백업 시점의 레코드 수와 일치하는지
+
+    (성공 여부 bool, 메시지 str) 튜플을 반환합니다.
+    """
+    try:
+        with zipfile.ZipFile(filepath, 'r') as zf:
+            corrupt = zf.testzip()
+            if corrupt is not None:
+                return False, f"손상된 압축 항목: {corrupt}"
+            if 'data.json' not in zf.namelist():
+                return False, "data.json 항목이 없습니다."
+            with zf.open('data.json') as f:
+                data = json.loads(f.read().decode('utf-8'))
+            if not isinstance(data, list):
+                return False, "data.json 형식이 올바르지 않습니다."
+            if len(data) != expected_count:
+                return False, f"레코드 수 불일치 (기대 {expected_count}건, 실제 {len(data)}건)"
+        return True, f"{len(data)}건 검증 통과"
+    except Exception as e:
+        return False, str(e)
+
+
 def auto_backup_job():
     while True:
         now = datetime.now()
@@ -387,7 +414,14 @@ def auto_backup_job():
                                 file_path = os.path.join(root, file)
                                 arcname = os.path.join('uploads', file)
                                 zf.write(file_path, arcname=arcname)
-                                
+
+                # ⭐️ 생성된 백업 파일의 무결성을 즉시 검증 (복원 가능 여부 확인)
+                ok, detail = verify_backup_zip(filepath, len(rows))
+                if ok:
+                    app.logger.info(f"  └ 백업 검증 통과: {username} ({detail})")
+                else:
+                    app.logger.error(f"  └ ⚠️ 백업 검증 실패: {username} - {detail} (파일: {filename})")
+
                 # 7일 지난 백업 파일 삭제 (7일 = 604800초)
                 current_time_sec = time.time()
                 for f in os.listdir(user_backup_dir):
@@ -962,14 +996,79 @@ def get_data():
     conn.close()
     return jsonify(data)
 
+# ─────────────────────────────────────────────────────────────
+# ⭐️ 데이터 무결성: 매매 기록 검증 헬퍼
+# ─────────────────────────────────────────────────────────────
+def _net_holding_for_stock(c, username, stock_name, exclude_id=None):
+    """해당 사용자의 특정 종목 현재 순보유 수량(매수 합계 - 매도 합계)을 계산합니다.
+    프론트엔드 포트폴리오 대시보드와 동일하게 종목명을 기준으로 집계합니다."""
+    query = ("SELECT tradeType, quantity FROM entries "
+             "WHERE username = ? AND type = 'trade' AND stockName = ?")
+    params = [username, stock_name]
+    if exclude_id is not None:
+        query += " AND id != ?"
+        params.append(exclude_id)
+    c.execute(query, params)
+
+    held = 0.0
+    for row in c.fetchall():
+        qty = float(row['quantity'] or 0)
+        if row['tradeType'] == '매수':
+            held += qty
+        elif row['tradeType'] == '매도':
+            held -= qty
+    return held
+
+
+def validate_trade_entry(c, username, entry, exclude_id=None):
+    """매도 거래의 데이터 무결성을 검증합니다.
+
+    - 매수 보유 기록이 없는 종목의 매도를 차단합니다.
+    - 보유 수량을 초과하는 매도(오버셀)를 차단합니다.
+
+    검증 통과 시 None, 위반 시 한국어 오류 메시지(str)를 반환합니다.
+    (※ 백업 복원 등 과거 데이터 일괄 삽입에는 적용하지 않습니다.)
+    """
+    if entry.get('type') != 'trade' or entry.get('tradeType') != '매도':
+        return None
+
+    stock_name = (entry.get('stockName') or '').strip()
+    if not stock_name:
+        return None
+
+    try:
+        sell_qty = float(entry.get('quantity') or 0)
+    except (TypeError, ValueError):
+        return None
+    if sell_qty <= 0:
+        return None
+
+    held = _net_holding_for_stock(c, username, stock_name, exclude_id=exclude_id)
+
+    EPS = 1e-6  # 부동소수점 오차 허용
+    if held <= EPS:
+        return f"'{stock_name}'은(는) 매수 보유 기록이 없어 매도할 수 없습니다."
+    if sell_qty > held + EPS:
+        return (f"'{stock_name}'의 매도 수량({sell_qty:g})이 "
+                f"현재 보유 수량({held:g})을 초과합니다.")
+    return None
+
+
 @app.route('/api/entry', methods=['POST'])
 def create_entry():
     username = session.get('username')
     entry = request.json
     conn = get_db()
     c = conn.cursor()
+
+    # ⭐️ 데이터 무결성 검증 (매도 수량/보유 여부)
+    validation_error = validate_trade_entry(c, username, entry)
+    if validation_error:
+        conn.close()
+        return jsonify({"error": validation_error}), 400
+
     c.execute('''
-        INSERT INTO entries 
+        INSERT INTO entries
         (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, subAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
@@ -990,6 +1089,13 @@ def update_entry(entry_id):
     entry = request.json
     conn = get_db()
     c = conn.cursor()
+
+    # ⭐️ 데이터 무결성 검증 (수정 중인 기록 자신은 집계에서 제외)
+    validation_error = validate_trade_entry(c, username, entry, exclude_id=entry_id)
+    if validation_error:
+        conn.close()
+        return jsonify({"error": validation_error}), 400
+
     c.execute('''
         UPDATE entries SET
         type=?, stockName=?, stockCode=?, title=?, thoughts=?, date=?, rawDate=?, attachedImage=?, brokerAccount=?, subAccount=?, accountName=?, tradeType=?, price=?, quantity=?, updatedAt=?, tags=?, attachedFile=?, attachedFileName=?
@@ -1016,6 +1122,195 @@ def delete_entry(entry_id):
     conn.commit()
     conn.close()
     return jsonify({"status": "success"})
+
+
+# ─────────────────────────────────────────────────────────────
+# ⭐️ 매매 성과 분석(통계)
+# ─────────────────────────────────────────────────────────────
+def _parse_entry_dt(entry):
+    """기록의 거래 일시를 datetime으로 파싱합니다. rawDate를 우선 사용하고,
+    실패 시 id(밀리초 타임스탬프)로 대체합니다. 모두 실패하면 None."""
+    raw = entry.get('rawDate')
+    if raw:
+        for fmt in ('%Y-%m-%dT%H:%M', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+            try:
+                return datetime.strptime(str(raw), fmt)
+            except (ValueError, TypeError):
+                continue
+    try:
+        return datetime.fromtimestamp(int(entry.get('id')) / 1000)
+    except (ValueError, TypeError, OSError):
+        return None
+
+
+def compute_trade_stats(rows):
+    """매매 기록 리스트로부터 성과 분석 지표를 계산합니다.
+
+    실현손익은 프론트엔드 대시보드와 동일한 이동평균단가(average-cost) 방식으로,
+    보유기간은 FIFO 로트 매칭으로 추정합니다.
+    """
+    from collections import defaultdict, deque
+
+    trades = [r for r in rows if r.get('type') == 'trade' and (r.get('stockName') or '').strip()]
+    trades.sort(key=lambda r: _parse_entry_dt(r) or datetime.min)
+
+    portfolio = {}  # stock -> {qty, totalCost, avgPrice, lots(deque of [dt, qty])}
+    monthly = defaultdict(lambda: {'realized': 0.0, 'dividend': 0.0, 'buyAmount': 0.0, 'sellAmount': 0.0})
+    per_stock = defaultdict(lambda: {'realized': 0.0, 'dividend': 0.0, 'sellCount': 0, 'winCount': 0})
+    realized_events = []  # (dt, amount) — 누적 실현손익 곡선 / MDD 계산용
+
+    total_realized = 0.0      # 매도 실현손익 합계
+    total_dividend = 0.0      # 배당 수익 합계
+    buy_count = sell_count = dividend_count = 0
+    win_count = loss_count = 0
+    gross_profit = 0.0        # 이익 매도건 손익 합
+    gross_loss = 0.0          # 손실 매도건 손익 절댓값 합
+    holding_days_weighted = 0.0
+    holding_qty_total = 0.0
+
+    EPS = 1e-9
+
+    for t in trades:
+        stock = t['stockName'].strip()
+        qty = float(t.get('quantity') or 0)
+        price = float(t.get('price') or 0)
+        ttype = t.get('tradeType')
+        dt = _parse_entry_dt(t)
+        mkey = dt.strftime('%Y-%m') if dt else '미상'
+
+        p = portfolio.setdefault(stock, {'qty': 0.0, 'totalCost': 0.0, 'avgPrice': 0.0, 'lots': deque()})
+
+        if ttype == '매수':
+            buy_count += 1
+            p['qty'] += qty
+            p['totalCost'] += price * qty
+            if p['qty'] > 0:
+                p['avgPrice'] = p['totalCost'] / p['qty']
+            p['lots'].append([dt, qty])
+            monthly[mkey]['buyAmount'] += price * qty
+
+        elif ttype == '매도':
+            sell_count += 1
+            avg = p['avgPrice']
+            profit = (price - avg) * qty
+
+            total_realized += profit
+            monthly[mkey]['realized'] += profit
+            monthly[mkey]['sellAmount'] += price * qty
+            per_stock[stock]['realized'] += profit
+            per_stock[stock]['sellCount'] += 1
+            if profit > 0:
+                win_count += 1
+                gross_profit += profit
+                per_stock[stock]['winCount'] += 1
+            elif profit < 0:
+                loss_count += 1
+                gross_loss += -profit
+            if dt:
+                realized_events.append((dt, profit))
+
+            # FIFO 로트 매칭으로 보유기간(일) 가중 합산
+            remaining = qty
+            while remaining > EPS and p['lots']:
+                lot = p['lots'][0]
+                lot_dt, lot_qty = lot[0], lot[1]
+                matched = min(remaining, lot_qty)
+                if lot_dt and dt:
+                    holding_days_weighted += (dt - lot_dt).total_seconds() / 86400.0 * matched
+                    holding_qty_total += matched
+                lot[1] -= matched
+                remaining -= matched
+                if lot[1] <= EPS:
+                    p['lots'].popleft()
+
+            # 보유 포지션 갱신 (청산 시 초기화)
+            p['qty'] -= qty
+            p['totalCost'] -= avg * qty
+            if p['qty'] <= EPS:
+                p['qty'] = 0.0
+                p['totalCost'] = 0.0
+                p['avgPrice'] = 0.0
+                p['lots'].clear()
+
+        elif ttype == '배당':
+            dividend_count += 1
+            amount = price * qty
+            total_dividend += amount
+            monthly[mkey]['dividend'] += amount
+            per_stock[stock]['dividend'] += amount
+            if dt:
+                realized_events.append((dt, amount))
+
+    # 누적 실현손익 곡선 및 최대 낙폭(MDD, 금액 기준)
+    realized_events.sort(key=lambda x: x[0])
+    cumulative = peak = max_drawdown = 0.0
+    for _dt, amount in realized_events:
+        cumulative += amount
+        if cumulative > peak:
+            peak = cumulative
+        drawdown = peak - cumulative
+        if drawdown > max_drawdown:
+            max_drawdown = drawdown
+
+    decided = win_count + loss_count
+    win_rate = (win_count / decided * 100.0) if decided else 0.0
+    avg_win = (gross_profit / win_count) if win_count else 0.0
+    avg_loss = (gross_loss / loss_count) if loss_count else 0.0
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
+    avg_holding_days = (holding_days_weighted / holding_qty_total) if holding_qty_total > 0 else 0.0
+
+    # 월별: 최근 12개월만 시간순으로 반환 ('미상' 제외)
+    monthly_list = [
+        {'month': k, **v}
+        for k, v in sorted(monthly.items()) if k != '미상'
+    ][-12:]
+
+    # 종목별: 실현손익(+배당) 합계 내림차순
+    per_stock_list = []
+    for stock, v in per_stock.items():
+        sc = v['sellCount']
+        per_stock_list.append({
+            'stock': stock,
+            'realized': v['realized'],
+            'dividend': v['dividend'],
+            'total': v['realized'] + v['dividend'],
+            'sellCount': sc,
+            'winCount': v['winCount'],
+            'winRate': (v['winCount'] / sc * 100.0) if sc else 0.0,
+        })
+    per_stock_list.sort(key=lambda x: x['total'], reverse=True)
+
+    return {
+        'totalRealized': total_realized,
+        'totalDividend': total_dividend,
+        'totalPnl': total_realized + total_dividend,
+        'buyCount': buy_count,
+        'sellCount': sell_count,
+        'dividendCount': dividend_count,
+        'winCount': win_count,
+        'lossCount': loss_count,
+        'winRate': win_rate,
+        'avgWin': avg_win,
+        'avgLoss': avg_loss,
+        'profitFactor': profit_factor,
+        'avgHoldingDays': avg_holding_days,
+        'maxDrawdown': max_drawdown,
+        'monthly': monthly_list,
+        'perStock': per_stock_list,
+    }
+
+
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    """로그인한 사용자의 매매 성과 분석 지표를 반환합니다."""
+    username = session.get('username')
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM entries WHERE username = ?", (username,))
+    rows = [dict(row) for row in c.fetchall()]
+    conn.close()
+    return jsonify(compute_trade_stats(rows))
+
 
 @app.route('/api/current_price', methods=['POST'])
 def get_current_price():

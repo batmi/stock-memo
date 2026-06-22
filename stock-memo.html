@@ -55,6 +55,7 @@
                     <button type="button" id="btnFullBackup" class="header-action-btn btn-backup" title="모든 데이터 완벽 백업 (ZIP)">B</button>
                     <button type="button" id="btnFullRestore" class="header-action-btn btn-restore" title="백업 파일로 복원 (ZIP)">R</button>
                     <button type="button" id="btnExportExcel" class="header-action-btn btn-export" title="Excel 파일로 내보내기">E</button>
+                    <button type="button" id="btnStats" class="header-action-btn btn-stats" title="매매 성과 분석">S</button>
                     <button type="button" id="btnChangePassword" class="header-action-btn btn-password" title="비밀번호 변경">P</button>
                     <button type="button" id="btnAdmin" class="header-action-btn btn-admin" title="관리자 대시보드" style="display:none;">A</button>
                 </div>
@@ -449,6 +450,19 @@
                     <tbody id="adminUserList">
                     </tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ⭐️ 매매 성과 분석(통계) 모달 -->
+    <div id="statsModalOverlay" class="modal-overlay" style="display:none; z-index: 3000;">
+        <div class="form-container" style="max-width: 760px; padding: 20px;">
+            <div class="form-header-container" style="margin-bottom: 15px; border: none; padding: 0;">
+                <h3 style="font-size: 15px;">📊 매매 성과 분석</h3>
+                <button type="button" class="btn-close" id="btnCloseStatsModal" title="닫기">&times;</button>
+            </div>
+            <div id="statsModalBody" style="max-height: 70vh; overflow-y: auto;">
+                <p style="text-align:center; padding: 20px; color: var(--text-muted-color);">불러오는 중...</p>
             </div>
         </div>
     </div>

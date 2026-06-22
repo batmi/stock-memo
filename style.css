@@ -478,12 +478,13 @@ button:hover {
     cursor: pointer;
     transition: background-color 0.2s;
 }
-.btn-backup, .btn-restore, .btn-export, .btn-password, .btn-admin { width: 22px; font-size: 11px; }
+.btn-backup, .btn-restore, .btn-export, .btn-stats, .btn-password, .btn-admin { width: 22px; font-size: 11px; }
 .btn-logout { padding: 0 6px; font-size: 10.5px; width: auto; }
 
 .btn-backup { background-color: var(--success-color); }
 .btn-restore { background-color: var(--warning-color); }
 .btn-export { background-color: var(--primary-color); }
+.btn-stats { background-color: var(--admin-color); }
 .btn-password { background-color: var(--info-color); }
 .btn-admin { background-color: var(--admin-color); }
 .btn-logout { background-color: var(--danger-color); }
@@ -492,6 +493,7 @@ button:hover {
 .btn-backup:hover { background-color: var(--success-hover-color); }
 .btn-restore:hover { background-color: var(--warning-hover-color); }
 .btn-export:hover { background-color: var(--primary-hover-color); }
+.btn-stats:hover { background-color: var(--admin-hover-color); }
 .btn-password:hover { background-color: var(--info-hover-color); }
 .btn-admin:hover { background-color: var(--admin-hover-color); }
 .btn-logout:hover { background-color: var(--danger-hover-color); }

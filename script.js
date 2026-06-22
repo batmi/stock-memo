@@ -1362,6 +1362,8 @@ document.addEventListener('keydown', (e) => {
             document.getElementById('btnClosePasswordModal').click();
         } else if (typeof adminModalOverlay !== 'undefined' && adminModalOverlay && adminModalOverlay.style.display === 'flex') {
             document.getElementById('btnCloseAdminModal').click();
+        } else if (typeof statsModalOverlay !== 'undefined' && statsModalOverlay && statsModalOverlay.style.display === 'flex') {
+            document.getElementById('btnCloseStatsModal').click();
         } else if (typeof deleteAccountModalOverlay !== 'undefined' && deleteAccountModalOverlay && deleteAccountModalOverlay.style.display === 'flex') {
             document.getElementById('btnCloseDeleteAccountModal').click();
         }
@@ -1587,6 +1589,125 @@ if (btnAdmin && adminModalOverlay) {
     };
     
     if (btnCloseAdminModal) btnCloseAdminModal.addEventListener('click', closeAdminModal);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ⭐️ 매매 성과 분석(통계) 모달
+// ─────────────────────────────────────────────────────────────
+const btnStats = document.getElementById('btnStats');
+const statsModalOverlay = document.getElementById('statsModalOverlay');
+const btnCloseStatsModal = document.getElementById('btnCloseStatsModal');
+const statsModalBody = document.getElementById('statsModalBody');
+
+if (btnStats && statsModalOverlay) {
+    btnStats.addEventListener('click', async () => {
+        statsModalOverlay.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+        await loadTradeStats();
+    });
+
+    const closeStatsModal = () => {
+        statsModalOverlay.classList.add('closing');
+        setTimeout(() => {
+            statsModalOverlay.style.display = 'none';
+            statsModalOverlay.classList.remove('closing');
+            document.body.style.overflow = '';
+        }, 180);
+    };
+    if (btnCloseStatsModal) btnCloseStatsModal.addEventListener('click', closeStatsModal);
+    statsModalOverlay.addEventListener('click', (e) => {
+        if (e.target === statsModalOverlay) closeStatsModal();
+    });
+}
+
+// 손익 부호에 따른 색상 클래스 (양수: 빨강/수익, 음수: 파랑/손실 — 국내 관행)
+function statsColor(v) {
+    if (v > 0) return 'var(--danger-color, #e74c3c)';
+    if (v < 0) return 'var(--primary-color, #3b82f6)';
+    return 'var(--text-color)';
+}
+function statsMoney(v) {
+    const n = Math.round(Number(v) || 0);
+    return (n > 0 ? '+' : '') + n.toLocaleString() + '원';
+}
+
+window.loadTradeStats = async function() {
+    if (!statsModalBody) return;
+    statsModalBody.innerHTML = '<p style="text-align:center; padding: 20px; color: var(--text-muted-color);">불러오는 중...</p>';
+    try {
+        const res = await fetch('/api/stats', { headers: { 'ngrok-skip-browser-warning': 'true' } });
+        if (!res.ok) throw new Error('통계를 불러오지 못했습니다.');
+        const s = await res.json();
+        renderTradeStats(s);
+    } catch (e) {
+        statsModalBody.innerHTML = '<p style="text-align:center; padding: 20px; color: var(--danger-color);">데이터를 불러오지 못했습니다.</p>';
+    }
+};
+
+function renderTradeStats(s) {
+    if (!statsModalBody) return;
+
+    if (!s || (s.sellCount === 0 && s.buyCount === 0 && s.dividendCount === 0)) {
+        statsModalBody.innerHTML = '<p style="text-align:center; padding: 30px; color: var(--text-muted-color);">분석할 매매 기록이 없습니다.<br>매수/매도 기록을 추가해 보세요.</p>';
+        return;
+    }
+
+    const card = (label, value, color) =>
+        `<div style="flex:1 1 30%; min-width:120px; background: var(--bg-color); border:1px solid var(--border-color); border-radius:8px; padding:12px; text-align:center;">
+            <div style="font-size:11px; color: var(--text-muted-color); margin-bottom:5px;">${label}</div>
+            <div style="font-size:15px; font-weight:bold; color:${color || 'var(--text-strong-color)'};">${value}</div>
+        </div>`;
+
+    const pf = (s.profitFactor === null || s.profitFactor === undefined) ? '—' : s.profitFactor.toFixed(2);
+
+    // 요약 지표 카드
+    let html = '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">';
+    html += card('총 손익 (실현+배당)', statsMoney(s.totalPnl), statsColor(s.totalPnl));
+    html += card('실현 손익', statsMoney(s.totalRealized), statsColor(s.totalRealized));
+    html += card('배당 수익', statsMoney(s.totalDividend), statsColor(s.totalDividend));
+    html += card('승률', `${s.winRate.toFixed(1)}% (${s.winCount}승 ${s.lossCount}패)`, 'var(--text-strong-color)');
+    html += card('손익비 (Profit Factor)', pf, 'var(--text-strong-color)');
+    html += card('평균 보유기간', `${s.avgHoldingDays.toFixed(1)}일`, 'var(--text-strong-color)');
+    html += card('평균 수익 (이익 거래)', statsMoney(s.avgWin), statsColor(s.avgWin));
+    html += card('평균 손실 (손실 거래)', statsMoney(-s.avgLoss), statsColor(-s.avgLoss));
+    html += card('최대 낙폭 (MDD)', statsMoney(-s.maxDrawdown), statsColor(-s.maxDrawdown));
+    html += '</div>';
+
+    const thStyle = 'padding:8px; text-align:right; font-weight:bold; color:var(--text-strong-color); border-bottom:2px solid var(--border-color); white-space:nowrap;';
+    const tdStyle = 'padding:7px 8px; text-align:right; border-bottom:1px solid var(--border-color); white-space:nowrap;';
+    const tdLeft = tdStyle.replace('text-align:right', 'text-align:left');
+
+    // 월별 실현손익 (최근 12개월)
+    if (s.monthly && s.monthly.length) {
+        html += '<h4 style="font-size:13px; margin:18px 0 8px; color:var(--text-strong-color);">📅 월별 실현손익 (최근 12개월)</h4>';
+        html += '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr>';
+        html += `<th style="${thStyle.replace('text-align:right','text-align:left')}">월</th><th style="${thStyle}">실현손익</th><th style="${thStyle}">배당</th><th style="${thStyle}">매도금액</th></tr></thead><tbody>`;
+        s.monthly.forEach(m => {
+            html += `<tr><td style="${tdLeft}">${m.month}</td>`
+                + `<td style="${tdStyle} color:${statsColor(m.realized)};">${statsMoney(m.realized)}</td>`
+                + `<td style="${tdStyle} color:${statsColor(m.dividend)};">${statsMoney(m.dividend)}</td>`
+                + `<td style="${tdStyle}">${Math.round(m.sellAmount).toLocaleString()}원</td></tr>`;
+        });
+        html += '</tbody></table></div>';
+    }
+
+    // 종목별 실현손익
+    if (s.perStock && s.perStock.length) {
+        html += '<h4 style="font-size:13px; margin:18px 0 8px; color:var(--text-strong-color);">🏷️ 종목별 실현손익</h4>';
+        html += '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr>';
+        html += `<th style="${thStyle.replace('text-align:right','text-align:left')}">종목</th><th style="${thStyle}">합계(실현+배당)</th><th style="${thStyle}">매도 횟수</th><th style="${thStyle}">승률</th></tr></thead><tbody>`;
+        s.perStock.forEach(p => {
+            html += `<tr><td style="${tdLeft}">${p.stock}</td>`
+                + `<td style="${tdStyle} color:${statsColor(p.total)};">${statsMoney(p.total)}</td>`
+                + `<td style="${tdStyle}">${p.sellCount}</td>`
+                + `<td style="${tdStyle}">${p.sellCount ? p.winRate.toFixed(0) + '%' : '—'}</td></tr>`;
+        });
+        html += '</tbody></table></div>';
+    }
+
+    html += '<p style="font-size:11px; color:var(--text-muted-color); margin-top:14px; line-height:1.5;">※ 실현손익은 이동평균단가 방식으로 계산되며, 보유기간은 선입선출(FIFO) 기준 추정치입니다. 미실현(평가) 손익은 포함되지 않습니다.</p>';
+
+    statsModalBody.innerHTML = html;
 }
 
 let adminUsersData = [];
@@ -2177,7 +2298,13 @@ journalForm.addEventListener('submit', async function(e) {
             updatePortfolioSummary();
             renderCalendar();
         } else {
-            await customAlert("저장에 실패했습니다.");
+            // ⭐️ 서버 측 데이터 무결성 검증 오류 등 구체적인 메시지 표시
+            let errMsg = "저장에 실패했습니다.";
+            try {
+                const errData = await res.json();
+                if (errData && errData.error) errMsg = errData.error;
+            } catch (_) { /* JSON 파싱 실패 시 기본 메시지 사용 */ }
+            await customAlert(errMsg);
         }
     } catch(err) {
         console.error(err);

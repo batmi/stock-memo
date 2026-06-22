@@ -728,3 +728,192 @@ def test_auto_backup_job(mock_sleep, client, app):
     # 테스트 후 폴더 정리
     import shutil
     shutil.rmtree(backup_dir)
+
+# ─────────────────────────────────────────────────────────────
+# ⭐️ 데이터 무결성: 매매 기록 검증 테스트
+# ─────────────────────────────────────────────────────────────
+def _login(client, username='trader'):
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = username
+
+
+def _buy(stock='삼성전자', qty=10, price=80000, **kw):
+    e = {"type": "trade", "tradeType": "매수", "stockName": stock,
+         "stockCode": "005930", "price": price, "quantity": qty}
+    e.update(kw)
+    return e
+
+
+def _sell(stock='삼성전자', qty=10, price=90000, **kw):
+    e = {"type": "trade", "tradeType": "매도", "stockName": stock,
+         "stockCode": "005930", "price": price, "quantity": qty}
+    e.update(kw)
+    return e
+
+
+def test_sell_without_buy_is_rejected(client):
+    """매수 보유 기록이 없는 종목의 매도는 400으로 차단되어야 한다."""
+    _login(client)
+    res = client.post('/api/entry', json=_sell(qty=5))
+    assert res.status_code == 400
+    assert 'error' in res.json
+    # 차단되었으므로 DB에 저장되지 않아야 한다
+    assert client.get('/api/data').json == []
+
+
+def test_oversell_is_rejected(client):
+    """보유 수량을 초과하는 매도는 400으로 차단되어야 한다."""
+    _login(client)
+    assert client.post('/api/entry', json=_buy(qty=10)).status_code == 200
+    res = client.post('/api/entry', json=_sell(qty=15))
+    assert res.status_code == 400
+    assert '초과' in res.json['error']
+    # 매수 1건만 남아있어야 한다
+    assert len(client.get('/api/data').json) == 1
+
+
+def test_valid_sell_is_accepted(client):
+    """보유 수량 이내의 매도는 정상 저장되어야 한다."""
+    _login(client)
+    assert client.post('/api/entry', json=_buy(qty=10)).status_code == 200
+    assert client.post('/api/entry', json=_sell(qty=10)).status_code == 200
+    assert len(client.get('/api/data').json) == 2
+
+
+def test_update_oversell_is_rejected(client):
+    """기록 수정(PUT) 시에도 보유 수량 초과 매도는 차단되어야 한다."""
+    _login(client)
+    client.post('/api/entry', json=_buy(qty=10))
+    sell = _sell(qty=5, id=12345)
+    assert client.post('/api/entry', json=sell).status_code == 200
+    # 매도 수량을 20으로 늘리는 수정 시도 → 차단
+    sell['quantity'] = 20
+    res = client.put('/api/entry/12345', json=sell)
+    assert res.status_code == 400
+
+
+def test_dividend_not_blocked(client):
+    """배당 기록은 보유 검증 대상이 아니므로 정상 저장되어야 한다."""
+    _login(client)
+    res = client.post('/api/entry', json={
+        "type": "trade", "tradeType": "배당", "stockName": "삼성전자",
+        "price": 500, "quantity": 10})
+    assert res.status_code == 200
+
+
+# ─────────────────────────────────────────────────────────────
+# ⭐️ 백업 무결성 검증 / 복원 라운드트립 테스트
+# ─────────────────────────────────────────────────────────────
+def test_verify_backup_zip(tmp_path):
+    """verify_backup_zip이 정상/손상/레코드 불일치를 올바르게 판별한다."""
+    good = tmp_path / "good.zip"
+    with zipfile.ZipFile(good, 'w') as zf:
+        zf.writestr('data.json', json.dumps([{"id": 1}, {"id": 2}]))
+    ok, _ = backend_app.verify_backup_zip(str(good), 2)
+    assert ok is True
+
+    # 레코드 수 불일치
+    ok, msg = backend_app.verify_backup_zip(str(good), 5)
+    assert ok is False and '불일치' in msg
+
+    # data.json 누락
+    nojson = tmp_path / "nojson.zip"
+    with zipfile.ZipFile(nojson, 'w') as zf:
+        zf.writestr('other.txt', 'hello')
+    ok, msg = backend_app.verify_backup_zip(str(nojson), 0)
+    assert ok is False
+
+
+def test_backup_restore_round_trip(client):
+    """백업 → 복원 후 데이터가 동일하게 보존되는지(라운드트립) 검증한다."""
+    _login(client, 'roundtrip')
+    client.post('/api/entry', json=_buy(stock='삼성전자', qty=10, id=1001))
+    client.post('/api/entry', json=_sell(stock='삼성전자', qty=4, id=1002))
+
+    before = client.get('/api/data').json
+
+    # 1. 백업 다운로드
+    backup_res = client.get('/api/backup')
+    assert backup_res.status_code == 200
+    backup_bytes = backup_res.data
+
+    # 2. 데이터 전부 삭제
+    for e in before:
+        client.delete(f"/api/entry/{e['id']}")
+    assert client.get('/api/data').json == []
+
+    # 3. 백업 파일로 복원
+    data = {'file': (io.BytesIO(backup_bytes), 'backup.zip')}
+    restore_res = client.post('/api/restore', data=data, content_type='multipart/form-data')
+    assert restore_res.status_code == 200
+    assert restore_res.json.get('status') == 'success'
+
+    # 4. 복원된 데이터가 원본과 동일한지 확인
+    after = client.get('/api/data').json
+    assert len(after) == len(before)
+    assert {e['id'] for e in after} == {e['id'] for e in before}
+    by_id = {e['id']: e for e in after}
+    for e in before:
+        assert by_id[e['id']]['stockName'] == e['stockName']
+        assert by_id[e['id']]['quantity'] == e['quantity']
+
+
+# ─────────────────────────────────────────────────────────────
+# ⭐️ 매매 성과 분석(/api/stats) 테스트
+# ─────────────────────────────────────────────────────────────
+def test_stats_empty(client):
+    """기록이 없으면 0값 통계를 반환한다."""
+    _login(client, 'statsempty')
+    res = client.get('/api/stats')
+    assert res.status_code == 200
+    s = res.json
+    assert s['totalRealized'] == 0
+    assert s['sellCount'] == 0
+    assert s['monthly'] == []
+
+
+def test_stats_realized_and_winrate(client):
+    """실현손익/승률/손익비가 이동평균단가 기준으로 정확히 계산된다."""
+    _login(client, 'statscalc')
+    # 100원 10주 매수 → 평단 100
+    client.post('/api/entry', json=_buy(stock='A', qty=10, price=100,
+                                        rawDate='2024-01-10T09:00', id=1))
+    # 120원 5주 매도 → 이익 (120-100)*5 = +100
+    client.post('/api/entry', json=_sell(stock='A', qty=5, price=120,
+                                         rawDate='2024-02-10T09:00', id=2))
+    # 80원 5주 매도 → 손실 (80-100)*5 = -100
+    client.post('/api/entry', json=_sell(stock='A', qty=5, price=80,
+                                         rawDate='2024-03-10T09:00', id=3))
+
+    s = client.get('/api/stats').json
+    assert round(s['totalRealized']) == 0           # +100 -100
+    assert s['sellCount'] == 2
+    assert s['winCount'] == 1 and s['lossCount'] == 1
+    assert round(s['winRate']) == 50
+    assert round(s['avgWin']) == 100
+    assert round(s['avgLoss']) == 100
+    assert round(s['profitFactor'], 2) == 1.0
+    # 월별 3개월(매수1, 매도2)이 집계되어야 한다
+    assert len(s['monthly']) == 3
+    # 종목별 집계
+    assert s['perStock'][0]['stock'] == 'A'
+    assert s['perStock'][0]['sellCount'] == 2
+
+
+def test_stats_holding_period_and_dividend(client):
+    """평균 보유기간(FIFO)과 배당 수익이 반영된다."""
+    _login(client, 'statshold')
+    client.post('/api/entry', json=_buy(stock='B', qty=10, price=100,
+                                        rawDate='2024-01-01T09:00', id=1))
+    # 10일 보유 후 전량 매도
+    client.post('/api/entry', json=_sell(stock='B', qty=10, price=110,
+                                         rawDate='2024-01-11T09:00', id=2))
+    client.post('/api/entry', json={
+        "type": "trade", "tradeType": "배당", "stockName": "B",
+        "price": 50, "quantity": 10, "rawDate": "2024-02-01T09:00", "id": 3})
+
+    s = client.get('/api/stats').json
+    assert round(s['avgHoldingDays']) == 10
+    assert round(s['totalDividend']) == 500
+    assert round(s['totalPnl']) == round(s['totalRealized'] + 500)
