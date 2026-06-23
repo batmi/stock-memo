@@ -574,6 +574,31 @@ button:hover {
     .form-row { flex-direction: column; gap: 0; }
     .form-row .form-group { margin-bottom: 12px; }
 }
+
+/* ⭐️ 차트 단위 토글 + 종류 버튼 영역: 항상 한 줄 유지, 넘칠 경우 가로 스크롤 (모바일 대응) */
+.chart-type-btn-row {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+.chart-type-btn-row::-webkit-scrollbar { display: none; }
+.chart-type-btn-row .chart-type-btn,
+.chart-type-btn-row #btnToggleChartGranularity {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+@media (max-width: 600px) {
+    .chart-type-btn-row {
+        gap: 5px !important;
+        justify-content: flex-start !important;
+    }
+    .chart-type-btn-row .chart-type-btn,
+    .chart-type-btn-row #btnToggleChartGranularity {
+        padding: 0 6px !important;
+        font-size: 10px !important;
+    }
+}
 .entry-details {
     background-color: var(--bg-color);
     padding: 8px 10px;
