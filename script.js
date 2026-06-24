@@ -1684,9 +1684,9 @@ function renderTradeStats(s) {
     }
 
     const card = (label, value, color) =>
-        `<div style="flex:1 1 22%; min-width:85px; background: var(--bg-color); border:1px solid var(--border-color); border-radius:6px; padding:8px 6px; text-align:center;">
-            <div style="font-size:10px; color: var(--text-muted-color); margin-bottom:3px; word-break:keep-all;">${label}</div>
-            <div style="font-size:13px; font-weight:bold; color:${color || 'var(--text-strong-color)'};">${value}</div>
+        `<div style="flex:1 1 22%; min-width:75px; background: var(--bg-color); border:1px solid var(--border-color); border-radius:6px; padding:6px 4px; text-align:center;">
+            <div style="font-size:9.5px; color: var(--text-muted-color); margin-bottom:2px; word-break:keep-all;">${label}</div>
+            <div style="font-size:11.5px; font-weight:bold; color:${color || 'var(--text-strong-color)'}; word-break:keep-all;">${value}</div>
         </div>`;
 
     const pf = (s.profitFactor === null || s.profitFactor === undefined) ? '—' : s.profitFactor.toFixed(2);
