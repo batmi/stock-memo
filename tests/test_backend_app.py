@@ -408,21 +408,24 @@ def test_image_upload_and_access(client):
     res_file_unauth = client.get(f"/uploads/imguser/{filename}")
     assert res_file_unauth.status_code == 403
 
+@patch('prices._http_get')
 @patch('urllib.request.urlopen')
-def test_mock_external_apis(mock_urlopen, client):
+def test_mock_external_apis(mock_urlopen, mock_http_get, client):
     """
     외부 API(네이버 주가, 구글 뉴스) 통신을 Mocking하여 네트워크 연결 없이 정상 로직을 테스트합니다.
     """
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
-        
+
     mock_res = MagicMock()
     # 국내 주식과 해외 주식 파싱에 모두 통과할 수 있는 다목적 더미 JSON 구조 생성
     mock_res.read.return_value = b'{"closePrice": "80,000", "chart": {"result": [{"meta": {"regularMarketPrice": 150.0}}]}}'
     mock_res.__enter__.return_value = mock_res
     mock_urlopen.return_value = mock_res
-    
+    # 시세 조회는 prices._http_get 경로(http.client)를 사용하므로 별도 모킹
+    mock_http_get.return_value = b'{"closePrice": "80,000", "chart": {"result": [{"meta": {"regularMarketPrice": 150.0}}]}}'
+
     # 주가 API 테스트 (국내, 해외, 금)
     res_price = client.post('/api/current_price', json={'codes': ['005930', 'AAPL', 'KRXGOLD']})
     assert res_price.status_code == 200
@@ -541,24 +544,17 @@ def test_uploaded_file_success(client):
     assert res.status_code == 200
     assert b'file_content_test' in res.data
 
-@patch('urllib.request.urlopen')
-def test_current_price_edge_cases(mock_urlopen, client, app):
+@patch('prices._http_get')
+def test_current_price_edge_cases(mock_http_get, client, app):
     """현재 주가 API(/api/current_price)의 다양한 파싱 폴백 및 네트워크 에러 처리를 검증합니다."""
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
-        
-    def create_mock_res(content):
-        mock_res = MagicMock()
-        mock_res.read.return_value = content
-        mock_res.__enter__.return_value = mock_res
-        return mock_res
 
     test_state = {'gold_fail_all': False, 'all_fail': False}
 
-    def urlopen_side_effect(req, timeout=3):
-        url = req.full_url if hasattr(req, 'full_url') else req
-        
+    # prices._http_get(url, headers) 를 모킹: 성공 시 응답 본문(bytes) 반환, 실패 시 예외 발생
+    def http_get_side_effect(url, headers=None):
         if 'M04020000' in url:
             if test_state['gold_fail_all']:
                 raise Exception("All Fail")
@@ -566,26 +562,26 @@ def test_current_price_edge_cases(mock_urlopen, client, app):
         elif 'KRX_Gold_Market' in url:
             if test_state['gold_fail_all']:
                 raise Exception("All Fail")
-            return create_mock_res(b"<th>\xed\x98\x84\xec\x9e\xac\xea\xb0\x80</th><td><strong>88,000</strong></td>")
+            return b"<th>\xed\x98\x84\xec\x9e\xac\xea\xb0\x80</th><td><strong>88,000</strong></td>"
         elif 'siseJson' in url:
             if test_state['all_fail']:
                 raise Exception("All APIs Fail")
-            return create_mock_res(b'var u_js= { "result": { "nowVal": 95000 } };')
+            return b'var u_js= { "result": { "nowVal": 95000 } };'
         elif '005930' in url:
             if test_state['all_fail']:
                 raise Exception("All APIs Fail")
-            return create_mock_res(b'{"closePrice": "95000"}')
+            return b'{"closePrice": "95000"}'
         elif 'ABCDEF' in url:
-            return create_mock_res(b'{"chart": {"result": [{"meta": {"regularMarketPrice": 250.5}}]}}')
+            return b'{"chart": {"result": [{"meta": {"regularMarketPrice": 250.5}}]}}'
         elif '123456' in url:
             if 'yahoo' in url:
-                return create_mock_res(b'{"chart": {"result": [{"meta": {"regularMarketPrice": 100.0}}]}}')
+                return b'{"chart": {"result": [{"meta": {"regularMarketPrice": 100.0}}]}}'
             raise Exception("Naver API Fail")
         elif 'AAPL' in url:
             raise Exception("All APIs Fail")
-        return create_mock_res(b'')
+        return b''
 
-    mock_urlopen.side_effect = urlopen_side_effect
+    mock_http_get.side_effect = http_get_side_effect
     
     # 1. 금 주가: 기본 API 에러 -> KRX 크롤링 성공 패턴
     res_gold = client.post('/api/current_price', json={'codes': ['KRXGOLD']})

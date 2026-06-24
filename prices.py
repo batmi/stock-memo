@@ -14,9 +14,11 @@ get_db 는 순환 임포트를 피하기 위해 backend_app 에서 주입(set_db
 import re
 import json
 import time
-import urllib.request
+import http.client
+import threading
 import datetime as _dt
 import concurrent.futures
+from urllib.parse import urlsplit
 
 # ⭐️ 한국거래소(KRX) 휴장일 목록 (매년 연초에 갱신 필요)
 KRX_HOLIDAYS = {
@@ -59,6 +61,66 @@ _get_db = None
 def set_db_provider(fn):
     global _get_db
     _get_db = fn
+
+
+# ─────────────────────────────────────────────────────────────
+# HTTP Keep-Alive 커넥션 풀 (표준 라이브러리 http.client 기반)
+#   - urllib 은 호출마다 새 소켓/ TLS 핸드셰이크를 수행하지만,
+#     여기서는 (스레드, 호스트)별 커넥션을 재사용해 핸드셰이크 비용을 제거합니다.
+#   - 워커 스레드가 _executor 로 상주하므로 60초 폴링 사이에도 커넥션이 유지됩니다.
+#   - http.client 는 응답 본문을 완전히 읽은 뒤에만 재사용 가능하므로
+#     _http_get 은 항상 body 를 끝까지 읽어 반환합니다.
+# ─────────────────────────────────────────────────────────────
+_conn_pool = threading.local()
+
+
+def _make_conn(scheme, host):
+    if scheme == 'https':
+        return http.client.HTTPSConnection(host, timeout=HTTP_TIMEOUT)
+    return http.client.HTTPConnection(host, timeout=HTTP_TIMEOUT)
+
+
+def _http_get(url, headers):
+    """Keep-Alive 커넥션을 재사용하는 GET. 응답 본문(bytes)을 반환합니다.
+
+    끊긴(stale) 커넥션이면 1회 폐기 후 재연결하여 재시도합니다.
+    """
+    parts = urlsplit(url)
+    host = parts.netloc
+    path = parts.path + (('?' + parts.query) if parts.query else '')
+
+    conns = getattr(_conn_pool, 'conns', None)
+    if conns is None:
+        conns = {}
+        _conn_pool.conns = conns
+
+    req_headers = dict(headers)
+    req_headers.setdefault('Connection', 'keep-alive')
+
+    for attempt in (0, 1):
+        conn = conns.get(host)
+        if conn is None:
+            conn = _make_conn(parts.scheme, host)
+            conns[host] = conn
+        try:
+            conn.request('GET', path, headers=req_headers)
+            resp = conn.getresponse()
+            return resp.read()  # 본문을 끝까지 읽어야 커넥션 재사용 가능
+        except Exception:
+            # stale/오류 커넥션 폐기 후 새 커넥션으로 1회 재시도
+            try:
+                conn.close()
+            except Exception:
+                pass
+            conns.pop(host, None)
+            if attempt == 1:
+                raise
+    return b''
+
+
+# 시세 병렬 조회용 상주 스레드 풀 — 워커가 살아있어 Keep-Alive 커넥션이 폴링
+# 주기 사이에도 유지됩니다. (요청마다 풀을 새로 만들면 커넥션도 매번 폐기됨)
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=10)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -119,26 +181,22 @@ def _fetch_gold(conn, code_str):
     """KRX 금현물(1g) 전용 처리."""
     try:
         url = "https://api.stock.naver.com/marketindex/metals/M04020000"
-        req = urllib.request.Request(url, headers=_PC_HEADERS)
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as response:
-            res_data = json.loads(response.read())
-            price_str = res_data.get('closePrice', '')
-            if price_str:
-                price_val = float(price_str.replace(',', ''))
-                save_price_cache(conn, code_str, price_val)
-                return price_val
+        res_data = json.loads(_http_get(url, _PC_HEADERS))
+        price_str = res_data.get('closePrice', '')
+        if price_str:
+            price_val = float(price_str.replace(',', ''))
+            save_price_cache(conn, code_str, price_val)
+            return price_val
     except Exception:
         pass
     try:
         krx_url = "https://www.krx.co.kr/contents/COM/Finance/KRX_Gold_Market.jsp"
-        krx_req = urllib.request.Request(krx_url, headers=_PC_HEADERS)
-        with urllib.request.urlopen(krx_req, timeout=HTTP_TIMEOUT) as krx_res:
-            html = krx_res.read().decode('utf-8', errors='ignore')
-            match = re.search(r'현재가</th>\s*<td[^>]*>\s*<strong>([\d,]+)</strong>', html)
-            if match:
-                price_val = float(match.group(1).replace(',', ''))
-                save_price_cache(conn, code_str, price_val)
-                return price_val
+        html = _http_get(krx_url, _PC_HEADERS).decode('utf-8', errors='ignore')
+        match = re.search(r'현재가</th>\s*<td[^>]*>\s*<strong>([\d,]+)</strong>', html)
+        if match:
+            price_val = float(match.group(1).replace(',', ''))
+            save_price_cache(conn, code_str, price_val)
+            return price_val
     except Exception:
         pass
     return None
@@ -148,14 +206,12 @@ def _fetch_krx_realtime(code_str):
     """정규장 실시간 시세(PC siseJson). 모바일 API의 CDN 지연을 우회."""
     try:
         sise_url = f"https://api.finance.naver.com/siseJson.naver?symbol={code_str}&requestType=1"
-        sise_req = urllib.request.Request(sise_url, headers=_PC_HEADERS)
-        with urllib.request.urlopen(sise_req, timeout=HTTP_TIMEOUT) as sise_res:
-            sise_data = sise_res.read().decode('euc-kr', errors='ignore')
-            match = re.search(r'"nowVal"\s*:\s*(\d+)', sise_data)
-            if match:
-                val = float(match.group(1))
-                if val > 0:
-                    return val
+        sise_data = _http_get(sise_url, _PC_HEADERS).decode('euc-kr', errors='ignore')
+        match = re.search(r'"nowVal"\s*:\s*(\d+)', sise_data)
+        if match:
+            val = float(match.group(1))
+            if val > 0:
+                return val
     except Exception:
         pass
     return None
@@ -165,16 +221,14 @@ def _fetch_nxt_pc_crawl(code_str):
     """자정 이후 등 모바일 API가 비었을 때 PC 웹의 시간외단일가 크롤링."""
     try:
         pc_url = f"https://finance.naver.com/item/main.naver?code={code_str}"
-        pc_req = urllib.request.Request(pc_url, headers=_PC_HEADERS)
-        with urllib.request.urlopen(pc_req, timeout=HTTP_TIMEOUT) as pc_res:
-            html = pc_res.read().decode('euc-kr', errors='ignore')
-            nxt_area_match = re.search(r'시간외단일가.*?</table>', html, re.DOTALL)
-            if nxt_area_match:
-                nxt_html = nxt_area_match.group(0)
-                if '거래 내역이 없습니다' not in nxt_html:
-                    price_match = re.search(r'<span class="blind">([\d,]+)</span>', nxt_html)
-                    if price_match:
-                        return float(price_match.group(1).replace(',', ''))
+        html = _http_get(pc_url, _PC_HEADERS).decode('euc-kr', errors='ignore')
+        nxt_area_match = re.search(r'시간외단일가.*?</table>', html, re.DOTALL)
+        if nxt_area_match:
+            nxt_html = nxt_area_match.group(0)
+            if '거래 내역이 없습니다' not in nxt_html:
+                price_match = re.search(r'<span class="blind">([\d,]+)</span>', nxt_html)
+                if price_match:
+                    return float(price_match.group(1).replace(',', ''))
     except Exception:
         pass
     return None
@@ -190,50 +244,48 @@ def _fetch_kr(conn, code_str, market_mode):
         # 네이버 모바일 기본 시세 (캐시 방지 파라미터 포함)
         ts = int(time.time() * 1000)
         url = f"https://m.stock.naver.com/api/stock/{code_str}/basic?_={ts}"
-        req = urllib.request.Request(url, headers=_MOBILE_HEADERS)
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as response:
-            res_data = json.loads(response.read())
-            price_str = str(res_data.get('closePrice', ''))
-            close_price = float(price_str.replace(',', '')) if price_str and price_str != '0' else None
-            current_krx_price = realtime_krx_price if realtime_krx_price else close_price
+        res_data = json.loads(_http_get(url, _MOBILE_HEADERS))
+        price_str = str(res_data.get('closePrice', ''))
+        close_price = float(price_str.replace(',', '')) if price_str and price_str != '0' else None
+        current_krx_price = realtime_krx_price if realtime_krx_price else close_price
 
-            if market_mode == 'NXT':
-                # 1) 정규장에는 무조건 KRX 실시간 우선
-                if not out_of_hours and current_krx_price:
-                    save_price_cache(conn, code_str, current_krx_price, 'KRX')
-                    return current_krx_price
+        if market_mode == 'NXT':
+            # 1) 정규장에는 무조건 KRX 실시간 우선
+            if not out_of_hours and current_krx_price:
+                save_price_cache(conn, code_str, current_krx_price, 'KRX')
+                return current_krx_price
 
-                # 2) 장외 시간: NXT 시세 시도
-                over_info = res_data.get('overMarketPriceInfo', {})
-                if isinstance(over_info, dict) and over_info.get('overPrice'):
-                    nxt_price = float(str(over_info.get('overPrice')).replace(',', ''))
-                    save_price_cache(conn, code_str, nxt_price, 'NXT')
-                    return nxt_price
+            # 2) 장외 시간: NXT 시세 시도
+            over_info = res_data.get('overMarketPriceInfo', {})
+            if isinstance(over_info, dict) and over_info.get('overPrice'):
+                nxt_price = float(str(over_info.get('overPrice')).replace(',', ''))
+                save_price_cache(conn, code_str, nxt_price, 'NXT')
+                return nxt_price
 
-                # 3) 모바일 API가 비었으면 PC 크롤링
-                nxt_price = _fetch_nxt_pc_crawl(code_str)
-                if nxt_price:
-                    save_price_cache(conn, code_str, nxt_price, 'NXT')
-                    return nxt_price
+            # 3) 모바일 API가 비었으면 PC 크롤링
+            nxt_price = _fetch_nxt_pc_crawl(code_str)
+            if nxt_price:
+                save_price_cache(conn, code_str, nxt_price, 'NXT')
+                return nxt_price
 
-                # 4) NXT 전용 캐시
-                cached_nxt = load_price_cache(conn, code_str, 'NXT')
-                if cached_nxt:
-                    return cached_nxt
+            # 4) NXT 전용 캐시
+            cached_nxt = load_price_cache(conn, code_str, 'NXT')
+            if cached_nxt:
+                return cached_nxt
 
-                # 5) KRX 기본 시세로 폴백
-                if current_krx_price:
-                    return current_krx_price
+            # 5) KRX 기본 시세로 폴백
+            if current_krx_price:
+                return current_krx_price
 
-                # 6) KRX 캐시로 최종 방어
-                cached_krx = load_price_cache(conn, code_str, 'KRX')
-                if cached_krx:
-                    return cached_krx
-            else:
-                # KRX 모드: NXT 무시, KRX 가격만
-                if current_krx_price:
-                    save_price_cache(conn, code_str, current_krx_price, 'KRX')
-                    return current_krx_price
+            # 6) KRX 캐시로 최종 방어
+            cached_krx = load_price_cache(conn, code_str, 'KRX')
+            if cached_krx:
+                return cached_krx
+        else:
+            # KRX 모드: NXT 무시, KRX 가격만
+            if current_krx_price:
+                save_price_cache(conn, code_str, current_krx_price, 'KRX')
+                return current_krx_price
 
         if current_krx_price:
             return current_krx_price
@@ -253,12 +305,10 @@ def _fetch_yahoo(conn, code_str):
     """해외/기타 종목 또는 국내 조회 실패 시 야후 파이낸스."""
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{code_str}"
-        req = urllib.request.Request(url, headers=_YAHOO_HEADERS)
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as response:
-            res_data = json.loads(response.read())
-            price = res_data['chart']['result'][0]['meta']['regularMarketPrice']
-            save_price_cache(conn, code_str, float(price), 'KRX')
-            return float(price)
+        res_data = json.loads(_http_get(url, _YAHOO_HEADERS))
+        price = res_data['chart']['result'][0]['meta']['regularMarketPrice']
+        save_price_cache(conn, code_str, float(price), 'KRX')
+        return float(price)
     except Exception:
         pass
     return None
@@ -313,11 +363,10 @@ def fetch_price(code, market_mode='AUTO'):
 
 
 def get_prices(codes, market_mode='AUTO'):
-    """다수 종목 현재가를 스레드 풀로 병렬 조회하여 {code: price} 반환."""
+    """다수 종목 현재가를 상주 스레드 풀로 병렬 조회하여 {code: price} 반환."""
     prices = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        results = executor.map(lambda c: fetch_price(c, market_mode), codes)
-        for code, price in results:
-            if code is not None:
-                prices[code] = price
+    results = _executor.map(lambda c: fetch_price(c, market_mode), codes)
+    for code, price in results:
+        if code is not None:
+            prices[code] = price
     return prices

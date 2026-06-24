@@ -214,8 +214,13 @@ login_attempts = {}
 def get_db():
     # 모듈 전역 DB_FILE 을 동적으로 참조 (테스트가 경로를 교체할 수 있도록)
     conn = sqlite3.connect(DB_FILE)
-    conn.execute('PRAGMA journal_mode=WAL;')
     conn.row_factory = sqlite3.Row  # 결과를 dict 형태로 접근할 수 있게 함
+    # journal_mode=WAL 은 DB 파일에 영속되므로 init_db() 에서 1회만 설정한다.
+    # 여기서는 비용이 거의 없는 연결별 설정만 적용한다.
+    #   - synchronous=NORMAL : WAL 과 함께 쓸 때 안전하면서 쓰기 성능 향상
+    #   - busy_timeout       : 시세 병렬 스레드와의 잠금 경합 시 즉시 실패 대신 대기
+    conn.execute('PRAGMA synchronous=NORMAL;')
+    conn.execute('PRAGMA busy_timeout=5000;')
     return conn
 
 
@@ -259,6 +264,8 @@ def process_image(image_data, entry_id):
 
 def init_db():
     conn = get_db()
+    # WAL 모드는 DB 파일에 영속되므로 초기화 시 1회만 설정한다. (요청마다 재설정 방지)
+    conn.execute('PRAGMA journal_mode=WAL;')
     c = conn.cursor()
     c.execute('''
         CREATE TABLE IF NOT EXISTS entries (
@@ -713,6 +720,8 @@ def delete_account():
         c.execute("DELETE FROM users WHERE username = ?", (username,))
         conn.commit()
 
+    invalidate_stats_cache(username)
+
     # 사용자 전용 업로드 폴더 삭제
     user_folder = os.path.join(UPLOAD_FOLDER, username)
     if os.path.exists(user_folder):
@@ -752,6 +761,8 @@ def admin_delete_user(target_username):
         c.execute("DELETE FROM entries WHERE username = ?", (target_username,))
         c.execute("DELETE FROM users WHERE username = ?", (target_username,))
         conn.commit()
+
+    invalidate_stats_cache(target_username)
 
     user_folder = os.path.join(UPLOAD_FOLDER, target_username)
     if os.path.exists(user_folder):
@@ -829,6 +840,7 @@ def create_entry():
 
         entry_logic.insert_entry(c, username, entry)
         conn.commit()
+    invalidate_stats_cache(username)
     return jsonify({"status": "success"})
 
 
@@ -846,6 +858,7 @@ def update_entry(entry_id):
 
         entry_logic.update_entry_row(c, entry_id, username, entry)
         conn.commit()
+    invalidate_stats_cache(username)
     return jsonify({"status": "success"})
 
 
@@ -856,7 +869,25 @@ def delete_entry(entry_id):
         c = conn.cursor()
         c.execute("DELETE FROM entries WHERE id=? AND username=?", (entry_id, username))
         conn.commit()
+    invalidate_stats_cache(username)
     return jsonify({"status": "success"})
+
+
+# ⭐️ 매매 통계(전체 집계) 결과 캐시 — (username, granularity) -> 결과 dict
+#   전체 통계는 대시보드 진입 시 자주 호출되며 SELECT * 전체 로드 + Python 재계산
+#   비용이 크다. 기록이 변경될 때만 무효화하여 반복 계산을 제거한다.
+#   (특정 entry_ids 로 필터링된 POST 요청은 케이스가 다양해 캐싱하지 않는다.)
+_stats_cache = {}
+_stats_cache_lock = threading.Lock()
+
+
+def invalidate_stats_cache(username):
+    """해당 사용자의 통계 캐시를 무효화한다 (기록 추가/수정/삭제 시 호출)."""
+    if not username:
+        return
+    with _stats_cache_lock:
+        for key in [k for k in _stats_cache if k[0] == username]:
+            _stats_cache.pop(key, None)
 
 
 @app.route('/api/stats', methods=['GET', 'POST'])
@@ -870,7 +901,15 @@ def get_stats():
         data = request.json or {}
         entry_ids = data.get('entry_ids')
         granularity = data.get('granularity', 'monthly')
-        
+
+    # ⭐️ 전체 통계 요청은 캐시 우선 조회 (필터링 요청은 캐시 대상 아님)
+    if entry_ids is None:
+        cache_key = (username, granularity)
+        with _stats_cache_lock:
+            cached = _stats_cache.get(cache_key)
+        if cached is not None:
+            return jsonify(cached)
+
     with db_conn() as conn:
         c = conn.cursor()
         if entry_ids is not None:
@@ -887,8 +926,14 @@ def get_stats():
         else:
             c.execute("SELECT * FROM entries WHERE username = ?", (username,))
             rows = [dict(row) for row in c.fetchall()]
-            
-    return jsonify(stats.compute_trade_stats(rows, granularity=granularity))
+
+    result = stats.compute_trade_stats(rows, granularity=granularity)
+
+    if entry_ids is None:
+        with _stats_cache_lock:
+            _stats_cache[(username, granularity)] = result
+
+    return jsonify(result)
 
 
 @app.route('/api/current_price', methods=['POST'])
@@ -1096,6 +1141,8 @@ def full_restore():
             for entry in entries:
                 entry_logic.insert_entry(c, username, entry)
             conn.commit()
+
+        invalidate_stats_cache(username)
 
         # 3. 사용자 첨부파일 폴더 덮어쓰기
         user_folder = os.path.join(UPLOAD_FOLDER, username)

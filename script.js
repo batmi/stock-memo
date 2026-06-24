@@ -3465,31 +3465,32 @@ function displayEntries(isFilterUpdate = false) {
 
     historyList.innerHTML = '';
     
-    // 청산 종목 필터링을 위한 현재 보유 수량 계산
-    const stockQtys = {};
-    cloudEntries.forEach(entry => {
-        if (entry.type === 'trade' && entry.stockName) {
-            if (entry.tradeType === '매수' || entry.tradeType === '매도') {
-                if (stockQtys[entry.stockName] === undefined) stockQtys[entry.stockName] = 0;
-                if (entry.tradeType === '매수') stockQtys[entry.stockName] += (Number(entry.quantity) || 0);
-                else if (entry.tradeType === '매도') stockQtys[entry.stockName] -= (Number(entry.quantity) || 0);
-            }
-        }
-    });
+    // ⭐️ 청산 종목 수량 계산 + 필터 연관 종목 추출을 단일 순회로 통합
+    //   (기존: cloudEntries 를 최대 4회 반복 → 1회로 축소)
+    const stockQtys = {};                              // 청산 종목 필터용 보유 수량
+    const relatedStocksForAccountFilter = new Set();    // 분류별 모아보기 연관 종목
+    const relatedStocksForBrokerFilter = new Set();     // 증권사별 모아보기 연관 종목
+    const relatedStocksForSubAccountFilter = new Set(); // 증권계좌별 모아보기 연관 종목
+    const needAccount = currentFilterAccount !== 'all';
+    const needBroker = currentFilterBroker !== 'all';
+    const needSubAccount = currentFilterSubAccount !== 'all';
 
-    // ⭐️ 분류별/증권사별 모아보기 시 연관된 일반 메모를 함께 보여주기 위해 종목명 추출
-    const relatedStocksForAccountFilter = new Set();
-    if (currentFilterAccount !== 'all') {
-        cloudEntries.forEach(e => { if ((e.type || 'trade') === 'trade' && e.accountName === currentFilterAccount && e.stockName) relatedStocksForAccountFilter.add(e.stockName); });
-    }
-    const relatedStocksForBrokerFilter = new Set();
-    if (currentFilterBroker !== 'all') {
-        cloudEntries.forEach(e => { if ((e.type || 'trade') === 'trade' && e.brokerAccount === currentFilterBroker && e.stockName) relatedStocksForBrokerFilter.add(e.stockName); });
-    }
-    const relatedStocksForSubAccountFilter = new Set();
-    if (currentFilterSubAccount !== 'all') {
-        cloudEntries.forEach(e => { if ((e.type || 'trade') === 'trade' && e.subAccount === currentFilterSubAccount && e.stockName) relatedStocksForSubAccountFilter.add(e.stockName); });
-    }
+    cloudEntries.forEach(entry => {
+        const entryType = entry.type || 'trade';
+        if (entryType !== 'trade' || !entry.stockName) return;
+        const stockName = entry.stockName;
+
+        if (entry.tradeType === '매수' || entry.tradeType === '매도') {
+            if (stockQtys[stockName] === undefined) stockQtys[stockName] = 0;
+            if (entry.tradeType === '매수') stockQtys[stockName] += (Number(entry.quantity) || 0);
+            else stockQtys[stockName] -= (Number(entry.quantity) || 0);
+        }
+
+        // ⭐️ 분류별/증권사별 모아보기 시 연관된 일반 메모를 함께 보여주기 위해 종목명 추출
+        if (needAccount && entry.accountName === currentFilterAccount) relatedStocksForAccountFilter.add(stockName);
+        if (needBroker && entry.brokerAccount === currentFilterBroker) relatedStocksForBrokerFilter.add(stockName);
+        if (needSubAccount && entry.subAccount === currentFilterSubAccount) relatedStocksForSubAccountFilter.add(stockName);
+    });
     
     // ⭐️ 검색창에 입력 중인 텍스트가 있다면 다중 키워드 배열에 자동 등록하고 창 비움
     const pendingKeyword = filterStockInput.value.trim();
