@@ -1596,28 +1596,38 @@ if (btnAdmin && adminModalOverlay) {
 // ⭐️ 매매 성과 분석(통계) 모달
 // ─────────────────────────────────────────────────────────────
 const btnStats = document.getElementById('btnStats');
-const statsModalOverlay = document.getElementById('statsModalOverlay');
-const btnCloseStatsModal = document.getElementById('btnCloseStatsModal');
-const statsModalBody = document.getElementById('statsModalBody');
+const inlineStatsContainer = document.getElementById('inlineStatsContainer');
 
-if (btnStats && statsModalOverlay) {
+if (btnStats && inlineStatsContainer) {
     btnStats.addEventListener('click', async () => {
-        statsModalOverlay.style.display = 'flex';
-        document.body.style.overflow = 'hidden';
-        await loadTradeStats();
-    });
+        const monthlyProfitChartContainer = document.getElementById('monthlyProfitChartContainer');
+        const chartDetailList = document.getElementById('chartDetailList');
 
-    const closeStatsModal = () => {
-        statsModalOverlay.classList.add('closing');
-        setTimeout(() => {
-            statsModalOverlay.style.display = 'none';
-            statsModalOverlay.classList.remove('closing');
-            document.body.style.overflow = '';
-        }, 180);
-    };
-    if (btnCloseStatsModal) btnCloseStatsModal.addEventListener('click', closeStatsModal);
-    statsModalOverlay.addEventListener('click', (e) => {
-        if (e.target === statsModalOverlay) closeStatsModal();
+        if (inlineStatsContainer.style.display === 'block') {
+            inlineStatsContainer.style.display = 'none';
+            btnStats.style.backgroundColor = 'transparent';
+            btnStats.style.color = 'var(--primary-color)';
+            
+            // 기존 차트 다시 보이기
+            if (monthlyProfitChartContainer) monthlyProfitChartContainer.style.display = 'block';
+            window.renderMonthlyProfitChart();
+        } else {
+            inlineStatsContainer.style.display = 'block';
+            btnStats.style.backgroundColor = 'var(--primary-color)';
+            btnStats.style.color = '#fff';
+            
+            // 차트 영역 및 상세내역 숨기기
+            if (monthlyProfitChartContainer) monthlyProfitChartContainer.style.display = 'none';
+            if (chartDetailList) chartDetailList.style.display = 'none';
+            
+            // 기존 차트 타입 버튼들의 강조 효과 제거
+            document.querySelectorAll('.chart-type-btn').forEach(btn => {
+                btn.style.backgroundColor = 'transparent';
+                btn.style.color = 'var(--primary-color)';
+            });
+            
+            await loadTradeStats();
+        }
     });
 }
 
@@ -1633,30 +1643,50 @@ function statsMoney(v) {
 }
 
 window.loadTradeStats = async function() {
-    if (!statsModalBody) return;
-    statsModalBody.innerHTML = '<p style="text-align:center; padding: 20px; color: var(--text-muted-color);">불러오는 중...</p>';
+    if (!inlineStatsContainer) return;
+    inlineStatsContainer.innerHTML = '<p style="text-align:center; padding: 20px; color: var(--text-muted-color);">불러오는 중...</p>';
     try {
-        const res = await fetch('/api/stats', { headers: { 'ngrok-skip-browser-warning': 'true' } });
+        let entryIds = [];
+        cloudEntries.forEach(entry => {
+            if (entry.type !== 'trade' || !entry.stockName) return;
+            if (currentChartStock !== 'all' && entry.stockName !== currentChartStock) return;
+            if (currentChartAccount !== 'all' && (entry.accountName || '') !== currentChartAccount) return;
+            if (currentChartBroker !== 'all' && (entry.brokerAccount || '') !== currentChartBroker) return;
+            if (currentChartSubAccount !== 'all' && (entry.subAccount || '') !== currentChartSubAccount) return;
+            entryIds.push(entry.id);
+        });
+        
+        const res = await fetch('/api/stats', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'ngrok-skip-browser-warning': 'true' 
+            },
+            body: JSON.stringify({ 
+                entry_ids: entryIds,
+                granularity: window.currentChartGranularity || 'monthly'
+            })
+        });
         if (!res.ok) throw new Error('통계를 불러오지 못했습니다.');
         const s = await res.json();
         renderTradeStats(s);
     } catch (e) {
-        statsModalBody.innerHTML = '<p style="text-align:center; padding: 20px; color: var(--danger-color);">데이터를 불러오지 못했습니다.</p>';
+        inlineStatsContainer.innerHTML = '<p style="text-align:center; padding: 20px; color: var(--danger-color);">데이터를 불러오지 못했습니다.</p>';
     }
 };
 
 function renderTradeStats(s) {
-    if (!statsModalBody) return;
+    if (!inlineStatsContainer) return;
 
     if (!s || (s.sellCount === 0 && s.buyCount === 0 && s.dividendCount === 0)) {
-        statsModalBody.innerHTML = '<p style="text-align:center; padding: 30px; color: var(--text-muted-color);">분석할 매매 기록이 없습니다.<br>매수/매도 기록을 추가해 보세요.</p>';
+        inlineStatsContainer.innerHTML = '<p style="text-align:center; padding: 30px; color: var(--text-muted-color);">분석할 매매 기록이 없습니다.<br>매수/매도 기록을 추가해 보세요.</p>';
         return;
     }
 
     const card = (label, value, color) =>
-        `<div style="flex:1 1 30%; min-width:120px; background: var(--bg-color); border:1px solid var(--border-color); border-radius:8px; padding:12px; text-align:center;">
-            <div style="font-size:11px; color: var(--text-muted-color); margin-bottom:5px;">${label}</div>
-            <div style="font-size:15px; font-weight:bold; color:${color || 'var(--text-strong-color)'};">${value}</div>
+        `<div style="flex:1 1 22%; min-width:85px; background: var(--bg-color); border:1px solid var(--border-color); border-radius:6px; padding:8px 6px; text-align:center;">
+            <div style="font-size:10px; color: var(--text-muted-color); margin-bottom:3px; word-break:keep-all;">${label}</div>
+            <div style="font-size:13px; font-weight:bold; color:${color || 'var(--text-strong-color)'};">${value}</div>
         </div>`;
 
     const pf = (s.profitFactor === null || s.profitFactor === undefined) ? '—' : s.profitFactor.toFixed(2);
@@ -1678,11 +1708,14 @@ function renderTradeStats(s) {
     const tdStyle = 'padding:7px 8px; text-align:right; border-bottom:1px solid var(--border-color); white-space:nowrap;';
     const tdLeft = tdStyle.replace('text-align:right', 'text-align:left');
 
-    // 월별 실현손익 (최근 12개월)
+    // 기간별 실현손익
     if (s.monthly && s.monthly.length) {
-        html += '<h4 style="font-size:13px; margin:18px 0 8px; color:var(--text-strong-color);">📅 월별 실현손익 (최근 12개월)</h4>';
+        const isWeekly = (window.currentChartGranularity === 'weekly');
+        const periodTitle = isWeekly ? '📅 주간 실현손익 (최근 12주)' : '📅 월간 실현손익 (최근 12개월)';
+        const periodHeader = isWeekly ? '주간(시작일)' : '월';
+        html += `<h4 style="font-size:13px; margin:18px 0 8px; color:var(--text-strong-color);">${periodTitle}</h4>`;
         html += '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr>';
-        html += `<th style="${thStyle.replace('text-align:right','text-align:left')}">월</th><th style="${thStyle}">실현손익</th><th style="${thStyle}">배당</th><th style="${thStyle}">매도금액</th></tr></thead><tbody>`;
+        html += `<th style="${thStyle.replace('text-align:right','text-align:left')}">${periodHeader}</th><th style="${thStyle}">실현손익</th><th style="${thStyle}">배당</th><th style="${thStyle}">매도금액</th></tr></thead><tbody>`;
         s.monthly.forEach(m => {
             html += `<tr><td style="${tdLeft}">${m.month}</td>`
                 + `<td style="${tdStyle} color:${statsColor(m.realized)};">${statsMoney(m.realized)}</td>`
@@ -1708,7 +1741,7 @@ function renderTradeStats(s) {
 
     html += '<p style="font-size:11px; color:var(--text-muted-color); margin-top:14px; line-height:1.5;">※ 실현손익은 이동평균단가 방식으로 계산되며, 보유기간은 선입선출(FIFO) 기준 추정치입니다. 미실현(평가) 손익은 포함되지 않습니다.</p>';
 
-    statsModalBody.innerHTML = html;
+    inlineStatsContainer.innerHTML = html;
 }
 
 let adminUsersData = [];
@@ -4087,6 +4120,20 @@ window.setMonthlyChartType = function(type) {
             btn.style.color = 'var(--primary-color)';
         }
     });
+    
+    // 성과분석 뷰 숨기고 차트 뷰 보이기
+    const inlineStatsContainer = document.getElementById('inlineStatsContainer');
+    const monthlyProfitChartContainer = document.getElementById('monthlyProfitChartContainer');
+    const btnStats = document.getElementById('btnStats');
+    if (inlineStatsContainer && monthlyProfitChartContainer) {
+        inlineStatsContainer.style.display = 'none';
+        monthlyProfitChartContainer.style.display = 'block';
+        if (btnStats) {
+            btnStats.style.backgroundColor = 'transparent';
+            btnStats.style.color = 'var(--primary-color)';
+        }
+    }
+    
     window.renderMonthlyProfitChart();
 };
 
@@ -4108,11 +4155,22 @@ window.toggleChartGranularity = function() {
     // 집계 단위 변경 시 열려있던 상세 내역은 닫아 혼동 방지
     const detailListEl = document.getElementById('chartDetailList');
     if (detailListEl) detailListEl.style.display = 'none';
+    
     window.renderMonthlyProfitChart();
 };
 
 // ⭐️ 차트 막대 클릭 시 하단에 종목별 상세 내역을 그려주는 함수
 window.renderChartDetailList = function(title, breakdown, isProfit) {
+    const inlineStatsContainer = document.getElementById('inlineStatsContainer');
+    if (inlineStatsContainer) {
+        inlineStatsContainer.style.display = 'none';
+        const btnStats = document.getElementById('btnStats');
+        if (btnStats) {
+            btnStats.style.backgroundColor = 'transparent';
+            btnStats.style.color = 'var(--primary-color)';
+        }
+    }
+    
     const container = document.getElementById('chartDetailList');
     if (!container) return;
     
@@ -4150,6 +4208,12 @@ window.renderChartDetailList = function(title, breakdown, isProfit) {
 // ⭐️ 최근 12개월 월별 실현손익/평가손익/매매금액 바 차트 렌더링 함수 (통합)
 window.renderMonthlyProfitChart = function() {
     console.log("[Chart] 월별 실현/평가/매매금액 차트 렌더링 시작...");
+    
+    // 성과분석 뷰가 열려있다면 필터 갱신에 맞춰 데이터 다시 불러오기
+    const inlineStatsContainer = document.getElementById('inlineStatsContainer');
+    if (inlineStatsContainer && inlineStatsContainer.style.display === 'block') {
+        window.loadTradeStats();
+    }
     
     // ⭐️ 차트 필터 초기화 버튼 노출 제어 로직
     const chartClearAllBtnWrapper = document.getElementById('chartClearAllBtnWrapper');

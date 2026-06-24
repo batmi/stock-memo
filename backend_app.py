@@ -848,15 +848,36 @@ def delete_entry(entry_id):
     return jsonify({"status": "success"})
 
 
-@app.route('/api/stats', methods=['GET'])
+@app.route('/api/stats', methods=['GET', 'POST'])
 def get_stats():
-    """로그인한 사용자의 매매 성과 분석 지표를 반환합니다."""
+    """로그인한 사용자의 매매 성과 분석 지표를 반환합니다.
+    POST 요청 시 JSON 바디에 entry_ids 리스트를 전달하면 해당 항목들로만 통계를 계산합니다."""
     username = session.get('username')
+    entry_ids = None
+    granularity = 'monthly'
+    if request.method == 'POST':
+        data = request.json or {}
+        entry_ids = data.get('entry_ids')
+        granularity = data.get('granularity', 'monthly')
+        
     with db_conn() as conn:
         c = conn.cursor()
-        c.execute("SELECT * FROM entries WHERE username = ?", (username,))
-        rows = [dict(row) for row in c.fetchall()]
-    return jsonify(stats.compute_trade_stats(rows))
+        if entry_ids is not None:
+            if not entry_ids:
+                rows = []
+            else:
+                chunk_size = 900
+                rows = []
+                for i in range(0, len(entry_ids), chunk_size):
+                    chunk = entry_ids[i:i+chunk_size]
+                    placeholders = ','.join('?' for _ in chunk)
+                    c.execute(f"SELECT * FROM entries WHERE username = ? AND id IN ({placeholders})", (username, *chunk))
+                    rows.extend([dict(row) for row in c.fetchall()])
+        else:
+            c.execute("SELECT * FROM entries WHERE username = ?", (username,))
+            rows = [dict(row) for row in c.fetchall()]
+            
+    return jsonify(stats.compute_trade_stats(rows, granularity=granularity))
 
 
 @app.route('/api/current_price', methods=['POST'])
