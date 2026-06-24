@@ -554,23 +554,25 @@ def test_current_price_edge_cases(mock_urlopen, client, app):
         mock_res.__enter__.return_value = mock_res
         return mock_res
 
+    test_state = {'gold_fail_all': False, 'all_fail': False}
+
     def urlopen_side_effect(req, timeout=3):
         url = req.full_url if hasattr(req, 'full_url') else req
         
         if 'M04020000' in url:
-            if getattr(urlopen_side_effect, 'gold_fail_all', False):
+            if test_state['gold_fail_all']:
                 raise Exception("All Fail")
             raise Exception("Naver Gold API Fail")
         elif 'KRX_Gold_Market' in url:
-            if getattr(urlopen_side_effect, 'gold_fail_all', False):
+            if test_state['gold_fail_all']:
                 raise Exception("All Fail")
             return create_mock_res(b"<th>\xed\x98\x84\xec\x9e\xac\xea\xb0\x80</th><td><strong>88,000</strong></td>")
         elif 'siseJson' in url:
-            if getattr(urlopen_side_effect, 'all_fail', False):
+            if test_state['all_fail']:
                 raise Exception("All APIs Fail")
             return create_mock_res(b'var u_js= { "result": { "nowVal": 95000 } };')
         elif '005930' in url:
-            if getattr(urlopen_side_effect, 'all_fail', False):
+            if test_state['all_fail']:
                 raise Exception("All APIs Fail")
             return create_mock_res(b'{"closePrice": "95000"}')
         elif 'ABCDEF' in url:
@@ -590,7 +592,7 @@ def test_current_price_edge_cases(mock_urlopen, client, app):
     assert res_gold.json.get('KRXGOLD') == 88000.0
     
     # 2. 금 주가: 모든 API 실패 시 None 반환
-    urlopen_side_effect.gold_fail_all = True
+    test_state['gold_fail_all'] = True
     res_gold_fail = client.post('/api/current_price', json={'codes': ['KRXGOLD']})
     assert res_gold_fail.json.get('KRXGOLD') is None
     
@@ -619,7 +621,7 @@ def test_current_price_edge_cases(mock_urlopen, client, app):
         conn.close()
 
     # 7. 일반 주식 모든 API 실패 시 500 에러 없이 안전하게 통과하는지 검증 (Unpacking 버그 회귀 방지)
-    urlopen_side_effect.all_fail = True
+    test_state['all_fail'] = True
     res_all_fail = client.post('/api/current_price', json={'codes': ['005930', 'AAPL']})
     assert res_all_fail.status_code == 200
     assert res_all_fail.json.get('005930') is None

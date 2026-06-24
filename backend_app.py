@@ -533,7 +533,7 @@ def login():
             error_message = f"로그인 5회 실패로 차단되었습니다. {remaining}초 후에 다시 시도해주세요."
         else:
             username = request.form.get('username')
-            password = request.form.get('password')
+            password = request.form.get('password') or ""
 
             # DB에서 입력한 아이디와 일치하는 암호화된 비밀번호 조회
             with db_conn() as conn:
@@ -640,10 +640,19 @@ def logout():
     return redirect(url_for('login'))
 
 
+@app.context_processor
+def inject_get_mtime():
+    def get_mtime(filename):
+        path = os.path.join(app.root_path, filename)
+        if os.path.exists(path):
+            return int(os.path.getmtime(path))
+        return 0
+    return dict(get_mtime=get_mtime)
+
 @app.route('/')
 def index():
-    app.logger.debug("index() route 호출됨: stock-memo.html 파일을 반환합니다.")
-    return send_from_directory('.', 'stock-memo.html')
+    app.logger.debug("index() route 호출됨: templates/stock-memo.html 파일을 렌더링합니다.")
+    return render_template('stock-memo.html')
 
 
 @app.route('/api/ping', methods=['POST'])
@@ -679,6 +688,8 @@ def get_me():
 @app.route('/api/account', methods=['DELETE'])
 def delete_account():
     username = session.get('username')
+    if not username:
+        return jsonify({"error": "로그인이 필요합니다."}), 401
     is_admin_flag = session.get('is_admin', False)
     # ⭐️ 최고 관리자 계정은 탈퇴할 수 없도록 보호
     if is_admin_flag:
@@ -985,11 +996,15 @@ def get_news():
                     if idx >= 5:
                         break
 
+                    title_elem = item.find('title')
+                    link_elem = item.find('link')
+                    pub_elem = item.find('pubDate')
+
                     news_list.append({
                         'stock': stock,
-                        'title': item.find('title').text,
-                        'link': item.find('link').text,
-                        'pubDate': item.find('pubDate').text
+                        'title': title_elem.text if title_elem is not None else '',
+                        'link': link_elem.text if link_elem is not None else '',
+                        'pubDate': pub_elem.text if pub_elem is not None else ''
                     })
         except Exception as e:
             app.logger.error(f"Error fetching Google news for {stock}: {e}")
@@ -1013,6 +1028,8 @@ def get_news():
 def full_backup():
     """DB와 업로드 이미지를 포함한 전체 폴더를 압축하여 다운로드 제공"""
     username = session.get('username')
+    if not username:
+        return jsonify({"error": "로그인이 필요합니다."}), 401
     with db_conn() as conn:
         c = conn.cursor()
         c.execute("SELECT * FROM entries WHERE username = ?", (username,))
@@ -1048,16 +1065,18 @@ def full_backup():
 def full_restore():
     """백업 받은 ZIP 파일을 해제하여 DB 및 업로드 이미지를 완벽 원복"""
     username = session.get('username')
+    if not username:
+        return jsonify({"error": "로그인이 필요합니다."}), 401
     if 'file' not in request.files:
         return jsonify({'error': '업로드된 파일이 없습니다.'}), 400
 
     file = request.files['file']
-    if file.filename == '' or not file.filename.endswith('.zip'):
+    if not file.filename or not file.filename.endswith('.zip'):
         return jsonify({'error': '유효하지 않은 파일입니다. .zip 백업 파일을 업로드해주세요.'}), 400
 
     temp_dir = tempfile.mkdtemp()
     try:
-        with zipfile.ZipFile(file, 'r') as zf:
+        with zipfile.ZipFile(file.stream, 'r') as zf:
             zf.extractall(temp_dir)
 
         json_path = os.path.join(temp_dir, 'data.json')
