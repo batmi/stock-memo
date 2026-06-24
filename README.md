@@ -1,3 +1,5 @@
+[Korean](README.md) | [English](README.en.md)
+
 # 주식 매매 일지 (Stock Trading Journal) - Multi-User Edition
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
