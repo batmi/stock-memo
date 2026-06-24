@@ -584,7 +584,8 @@ button:hover {
 }
 .chart-type-btn-row::-webkit-scrollbar { display: none; }
 .chart-type-btn-row .chart-type-btn,
-.chart-type-btn-row #btnToggleChartGranularity {
+.chart-type-btn-row #btnToggleChartGranularity,
+.chart-type-btn-row #btnStats {
     flex: 0 0 auto;
     white-space: nowrap;
 }
@@ -594,7 +595,8 @@ button:hover {
         justify-content: center !important;
     }
     .chart-type-btn-row .chart-type-btn,
-    .chart-type-btn-row #btnToggleChartGranularity {
+    .chart-type-btn-row #btnToggleChartGranularity,
+    .chart-type-btn-row #btnStats {
         padding: 0 8px !important;
         font-size: 11px !important;
         height: 23px !important;
