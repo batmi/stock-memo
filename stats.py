@@ -51,6 +51,11 @@ def compute_trade_stats(rows, granularity='monthly'):
     gross_loss = 0.0          # 손실 매도건 손익 절댓값 합
     holding_days_weighted = 0.0
     holding_qty_total = 0.0
+    
+    max_single_win = 0.0
+    max_single_loss = 0.0
+    total_buy_amount = 0.0
+    total_sell_amount = 0.0
 
     EPS = 1e-9
 
@@ -69,11 +74,15 @@ def compute_trade_stats(rows, granularity='monthly'):
         if ttype == '매수':
             buy_count += 1
             p['qty'] += qty
-            p['totalCost'] += price * qty
+            
+            vol = price * qty
+            p['totalCost'] += vol
+            total_buy_amount += vol
+            monthly[mkey]['buyAmount'] += vol
+            
             if p['qty'] > 0:
                 p['avgPrice'] = p['totalCost'] / p['qty']
             p['lots'].append([dt, qty])
-            monthly[mkey]['buyAmount'] += price * qty
 
         elif ttype == '매도':
             sell_count += 1
@@ -82,9 +91,19 @@ def compute_trade_stats(rows, granularity='monthly'):
 
             total_realized += profit
             monthly[mkey]['realized'] += profit
-            monthly[mkey]['sellAmount'] += price * qty
+            
+            vol = price * qty
+            monthly[mkey]['sellAmount'] += vol
+            total_sell_amount += vol
+            
             per_stock[stock]['realized'] += profit
             per_stock[stock]['sellCount'] += 1
+            
+            if profit > max_single_win:
+                max_single_win = profit
+            if profit < max_single_loss:
+                max_single_loss = profit
+                
             if profit > 0:
                 win_count += 1
                 gross_profit += profit
@@ -167,20 +186,24 @@ def compute_trade_stats(rows, granularity='monthly'):
     per_stock_list.sort(key=lambda x: x['total'], reverse=True)
 
     return {
+        'totalPnl': total_realized + total_dividend,
         'totalRealized': total_realized,
         'totalDividend': total_dividend,
-        'totalPnl': total_realized + total_dividend,
         'buyCount': buy_count,
         'sellCount': sell_count,
         'dividendCount': dividend_count,
         'winCount': win_count,
         'lossCount': loss_count,
-        'winRate': win_rate,
-        'avgWin': avg_win,
-        'avgLoss': avg_loss,
-        'profitFactor': profit_factor,
-        'avgHoldingDays': avg_holding_days,
+        'winRate': (win_count / sell_count * 100.0) if sell_count > 0 else 0.0,
+        'profitFactor': (gross_profit / gross_loss) if gross_loss > 0 else (gross_profit if gross_profit > 0 else None),
+        'avgWin': (gross_profit / win_count) if win_count > 0 else 0.0,
+        'avgLoss': (gross_loss / loss_count) if loss_count > 0 else 0.0,
+        'avgHoldingDays': (holding_days_weighted / holding_qty_total) if holding_qty_total > 0 else 0.0,
         'maxDrawdown': max_drawdown,
+        'maxSingleWin': max_single_win,
+        'maxSingleLoss': max_single_loss,
+        'totalBuyAmount': total_buy_amount,
+        'totalSellAmount': total_sell_amount,
         'monthly': monthly_list,
-        'perStock': per_stock_list,
+        'perStock': per_stock_list
     }

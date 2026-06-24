@@ -1701,7 +1701,10 @@ function renderTradeStats(s) {
     html += card('평균 보유기간', `${s.avgHoldingDays.toFixed(1)}일`, 'var(--text-strong-color)');
     html += card('평균 수익 (이익 거래)', statsMoney(s.avgWin), statsColor(s.avgWin));
     html += card('평균 손실 (손실 거래)', statsMoney(-s.avgLoss), statsColor(-s.avgLoss));
-    html += card('최대 낙폭 (MDD)', statsMoney(-s.maxDrawdown), statsColor(-s.maxDrawdown));
+    html += card('최대 단일 수익', statsMoney(s.maxSingleWin), statsColor(s.maxSingleWin));
+    html += card('최대 단일 손실', statsMoney(s.maxSingleLoss), statsColor(s.maxSingleLoss));
+    html += card('총 매수금', `${Math.round(s.totalBuyAmount).toLocaleString()}원`, 'var(--text-strong-color)');
+    html += card('총 매도금', `${Math.round(s.totalSellAmount).toLocaleString()}원`, 'var(--text-strong-color)');
     html += '</div>';
 
     const thStyle = 'padding:8px; text-align:right; font-weight:bold; color:var(--text-strong-color); border-bottom:2px solid var(--border-color); white-space:nowrap;';
