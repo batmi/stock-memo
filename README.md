@@ -112,9 +112,15 @@ http://127.0.0.1:5000
 
 ```text
 stock-memo/
-├── backend_app.py      # 백엔드 서버 구동 및 DB 관리 로직 (Flask)
+├── backend_app.py      # 앱 구동·라우트·DB 헬퍼·백그라운드 스레드 (Flask)
+├── prices.py           # 현재가(시세) 조회 서비스 (provider별 분해 + 폴백)
+├── stats.py            # 매매 성과 분석(통계) 계산 로직 (순수 함수)
+├── entry_logic.py      # 매매 기록 저장/무결성 검증 + INSERT 컬럼 단일 소스
+├── backups.py          # 백업 ZIP 무결성 검증 로직 (순수 함수)
+├── templates/          # 로그인·회원가입 HTML 템플릿
 ├── stock-memo.html     # 프론트엔드 메인 화면 구조 (HTML)
 ├── style.css           # 화면 디자인 및 레이아웃 (CSS)
+├── calc.js             # 매매 계산 단일 소스 (백엔드 stats.py 와 동일 알고리즘)
 ├── script.js           # 화면 동작, 데이터 통신, 차트 로직 (JavaScript)
 ├── run.sh              # 자동화 실행 쉘 스크립트 (Mac/Linux)
 ├── backup/             # 매일 자동 생성되는 사용자별 백업 파일(ZIP) 저장 폴더
@@ -125,6 +131,10 @@ stock-memo/
 └── uploads/            # 첨부된 이미지 파일이 저장되는 폴더
 ```
 
+> 백엔드는 도메인별 모듈(`prices`/`stats`/`entry_logic`/`backups`)로 분리되어 있으며,
+> 손익 계산은 프론트엔드 `calc.js` 와 백엔드 `stats.py` 가 **동일한 이동평균단가
+> 알고리즘**을 사용하도록 단일화되어 있습니다 (`tests/calc.test.js` 가 양쪽 일치를 검증).
+
 ---
 
 ## 7. 테스트 가이드 (Testing)
@@ -133,9 +143,17 @@ stock-memo/
 테스트 코드는 `tests/` 폴더에 위치하며, 임시 DB를 사용하므로 실제 구동 데이터(`db/journal.db`)에 영향을 주지 않습니다.
 
 ```bash
-# 전체 테스트 실행
+# 백엔드 전체 테스트 실행
 pytest
 
 # 간결한 출력 모드로 실행
 pytest -q
+```
+
+프론트엔드 계산 엔진(`calc.js`)은 Node 내장 테스트 러너로 검증하며, 백엔드 통계
+테스트와 동일한 픽스처를 사용해 프론트=백엔드 결과 일치를 보장합니다.
+
+```bash
+# 프론트엔드 계산 단위 테스트 (Node 18+)
+node --test tests/calc.test.js
 ```

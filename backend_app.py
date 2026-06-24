@@ -23,44 +23,58 @@ import shutil
 import re
 import logging
 import threading
+from functools import wraps
+from contextlib import contextmanager
 from logging.handlers import TimedRotatingFileHandler
 from datetime import timedelta, datetime
-from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string, send_file, has_request_context
-
-# ⭐️ 2026년 한국거래소(KRX) 휴장일 목록 (매년 연초에 갱신 필요)
-# 출처: KRX 공식 공지, 대체공휴일법 반영
-KRX_HOLIDAYS = {
-    (2026, 1, 1),    # 신정
-    (2026, 2, 16),   # 설날 연휴
-    (2026, 2, 17),   # 설날
-    (2026, 2, 18),   # 설날 연휴
-    (2026, 3, 2),    # 삼일절 대체공휴일 (3/1 일요일)
-    (2026, 5, 1),    # 근로자의 날
-    (2026, 5, 5),    # 어린이날
-    (2026, 5, 25),   # 석가탄신일 대체공휴일 (5/24 일요일)
-    (2026, 6, 3),    # 지방선거일
-    (2026, 6, 6),    # 현충일 (토요일이지만 목록에 포함)
-    (2026, 7, 17),   # 제헌절
-    (2026, 8, 17),   # 광복절 대체공휴일 (8/15 토요일)
-    (2026, 9, 24),   # 추석 연휴
-    (2026, 9, 25),   # 추석
-    (2026, 10, 5),   # 개천절 대체공휴일 (10/3 토요일)
-    (2026, 10, 9),   # 한글날
-    (2026, 12, 25),  # 성탄절
-    (2026, 12, 31),  # 연말 휴장일
-}
+from flask import (Flask, jsonify, request, send_from_directory, session, redirect,
+                   url_for, render_template, send_file)
 from werkzeug.security import generate_password_hash, check_password_hash
+
+# ⭐️ 추출된 도메인 모듈 (순수 로직 — 단위 테스트 용이)
+import prices
+import stats
+import entry_logic
+import backups
+
+# 하위 호환 및 기존 참조 유지를 위한 재노출
+from prices import KRX_HOLIDAYS
+from stats import compute_trade_stats, parse_entry_dt
+from backups import verify_backup_zip
+from entry_logic import validate_trade_entry
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 
-# ⭐️ 1. 시크릿 키 하드코딩 방지: 환경변수가 없으면 강력한 난수 키를 생성하여 적용
-app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24).hex())
+
+# ⭐️ 1. 시크릿 키: 환경변수가 우선. 없으면 파일에 영속화하여 재시작 시에도 세션 유지
+def _load_secret_key():
+    env_key = os.environ.get('SECRET_KEY')
+    if env_key:
+        return env_key
+    key_path = '.secret_key'
+    try:
+        if os.path.exists(key_path):
+            with open(key_path, 'r') as f:
+                saved = f.read().strip()
+                if saved:
+                    return saved
+        new_key = os.urandom(24).hex()
+        with open(key_path, 'w') as f:
+            f.write(new_key)
+        return new_key
+    except Exception:
+        # 파일 접근 불가 환경에서는 임시 난수 키로 폴백 (재시작 시 세션 무효화)
+        return os.urandom(24).hex()
+
+
+app.secret_key = _load_secret_key()
 
 
 # ⭐️ 로깅(Logging) 설정
 LOG_DIR = 'logs'
 os.makedirs(LOG_DIR, exist_ok=True)
 log_file = os.path.join(LOG_DIR, 'backend_app.log')
+
 
 # ⭐️ 백업 로그 파일명을 backend_app_YYYYMMDD.log 형태로 저장하기 위한 커스텀 핸들러
 class CustomDailyRotatingFileHandler(TimedRotatingFileHandler):
@@ -89,12 +103,14 @@ class CustomDailyRotatingFileHandler(TimedRotatingFileHandler):
             result.sort()
             return result[:len(result) - self.backupCount]
 
+
 # ⭐️ 모든 로그(Traceback 등 포함)를 개행 없이 한 줄로 출력하기 위한 커스텀 포매터
 class SingleLineFormatter(logging.Formatter):
     def format(self, record):
         msg = super().format(record)
         # 개행 문자를 공백으로 대체하여 여러 줄의 로그를 한 줄로 결합
         return msg.replace('\n', ' ').replace('\r', '')
+
 
 # 파일 핸들러 설정 (매일 자정에 갱신, 30일(약 1달)간 로그 보관, UTF-8 인코딩)
 file_handler = CustomDailyRotatingFileHandler(log_file, when='midnight', interval=1, backupCount=30, encoding='utf-8')
@@ -107,12 +123,15 @@ console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
 console_handler.setLevel(logging.DEBUG)
 
+
 # ⭐️ 특정 백그라운드 작업 로그는 화면(콘솔)에 출력하지 않고 파일에만 남기도록 필터 추가
 class ConsoleFilter(logging.Filter):
     def filter(self, record):
         if record.funcName == 'auto_fetch_nxt_close_job':
             return False
         return True
+
+
 console_handler.addFilter(ConsoleFilter())
 
 # ⭐️ 기본 Flask 로거 초기화 및 중복 출력 방지 (시간이 없는 기본 화면 로그 차단)
@@ -128,12 +147,14 @@ app.logger.setLevel(logging.DEBUG)
 werkzeug_logger = logging.getLogger('werkzeug')
 werkzeug_logger.setLevel(logging.ERROR)
 
+
 # ⭐️ Flask 요청/응답 라이프사이클 내에서 직접 Access 로그를 기록
 @app.after_request
 def log_request_info(response):
     username = session.get('username') or "Guest"
     app.logger.info(f"[{username}] {request.method} {request.path} {response.status_code}")
     return response
+
 
 # ⭐️ 3. 전역 HTTP 보안 헤더 적용 (보안 강화)
 @app.after_request
@@ -149,18 +170,28 @@ def add_security_headers(response):
     #     response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return response
 
+
+# ⭐️ 정적 자산 캐시 헤더: 정적 파일(js/css/이미지)에 단기 캐시 부여로 재방문 속도 개선
+@app.after_request
+def add_cache_headers(response):
+    if request.endpoint == 'static' or request.path.startswith('/uploads/'):
+        response.headers.setdefault('Cache-Control', 'public, max-age=3600')
+    return response
+
+
 # ⭐️ 전역 서버 에러 핸들러 추가 (서버 중단/500 에러 발생 시 상세 로그 기록)
 @app.errorhandler(Exception)
 def handle_exception(e):
     app.logger.error(f"Unhandled Exception: {e}", exc_info=True)
     return jsonify(error=str(e)), 500
 
+
 # ⭐️ 세션(쿠키) 보안 설정 강화
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # 자바스크립트(XSS)로 쿠키 접근 원천 차단
 app.config['SESSION_COOKIE_SECURE'] = False   # ⭐️ 로컬(HTTP) 환경 접속 시 로그인 갱신 오류 방지를 위해 비활성화
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax' # CSRF(크로스 사이트 요청 위조) 공격 방어
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1) # ⭐️ 세션 유효 기간 1시간으로 설정
-app.config['SESSION_REFRESH_EACH_REQUEST'] = False # ⭐️ 백그라운드 자동 갱신 시 세션 무한 연장 방지
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF(크로스 사이트 요청 위조) 공격 방어
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)  # ⭐️ 세션 유효 기간 1시간으로 설정
+app.config['SESSION_REFRESH_EACH_REQUEST'] = False  # ⭐️ 백그라운드 자동 갱신 시 세션 무한 연장 방지
 
 # ⭐️ 2. 악의적인 대용량 파일 업로드 방어 (Payload 제한: 16MB)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
@@ -179,11 +210,32 @@ os.makedirs(BACKUP_DIR, exist_ok=True)
 # 로그인 시도 횟수 및 차단 시간 관리를 위한 전역 변수 (IP 기준)
 login_attempts = {}
 
+
 def get_db():
+    # 모듈 전역 DB_FILE 을 동적으로 참조 (테스트가 경로를 교체할 수 있도록)
     conn = sqlite3.connect(DB_FILE)
     conn.execute('PRAGMA journal_mode=WAL;')
-    conn.row_factory = sqlite3.Row # 결과를 dict 형태로 접근할 수 있게 함
+    conn.row_factory = sqlite3.Row  # 결과를 dict 형태로 접근할 수 있게 함
     return conn
+
+
+@contextmanager
+def db_conn():
+    """요청 핸들러용 DB 연결 컨텍스트 매니저.
+
+    예외/조기 반환과 무관하게 연결을 반드시 닫아 누수를 방지합니다.
+    commit 은 호출자가 명시적으로 수행합니다.
+    """
+    conn = get_db()
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+# ⭐️ 시세 모듈에 DB 연결 공급자 주입 (순환 임포트 회피)
+prices.set_db_provider(get_db)
+
 
 def process_image(image_data, entry_id):
     """Base64 이미지를 파일로 저장하고 URL 경로를 반환"""
@@ -194,15 +246,16 @@ def process_image(image_data, entry_id):
         ext = 'jpg'
         if 'png' in header:
             ext = 'png'
-        
+
         filename = f"img_{entry_id}.{ext}"
         filepath = os.path.join(UPLOAD_FOLDER, filename)
-        
+
         with open(filepath, 'wb') as f:
             f.write(base64.b64decode(encoded))
-            
+
         return f"/uploads/{filename}"
-    return image_data # 이미 URL 형식인 경우 그대로 반환
+    return image_data  # 이미 URL 형식인 경우 그대로 반환
+
 
 def init_db():
     conn = get_db()
@@ -241,73 +294,28 @@ def init_db():
             password_hash TEXT NOT NULL
         )
     ''')
-    
-    # 기존 DB 호환성을 위해 새 컬럼을 안전하게 추가
-    try:
-        c.execute("ALTER TABLE entries ADD COLUMN createdAt TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        c.execute("ALTER TABLE entries ADD COLUMN updatedAt TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        c.execute("ALTER TABLE entries ADD COLUMN stockCode TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        c.execute("ALTER TABLE entries ADD COLUMN tags TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        c.execute("ALTER TABLE entries ADD COLUMN attachedFile TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        c.execute("ALTER TABLE entries ADD COLUMN attachedFileName TEXT")
-    except sqlite3.OperationalError:
-        pass
-        
-    try:
-        c.execute("ALTER TABLE entries ADD COLUMN subAccount TEXT")
-    except sqlite3.OperationalError:
-        pass
-        
-    # 다중 사용자 격리를 위한 컬럼 추가
-    try:
-        c.execute("ALTER TABLE entries ADD COLUMN username TEXT")
-    except sqlite3.OperationalError:
-        pass
 
-    # 사용자별 환경 설정(카드 순서 등) 저장을 위한 컬럼 추가
-    try:
-        c.execute("ALTER TABLE users ADD COLUMN preferences TEXT")
-    except sqlite3.OperationalError:
-        pass
-        
-    # 사용자 가입 일시 컬럼 추가
-    try:
-        c.execute("ALTER TABLE users ADD COLUMN created_at TEXT")
-    except sqlite3.OperationalError:
-        pass
-        
-    # 사용자 최근 로그인 일시 컬럼 추가
-    try:
-        c.execute("ALTER TABLE users ADD COLUMN last_login_at TEXT")
-    except sqlite3.OperationalError:
-        pass
-    # 사용자 로그인 허용 여부를 위한 컬럼 추가 (기존 가입자는 1로 기본 설정)
-    try:
-        c.execute("ALTER TABLE users ADD COLUMN is_allowed INTEGER DEFAULT 1")
-    except sqlite3.OperationalError:
-        pass
-        
-    # 사용자 관리자 여부 컬럼 추가
-    try:
-        c.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-        
+    # 기존 DB 호환성을 위해 새 컬럼을 안전하게 추가
+    for ddl in (
+        "ALTER TABLE entries ADD COLUMN createdAt TEXT",
+        "ALTER TABLE entries ADD COLUMN updatedAt TEXT",
+        "ALTER TABLE entries ADD COLUMN stockCode TEXT",
+        "ALTER TABLE entries ADD COLUMN tags TEXT",
+        "ALTER TABLE entries ADD COLUMN attachedFile TEXT",
+        "ALTER TABLE entries ADD COLUMN attachedFileName TEXT",
+        "ALTER TABLE entries ADD COLUMN subAccount TEXT",
+        "ALTER TABLE entries ADD COLUMN username TEXT",
+        "ALTER TABLE users ADD COLUMN preferences TEXT",
+        "ALTER TABLE users ADD COLUMN created_at TEXT",
+        "ALTER TABLE users ADD COLUMN last_login_at TEXT",
+        "ALTER TABLE users ADD COLUMN is_allowed INTEGER DEFAULT 1",
+        "ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0",
+    ):
+        try:
+            c.execute(ddl)
+        except sqlite3.OperationalError:
+            pass
+
     # ⭐️ 시간외 단일가(NXT) 전일 종가 유지를 위한 캐시 테이블 (KRX/NXT 분리 저장)
     # 기존 단일 키(code) 테이블에서 복합 키(code, market_type)로 마이그레이션
     try:
@@ -326,12 +334,17 @@ def init_db():
         )
     ''')
     conn.commit()
-    
-    # ⭐️ 쿼리 성능 최적화를 위한 인덱스 생성
-    try:
-        c.execute("CREATE INDEX IF NOT EXISTS idx_entries_username ON entries(username)")
-    except sqlite3.OperationalError:
-        pass
+
+    # ⭐️ 쿼리 성능 최적화를 위한 인덱스 생성 (통계/필터/정렬 가속)
+    for idx in (
+        "CREATE INDEX IF NOT EXISTS idx_entries_username ON entries(username)",
+        "CREATE INDEX IF NOT EXISTS idx_entries_user_type ON entries(username, type)",
+        "CREATE INDEX IF NOT EXISTS idx_entries_user_stock ON entries(username, stockName)",
+    ):
+        try:
+            c.execute(idx)
+        except sqlite3.OperationalError:
+            pass
     conn.commit()
 
     # 기존 레거시 데이터 호환을 위한 처리
@@ -342,34 +355,8 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 # ⭐️ 자동 백업 스레드 함수
-def verify_backup_zip(filepath, expected_count):
-    """백업 ZIP 파일의 무결성을 검증합니다.
-
-    1) ZIP 아카이브가 손상되지 않고 열람 가능한지 (CRC 검사)
-    2) data.json 항목이 존재하고 정상적으로 파싱되는지
-    3) 복원될 레코드 수가 백업 시점의 레코드 수와 일치하는지
-
-    (성공 여부 bool, 메시지 str) 튜플을 반환합니다.
-    """
-    try:
-        with zipfile.ZipFile(filepath, 'r') as zf:
-            corrupt = zf.testzip()
-            if corrupt is not None:
-                return False, f"손상된 압축 항목: {corrupt}"
-            if 'data.json' not in zf.namelist():
-                return False, "data.json 항목이 없습니다."
-            with zf.open('data.json') as f:
-                data = json.loads(f.read().decode('utf-8'))
-            if not isinstance(data, list):
-                return False, "data.json 형식이 올바르지 않습니다."
-            if len(data) != expected_count:
-                return False, f"레코드 수 불일치 (기대 {expected_count}건, 실제 {len(data)}건)"
-        return True, f"{len(data)}건 검증 통과"
-    except Exception as e:
-        return False, str(e)
-
-
 def auto_backup_job():
     while True:
         now = datetime.now()
@@ -378,7 +365,7 @@ def auto_backup_job():
         # 자정까지 대기
         time_to_sleep = (next_midnight - now).total_seconds()
         time.sleep(time_to_sleep)
-        
+
         try:
             app.logger.info("🔄 일일 자동 백업을 시작합니다.")
             conn = get_db()
@@ -386,10 +373,10 @@ def auto_backup_job():
             c.execute("SELECT username FROM users")
             users = c.fetchall()
             conn.close()
-            
+
             for user in users:
                 username = user['username']
-                
+
                 conn = get_db()
                 c = conn.cursor()
                 c.execute("SELECT * FROM entries WHERE username = ?", (username,))
@@ -398,7 +385,7 @@ def auto_backup_job():
 
                 user_backup_dir = os.path.join(BACKUP_DIR, username)
                 os.makedirs(user_backup_dir, exist_ok=True)
-                
+
                 current_time_str = time.strftime('%Y%m%d')
                 filename = f'TradingJournal_backup_{username}_{current_time_str}.zip'
                 filepath = os.path.join(user_backup_dir, filename)
@@ -406,7 +393,7 @@ def auto_backup_job():
                 with zipfile.ZipFile(filepath, 'w', zipfile.ZIP_DEFLATED) as zf:
                     json_data = json.dumps(rows, ensure_ascii=False, indent=2)
                     zf.writestr('data.json', json_data)
-                    
+
                     user_folder = os.path.join(UPLOAD_FOLDER, username)
                     if os.path.exists(user_folder):
                         for root, dirs, files in os.walk(user_folder):
@@ -429,10 +416,11 @@ def auto_backup_job():
                     if os.path.isfile(f_path):
                         if os.stat(f_path).st_mtime < current_time_sec - 7 * 86400:
                             os.remove(f_path)
-                            
+
             app.logger.info("✅ 일일 자동 백업이 완료되었습니다.")
         except Exception as e:
             app.logger.error(f"❌ 자동 백업 중 오류 발생: {e}")
+
 
 # ⭐️ 시간외 단일가(NXT) 종가를 자동 갱신하는 백그라운드 스레드 함수
 def auto_fetch_nxt_close_job():
@@ -440,13 +428,13 @@ def auto_fetch_nxt_close_job():
         try:
             # 10분(600초) 단위로 동작
             time.sleep(600)
-            
+
             # 한국 시간(KST) 기준 시간 계산
             import datetime as dt
             kst_now = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=9)
             time_num = kst_now.hour * 100 + kst_now.minute
-            day_of_week = kst_now.weekday() # 0: 월, 1: 화, ..., 4: 금, 5: 토, 6: 일
-            
+            day_of_week = kst_now.weekday()  # 0: 월, 1: 화, ..., 4: 금, 5: 토, 6: 일
+
             # 평일(월~금) 15:30 ~ 18:30 (장 종료 후 시간외 단일가 운영 및 마감 직후 시간)에만 캐시 갱신 수행
             if 0 <= day_of_week <= 4 and 1530 <= time_num <= 1830:
                 app.logger.info("🔄 백그라운드: 시간외 단일가(NXT) 자동 캐싱을 시작합니다...")
@@ -454,7 +442,7 @@ def auto_fetch_nxt_close_job():
                 c = conn.cursor()
                 c.execute("SELECT DISTINCT stockCode FROM entries WHERE stockCode IS NOT NULL AND stockCode != ''")
                 codes = [row['stockCode'].strip().upper() for row in c.fetchall()]
-                
+
                 api_headers = {
                     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)',
                     'Accept': 'application/json, text/plain, */*',
@@ -475,7 +463,7 @@ def auto_fetch_nxt_close_job():
                                 if isinstance(over_info, dict) and over_info.get('overPrice'):
                                     price_str = str(over_info.get('overPrice'))
                                     price_val = float(price_str.replace(',', ''))
-                                    
+
                                     now_str = dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                                     c.execute("REPLACE INTO price_cache (code, market_type, price, updated_at) VALUES (?, ?, ?, ?)", (code, 'NXT', price_val, now_str))
                                     updated_count += 1
@@ -483,12 +471,13 @@ def auto_fetch_nxt_close_job():
                             pass
                         # 네이버 서버에 부담을 주지 않기 위해 약간의 지연 시간 추가
                         time.sleep(0.3)
-                        
+
                 conn.commit()
                 conn.close()
                 app.logger.info(f"✅ 백그라운드: 시간외 단일가 캐싱 완료 (총 {updated_count}개 종목 업데이트 됨)")
         except Exception as e:
             app.logger.error(f"❌ 시간외 단일가 자동 캐싱 스레드 오류: {e}")
+
 
 @app.before_request
 def check_login():
@@ -501,27 +490,42 @@ def check_login():
                 return jsonify({"error": "Unauthorized"}), 401
             # 일반 페이지 접근은 로그인 화면으로 리다이렉트
             return redirect(url_for('login'))
-        
+
         # ⭐️ 자동 폴링되는 API는 세션 갱신에서 제외하여 무한 로그인 유지 현상 방지
         if request.path not in ['/api/current_price', '/api/news']:
             session.modified = True
+
+
+# ⭐️ 관리자 권한 필요 라우트용 데코레이터
+def admin_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not is_admin():
+            return jsonify({"error": "Unauthorized"}), 403
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def is_admin():
+    return session.get('is_admin', False)
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     client_ip = request.remote_addr
     current_time = time.time()
-    
+
     # 접속 IP별 시도 횟수 및 차단 시간 초기화
     if client_ip not in login_attempts:
         login_attempts[client_ip] = {'count': 0, 'lockout_until': 0}
-        
+
     record = login_attempts[client_ip]
     error_message = None
     timeout_message = None
-    
+
     if request.method == 'GET' and request.args.get('timeout'):
         timeout_message = "보안을 위해 장시간 활동이 없어 자동으로 로그아웃 되었습니다."
-    
+
     if request.method == 'POST':
         # 현재 차단된 상태인지 확인
         if current_time < record['lockout_until']:
@@ -530,32 +534,30 @@ def login():
         else:
             username = request.form.get('username')
             password = request.form.get('password')
-            
+
             # DB에서 입력한 아이디와 일치하는 암호화된 비밀번호 조회
-            conn = get_db()
-            c = conn.cursor()
-            c.execute("SELECT password_hash, is_allowed, is_admin FROM users WHERE username = ?", (username,))
-            user_record = c.fetchone()
-            conn.close()
-            
+            with db_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT password_hash, is_allowed, is_admin FROM users WHERE username = ?", (username,))
+                user_record = c.fetchone()
+
             # 계정이 존재하고, 입력한 비밀번호와 DB의 해시값이 일치하는지 검증
             if user_record and check_password_hash(user_record['password_hash'], password):
                 if not user_record['is_allowed']:
                     error_message = "관리자의 승인이 필요하거나 로그인이 제한된 계정입니다."
                 else:
                     # 로그인 성공 시 최근 로그인 일시 업데이트
-                    conn = get_db()
-                    c = conn.cursor()
-                    current_time_str = time.strftime('%Y-%m-%d %H:%M:%S')
-                    c.execute("UPDATE users SET last_login_at = ? WHERE username = ?", (current_time_str, username))
-                    conn.commit()
-                    conn.close()
-                    
+                    with db_conn() as conn:
+                        c = conn.cursor()
+                        current_time_str = time.strftime('%Y-%m-%d %H:%M:%S')
+                        c.execute("UPDATE users SET last_login_at = ? WHERE username = ?", (current_time_str, username))
+                        conn.commit()
+
                     record['count'] = 0
                     record['lockout_until'] = 0
-                    session.permanent = True # ⭐️ 브라우저 종료 여부와 상관없이 설정된 시간(1시간) 후 세션 만료
+                    session.permanent = True  # ⭐️ 브라우저 종료 여부와 상관없이 설정된 시간(1시간) 후 세션 만료
                     session['logged_in'] = True
-                    session['username'] = username # ⭐️ 계정별 설정 저장을 위해 세션에 저장
+                    session['username'] = username  # ⭐️ 계정별 설정 저장을 위해 세션에 저장
                     session['is_admin'] = bool(user_record['is_admin'])
                     return redirect(url_for('index'))
             else:
@@ -565,138 +567,20 @@ def login():
                     error_message = "비밀번호 5회 연속 실패! 1분 동안 로그인이 차단됩니다."
                 else:
                     error_message = f"아이디 또는 비밀번호가 일치하지 않습니다. (실패 횟수: {record['count']}/5)"
-    
-    return render_template_string('''
-        <!DOCTYPE html>
-        <html lang="ko">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
-            <title>TRADING JOURNAL - 로그인</title>
-            <meta name="apple-mobile-web-app-capable" content="yes">
-            <meta name="apple-mobile-web-app-title" content="TRADING JOURNAL">
-            <meta name="theme-color" content="#121212">
-            <link rel="shortcut icon" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
-            <link rel="icon" type="image/png" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
-            <link rel="apple-touch-icon" sizes="180x180" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
-            <style>
-                body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: linear-gradient(135deg, #121212 0%, #1a1a2e 100%); margin: 0; color: #e0e0e0; }
-                .login-container { background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 30px 20px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 260px; }
-                .logo-text { font-size: 22px; font-weight: 900; font-style: italic; background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -1px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; }
-                input[type="text"],
-                input[type="password"] {
-                    width: 100%; 
-                    box-sizing: border-box; 
-                    padding: 10px; 
-                    margin: 0 0 12px 0; 
-                    border: 1px solid #333; 
-                    border-radius: 8px; 
-                    font-size: 16px; 
-                    background-color: rgba(18, 18, 18, 0.8); 
-                    color: #fff;
-                    transition: all 0.3s ease;
-                }
-                input[type="text"]::placeholder,
-                input[type="password"]::placeholder {
-                    color: #666;
-                }
-                input[type="text"]:focus,
-                input[type="password"]:focus {
-                    border-color: #8a2be2;
-                    outline: none;
-                    box-shadow: 0 0 0 3px rgba(138, 43, 226, 0.3);
-                    background-color: #121212;
-                }
-                button { 
-                    width: 100%; padding: 10px; margin-top: 5px; background: linear-gradient(135deg, #9d4edd 0%, #7b2cbf 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; 
-                    transition: all 0.3s ease; 
-                    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-                }
-                button:hover { 
-                    transform: translateY(-2px);
-                    box-shadow: 0 6px 20px rgba(123, 44, 191, 0.5);
-                    background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); 
-                }
-                .error-banner {
-                    position: fixed;
-                    top: 20px;
-                    left: 50%;
-                    transform: translateX(-50%);
-                    background: rgba(231, 76, 60, 0.95);
-                    color: white;
-                    padding: 12px 40px 12px 24px;
-                    border-radius: 8px;
-                    box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4);
-                    font-size: 14px;
-                    font-weight: bold;
-                    z-index: 1000;
-                    backdrop-filter: blur(5px);
-                    -webkit-backdrop-filter: blur(5px);
-                    opacity: 1;
-                    pointer-events: auto;
-                    animation: slideDown 0.3s ease-out forwards;
-                }
-                @keyframes slideDown {
-                    0% { top: -20px; opacity: 0; }
-                    100% { top: 20px; opacity: 1; }
-                }
-            </style>
-        </head>
-        <body>
-            {% if timeout_message %}
-            <!-- ⭐️ 타임아웃 메시지는 화면에 영구 고정되도록 설정 (주황색 테마) -->
-            <div class="error-banner" id="timeoutBanner" style="background: rgba(243, 156, 18, 0.95); box-shadow: 0 4px 15px rgba(243, 156, 18, 0.4);">
-                ⚠️ {{ timeout_message }}
-                <span onclick="document.getElementById('timeoutBanner').style.display='none'; const url = new URL(window.location); url.searchParams.delete('timeout'); window.history.replaceState({}, document.title, url);" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 24px; padding: 5px; line-height: 1;">&times;</span>
-            </div>
-            {% endif %}
-            {% if error_message %}
-            <div class="error-banner" id="errorBanner">
-                ⚠️ {{ error_message }}
-                <span onclick="document.getElementById('errorBanner').style.display='none'" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 24px; padding: 5px; line-height: 1;">&times;</span>
-            </div>
-            {% endif %}
-            <div class="login-container">
-                <div class="logo-text">
-                    TRADING JOURNAL
-                </div>
-                <form method="post">
-                    <input type="text" name="username" placeholder="아이디를 입력하세요" required autofocus>
-                    <input type="password" name="password" placeholder="비밀번호를 입력하세요" required>
-                    <button type="submit">접속하기</button>
-                </form>
-                <div style="margin-top: 15px; font-size: 13px;">
-                    <span style="color: #888;">계정이 없으신가요?</span> 
-                    <a href="{{ url_for('signup') }}" style="color: #b388ff; text-decoration: none; font-weight: bold;">새 계정 가입하기</a>
-                </div>
-            </div>
-            <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    const usernameInput = document.querySelector('input[name="username"]');
-                    const savedUsername = localStorage.getItem('last_username');
-                    if (savedUsername && usernameInput) {
-                        usernameInput.value = savedUsername;
-                        document.querySelector('input[name="password"]').focus(); // 아이디가 있으면 비밀번호 칸으로 포커스 이동
-                    }
-                    document.querySelector('form').addEventListener('submit', function() {
-                        if (usernameInput.value) localStorage.setItem('last_username', usernameInput.value);
-                    });
-                });
-            </script>
-        </body>
-        </html>
-    ''', error_message=error_message, timeout_message=timeout_message)
+
+    return render_template('login.html', error_message=error_message, timeout_message=timeout_message)
+
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     error_message = None
     success_message = None
-    
+
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
         password_confirm = request.form.get('password_confirm')
-        
+
         if not username or not password:
             error_message = "아이디와 비밀번호를 모두 입력해주세요."
         elif password != password_confirm:
@@ -704,27 +588,27 @@ def signup():
         else:
             conn = get_db()
             c = conn.cursor()
-            
+
             c.execute("SELECT COUNT(*) FROM users")
             user_count = c.fetchone()[0]
-            
+
             c.execute("SELECT id FROM users WHERE username = ?", (username,))
             if c.fetchone():
                 error_message = "이미 존재하는 아이디입니다."
             else:
                 hashed_pw = generate_password_hash(password)
                 current_time = time.strftime('%Y-%m-%d %H:%M:%S')
-                
+
                 # ⭐️ 가장 먼저 가입하는 사용자를 자동으로 최고 관리자로 설정
-                is_admin = 1 if user_count == 0 else 0
+                is_admin_flag = 1 if user_count == 0 else 0
                 is_allowed = 1 if user_count == 0 else 0
-                
-                c.execute("INSERT INTO users (username, password_hash, is_allowed, is_admin, created_at) VALUES (?, ?, ?, ?, ?)", (username, hashed_pw, is_allowed, is_admin, current_time))
+
+                c.execute("INSERT INTO users (username, password_hash, is_allowed, is_admin, created_at) VALUES (?, ?, ?, ?, ?)", (username, hashed_pw, is_allowed, is_admin_flag, current_time))
                 conn.commit()
-                
-                if is_admin:
+
+                if is_admin_flag:
                     success_message = "최초 회원가입이 완료되어 자동으로 최고 관리자로 지정되었습니다. 잠시 후 로그인 화면으로 이동합니다."
-                    
+
                     # ⭐️ 첫 관리자 가입 시 기존 JSON 파일이 있다면 자동 마이그레이션 수행
                     c.execute("SELECT COUNT(*) FROM entries")
                     if c.fetchone()[0] == 0 and os.path.exists(DATA_FILE):
@@ -734,18 +618,7 @@ def signup():
                                 old_data = json.load(f)
                                 for entry in old_data:
                                     img_url = process_image(entry.get('attachedImage'), entry.get('id'))
-                                    c.execute('''
-                                        INSERT INTO entries 
-                                        (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, subAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
-                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                    ''', (
-                                        entry.get('id'), username, entry.get('type'), entry.get('stockName'), entry.get('stockCode', ''), entry.get('title'),
-                                        entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), img_url,
-                                        entry.get('brokerAccount'), entry.get('subAccount', ''), entry.get('accountName'), entry.get('tradeType'),
-                                        entry.get('price', 0), entry.get('quantity', 0),
-                                        entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', ''),
-                                        entry.get('attachedFile', ''), entry.get('attachedFileName', '')
-                                    ))
+                                    entry_logic.insert_entry(c, username, entry, attached_image=img_url)
                                 conn.commit()
                                 app.logger.info("✅ 데이터 마이그레이션 완료! (이제부터 db/journal.db와 uploads 폴더를 사용합니다)")
                         except Exception as e:
@@ -753,77 +626,25 @@ def signup():
                 else:
                     success_message = "회원가입이 완료되었습니다! 관리자의 승인 후 로그인할 수 있습니다. 잠시 후 로그인 화면으로 이동합니다."
             conn.close()
-            
-    return render_template_string('''
-        <!DOCTYPE html>
-        <html lang="ko">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
-            <title>TRADING JOURNAL - 회원가입</title>
-            <meta name="apple-mobile-web-app-capable" content="yes">
-            <meta name="apple-mobile-web-app-title" content="TRADING JOURNAL">
-            <meta name="theme-color" content="#121212">
-            <link rel="shortcut icon" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
-            <link rel="icon" type="image/png" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
-            <link rel="apple-touch-icon" sizes="180x180" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
-            <style>
-                body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: linear-gradient(135deg, #121212 0%, #1a1a2e 100%); margin: 0; color: #e0e0e0; }
-                .login-container { background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 30px 20px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 260px; }
-                .logo-text { font-size: 22px; font-weight: 900; font-style: italic; background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -1px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; }
-                input[type="text"], input[type="password"] { width: 100%; box-sizing: border-box; padding: 10px; margin: 0 0 12px 0; border: 1px solid #333; border-radius: 8px; font-size: 16px; background-color: rgba(18, 18, 18, 0.8); color: #fff; transition: all 0.3s ease; }
-                input[type="text"]::placeholder, input[type="password"]::placeholder { color: #666; }
-                input[type="text"]:focus, input[type="password"]:focus { border-color: #8a2be2; outline: none; box-shadow: 0 0 0 3px rgba(138, 43, 226, 0.3); background-color: #121212; }
-                button { width: 100%; padding: 10px; margin-top: 5px; background: linear-gradient(135deg, #9d4edd 0%, #7b2cbf 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); }
-                button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(123, 44, 191, 0.5); background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); }
-                .error-banner { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(231, 76, 60, 0.95); color: white; padding: 12px 40px 12px 24px; border-radius: 8px; box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4); font-size: 14px; font-weight: bold; z-index: 1000; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); opacity: 1; pointer-events: auto; animation: slideDown 0.3s ease-out forwards; }
-                @keyframes slideDown { 0% { top: -20px; opacity: 0; } 100% { top: 20px; opacity: 1; } }
-            </style>
-        </head>
-        <body>
-            {% if error_message %}
-            <div class="error-banner" id="errorBanner">
-                ⚠️ {{ error_message }}
-                <span onclick="document.getElementById('errorBanner').style.display='none'" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 24px; padding: 5px; line-height: 1;">&times;</span>
-            </div>
-            {% endif %}
-            {% if success_message %}
-            <div class="error-banner" id="successBanner" style="background: rgba(39, 174, 96, 0.95); box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4);">
-                ✅ {{ success_message }}
-                <span onclick="document.getElementById('successBanner').style.display='none'" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 24px; padding: 5px; line-height: 1;">&times;</span>
-            </div>
-            <script> setTimeout(function() { window.location.href = "{{ url_for('login') }}"; }, 1500); </script>
-            {% endif %}
-            <div class="login-container">
-                <div class="logo-text">TRADING JOURNAL</div>
-                <form method="post">
-                    <input type="text" name="username" placeholder="사용할 아이디" required autofocus>
-                    <input type="password" name="password" placeholder="비밀번호" required>
-                    <input type="password" name="password_confirm" placeholder="비밀번호 확인" required>
-                    <button type="submit">가입하기</button>
-                </form>
-                <div style="margin-top: 15px; font-size: 13px;">
-                    <span style="color: #888;">이미 계정이 있으신가요?</span> 
-                    <a href="{{ url_for('login') }}" style="color: #b388ff; text-decoration: none; font-weight: bold;">로그인</a>
-                </div>
-            </div>
-        </body>
-        </html>
-    ''', error_message=error_message, success_message=success_message)
+
+    return render_template('signup.html', error_message=error_message, success_message=success_message)
+
 
 @app.route('/logout')
 def logout():
     session.pop('logged_in', None)
-    session.pop('username', None) # ⭐️ 로그아웃 시 계정 정보 완벽 파기
+    session.pop('username', None)  # ⭐️ 로그아웃 시 계정 정보 완벽 파기
     session.pop('is_admin', None)
     if request.args.get('timeout'):
         return redirect(url_for('login', timeout=1))
     return redirect(url_for('login'))
 
+
 @app.route('/')
 def index():
     app.logger.debug("index() route 호출됨: stock-memo.html 파일을 반환합니다.")
     return send_from_directory('.', 'stock-memo.html')
+
 
 @app.route('/api/ping', methods=['POST'])
 def ping():
@@ -831,28 +652,29 @@ def ping():
     session.modified = True
     return jsonify({"status": "success"})
 
+
 @app.route('/api/me', methods=['GET'])
 def get_me():
     username = session.get('username')
     pending_count = 0
-    is_admin = False
-    
+    admin_flag = False
+
     if username:
-        conn = get_db()
-        c = conn.cursor()
-        # ⭐️ 매 요청 시마다 DB에서 최신 관리자 권한을 조회하여 세션 동기화
-        c.execute("SELECT is_admin FROM users WHERE username = ?", (username,))
-        user = c.fetchone()
-        if user:
-            is_admin = bool(user['is_admin'])
-            session['is_admin'] = is_admin # 브라우저 세션에 즉각 갱신 반영
-            
-        if is_admin:
-            c.execute("SELECT COUNT(*) FROM users WHERE is_allowed = 0")
-            pending_count = c.fetchone()[0]
-        conn.close()
-        
-    return jsonify({"username": username, "is_admin": is_admin, "pending_count": pending_count})
+        with db_conn() as conn:
+            c = conn.cursor()
+            # ⭐️ 매 요청 시마다 DB에서 최신 관리자 권한을 조회하여 세션 동기화
+            c.execute("SELECT is_admin FROM users WHERE username = ?", (username,))
+            user = c.fetchone()
+            if user:
+                admin_flag = bool(user['is_admin'])
+                session['is_admin'] = admin_flag  # 브라우저 세션에 즉각 갱신 반영
+
+            if admin_flag:
+                c.execute("SELECT COUNT(*) FROM users WHERE is_allowed = 0")
+                pending_count = c.fetchone()[0]
+
+    return jsonify({"username": username, "is_admin": admin_flag, "pending_count": pending_count})
+
 
 @app.route('/api/account', methods=['DELETE'])
 def delete_account():
@@ -867,114 +689,100 @@ def delete_account():
     if not password:
         return jsonify({"error": "비밀번호를 입력해주세요."}), 400
 
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
-    user_record = c.fetchone()
-    
-    if not user_record or not check_password_hash(user_record['password_hash'], password):
-        conn.close()
-        return jsonify({"error": "비밀번호가 일치하지 않습니다."}), 400
-        
-    # 사용자 데이터 및 계정 삭제
-    c.execute("DELETE FROM entries WHERE username = ?", (username,))
-    c.execute("DELETE FROM users WHERE username = ?", (username,))
-    conn.commit()
-    conn.close()
-    
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+        user_record = c.fetchone()
+
+        if not user_record or not check_password_hash(user_record['password_hash'], password):
+            return jsonify({"error": "비밀번호가 일치하지 않습니다."}), 400
+
+        # 사용자 데이터 및 계정 삭제
+        c.execute("DELETE FROM entries WHERE username = ?", (username,))
+        c.execute("DELETE FROM users WHERE username = ?", (username,))
+        conn.commit()
+
     # 사용자 전용 업로드 폴더 삭제
     user_folder = os.path.join(UPLOAD_FOLDER, username)
     if os.path.exists(user_folder):
         shutil.rmtree(user_folder)
-        
+
     session.pop('logged_in', None)
     session.pop('username', None)
     return jsonify({"status": "success"})
 
-def is_admin():
-    return session.get('is_admin', False)
 
 @app.route('/api/admin/users', methods=['GET'])
+@admin_required
 def admin_get_users():
-    if not is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-    conn = get_db()
-    c = conn.cursor()
-    c.execute('''
-        SELECT u.username, u.is_allowed, u.is_admin, u.created_at, u.last_login_at, COUNT(e.id) as entry_count
-        FROM users u
-        LEFT JOIN entries e ON u.username = e.username
-        GROUP BY u.username
-    ''')
-    users = [dict(row) for row in c.fetchall()]
-    conn.close()
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute('''
+            SELECT u.username, u.is_allowed, u.is_admin, u.created_at, u.last_login_at, COUNT(e.id) as entry_count
+            FROM users u
+            LEFT JOIN entries e ON u.username = e.username
+            GROUP BY u.username
+        ''')
+        users = [dict(row) for row in c.fetchall()]
     return jsonify(users)
 
+
 @app.route('/api/admin/users/<target_username>', methods=['DELETE'])
+@admin_required
 def admin_delete_user(target_username):
-    if not is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-        
-    conn = get_db()
-    c = conn.cursor()
-    
-    c.execute("SELECT is_admin FROM users WHERE username = ?", (target_username,))
-    target_user = c.fetchone()
-    if target_user and target_user['is_admin']:
-        conn.close()
-        return jsonify({"error": "최고 관리자는 삭제할 수 없습니다."}), 400
-        
-    c.execute("DELETE FROM entries WHERE username = ?", (target_username,))
-    c.execute("DELETE FROM users WHERE username = ?", (target_username,))
-    conn.commit()
-    conn.close()
-    
+    with db_conn() as conn:
+        c = conn.cursor()
+
+        c.execute("SELECT is_admin FROM users WHERE username = ?", (target_username,))
+        target_user = c.fetchone()
+        if target_user and target_user['is_admin']:
+            return jsonify({"error": "최고 관리자는 삭제할 수 없습니다."}), 400
+
+        c.execute("DELETE FROM entries WHERE username = ?", (target_username,))
+        c.execute("DELETE FROM users WHERE username = ?", (target_username,))
+        conn.commit()
+
     user_folder = os.path.join(UPLOAD_FOLDER, target_username)
     if os.path.exists(user_folder):
         shutil.rmtree(user_folder)
-        
+
     return jsonify({"status": "success"})
 
+
 @app.route('/api/admin/users/<target_username>/toggle_allow', methods=['POST'])
+@admin_required
 def admin_toggle_allow(target_username):
-    if not is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-        
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT is_allowed, is_admin FROM users WHERE username = ?", (target_username,))
-    user = c.fetchone()
-    if not user:
-        conn.close()
-        return jsonify({"error": "사용자를 찾을 수 없습니다."}), 404
-        
-    if user['is_admin']:
-        conn.close()
-        return jsonify({"error": "최고 관리자의 상태는 변경할 수 없습니다."}), 400
-        
-    new_status = 0 if user['is_allowed'] else 1
-    c.execute("UPDATE users SET is_allowed = ? WHERE username = ?", (new_status, target_username))
-    conn.commit()
-    conn.close()
-    
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT is_allowed, is_admin FROM users WHERE username = ?", (target_username,))
+        user = c.fetchone()
+        if not user:
+            return jsonify({"error": "사용자를 찾을 수 없습니다."}), 404
+
+        if user['is_admin']:
+            return jsonify({"error": "최고 관리자의 상태는 변경할 수 없습니다."}), 400
+
+        new_status = 0 if user['is_allowed'] else 1
+        c.execute("UPDATE users SET is_allowed = ? WHERE username = ?", (new_status, target_username))
+        conn.commit()
+
     return jsonify({"status": "success", "is_allowed": new_status})
 
+
 @app.route('/api/admin/users/<target_username>/reset_password', methods=['POST'])
+@admin_required
 def admin_reset_password(target_username):
-    if not is_admin():
-        return jsonify({"error": "Unauthorized"}), 403
-        
     # 8자리의 무작위 영문+숫자 임시 비밀번호 생성
     new_password = uuid.uuid4().hex[:8]
     hashed_pw = generate_password_hash(new_password)
-    
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (hashed_pw, target_username))
-    conn.commit()
-    conn.close()
-    
+
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (hashed_pw, target_username))
+        conn.commit()
+
     return jsonify({"status": "success", "new_password": new_password})
+
 
 @app.route('/uploads/<req_username>/<filename>')
 def uploaded_file(req_username, filename):
@@ -985,331 +793,70 @@ def uploaded_file(req_username, filename):
     # ⭐️ 브라우저(특히 Safari)가 다운로드된 ZIP 파일을 강제로 자동 압축 해제하지 않도록 attachment로 전송
     return send_from_directory(user_folder, filename, as_attachment=True)
 
+
 @app.route('/api/data', methods=['GET'])
 def get_data():
     username = session.get('username')
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT * FROM entries WHERE username = ? ORDER BY id DESC", (username,))
-    rows = c.fetchall()
-    data = [dict(row) for row in rows]
-    conn.close()
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM entries WHERE username = ? ORDER BY id DESC", (username,))
+        data = [dict(row) for row in c.fetchall()]
     return jsonify(data)
-
-# ─────────────────────────────────────────────────────────────
-# ⭐️ 데이터 무결성: 매매 기록 검증 헬퍼
-# ─────────────────────────────────────────────────────────────
-def _net_holding_for_stock(c, username, stock_name, exclude_id=None):
-    """해당 사용자의 특정 종목 현재 순보유 수량(매수 합계 - 매도 합계)을 계산합니다.
-    프론트엔드 포트폴리오 대시보드와 동일하게 종목명을 기준으로 집계합니다."""
-    query = ("SELECT tradeType, quantity FROM entries "
-             "WHERE username = ? AND type = 'trade' AND stockName = ?")
-    params = [username, stock_name]
-    if exclude_id is not None:
-        query += " AND id != ?"
-        params.append(exclude_id)
-    c.execute(query, params)
-
-    held = 0.0
-    for row in c.fetchall():
-        qty = float(row['quantity'] or 0)
-        if row['tradeType'] == '매수':
-            held += qty
-        elif row['tradeType'] == '매도':
-            held -= qty
-    return held
-
-
-def validate_trade_entry(c, username, entry, exclude_id=None):
-    """매도 거래의 데이터 무결성을 검증합니다.
-
-    - 매수 보유 기록이 없는 종목의 매도를 차단합니다.
-    - 보유 수량을 초과하는 매도(오버셀)를 차단합니다.
-
-    검증 통과 시 None, 위반 시 한국어 오류 메시지(str)를 반환합니다.
-    (※ 백업 복원 등 과거 데이터 일괄 삽입에는 적용하지 않습니다.)
-    """
-    if entry.get('type') != 'trade' or entry.get('tradeType') != '매도':
-        return None
-
-    stock_name = (entry.get('stockName') or '').strip()
-    if not stock_name:
-        return None
-
-    try:
-        sell_qty = float(entry.get('quantity') or 0)
-    except (TypeError, ValueError):
-        return None
-    if sell_qty <= 0:
-        return None
-
-    held = _net_holding_for_stock(c, username, stock_name, exclude_id=exclude_id)
-
-    EPS = 1e-6  # 부동소수점 오차 허용
-    if held <= EPS:
-        return f"'{stock_name}'은(는) 매수 보유 기록이 없어 매도할 수 없습니다."
-    if sell_qty > held + EPS:
-        return (f"'{stock_name}'의 매도 수량({sell_qty:g})이 "
-                f"현재 보유 수량({held:g})을 초과합니다.")
-    return None
 
 
 @app.route('/api/entry', methods=['POST'])
 def create_entry():
     username = session.get('username')
     entry = request.json
-    conn = get_db()
-    c = conn.cursor()
+    with db_conn() as conn:
+        c = conn.cursor()
 
-    # ⭐️ 데이터 무결성 검증 (매도 수량/보유 여부)
-    validation_error = validate_trade_entry(c, username, entry)
-    if validation_error:
-        conn.close()
-        return jsonify({"error": validation_error}), 400
+        # ⭐️ 데이터 무결성 검증 (매도 수량/보유 여부)
+        validation_error = entry_logic.validate_trade_entry(c, username, entry)
+        if validation_error:
+            return jsonify({"error": validation_error}), 400
 
-    c.execute('''
-        INSERT INTO entries
-        (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, subAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        entry.get('id'), username, entry.get('type'), entry.get('stockName'), entry.get('stockCode', ''), entry.get('title'),
-        entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), entry.get('attachedImage'),
-        entry.get('brokerAccount'), entry.get('subAccount', ''), entry.get('accountName'), entry.get('tradeType'),
-        entry.get('price', 0), entry.get('quantity', 0),
-        entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', ''),
-        entry.get('attachedFile', ''), entry.get('attachedFileName', '')
-    ))
-    conn.commit()
-    conn.close()
+        entry_logic.insert_entry(c, username, entry)
+        conn.commit()
     return jsonify({"status": "success"})
+
 
 @app.route('/api/entry/<int:entry_id>', methods=['PUT'])
 def update_entry(entry_id):
     username = session.get('username')
     entry = request.json
-    conn = get_db()
-    c = conn.cursor()
+    with db_conn() as conn:
+        c = conn.cursor()
 
-    # ⭐️ 데이터 무결성 검증 (수정 중인 기록 자신은 집계에서 제외)
-    validation_error = validate_trade_entry(c, username, entry, exclude_id=entry_id)
-    if validation_error:
-        conn.close()
-        return jsonify({"error": validation_error}), 400
+        # ⭐️ 데이터 무결성 검증 (수정 중인 기록 자신은 집계에서 제외)
+        validation_error = entry_logic.validate_trade_entry(c, username, entry, exclude_id=entry_id)
+        if validation_error:
+            return jsonify({"error": validation_error}), 400
 
-    c.execute('''
-        UPDATE entries SET
-        type=?, stockName=?, stockCode=?, title=?, thoughts=?, date=?, rawDate=?, attachedImage=?, brokerAccount=?, subAccount=?, accountName=?, tradeType=?, price=?, quantity=?, updatedAt=?, tags=?, attachedFile=?, attachedFileName=?
-        WHERE id=? AND username=?
-    ''', (
-        entry.get('type'), entry.get('stockName'), entry.get('stockCode', ''), entry.get('title'),
-        entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), entry.get('attachedImage'),
-        entry.get('brokerAccount'), entry.get('subAccount', ''), entry.get('accountName'), entry.get('tradeType'),
-        entry.get('price', 0), entry.get('quantity', 0),
-        entry.get('updatedAt'), entry.get('tags', ''),
-        entry.get('attachedFile', ''), entry.get('attachedFileName', ''),
-        entry_id, username
-    ))
-    conn.commit()
-    conn.close()
+        entry_logic.update_entry_row(c, entry_id, username, entry)
+        conn.commit()
     return jsonify({"status": "success"})
+
 
 @app.route('/api/entry/<int:entry_id>', methods=['DELETE'])
 def delete_entry(entry_id):
     username = session.get('username')
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("DELETE FROM entries WHERE id=? AND username=?", (entry_id, username))
-    conn.commit()
-    conn.close()
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM entries WHERE id=? AND username=?", (entry_id, username))
+        conn.commit()
     return jsonify({"status": "success"})
-
-
-# ─────────────────────────────────────────────────────────────
-# ⭐️ 매매 성과 분석(통계)
-# ─────────────────────────────────────────────────────────────
-def _parse_entry_dt(entry):
-    """기록의 거래 일시를 datetime으로 파싱합니다. rawDate를 우선 사용하고,
-    실패 시 id(밀리초 타임스탬프)로 대체합니다. 모두 실패하면 None."""
-    raw = entry.get('rawDate')
-    if raw:
-        for fmt in ('%Y-%m-%dT%H:%M', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
-            try:
-                return datetime.strptime(str(raw), fmt)
-            except (ValueError, TypeError):
-                continue
-    try:
-        return datetime.fromtimestamp(int(entry.get('id')) / 1000)
-    except (ValueError, TypeError, OSError):
-        return None
-
-
-def compute_trade_stats(rows):
-    """매매 기록 리스트로부터 성과 분석 지표를 계산합니다.
-
-    실현손익은 프론트엔드 대시보드와 동일한 이동평균단가(average-cost) 방식으로,
-    보유기간은 FIFO 로트 매칭으로 추정합니다.
-    """
-    from collections import defaultdict, deque
-
-    trades = [r for r in rows if r.get('type') == 'trade' and (r.get('stockName') or '').strip()]
-    trades.sort(key=lambda r: _parse_entry_dt(r) or datetime.min)
-
-    portfolio = {}  # stock -> {qty, totalCost, avgPrice, lots(deque of [dt, qty])}
-    monthly = defaultdict(lambda: {'realized': 0.0, 'dividend': 0.0, 'buyAmount': 0.0, 'sellAmount': 0.0})
-    per_stock = defaultdict(lambda: {'realized': 0.0, 'dividend': 0.0, 'sellCount': 0, 'winCount': 0})
-    realized_events = []  # (dt, amount) — 누적 실현손익 곡선 / MDD 계산용
-
-    total_realized = 0.0      # 매도 실현손익 합계
-    total_dividend = 0.0      # 배당 수익 합계
-    buy_count = sell_count = dividend_count = 0
-    win_count = loss_count = 0
-    gross_profit = 0.0        # 이익 매도건 손익 합
-    gross_loss = 0.0          # 손실 매도건 손익 절댓값 합
-    holding_days_weighted = 0.0
-    holding_qty_total = 0.0
-
-    EPS = 1e-9
-
-    for t in trades:
-        stock = t['stockName'].strip()
-        qty = float(t.get('quantity') or 0)
-        price = float(t.get('price') or 0)
-        ttype = t.get('tradeType')
-        dt = _parse_entry_dt(t)
-        mkey = dt.strftime('%Y-%m') if dt else '미상'
-
-        p = portfolio.setdefault(stock, {'qty': 0.0, 'totalCost': 0.0, 'avgPrice': 0.0, 'lots': deque()})
-
-        if ttype == '매수':
-            buy_count += 1
-            p['qty'] += qty
-            p['totalCost'] += price * qty
-            if p['qty'] > 0:
-                p['avgPrice'] = p['totalCost'] / p['qty']
-            p['lots'].append([dt, qty])
-            monthly[mkey]['buyAmount'] += price * qty
-
-        elif ttype == '매도':
-            sell_count += 1
-            avg = p['avgPrice']
-            profit = (price - avg) * qty
-
-            total_realized += profit
-            monthly[mkey]['realized'] += profit
-            monthly[mkey]['sellAmount'] += price * qty
-            per_stock[stock]['realized'] += profit
-            per_stock[stock]['sellCount'] += 1
-            if profit > 0:
-                win_count += 1
-                gross_profit += profit
-                per_stock[stock]['winCount'] += 1
-            elif profit < 0:
-                loss_count += 1
-                gross_loss += -profit
-            if dt:
-                realized_events.append((dt, profit))
-
-            # FIFO 로트 매칭으로 보유기간(일) 가중 합산
-            remaining = qty
-            while remaining > EPS and p['lots']:
-                lot = p['lots'][0]
-                lot_dt, lot_qty = lot[0], lot[1]
-                matched = min(remaining, lot_qty)
-                if lot_dt and dt:
-                    holding_days_weighted += (dt - lot_dt).total_seconds() / 86400.0 * matched
-                    holding_qty_total += matched
-                lot[1] -= matched
-                remaining -= matched
-                if lot[1] <= EPS:
-                    p['lots'].popleft()
-
-            # 보유 포지션 갱신 (청산 시 초기화)
-            p['qty'] -= qty
-            p['totalCost'] -= avg * qty
-            if p['qty'] <= EPS:
-                p['qty'] = 0.0
-                p['totalCost'] = 0.0
-                p['avgPrice'] = 0.0
-                p['lots'].clear()
-
-        elif ttype == '배당':
-            dividend_count += 1
-            amount = price * qty
-            total_dividend += amount
-            monthly[mkey]['dividend'] += amount
-            per_stock[stock]['dividend'] += amount
-            if dt:
-                realized_events.append((dt, amount))
-
-    # 누적 실현손익 곡선 및 최대 낙폭(MDD, 금액 기준)
-    realized_events.sort(key=lambda x: x[0])
-    cumulative = peak = max_drawdown = 0.0
-    for _dt, amount in realized_events:
-        cumulative += amount
-        if cumulative > peak:
-            peak = cumulative
-        drawdown = peak - cumulative
-        if drawdown > max_drawdown:
-            max_drawdown = drawdown
-
-    decided = win_count + loss_count
-    win_rate = (win_count / decided * 100.0) if decided else 0.0
-    avg_win = (gross_profit / win_count) if win_count else 0.0
-    avg_loss = (gross_loss / loss_count) if loss_count else 0.0
-    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
-    avg_holding_days = (holding_days_weighted / holding_qty_total) if holding_qty_total > 0 else 0.0
-
-    # 월별: 최근 12개월만 시간순으로 반환 ('미상' 제외)
-    monthly_list = [
-        {'month': k, **v}
-        for k, v in sorted(monthly.items()) if k != '미상'
-    ][-12:]
-
-    # 종목별: 실현손익(+배당) 합계 내림차순
-    per_stock_list = []
-    for stock, v in per_stock.items():
-        sc = v['sellCount']
-        per_stock_list.append({
-            'stock': stock,
-            'realized': v['realized'],
-            'dividend': v['dividend'],
-            'total': v['realized'] + v['dividend'],
-            'sellCount': sc,
-            'winCount': v['winCount'],
-            'winRate': (v['winCount'] / sc * 100.0) if sc else 0.0,
-        })
-    per_stock_list.sort(key=lambda x: x['total'], reverse=True)
-
-    return {
-        'totalRealized': total_realized,
-        'totalDividend': total_dividend,
-        'totalPnl': total_realized + total_dividend,
-        'buyCount': buy_count,
-        'sellCount': sell_count,
-        'dividendCount': dividend_count,
-        'winCount': win_count,
-        'lossCount': loss_count,
-        'winRate': win_rate,
-        'avgWin': avg_win,
-        'avgLoss': avg_loss,
-        'profitFactor': profit_factor,
-        'avgHoldingDays': avg_holding_days,
-        'maxDrawdown': max_drawdown,
-        'monthly': monthly_list,
-        'perStock': per_stock_list,
-    }
 
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     """로그인한 사용자의 매매 성과 분석 지표를 반환합니다."""
     username = session.get('username')
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT * FROM entries WHERE username = ?", (username,))
-    rows = [dict(row) for row in c.fetchall()]
-    conn.close()
-    return jsonify(compute_trade_stats(rows))
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM entries WHERE username = ?", (username,))
+        rows = [dict(row) for row in c.fetchall()]
+    return jsonify(stats.compute_trade_stats(rows))
 
 
 @app.route('/api/current_price', methods=['POST'])
@@ -1317,282 +864,46 @@ def get_current_price():
     data = request.json or {}
     codes = data.get('codes', [])
     market_mode = data.get('market_mode', 'AUTO')
-    prices = {}
-    
-    # ⭐️ 시간외 단일가 유지를 위한 DB 캐시 저장/조회 헬퍼 함수
-    def save_price_cache(code_val, price_val, cache_market_type='KRX'):
-        conn = None
-        try:
-            conn = get_db()
-            c = conn.cursor()
-            now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            c.execute("REPLACE INTO price_cache (code, market_type, price, updated_at) VALUES (?, ?, ?, ?)", (code_val, cache_market_type, price_val, now_str))
-            conn.commit()
-        except Exception:
-            pass
-        finally:
-            if conn:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-            
-    def load_price_cache(code_val, cache_market_type='KRX'):
-        conn = None
-        try:
-            conn = get_db()
-            c = conn.cursor()
-            c.execute("SELECT price FROM price_cache WHERE code = ? AND market_type = ?", (code_val, cache_market_type))
-            row = c.fetchone()
-            if row:
-                return row['price']
-        except Exception:
-            pass
-        finally:
-            if conn:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-        return None
+    return jsonify(prices.get_prices(codes, market_mode))
 
-    def fetch_price(code):
-        code_str = str(code).strip().upper()
-        if not code_str: return None, None
-        try:
-            # ⭐️ KRX 금현물(1g) 전용 처리
-            if code_str in ['KRXGOLD', 'GOLD']:
-                try:
-                    # 1순위: 네이버 증권의 새로운 금 시세 API (가장 안정적)
-                    new_naver_gold_url = "https://api.stock.naver.com/marketindex/metals/M04020000"
-                    req = urllib.request.Request(new_naver_gold_url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(req, timeout=3) as response:
-                        res_data = json.loads(response.read())
-                        price_str = res_data.get('closePrice', '')
-                        if price_str:
-                            price_val = float(price_str.replace(',', ''))
-                            save_price_cache(code_str, price_val)
-                            return code, price_val
-                except Exception:
-                    pass
-
-                try:
-                    # 2순위: 한국거래소(KRX) 공식 웹사이트 직접 스크래핑 (백업)
-                    krx_url = "https://www.krx.co.kr/contents/COM/Finance/KRX_Gold_Market.jsp"
-                    krx_req = urllib.request.Request(krx_url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(krx_req, timeout=3) as krx_res:
-                        html = krx_res.read().decode('utf-8', errors='ignore')
-                        match = re.search(r'현재가</th>\s*<td[^>]*>\s*<strong>([\d,]+)</strong>', html)
-                        if match:
-                            price_val = float(match.group(1).replace(',', ''))
-                            save_price_cache(code_str, price_val)
-                            return code, price_val
-                except Exception:
-                    pass
-
-                return code, None
-
-            # ⭐️ 제공해주신 종목코드/티커 국가 구분 로직 적용
-            market_type = "UNKNOWN"
-            if re.fullmatch(r'^[A-Z\.\-]{1,6}$', code_str):
-                market_type = "US"
-            elif len(code_str) == 6 and re.fullmatch(r'^\d{5}[0-9A-Z]$', code_str):
-                market_type = "KR"
-            elif len(code_str) == 6 and code_str.isalnum():
-                market_type = "KR" # 예외: 0162Z0 등 영문 혼합 국내 신주인수권/ETN 포괄용
-            elif re.fullmatch(r'^\d+$', code_str):
-                market_type = "OTHER_ASIAN"
-
-            if market_type == "KR":
-                import datetime
-                kst_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
-                time_num = kst_now.hour * 100 + kst_now.minute
-                day_of_week = kst_now.weekday()
-                is_holiday = (kst_now.year, kst_now.month, kst_now.day) in KRX_HOLIDAYS
-                
-                # ⭐️ 실제 현재 시간이 정규장인지 판단 (주말 + 공휴일 포함)
-                is_real_out_of_hours = (day_of_week >= 5) or is_holiday or not (900 <= time_num < 1530)
-
-                # ⭐️ 모바일 API 전용 위장 헤더 (PC 스크래핑을 제거하여 봇 차단 원천 방지)
-                api_headers = {
-                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-                    'Accept': 'application/json, text/plain, */*',
-                    'Referer': 'https://m.stock.naver.com/'
-                }
-
-                try:
-                    realtime_krx_price = None
-                    # ⭐️ 정규장 실시간 시세: 모바일 API의 CDN 지연(1~3분)을 완벽히 우회하기 위해 PC용 실시간 siseJson API 최우선 호출
-                    # 시장 모드와 상관없이 실제 정규장 시간이면 KRX 실시간 시세를 가져옴
-                    if not is_real_out_of_hours:
-                        try:
-                            sise_url = f"https://api.finance.naver.com/siseJson.naver?symbol={code_str}&requestType=1"
-                            sise_req = urllib.request.Request(sise_url, headers={'User-Agent': 'Mozilla/5.0'})
-                            with urllib.request.urlopen(sise_req, timeout=3) as sise_res:
-                                sise_data = sise_res.read().decode('euc-kr', errors='ignore')
-                                # 정규식을 통해 nowVal 추출 (캐시 없는 실시간 현재가)
-                                match = re.search(r'"nowVal"\s*:\s*(\d+)', sise_data)
-                                if match:
-                                    val = float(match.group(1))
-                                    if val > 0:
-                                        realtime_krx_price = val
-                        except Exception:
-                            pass
-
-                    # 국내 주식 (네이버 증권 최신 API 적용 및 캐시 방지 파라미터 추가)
-                    ts = int(time.time() * 1000)
-                    url = f"https://m.stock.naver.com/api/stock/{code_str}/basic?_={ts}"
-                    req = urllib.request.Request(url, headers=api_headers)
-                    with urllib.request.urlopen(req, timeout=3) as response:
-                        res_data = json.loads(response.read())
-                        price_str = str(res_data.get('closePrice', ''))
-                        close_price = float(price_str.replace(',', '')) if price_str and price_str != '0' else None
-                        
-                        # KRX 기본 시세 (siseJson 값이 있으면 우선, 없으면 모바일 API의 closePrice)
-                        current_krx_price = realtime_krx_price if realtime_krx_price else close_price
-                        
-                        if market_mode == 'NXT':
-                            # ⭐️ 1. 정규장(09:00~15:30)에는 무조건 KRX 실시간 시세 우선 반환
-                            if not is_real_out_of_hours:
-                                if current_krx_price:
-                                    save_price_cache(code_str, current_krx_price, 'KRX')
-                                    return code, current_krx_price
-                                    
-                            # ⭐️ 2. 장외 시간(15:30~익일 09:00)에는 NXT 시세 획득 시도
-                            over_info = res_data.get('overMarketPriceInfo', {})
-                            if isinstance(over_info, dict) and over_info.get('overPrice'):
-                                nxt_price_str = str(over_info.get('overPrice'))
-                                nxt_price = float(nxt_price_str.replace(',', ''))
-                                save_price_cache(code_str, nxt_price, 'NXT')
-                                return code, nxt_price
-                            
-                            # ⭐️ 3. 자정 이후 등 모바일 API 데이터가 비워졌을 경우 PC 웹 크롤링
-                            try:
-                                pc_url = f"https://finance.naver.com/item/main.naver?code={code_str}"
-                                pc_req = urllib.request.Request(pc_url, headers={'User-Agent': 'Mozilla/5.0'})
-                                with urllib.request.urlopen(pc_req, timeout=3) as pc_res:
-                                    html = pc_res.read().decode('euc-kr', errors='ignore')
-                                    
-                                    # ⭐️ 시간외단일가 테이블 영역만 정확히 추출하여 엉뚱한 전일 종가를 오인식하지 않도록 수정
-                                    nxt_area_match = re.search(r'시간외단일가.*?</table>', html, re.DOTALL)
-                                    if nxt_area_match:
-                                        nxt_html = nxt_area_match.group(0)
-                                        if '거래 내역이 없습니다' not in nxt_html:
-                                            price_match = re.search(r'<span class="blind">([\d,]+)</span>', nxt_html)
-                                            if price_match:
-                                                nxt_price = float(price_match.group(1).replace(',', ''))
-                                                save_price_cache(code_str, nxt_price, 'NXT')
-                                                return code, nxt_price
-                            except Exception:
-                                pass
-                                
-                            # ⭐️ 4. NXT 전용 캐시 확인 (KRX 가격 오염 방지)
-                            cached_nxt_price = load_price_cache(code_str, 'NXT')
-                            if cached_nxt_price:
-                                return code, cached_nxt_price
-
-                            # ⭐️ 5. NXT 캐시도 없을 경우 KRX 기본 시세로 폴백
-                            if current_krx_price:
-                                return code, current_krx_price
-
-                            # ⭐️ 6. API 및 크롤링 모두 실패 시 KRX 캐시로 최종 방어
-                            cached_price = load_price_cache(code_str, 'KRX')
-                            if cached_price:
-                                return code, cached_price
-                        else:
-                            # KRX 모드일 경우: NXT 가격은 무시하고 KRX 가격만 반환
-                            if current_krx_price:
-                                save_price_cache(code_str, current_krx_price, 'KRX')
-                                return code, current_krx_price
-                        
-                    if current_krx_price:
-                        return code, current_krx_price
-                except Exception:
-                    # ⭐️ 네이버 API 조회에 완전히 실패(통신 에러 등)했을 경우, 캐시를 최후의 보루로 사용
-                    if market_mode == 'NXT':
-                        cached_price = load_price_cache(code_str, 'NXT')
-                        if cached_price:
-                            return code, cached_price
-                    cached_price = load_price_cache(code_str, 'KRX')
-                    if cached_price:
-                        return code, cached_price
-
-            # ⭐️ US, OTHER_ASIAN, UNKNOWN 이거나 국내 API에서 조회 실패한 경우 야후 파이낸스 호출
-            try:
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{code_str}"
-                req = urllib.request.Request(url, headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-                })
-                with urllib.request.urlopen(req, timeout=3) as response:
-                    res_data = json.loads(response.read())
-                    price = res_data['chart']['result'][0]['meta']['regularMarketPrice']
-                    save_price_cache(code_str, float(price), 'KRX')
-                    return code, float(price)
-            except Exception:
-                pass
-                
-            # ⭐️ 최후의 보루: 야후 파이낸스마저 통신에 실패했을 때, 만약 캐시에 저장된 마지막 가격이 있다면 (정규장이든 아니든) 방어용으로 반환
-            if market_mode == 'NXT':
-                cached_price = load_price_cache(code_str, 'NXT')
-                if cached_price:
-                    return code, cached_price
-            cached_price = load_price_cache(code_str, 'KRX')
-            if cached_price:
-                return code, cached_price
-                
-            return code, None
-            
-        except Exception: 
-            return code, None
-            
-    # ⭐️ 스레드 풀을 활용한 병렬(비동기) 처리로 다수 종목 조회 속도 대폭 개선
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        results = executor.map(fetch_price, codes)
-        for code, price in results:
-            if code is not None:
-                prices[code] = price
-                
-    return jsonify(prices)
 
 @app.route('/api/change_password', methods=['POST'])
 def change_password():
     username = session.get('username')
     if not username:
         return jsonify({"error": "Unauthorized"}), 401
-        
+
     data = request.json
     current_password = data.get('current_password')
     new_password = data.get('new_password')
-    
+
     if not current_password or not new_password:
         return jsonify({"error": "모든 필드를 입력해주세요."}), 400
-        
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
-    user_record = c.fetchone()
-    
-    if not user_record or not check_password_hash(user_record['password_hash'], current_password):
-        conn.close()
-        return jsonify({"error": "현재 비밀번호가 일치하지 않습니다."}), 400
-        
-    hashed_pw = generate_password_hash(new_password)
-    c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (hashed_pw, username))
-    conn.commit()
-    conn.close()
-    
+
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+        user_record = c.fetchone()
+
+        if not user_record or not check_password_hash(user_record['password_hash'], current_password):
+            return jsonify({"error": "현재 비밀번호가 일치하지 않습니다."}), 400
+
+        hashed_pw = generate_password_hash(new_password)
+        c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (hashed_pw, username))
+        conn.commit()
+
     return jsonify({"status": "success"})
+
 
 @app.route('/api/preferences', methods=['GET'])
 def get_preferences():
     username = session.get('username')
     if not username:
         return jsonify({}), 401
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT preferences FROM users WHERE username = ?", (username,))
-    row = c.fetchone()
-    conn.close()
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT preferences FROM users WHERE username = ?", (username,))
+        row = c.fetchone()
     prefs = {}
     if row and row['preferences']:
         try:
@@ -1601,42 +912,44 @@ def get_preferences():
             pass
     return jsonify(prefs)
 
+
 @app.route('/api/preferences', methods=['POST'])
 def save_preferences():
     username = session.get('username')
     if not username:
         return jsonify({"error": "Unauthorized"}), 401
     prefs = request.json
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("UPDATE users SET preferences = ? WHERE username = ?", (json.dumps(prefs), username))
-    conn.commit()
-    conn.close()
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE users SET preferences = ? WHERE username = ?", (json.dumps(prefs), username))
+        conn.commit()
     return jsonify({"status": "success"})
+
 
 # ⭐️ 뉴스 검색 결과를 임시 보관할 캐시 딕셔너리와 유효 시간(초) 설정
 news_cache = {}
 NEWS_CACHE_TTL = 600  # 10분(600초) 동안 캐시 유지
+
 
 @app.route('/api/news', methods=['POST'])
 def get_news():
     data = request.json or {}
     stocks = data.get('stocks', [])
     force_refresh = data.get('force_refresh', False)
-    
+
     # 보유 종목이 없을 경우 기본 검색어 사용
     if not stocks:
         stocks = ['국내 증시']
-        
+
     def fetch_news_for_stock(stock):
         current_time = time.time()
-        
+
         # ⭐️ 1. 수동 새로고침이 아니고, 캐시에 데이터가 유효 시간(10분) 내에 있다면 구글에 요청하지 않고 캐시 반환
         if not force_refresh and stock in news_cache:
             cached_data, timestamp = news_cache[stock]
             if current_time - timestamp < NEWS_CACHE_TTL:
                 return cached_data
-                
+
         news_list = []
         try:
             # ⭐️ 네이버 RSS 서비스 전면 종료(404)에 따라 안정적인 구글 뉴스 RSS로 복귀
@@ -1648,8 +961,9 @@ def get_news():
                 xml_data = response.read()
                 root = ET.fromstring(xml_data)
                 for idx, item in enumerate(root.findall('.//item')):
-                    if idx >= 5: break
-                    
+                    if idx >= 5:
+                        break
+
                     news_list.append({
                         'stock': stock,
                         'title': item.find('title').text,
@@ -1658,10 +972,10 @@ def get_news():
                     })
         except Exception as e:
             app.logger.error(f"Error fetching Google news for {stock}: {e}")
-            
+
         # ⭐️ 2. 새로 가져온 뉴스 데이터를 현재 시간과 함께 캐시에 저장
         news_cache[stock] = (news_list, current_time)
-        
+
         return news_list
 
     all_news = []
@@ -1670,25 +984,25 @@ def get_news():
         results = executor.map(fetch_news_for_stock, stocks)
         for res_list in results:
             all_news.extend(res_list)
-            
+
     return jsonify(all_news)
+
 
 @app.route('/api/backup', methods=['GET'])
 def full_backup():
     """DB와 업로드 이미지를 포함한 전체 폴더를 압축하여 다운로드 제공"""
     username = session.get('username')
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT * FROM entries WHERE username = ?", (username,))
-    rows = [dict(row) for row in c.fetchall()]
-    conn.close()
-    
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM entries WHERE username = ?", (username,))
+        rows = [dict(row) for row in c.fetchall()]
+
     memory_file = io.BytesIO()
     with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
         # 1. 사용자 데이터를 JSON으로 백업
         json_data = json.dumps(rows, ensure_ascii=False, indent=2)
         zf.writestr('data.json', json_data)
-        
+
         # 2. 사용자 이미지 폴더 백업
         user_folder = os.path.join(UPLOAD_FOLDER, username)
         if os.path.exists(user_folder):
@@ -1697,16 +1011,17 @@ def full_backup():
                     file_path = os.path.join(root, file)
                     arcname = os.path.join('uploads', file)
                     zf.write(file_path, arcname=arcname)
-                
+
     memory_file.seek(0)
-    
+
     # 파일명에 현재 날짜와 시간 추가 (예: TradingJournal_backup_20231027_153000.zip)
     current_time = time.strftime('%Y%m%d_%H%M%S')
     filename = f'TradingJournal_backup_{username}_{current_time}.zip'
-    
+
     response = send_file(memory_file, mimetype='application/zip', download_name=filename, as_attachment=True)
     response.headers["Access-Control-Expose-Headers"] = "Content-Disposition"
     return response
+
 
 @app.route('/api/restore', methods=['POST'])
 def full_restore():
@@ -1714,86 +1029,75 @@ def full_restore():
     username = session.get('username')
     if 'file' not in request.files:
         return jsonify({'error': '업로드된 파일이 없습니다.'}), 400
-        
+
     file = request.files['file']
     if file.filename == '' or not file.filename.endswith('.zip'):
         return jsonify({'error': '유효하지 않은 파일입니다. .zip 백업 파일을 업로드해주세요.'}), 400
-        
+
     temp_dir = tempfile.mkdtemp()
     try:
         with zipfile.ZipFile(file, 'r') as zf:
             zf.extractall(temp_dir)
-            
+
         json_path = os.path.join(temp_dir, 'data.json')
         if not os.path.exists(json_path):
             return jsonify({'error': '손상된 백업 파일입니다. (data.json을 찾을 수 없습니다)'}), 400
-            
+
         with open(json_path, 'r', encoding='utf-8') as f:
             entries = json.load(f)
-            
-        conn = get_db()
-        c = conn.cursor()
-        
-        # 1. 기존 사용자의 데이터만 삭제
-        c.execute("DELETE FROM entries WHERE username = ?", (username,))
-        
-        # 2. 복원할 데이터 삽입
-        for entry in entries:
-            c.execute('''
-                INSERT INTO entries 
-                (id, username, type, stockName, stockCode, title, thoughts, date, rawDate, attachedImage, brokerAccount, subAccount, accountName, tradeType, price, quantity, createdAt, updatedAt, tags, attachedFile, attachedFileName)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                entry.get('id'), username, entry.get('type'), entry.get('stockName'), entry.get('stockCode', ''), entry.get('title'),
-                entry.get('thoughts'), entry.get('date'), entry.get('rawDate'), entry.get('attachedImage'),
-                entry.get('brokerAccount'), entry.get('subAccount', ''), entry.get('accountName'), entry.get('tradeType'),
-                entry.get('price', 0), entry.get('quantity', 0),
-                entry.get('createdAt'), entry.get('updatedAt'), entry.get('tags', ''),
-                entry.get('attachedFile', ''), entry.get('attachedFileName', '')
-            ))
-        conn.commit()
-        conn.close()
-        
+
+        with db_conn() as conn:
+            c = conn.cursor()
+
+            # 1. 기존 사용자의 데이터만 삭제
+            c.execute("DELETE FROM entries WHERE username = ?", (username,))
+
+            # 2. 복원할 데이터 삽입
+            for entry in entries:
+                entry_logic.insert_entry(c, username, entry)
+            conn.commit()
+
         # 3. 사용자 첨부파일 폴더 덮어쓰기
         user_folder = os.path.join(UPLOAD_FOLDER, username)
         if os.path.exists(user_folder):
             shutil.rmtree(user_folder)
         os.makedirs(user_folder, exist_ok=True)
-                
+
         temp_uploads = os.path.join(temp_dir, 'uploads')
         if os.path.exists(temp_uploads):
             for f in os.listdir(temp_uploads):
                 src_path = os.path.join(temp_uploads, f)
                 if os.path.isfile(src_path):
                     shutil.copy2(src_path, os.path.join(user_folder, f))
-                    
+
         return jsonify({'status': 'success'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
         shutil.rmtree(temp_dir)
 
+
 if __name__ == '__main__':
     init_db()
-    
+
     # 자동 백업 스레드 시작
     backup_thread = threading.Thread(target=auto_backup_job, daemon=True)
     backup_thread.start()
-    
+
     # ⭐️ NXT 종가 자동 캐싱 스레드 시작
     nxt_thread = threading.Thread(target=auto_fetch_nxt_close_job, daemon=True)
     nxt_thread.start()
-    
+
     port = 5000
     if len(sys.argv) > 1:
         try:
             port = int(sys.argv[1])
         except ValueError:
-                app.logger.warning(f"경고: 잘못된 포트 번호('{sys.argv[1]}')가 입력되어 기본 포트(5000)로 실행합니다.")
-            
+            app.logger.warning(f"경고: 잘못된 포트 번호('{sys.argv[1]}')가 입력되어 기본 포트(5000)로 실행합니다.")
+
     app.logger.info(f"로컬 주식 매매 일지 서버를 시작합니다. (포트: {port})")
     app.logger.info(f"웹 브라우저를 열고 http://127.0.0.1:{port} 또는 기기의 로컬 IP 주소(예: 192.168.x.x:{port})로 접속해주세요.")
-    
+
     try:
         from waitress import serve
         app.logger.info("🚀 Waitress WSGI 프로덕션 서버로 실행 중입니다.")

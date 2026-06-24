@@ -2683,30 +2683,18 @@ function updatePortfolioSummary() {
             isCurrentMonth = true;
         }
 
-        if (entry.tradeType === '매수') {
-            if (isCurrentMonth) monthlyBuyCount++;
+        const tt = entry.tradeType;
+        if (tt === '매수' || tt === '매도' || tt === '배당') {
             portfolio[stock].traded = true;
-            portfolio[stock].qty += qty;
-            portfolio[stock].totalCost += (price * qty);
-            if (portfolio[stock].qty > 0) portfolio[stock].avgPrice = portfolio[stock].totalCost / portfolio[stock].qty;
-        } else if (entry.tradeType === '매도') {
-            if (isCurrentMonth) monthlySellCount++;
-            portfolio[stock].traded = true;
-            const currentAvgPrice = portfolio[stock].avgPrice;
-            const profit = (price - currentAvgPrice) * qty;
-            const cost = currentAvgPrice * qty;
-            portfolio[stock].realizedProfit += profit;
-            portfolio[stock].realizedCost += cost;
-            totalRealizedProfit += profit;
-
-            portfolio[stock].qty -= qty;
-            portfolio[stock].totalCost -= (currentAvgPrice * qty);
-            if (portfolio[stock].qty <= 0) { portfolio[stock].qty = 0; portfolio[stock].totalCost = 0; portfolio[stock].avgPrice = 0; }
-        } else if (entry.tradeType === '배당') {
-            portfolio[stock].traded = true;
-            const dividendAmount = price * qty;
-            portfolio[stock].realizedProfit += dividendAmount;
-            totalRealizedProfit += dividendAmount;
+            if (isCurrentMonth) {
+                if (tt === '매수') monthlyBuyCount++;
+                else if (tt === '매도') monthlySellCount++;
+            }
+            // ⭐️ 공용 계산 엔진(calc.js) — 평균단가/실현손익 단일 소스
+            const r = applyTradeToHolding(portfolio[stock], qty, price, tt);
+            portfolio[stock].realizedProfit += r.realized + r.dividend;
+            portfolio[stock].realizedCost += r.cost;
+            totalRealizedProfit += r.realized + r.dividend;
         }
     });
 
@@ -3963,17 +3951,10 @@ function renderCalendar() {
             if (entry.stockName) {
                 const stock = entry.stockName, qty = Number(entry.quantity) || 0, price = Number(entry.price) || 0;
                 if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0 };
-                
-                if (entry.tradeType === '매수') {
-                    portfolio[stock].qty += qty; portfolio[stock].totalCost += (price * qty);
-                    portfolio[stock].avgPrice = portfolio[stock].totalCost / portfolio[stock].qty;
-                } else if (entry.tradeType === '매도') {
-                    dailyStats[dateKey].profit += (price - portfolio[stock].avgPrice) * qty;
-                    portfolio[stock].qty -= qty; portfolio[stock].totalCost -= (portfolio[stock].avgPrice * qty);
-                    if (portfolio[stock].qty <= 0) { portfolio[stock].qty = 0; portfolio[stock].totalCost = 0; portfolio[stock].avgPrice = 0; }
-                } else if (entry.tradeType === '배당') {
-                    dailyStats[dateKey].profit += (price * qty);
-                }
+
+                // ⭐️ 공용 계산 엔진(calc.js) — 일별 실현손익(매도 차익 + 배당)
+                const r = applyTradeToHolding(portfolio[stock], qty, price, entry.tradeType);
+                dailyStats[dateKey].profit += r.realized + r.dividend;
             }
         } else if (entry.type === 'memo') {
             dailyStats[dateKey].details[stockKey].memoCount++;
@@ -4296,10 +4277,9 @@ window.renderMonthlyProfitChart = function() {
         if (!dividendByMonthStock[dateKey][stock]) dividendByMonthStock[dateKey][stock] = 0;
 
         if (entry.tradeType === '매수') {
-            portfolio[stock].qty += qty;
-            portfolio[stock].totalCost += (price * qty);
-            if (portfolio[stock].qty > 0) portfolio[stock].avgPrice = portfolio[stock].totalCost / portfolio[stock].qty;
-            
+            // ⭐️ 공용 계산 엔진(calc.js) — 평균단가/포지션 갱신
+            applyTradeToHolding(portfolio[stock], qty, price, '매수');
+
             // ⭐️ 잔여 수량 큐에 삽입 및 거래대금(매매금액) 합산
             stockRemainingBuys[stock].push({ dateKey, qty, price });
             if (monthlyData[dateKey]) {
@@ -4309,7 +4289,8 @@ window.renderMonthlyProfitChart = function() {
             }
             
         } else if (entry.tradeType === '매도') {
-            const profit = (price - portfolio[stock].avgPrice) * qty;
+            // ⭐️ 공용 계산 엔진(calc.js): 갱신 전 평단으로 실현손익 산출 + 포지션 즉시 갱신
+            const profit = applyTradeToHolding(portfolio[stock], qty, price, '매도').realized;
             allProfitByMonth[dateKey] += profit; // ⭐️ 전체 기간 수익 누적용
             allProfitByMonthStock[dateKey][stock] += profit;
             
@@ -4319,10 +4300,8 @@ window.renderMonthlyProfitChart = function() {
                 monthlyData[dateKey].realized_breakdown[stock] = (monthlyData[dateKey].realized_breakdown[stock] || 0) + profit;
                 monthlyData[dateKey].sell_volume_breakdown[stock] = (monthlyData[dateKey].sell_volume_breakdown[stock] || 0) + (price * qty);
             }
-            portfolio[stock].qty -= qty;
-            portfolio[stock].totalCost -= (portfolio[stock].avgPrice * qty);
-            if (portfolio[stock].qty <= 0) { portfolio[stock].qty = 0; portfolio[stock].totalCost = 0; portfolio[stock].avgPrice = 0; }
-            
+            // (포지션 갱신은 위 applyTradeToHolding 에서 이미 처리됨)
+
             // ⭐️ 매도 시 과거 매수 기록부터 선입선출(FIFO)로 차감하여 현재 미청산 매수건 파악
             let sellQty = qty;
             while(sellQty > 0 && stockRemainingBuys[stock].length > 0) {

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <title>TRADING JOURNAL - 로그인</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="TRADING JOURNAL">
+    <meta name="theme-color" content="#121212">
+    <link rel="shortcut icon" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
+    <link rel="icon" type="image/png" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
+    <style>
+        body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: linear-gradient(135deg, #121212 0%, #1a1a2e 100%); margin: 0; color: #e0e0e0; }
+        .login-container { background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 30px 20px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 260px; }
+        .logo-text { font-size: 22px; font-weight: 900; font-style: italic; background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -1px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; }
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 10px;
+            margin: 0 0 12px 0;
+            border: 1px solid #333;
+            border-radius: 8px;
+            font-size: 16px;
+            background-color: rgba(18, 18, 18, 0.8);
+            color: #fff;
+            transition: all 0.3s ease;
+        }
+        input[type="text"]::placeholder,
+        input[type="password"]::placeholder {
+            color: #666;
+        }
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            border-color: #8a2be2;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(138, 43, 226, 0.3);
+            background-color: #121212;
+        }
+        button {
+            width: 100%; padding: 10px; margin-top: 5px; background: linear-gradient(135deg, #9d4edd 0%, #7b2cbf 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(123, 44, 191, 0.5);
+            background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%);
+        }
+        .error-banner {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(231, 76, 60, 0.95);
+            color: white;
+            padding: 12px 40px 12px 24px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4);
+            font-size: 14px;
+            font-weight: bold;
+            z-index: 1000;
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            opacity: 1;
+            pointer-events: auto;
+            animation: slideDown 0.3s ease-out forwards;
+        }
+        @keyframes slideDown {
+            0% { top: -20px; opacity: 0; }
+            100% { top: 20px; opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    {% if timeout_message %}
+    <!-- ⭐️ 타임아웃 메시지는 화면에 영구 고정되도록 설정 (주황색 테마) -->
+    <div class="error-banner" id="timeoutBanner" style="background: rgba(243, 156, 18, 0.95); box-shadow: 0 4px 15px rgba(243, 156, 18, 0.4);">
+        ⚠️ {{ timeout_message }}
+        <span onclick="document.getElementById('timeoutBanner').style.display='none'; const url = new URL(window.location); url.searchParams.delete('timeout'); window.history.replaceState({}, document.title, url);" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 24px; padding: 5px; line-height: 1;">&times;</span>
+    </div>
+    {% endif %}
+    {% if error_message %}
+    <div class="error-banner" id="errorBanner">
+        ⚠️ {{ error_message }}
+        <span onclick="document.getElementById('errorBanner').style.display='none'" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 24px; padding: 5px; line-height: 1;">&times;</span>
+    </div>
+    {% endif %}
+    <div class="login-container">
+        <div class="logo-text">
+            TRADING JOURNAL
+        </div>
+        <form method="post">
+            <input type="text" name="username" placeholder="아이디를 입력하세요" required autofocus>
+            <input type="password" name="password" placeholder="비밀번호를 입력하세요" required>
+            <button type="submit">접속하기</button>
+        </form>
+        <div style="margin-top: 15px; font-size: 13px;">
+            <span style="color: #888;">계정이 없으신가요?</span>
+            <a href="{{ url_for('signup') }}" style="color: #b388ff; text-decoration: none; font-weight: bold;">새 계정 가입하기</a>
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const usernameInput = document.querySelector('input[name="username"]');
+            const savedUsername = localStorage.getItem('last_username');
+            if (savedUsername && usernameInput) {
+                usernameInput.value = savedUsername;
+                document.querySelector('input[name="password"]').focus(); // 아이디가 있으면 비밀번호 칸으로 포커스 이동
+            }
+            document.querySelector('form').addEventListener('submit', function() {
+                if (usernameInput.value) localStorage.setItem('last_username', usernameInput.value);
+            });
+        });
+    </script>
+</body>
+</html>
