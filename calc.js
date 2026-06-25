@@ -179,7 +179,8 @@
         // 누적 실현손익 곡선 및 최대 낙폭(MDD)
         realizedEvents.sort((a, b) => a[0] - b[0]);
         let cumulative = 0, peak = 0, maxDrawdown = 0;
-        for (const [, amount] of realizedEvents) {
+        for (const event of realizedEvents) {
+            const amount = event[1];
             cumulative += amount;
             if (cumulative > peak) peak = cumulative;
             const drawdown = peak - cumulative;
@@ -237,7 +238,11 @@
     const api = { applyTradeToHolding, parseEntryDt, monthKey, computeTradeStats };
 
     // 브라우저: window 전역 / Node: module.exports
-    if (typeof module !== 'undefined' && module.exports) {
+    if (typeof window !== 'undefined') {
+        window.StockCalc = api;
+        window.applyTradeToHolding = applyTradeToHolding;
+        window.computeTradeStats = computeTradeStats;
+    } else if (typeof module !== 'undefined' && module.exports) {
         module.exports = api;
     } else {
         root.StockCalc = api;
