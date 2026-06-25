@@ -28,7 +28,7 @@
     <!-- ⭐️ SheetJS (Excel 내보내기/가져오기) 라이브러리 추가 -->
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <!-- ⭐️ 외부 CSS 파일 연결 -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ get_mtime('style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ get_mtime('style.css') }}" onerror="this.onerror=null; this.href=this.href+'&retry='+new Date().getTime();">
 </head>
 <body>
 
