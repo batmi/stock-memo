@@ -190,8 +190,8 @@ def handle_exception(e):
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # 자바스크립트(XSS)로 쿠키 접근 원천 차단
 app.config['SESSION_COOKIE_SECURE'] = False   # ⭐️ 로컬(HTTP) 환경 접속 시 로그인 갱신 오류 방지를 위해 비활성화
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF(크로스 사이트 요청 위조) 공격 방어
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)  # ⭐️ 세션 유효 기간 1시간으로 설정
-app.config['SESSION_REFRESH_EACH_REQUEST'] = False  # ⭐️ 백그라운드 자동 갱신 시 세션 무한 연장 방지
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=12)  # ⭐️ 세션 유효 기간 12시간으로 설정 (모바일 환경 고려)
+app.config['SESSION_REFRESH_EACH_REQUEST'] = True   # ⭐️ 요청 시마다 세션 갱신하여 활성 사용자 세션 만료 방지
 
 # ⭐️ 2. 악의적인 대용량 파일 업로드 방어 (Payload 제한: 16MB)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
@@ -819,6 +819,8 @@ def uploaded_file(req_username, filename):
 @app.route('/api/data', methods=['GET'])
 def get_data():
     username = session.get('username')
+    if not username:  # ⭐️ 세션 만료/미로그인 시 빈 배열 대신 401 반환 (화면 공백 방지)
+        return jsonify({"error": "unauthorized"}), 401
     with db_conn() as conn:
         c = conn.cursor()
         c.execute("SELECT * FROM entries WHERE username = ? ORDER BY id DESC", (username,))

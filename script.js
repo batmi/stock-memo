@@ -1078,6 +1078,15 @@ async function loadDataFromLocal() {
             headers: { 'ngrok-skip-browser-warning': 'true' }
         });
         console.log("[Data Load] /api/data 상태 코드:", response.status);
+        if (response.status === 401) {
+            // ⭐️ 세션 만료 시 로그인 페이지로 이동 (빈 화면 방지)
+            console.warn("[Data Load] 세션 만료 감지 - 로그인 페이지로 이동");
+            window.location.href = '/login';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`/api/data 응답 오류: ${response.status}`);
+        }
         cloudEntries = await response.json();
         displayEntries();
         console.log("[Data Load] 화면 렌더링(displayEntries) 완료");
