@@ -1096,7 +1096,7 @@ async function loadDataFromLocal() {
         newsInterval = setInterval(fetchRealtimeNews, 600000); // 10분 주기로 변경
     } catch (err) {
         console.error("[Data Load Critical Error] 데이터 로딩 중 치명적 에러 발생:", err);
-        await customAlert("로컬 데이터를 불러오지 못했습니다.\n서버가 실행 중인지 확인하세요.");
+        await customAlert("로컬 데이터를 불러오지 못했습니다.\n(원인: " + err.message + ")\n서버가 실행 중인지 확인하세요.");
     }
 }
 
