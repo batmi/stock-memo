@@ -964,39 +964,44 @@ window.addEventListener('DOMContentLoaded', () => {
 async function loadDataFromLocal() {
     console.log("[Data Load] loadDataFromLocal() 시작 - 사용자 데이터 호출 중...");
     try {
-        // ⭐️ 사용자 환경설정 먼저 불러오기
-        try {
-            // ⭐️ 사용자 정보 및 관리자 여부 확인
+        // ⭐️ 초기 필수 데이터(사용자 정보, 환경설정, 매매기록)를 병렬로 호출하여 로딩 속도 최적화
+        const [mePromise, prefPromise, dataPromise] = [
+            fetch('/api/me', { headers: { 'ngrok-skip-browser-warning': 'true' }}).catch(e => { console.warn("사용자 정보 로드 실패", e); return null; }),
+            fetch('/api/preferences', { headers: { 'ngrok-skip-browser-warning': 'true' }}).catch(e => { console.warn("환경설정 로드 실패", e); return null; }),
+            fetch('/api/data', { headers: { 'ngrok-skip-browser-warning': 'true' }})
+        ];
+
+        console.log("[Data Load] 사용자 정보, 환경설정, 매매 기록 병렬 호출 시작...");
+        const [meRes, prefRes, response] = await Promise.all([mePromise, prefPromise, dataPromise]);
+
+        // 1. 사용자 정보 처리
+        if (meRes && meRes.ok) {
             try {
-                const meRes = await fetch('/api/me', { headers: { 'ngrok-skip-browser-warning': 'true' }});
-                console.log("[Data Load] /api/me 상태 코드:", meRes.status);
-                if (meRes.ok) {
-                    const meData = await meRes.json();
-                    if (meData.username) {
-                        const userDisplay = document.getElementById('loggedInUserDisplay');
-                        if (userDisplay) {
-                            userDisplay.innerHTML = `<span style="font-size:12px;">👤</span> ${meData.username}`;
-                            userDisplay.style.display = 'flex';
-                        }
+                const meData = await meRes.json();
+                if (meData.username) {
+                    const userDisplay = document.getElementById('loggedInUserDisplay');
+                    if (userDisplay) {
+                        userDisplay.innerHTML = `<span style="font-size:12px;">👤</span> ${meData.username}`;
+                        userDisplay.style.display = 'flex';
+                    }
                     if (meData.is_admin) {
-                            const btnAdmin = document.getElementById('btnAdmin');
-                            if (btnAdmin) {
-                                btnAdmin.style.display = 'flex';
-                                if (meData.pending_count > 0) {
-                                    btnAdmin.style.position = 'relative';
-                                    btnAdmin.innerHTML += `<span class="admin-notification-badge">${meData.pending_count}</span>`;
-                                    setTimeout(async () => { await customAlert(`가입 승인 대기 중인 신규 사용자가 ${meData.pending_count}명 있습니다.\n상단 어드민 메뉴에서 확인해주세요.`); }, 500);
-                                }
+                        const btnAdmin = document.getElementById('btnAdmin');
+                        if (btnAdmin) {
+                            btnAdmin.style.display = 'flex';
+                            if (meData.pending_count > 0) {
+                                btnAdmin.style.position = 'relative';
+                                btnAdmin.innerHTML += `<span class="admin-notification-badge">${meData.pending_count}</span>`;
+                                setTimeout(async () => { await customAlert(`가입 승인 대기 중인 신규 사용자가 ${meData.pending_count}명 있습니다.\n상단 어드민 메뉴에서 확인해주세요.`); }, 500);
                             }
                         }
                     }
                 }
-            } catch(e) { console.warn("사용자 정보 로드 실패"); }
+            } catch(e) { console.warn("사용자 정보 파싱 실패", e); }
+        }
 
-            const prefRes = await fetch('/api/preferences', {
-                headers: { 'ngrok-skip-browser-warning': 'true' }
-            });
-            if (prefRes.ok) {
+        // 2. 환경설정 처리
+        if (prefRes && prefRes.ok) {
+            try {
                 userPreferences = await prefRes.json();
                 
                 // ⭐️ DB에서 불러온 환경설정을 UI(청산 종목 토글, 접기/펴기 등)에 반영
@@ -1030,13 +1035,13 @@ async function loadDataFromLocal() {
                         btnCP.style.color = showCurrentPrice ? 'var(--primary-color)' : '#fff';
                     }
 
-                // ⭐️ 초기 로드 시 현재가 보기가 켜져있다면 1분(60초) 자동 업데이트 시작
-                if (showCurrentPrice) {
-                    if (priceUpdateInterval !== null) clearInterval(priceUpdateInterval);
-                    priceUpdateInterval = setInterval(() => {
-                        window.fetchCurrentPricesAndUpdateUI(true); // isAuto = true 로 자동 갱신 요청
-                    }, 60000);
-                }
+                    // ⭐️ 초기 로드 시 현재가 보기가 켜져있다면 1분(60초) 자동 업데이트 시작
+                    if (showCurrentPrice) {
+                        if (priceUpdateInterval !== null) clearInterval(priceUpdateInterval);
+                        priceUpdateInterval = setInterval(() => {
+                            window.fetchCurrentPricesAndUpdateUI(true); // isAuto = true 로 자동 갱신 요청
+                        }, 60000);
+                    }
                 }
                 
                 // ⭐️ KRX/NXT 버튼 상태 복원
@@ -1068,15 +1073,12 @@ async function loadDataFromLocal() {
                 if (userPreferences.currentChartBroker) currentChartBroker = userPreferences.currentChartBroker;
                 if (userPreferences.currentChartSubAccount) currentChartSubAccount = userPreferences.currentChartSubAccount;
 
+            } catch (e) {
+                console.warn("환경설정 파싱 실패:", e);
             }
-        } catch (e) {
-            console.warn("환경설정 로드 실패:", e);
         }
         
-        console.log("[Data Load] /api/data 매매 기록 호출 중...");
-        const response = await fetch('/api/data', {
-            headers: { 'ngrok-skip-browser-warning': 'true' }
-        });
+        // 3. 매매 기록 데이터 처리
         console.log("[Data Load] /api/data 상태 코드:", response.status);
         if (response.status === 401) {
             // ⭐️ 세션 만료 시 로그인 페이지로 이동 (빈 화면 방지)
