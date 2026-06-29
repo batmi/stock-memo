@@ -975,9 +975,46 @@ window.addEventListener('DOMContentLoaded', () => {
     loadDataFromLocal();
 });
 
+// ⭐️ 계산 엔진(calc.js) 로드 보장 헬퍼
+//    모바일에서 calc.js 가 (네트워크 불안정·캐시·호환성 등으로) 로드되지 않으면
+//    전역 applyTradeToHolding 이 없어 displayEntries() 가 "Can't find variable" 로 중단된다.
+//    이때 calc.js 를 동적으로 (재)주입하여 복구를 시도한다. 이미 정상 로드돼 있으면 즉시 통과.
+function ensureCalcLoaded() {
+    return new Promise((resolve, reject) => {
+        if (typeof window.applyTradeToHolding === 'function') { resolve(); return; }
+        console.warn("[Calc] 계산 엔진(applyTradeToHolding) 전역 누락 감지 - calc.js 동적 재로딩 시도");
+
+        // 기존 calc.js 스크립트 태그의 src(버전 쿼리 포함)를 재사용하고 캐시를 무력화
+        let baseSrc = null;
+        const scripts = document.getElementsByTagName('script');
+        for (let i = 0; i < scripts.length; i++) {
+            const s = scripts[i].getAttribute('src') || '';
+            if (s.indexOf('calc.js') !== -1) { baseSrc = s.split('&reload=')[0]; break; }
+        }
+        if (!baseSrc) baseSrc = '/calc.js';
+        const url = baseSrc + (baseSrc.indexOf('?') !== -1 ? '&' : '?') + 'reload=' + Date.now();
+
+        const tag = document.createElement('script');
+        tag.src = url;
+        tag.onload = () => {
+            if (typeof window.applyTradeToHolding === 'function') {
+                console.log("[Calc] calc.js 동적 재로딩 성공");
+                resolve();
+            } else {
+                reject(new Error("계산 모듈(calc.js)을 불러왔으나 초기화되지 않았습니다 (브라우저 호환성 문제 가능성)"));
+            }
+        };
+        tag.onerror = () => reject(new Error("계산 모듈(calc.js) 파일을 불러오지 못했습니다 (네트워크 연결을 확인해주세요)"));
+        document.head.appendChild(tag);
+    });
+}
+
 async function loadDataFromLocal() {
     console.log("[Data Load] loadDataFromLocal() 시작 - 사용자 데이터 호출 중...");
     try {
+        // ⭐️ 계산 엔진(calc.js)이 준비됐는지 먼저 확인·복구 (없으면 displayEntries 에서 크래시)
+        await ensureCalcLoaded();
+
         // ⭐️ 초기 필수 데이터(사용자 정보, 환경설정, 매매기록)를 병렬로 호출하여 로딩 속도 최적화
         const [mePromise, prefPromise, dataPromise] = [
             fetchWithTimeout('/api/me').catch(e => { console.warn("사용자 정보 로드 실패", e); return null; }),
@@ -1127,22 +1164,64 @@ function showDataLoadError(err) {
     const reason = err && err.name === 'AbortError'
         ? '서버 응답이 지연되어 연결을 종료했습니다 (네트워크 상태를 확인해주세요)'
         : (err && err.message ? err.message : '알 수 없는 오류');
+
+    // ⭐️ 원인 분석용 상세 진단 정보 수집 (HTML 이스케이프 처리)
+    const esc = (v) => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const diagLines = [
+        '발생 시각      : ' + new Date().toLocaleString(),
+        '네트워크 상태  : ' + (navigator.onLine ? '온라인' : '오프라인'),
+        '계산엔진(calc) : ' + (typeof window.applyTradeToHolding === 'function' ? '정상 로드됨' : '로드 실패/누락'),
+        '에러 종류      : ' + (err && err.name ? err.name : '-'),
+        '에러 메시지    : ' + (err && err.message ? err.message : '-'),
+        '현재 주소      : ' + location.href,
+        'User-Agent     : ' + navigator.userAgent,
+    ];
+    if (err && err.stack) diagLines.push('', '[스택]', err.stack);
+    const diagText = diagLines.join('\n');
+
     let box = document.getElementById('dataLoadErrorBox');
     if (!box) {
         box = document.createElement('div');
         box.id = 'dataLoadErrorBox';
-        box.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; background:var(--bg-color, #fff); z-index:99999; padding:24px; text-align:center;';
+        box.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; background:var(--bg-color, #fff); z-index:99999; padding:24px; text-align:center; box-sizing:border-box;';
         document.body.appendChild(box);
     }
     box.innerHTML = `
-        <div style="font-size:15px; color:var(--text-color, #333); line-height:1.6;">데이터를 불러오지 못했습니다.<br><span style="font-size:12px; color:var(--text-muted-color, #888);">(원인: ${reason})</span></div>
-        <button type="button" id="btnRetryDataLoad" style="padding:10px 24px; background:var(--primary-color, #3b82f6); color:#fff; border:none; border-radius:8px; font-size:14px; cursor:pointer;">다시 시도</button>`;
+        <div style="font-size:15px; color:var(--text-color, #333); line-height:1.6;">데이터를 불러오지 못했습니다.<br><span style="font-size:12px; color:var(--text-muted-color, #888);">(원인: ${esc(reason)})</span></div>
+        <button type="button" id="btnRetryDataLoad" style="width:auto; min-width:120px; max-width:200px; padding:8px 20px; background:var(--primary-color, #3b82f6); color:#fff; border:none; border-radius:8px; font-size:13px; cursor:pointer; align-self:center;">다시 시도</button>
+        <button type="button" id="btnToggleDiag" style="background:none; border:none; color:var(--text-muted-color, #888); font-size:12px; text-decoration:underline; cursor:pointer; align-self:center;">상세 정보 보기 ▾</button>
+        <pre id="dataLoadDiag" style="display:none; max-width:92%; max-height:45vh; overflow:auto; text-align:left; white-space:pre-wrap; word-break:break-all; font-size:11px; line-height:1.5; color:var(--text-muted-color, #666); background:var(--card-bg-color, #f5f5f5); border:1px solid var(--border-color, #ddd); border-radius:8px; padding:12px; margin:0;">${esc(diagText)}</pre>
+        <button type="button" id="btnCopyDiag" style="display:none; background:none; border:1px solid var(--border-color, #ccc); color:var(--text-muted-color, #888); font-size:11px; padding:4px 12px; border-radius:6px; cursor:pointer; align-self:center;">진단 정보 복사</button>`;
     box.style.display = 'flex';
+
     const retryBtn = document.getElementById('btnRetryDataLoad');
     if (retryBtn) {
         retryBtn.onclick = () => {
             box.style.display = 'none';
             loadDataFromLocal();
+        };
+    }
+
+    const toggleBtn = document.getElementById('btnToggleDiag');
+    const diagEl = document.getElementById('dataLoadDiag');
+    const copyBtn = document.getElementById('btnCopyDiag');
+    if (toggleBtn && diagEl) {
+        toggleBtn.onclick = () => {
+            const open = diagEl.style.display !== 'none';
+            diagEl.style.display = open ? 'none' : 'block';
+            if (copyBtn) copyBtn.style.display = open ? 'none' : 'inline-block';
+            toggleBtn.textContent = open ? '상세 정보 보기 ▾' : '상세 정보 닫기 ▴';
+        };
+    }
+    if (copyBtn) {
+        copyBtn.onclick = async () => {
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(diagText);
+                    copyBtn.textContent = '복사됨 ✓';
+                    setTimeout(() => { copyBtn.textContent = '진단 정보 복사'; }, 1500);
+                }
+            } catch (e) { console.warn('진단 정보 복사 실패', e); }
         };
     }
 }

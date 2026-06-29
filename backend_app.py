@@ -175,7 +175,17 @@ def add_security_headers(response):
 @app.after_request
 def add_cache_headers(response):
     if request.endpoint == 'static' or request.path.startswith('/uploads/'):
-        response.headers.setdefault('Cache-Control', 'public, max-age=3600')
+        # ⭐️ 200 정상 응답에만 캐시를 부여한다.
+        #    비로그인 상태에서 정적 파일(/calc.js 등)을 요청하면 before_request 가
+        #    302(→/login) 를 반환하는데, 이때도 endpoint 는 여전히 'static' 이다.
+        #    이 302 리다이렉트에 장기 캐시가 붙으면, 이후 로그인해도 브라우저가
+        #    캐시된 "로그인 리다이렉트"를 calc.js 대신 돌려줘 로그인 HTML 을 JS 로
+        #    실행하게 되고(Can't find variable: applyTradeToHolding) 데이터 렌더링이
+        #    영구히 막힌다. 따라서 리다이렉트/에러 응답은 캐시하지 않는다.
+        if response.status_code == 200:
+            response.headers.setdefault('Cache-Control', 'public, max-age=3600')
+        else:
+            response.headers['Cache-Control'] = 'no-store'
     return response
 
 
