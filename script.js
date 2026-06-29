@@ -6,6 +6,15 @@ window.addEventListener('unhandledrejection', function(e) {
     console.error("[Unhandled Promise Rejection] 처리되지 않은 비동기 에러:", e.reason);
 });
 
+// ⭐️ 모바일 네트워크(셀룰러↔Wi-Fi 전환, 터널 지연 등)에서 fetch가 응답·실패 없이 무한 정지(stall)하면
+//    화면이 로딩 상태로 영영 고착된다. AbortController로 타임아웃을 강제해 무한 대기를 방지한다.
+function fetchWithTimeout(url, options = {}, timeout = 15000) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+    return fetch(url, { ...options, signal: controller.signal })
+        .finally(() => clearTimeout(id));
+}
+
 let cloudEntries = [];
 let currentHoldings = [];
 let newsInterval = null;
@@ -206,7 +215,7 @@ function sendPingToServerIfActive() {
     // 마지막 핑을 보낸 지 10분이 지났고, 최근 10분 내에 사용자의 동작이 있었다면 서버에 연장 신호 전송
     if (now - lastPingSentTime >= 10 * 60 * 1000) {
         if (now - lastActivityTime < 10 * 60 * 1000) {
-            fetch('/api/ping', { method: 'POST', headers: { 'ngrok-skip-browser-warning': 'true' } })
+            fetch('/api/ping', { method: 'POST' })
                 .catch(() => console.warn('세션 연장 Ping 전송 실패'));
             lastPingSentTime = now;
         }
@@ -218,6 +227,11 @@ setInterval(sendPingToServerIfActive, 60000);
 // ⭐️ 브라우저 탭 활성화 시 실제 경과 시간을 확인하여 동기화
 document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
+        // ⭐️ 모바일에서 앱 전환 후 복귀 시, 초기 로딩이 실패해 멈춰 있던 상태면 자동으로 재시도
+        if (window.__dataLoadFailed) {
+            loadDataFromLocal();
+        }
+
         const elapsed = Date.now() - lastActivityTime;
         if (elapsed >= TOTAL_SESSION_LIMIT) {
             // 이미 1시간이 넘게 지났다면 즉시 자동 로그아웃 처리
@@ -227,7 +241,7 @@ document.addEventListener('visibilitychange', async () => {
 
         // ⭐️ 서버에 API를 호출하여 실제 세션 만료 여부(또는 타 탭 로그아웃 여부) 체크
         try {
-            const res = await fetch('/api/me', { headers: { 'ngrok-skip-browser-warning': 'true' }});
+            const res = await fetch('/api/me');
             if (res.status === 401) {
                 window.location.href = '/logout?timeout=1';
                 return;
@@ -648,7 +662,7 @@ window.addEventListener('DOMContentLoaded', () => {
         btnExtendSession.addEventListener('click', async () => {
             try {
                 // 백엔드(Flask) 서버의 세션 만료 시간도 동기화하여 갱신
-                await fetch('/api/ping', { method: 'POST', headers: { 'ngrok-skip-browser-warning': 'true' }});
+                await fetch('/api/ping', { method: 'POST'});
             } catch(e) {}
             
             extensionModal.classList.add('closing');
@@ -966,9 +980,9 @@ async function loadDataFromLocal() {
     try {
         // ⭐️ 초기 필수 데이터(사용자 정보, 환경설정, 매매기록)를 병렬로 호출하여 로딩 속도 최적화
         const [mePromise, prefPromise, dataPromise] = [
-            fetch('/api/me', { headers: { 'ngrok-skip-browser-warning': 'true' }}).catch(e => { console.warn("사용자 정보 로드 실패", e); return null; }),
-            fetch('/api/preferences', { headers: { 'ngrok-skip-browser-warning': 'true' }}).catch(e => { console.warn("환경설정 로드 실패", e); return null; }),
-            fetch('/api/data', { headers: { 'ngrok-skip-browser-warning': 'true' }})
+            fetchWithTimeout('/api/me').catch(e => { console.warn("사용자 정보 로드 실패", e); return null; }),
+            fetchWithTimeout('/api/preferences').catch(e => { console.warn("환경설정 로드 실패", e); return null; }),
+            fetchWithTimeout('/api/data')
         ];
 
         console.log("[Data Load] 사용자 정보, 환경설정, 매매 기록 병렬 호출 시작...");
@@ -1090,15 +1104,46 @@ async function loadDataFromLocal() {
             throw new Error(`/api/data 응답 오류: ${response.status}`);
         }
         cloudEntries = await response.json();
+        window.__dataLoadFailed = false; // ⭐️ 로딩 성공: 재시도 플래그 해제
+        const errBox = document.getElementById('dataLoadErrorBox');
+        if (errBox) errBox.style.display = 'none';
         displayEntries();
         console.log("[Data Load] 화면 렌더링(displayEntries) 완료");
-        
+
         fetchRealtimeNews();
         if (newsInterval) clearInterval(newsInterval);
         newsInterval = setInterval(fetchRealtimeNews, 600000); // 10분 주기로 변경
     } catch (err) {
+        // ⭐️ 타임아웃(AbortError)·네트워크 오류 등으로 초기 로딩이 실패하면, 화면이 빈 상태로 굳지 않도록
+        //    재시도 버튼을 노출하고 visibilitychange 자동 재시도용 플래그를 세운다.
         console.error("[Data Load Critical Error] 데이터 로딩 중 치명적 에러 발생:", err);
-        await customAlert("로컬 데이터를 불러오지 못했습니다.\n(원인: " + err.message + ")\n서버가 실행 중인지 확인하세요.");
+        window.__dataLoadFailed = true;
+        showDataLoadError(err);
+    }
+}
+
+// ⭐️ 초기 데이터 로딩 실패 시 화면 중앙에 안내 + '다시 시도' 버튼을 표시
+function showDataLoadError(err) {
+    const reason = err && err.name === 'AbortError'
+        ? '서버 응답이 지연되어 연결을 종료했습니다 (네트워크 상태를 확인해주세요)'
+        : (err && err.message ? err.message : '알 수 없는 오류');
+    let box = document.getElementById('dataLoadErrorBox');
+    if (!box) {
+        box = document.createElement('div');
+        box.id = 'dataLoadErrorBox';
+        box.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; background:var(--bg-color, #fff); z-index:99999; padding:24px; text-align:center;';
+        document.body.appendChild(box);
+    }
+    box.innerHTML = `
+        <div style="font-size:15px; color:var(--text-color, #333); line-height:1.6;">데이터를 불러오지 못했습니다.<br><span style="font-size:12px; color:var(--text-muted-color, #888);">(원인: ${reason})</span></div>
+        <button type="button" id="btnRetryDataLoad" style="padding:10px 24px; background:var(--primary-color, #3b82f6); color:#fff; border:none; border-radius:8px; font-size:14px; cursor:pointer;">다시 시도</button>`;
+    box.style.display = 'flex';
+    const retryBtn = document.getElementById('btnRetryDataLoad');
+    if (retryBtn) {
+        retryBtn.onclick = () => {
+            box.style.display = 'none';
+            loadDataFromLocal();
+        };
     }
 }
 
@@ -1108,8 +1153,7 @@ async function savePreferences() {
         await fetch('/api/preferences', {
             method: 'POST',
             headers: { 
-                'Content-Type': 'application/json',
-                'ngrok-skip-browser-warning': 'true'
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(userPreferences)
         });
@@ -1149,11 +1193,10 @@ async function fetchRealtimeNews(forceRefresh = false) {
     
     try {
         newsListEl.innerHTML = '<div style="text-align:center; padding: 20px;">🔄 실시간 뉴스를 불러오는 중...</div>';
-        const response = await fetch('/api/news', {
+        const response = await fetchWithTimeout('/api/news', {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'ngrok-skip-browser-warning': 'true'
+            headers: {
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ stocks: stocksToFetch, force_refresh: forceRefresh })
         });
@@ -1550,7 +1593,7 @@ if (btnDeleteAccount && deleteAccountModalOverlay) {
 
                 const res = await fetch('/api/account', {
                     method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ password: pw })
                 });
                 const data = await res.json();
@@ -1670,8 +1713,7 @@ window.loadTradeStats = async function() {
         const res = await fetch('/api/stats', {
             method: 'POST',
             headers: { 
-                'Content-Type': 'application/json',
-                'ngrok-skip-browser-warning': 'true' 
+                'Content-Type': 'application/json' 
             },
             body: JSON.stringify({ 
                 entry_ids: entryIds,
@@ -1765,7 +1807,7 @@ window.loadAdminUsers = async function() {
     if (!adminUserList) return;
     adminUserList.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px;">불러오는 중...</td></tr>';
     try {
-        const res = await fetch('/api/admin/users', { headers: { 'ngrok-skip-browser-warning': 'true' }});
+        const res = await fetch('/api/admin/users');
         if (!res.ok) throw new Error("권한이 없습니다.");
         adminUsersData = await res.json();
         renderAdminUsers();
@@ -1876,7 +1918,7 @@ window.renderAdminUsers = function() {
 
 window.toggleUserAllow = async function(username) {
     try {
-        const res = await fetch(`/api/admin/users/${username}/toggle_allow`, { method: 'POST', headers: { 'ngrok-skip-browser-warning': 'true' }});
+        const res = await fetch(`/api/admin/users/${username}/toggle_allow`, { method: 'POST'});
         if (res.ok) {
             loadAdminUsers();
         } else {
@@ -1889,7 +1931,7 @@ window.toggleUserAllow = async function(username) {
 window.resetUserPassword = async function(username) {
     if (await customConfirm(`'${username}' 사용자의 비밀번호를 안전한 무작위 문자열로 초기화하시겠습니까?`)) {
         try {
-            const res = await fetch(`/api/admin/users/${username}/reset_password`, { method: 'POST', headers: { 'ngrok-skip-browser-warning': 'true' }});
+            const res = await fetch(`/api/admin/users/${username}/reset_password`, { method: 'POST'});
             if (res.ok) {
                 const data = await res.json();
                 await customAlert(`'${username}' 계정의 비밀번호가 [ ${data.new_password} ] 로 초기화되었습니다.\n사용자에게 이 임시 비밀번호를 전달해 주세요.`);
@@ -1904,7 +1946,7 @@ window.deleteUserAccount = async function(username) {
     const confirmName = await customPrompt(`경고: '${username}' 사용자와 관련된 모든 기록과 첨부파일이 영구적으로 삭제됩니다.\n\n계속하시려면 삭제할 아이디('${username}')를 아래에 정확히 입력해주세요.`, '입력');
     if (confirmName === username) {
         try {
-            const res = await fetch(`/api/admin/users/${username}`, { method: 'DELETE', headers: { 'ngrok-skip-browser-warning': 'true' }});
+            const res = await fetch(`/api/admin/users/${username}`, { method: 'DELETE'});
             if (res.ok) {
                 await customAlert(`'${username}' 계정이 삭제되었습니다.`);
                 loadAdminUsers();
@@ -2326,8 +2368,7 @@ journalForm.addEventListener('submit', async function(e) {
         const res = await fetch(url, {
             method: method,
             headers: { 
-                'Content-Type': 'application/json',
-                'ngrok-skip-browser-warning': 'true'
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(newEntry)
         });
@@ -2375,9 +2416,7 @@ if (btnFullBackup) {
         if (await customConfirm('에디터 서식(폰트 등) 및 첨부 이미지를 포함한 \n모든 데이터를 완벽하게 백업합니다.\n\n다운로드를 진행하시겠습니까?')) {
             document.body.style.cursor = 'wait';
             window.showLoadingOverlay('데이터를 백업 중입니다...\n완료될 때까지 잠시만 기다려주세요.');
-            fetch('/api/backup', {
-                headers: { 'ngrok-skip-browser-warning': 'true' }
-            })
+            fetch('/api/backup')
                 .then(response => {
                     if (!response.ok) throw new Error('Network response was not ok');
                     let filename = 'TradingJournal_backup.zip';
@@ -2436,7 +2475,6 @@ if (btnFullRestore && restoreFileInput) {
             window.showLoadingOverlay('데이터를 원복하고 있습니다...\n진행 중 창을 닫거나 새로고침하지 마세요.');
             const response = await fetch('/api/restore', {
                 method: 'POST',
-                headers: { 'ngrok-skip-browser-warning': 'true' },
                 body: formData
             });
             
@@ -2620,7 +2658,7 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
     try {
         const res = await fetch('/api/current_price', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ codes: codesToFetch, market_mode: displayMarket })
         });
         const prices = await res.json();
@@ -3893,8 +3931,7 @@ async function deleteEntry(id) {
     if (await customConfirm("정말로 이 기록을 삭제하시겠습니까?\n(삭제 후 로컬 파일에 즉시 반영됩니다)")) {
         try {
             const res = await fetch(`/api/entry/${id}`, {
-                method: 'DELETE',
-                headers: { 'ngrok-skip-browser-warning': 'true' }
+                method: 'DELETE'
             });
             if (res.ok) {
                 cloudEntries = cloudEntries.filter(e => e.id !== id);
@@ -4992,8 +5029,7 @@ if (btnChangePassword && passwordModalOverlay) {
             const res = await fetch('/api/change_password', {
                 method: 'POST',
                 headers: { 
-                    'Content-Type': 'application/json',
-                    'ngrok-skip-browser-warning': 'true'
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ current_password, new_password })
             });
