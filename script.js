@@ -4574,6 +4574,11 @@ window.renderMonthlyProfitChart = function() {
     const type = window.currentMonthlyChartType || 'realized';
     let datasets = [];
 
+    // ⭐️ 막대 최소 높이(px): 값이 너무 작아 막대가 보이지 않는 경우에도 운용자가 인지할 수 있도록 최소 픽셀만큼 그린다.
+    //    단, 실제 0(거래 없는 달)은 null 처리하여 막대를 그리지 않으므로 빈 달과 구분된다.
+    const MIN_BAR_LENGTH = 2;
+    const nz = (v) => (v === 0 ? null : v); // 0 → null (빈 달은 막대 미표시)
+
     if (type === 'realized') {
         const dataRealized = labels.map(l => monthlyData[l].realized);
         const dataDividend = labels.map(l => monthlyData[l].dividend || 0);
@@ -4584,15 +4589,17 @@ window.renderMonthlyProfitChart = function() {
         datasets = [
             {
                 label: '배당 수익금',
-                data: dataDividend,
+                data: dataDividend.map(nz),
                 backgroundColor: divBgColor,
-                borderRadius: 4
+                borderRadius: 4,
+                minBarLength: MIN_BAR_LENGTH
             },
             {
                 label: '매매 실현손익',
-                data: dataRealized,
+                data: dataRealized.map(nz),
                 backgroundColor: bgColors,
-                borderRadius: 4
+                borderRadius: 4,
+                minBarLength: MIN_BAR_LENGTH
             }
         ];
     } else if (type === 'evaluated') {
@@ -4600,23 +4607,26 @@ window.renderMonthlyProfitChart = function() {
         const backgroundColors = data.map(val => val > 0 ? (isDark ? 'rgba(163, 78, 78, 0.85)' : 'rgba(231, 76, 60, 0.85)') : (val < 0 ? (isDark ? 'rgba(59, 104, 140, 0.85)' : 'rgba(52, 152, 219, 0.85)') : (isDark ? 'rgba(85, 85, 85, 0.85)' : 'rgba(189, 195, 199, 0.85)')));
         datasets = [{
             label: `해당 ${periodWord} 매수분의 현재 평가 손익`,
-            data: data,
+            data: data.map(nz),
             backgroundColor: backgroundColors,
-            borderRadius: 4
+            borderRadius: 4,
+            minBarLength: MIN_BAR_LENGTH
         }];
     } else if (type === 'volume') {
         datasets = [
             {
                 label: '매수 금액 (하단)',
-                data: labels.map(l => monthlyData[l].buy_volume),
+                data: labels.map(l => monthlyData[l].buy_volume).map(nz),
                 backgroundColor: isDark ? 'rgba(163, 78, 78, 0.85)' : 'rgba(231, 76, 60, 0.85)',
-                borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 4, bottomRight: 4 }
+                borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 4, bottomRight: 4 },
+                minBarLength: MIN_BAR_LENGTH
             },
             {
                 label: '매도 금액 (상단)',
-                data: labels.map(l => monthlyData[l].sell_volume),
+                data: labels.map(l => monthlyData[l].sell_volume).map(nz),
                 backgroundColor: isDark ? 'rgba(59, 104, 140, 0.85)' : 'rgba(52, 152, 219, 0.85)',
-                borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 }
+                borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
+                minBarLength: MIN_BAR_LENGTH
             }
         ];
     } else if (type === 'cumulative') {
