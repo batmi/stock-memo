@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 import time
 import concurrent.futures
 import zipfile
+import gzip
 import io
 import tempfile
 import shutil
@@ -183,9 +184,53 @@ def add_cache_headers(response):
         #    실행하게 되고(Can't find variable: applyTradeToHolding) 데이터 렌더링이
         #    영구히 막힌다. 따라서 리다이렉트/에러 응답은 캐시하지 않는다.
         if response.status_code == 200:
-            response.headers.setdefault('Cache-Control', 'public, max-age=3600')
+            # setdefault 는 Flask 가 정적 파일에 기본으로 넣는 'no-cache' 때문에
+            # 항상 무시되어 캐시가 전혀 적용되지 않았다. 명시적으로 덮어쓴다.
+            # (js/css 는 ?v=수정시각 쿼리로 버전 관리되므로 1시간 캐시가 안전하다)
+            response.headers['Cache-Control'] = 'public, max-age=3600'
         else:
             response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+# ⭐️ 텍스트 응답 gzip 압축: 초기 로딩 전송량 절감 (/api/data 수 MB JSON, script.js 260KB→60KB 등)
+#    이미지/ZIP 등 이미 압축된 형식은 Content-Type 으로 제외한다.
+_COMPRESSIBLE_TYPES = ('application/json', 'text/html', 'text/css',
+                       'application/javascript', 'text/javascript', 'text/plain')
+
+
+@app.after_request
+def compress_response(response):
+    if (response.status_code != 200
+            or request.method == 'HEAD'
+            or response.headers.get('Content-Encoding')
+            or 'gzip' not in (request.headers.get('Accept-Encoding') or '').lower()):
+        return response
+    content_type = (response.content_type or '').split(';')[0].strip().lower()
+    if content_type not in _COMPRESSIBLE_TYPES:
+        return response
+    # 지나치게 큰 응답은 메모리 보호를 위해 압축 생략
+    if response.content_length is not None and response.content_length > 16 * 1024 * 1024:
+        return response
+    try:
+        # 정적 파일(js/css)은 파일 스트리밍(direct_passthrough) 모드라 그대로는
+        # get_data() 가 실패한다. 텍스트 자산은 크기가 작으므로 버퍼로 전환해 압축한다.
+        response.direct_passthrough = False
+        data = response.get_data()
+    except Exception:
+        return response
+    if len(data) < 500:  # 소형 응답은 압축 이득이 없음
+        return response
+    compressed = gzip.compress(data, 6)
+    if len(compressed) >= len(data):
+        return response
+    response.set_data(compressed)
+    response.headers['Content-Encoding'] = 'gzip'
+    response.headers['Content-Length'] = str(len(compressed))
+    # 프록시/브라우저 캐시가 인코딩별로 응답을 구분하도록 Vary 지정
+    existing_vary = response.headers.get('Vary', '')
+    if 'accept-encoding' not in existing_vary.lower():
+        response.headers['Vary'] = (existing_vary + ', Accept-Encoding') if existing_vary else 'Accept-Encoding'
     return response
 
 
@@ -1200,7 +1245,10 @@ if __name__ == '__main__':
     try:
         from waitress import serve
         app.logger.info("🚀 Waitress WSGI 프로덕션 서버로 실행 중입니다.")
-        serve(app, host='0.0.0.0', port=port)
+        # ⭐️ 기본 스레드(4개)로는 시세/뉴스처럼 외부 API 를 수 초씩 점유하는 요청이
+        #    겹칠 때 초기 필수 API(/api/data 등)가 큐에서 대기하며 화면이 멈춘 것처럼
+        #    보인다. 스레드를 16개로 늘려 초기 병렬 요청이 즉시 처리되도록 한다.
+        serve(app, host='0.0.0.0', port=port, threads=16)
     except ImportError:
         app.logger.warning("⚠️ Waitress가 설치되지 않아 Flask 개발 서버로 실행합니다. (프로덕션 환경 권장: pip install waitress)")
         app.run(host='0.0.0.0', debug=True, port=port)

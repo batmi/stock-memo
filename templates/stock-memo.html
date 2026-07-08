@@ -4,8 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
     <title>주식 매매 일지</title>
+    <!-- ⭐️ CDN 접속 사전 연결(DNS/TLS 핸드셰이크 선행)로 첫 로딩 단축 -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="preconnect" href="https://cdn.quilljs.com">
+    <link rel="preconnect" href="https://cdn.sheetjs.com">
     <!-- ⭐️ Chart.js 라이브러리 추가 -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- ⭐️ 모든 외부 스크립트는 defer 로 로드하여 첫 화면 렌더링을 차단하지 않는다.
+         defer 스크립트는 문서 순서대로 DOMContentLoaded 이전에 실행되므로
+         기존 실행 순서(라이브러리 → calc.js → script.js)가 그대로 보존된다. -->
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- ⭐️ iOS 홈 화면 추가를 위한 웹 앱 설정 및 아이콘 -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="TRADING JOURNAL">
@@ -14,19 +21,19 @@
     <link rel="icon" type="image/png" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
     <link rel="apple-touch-icon" sizes="180x180" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
     <!-- ⭐️ SortableJS (드래그 앤 드롭) 라이브러리 추가 -->
-    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <!-- ⭐️ Flatpickr (날짜/시간 선택기) 라이브러리 추가 -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css" id="flatpickr-dark-theme" disabled>
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ko.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ko.js"></script>
     <!-- ⭐️ Quill (리치 텍스트 에디터) 라이브러리 추가 -->
     <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
-    <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+    <script defer src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
     <!-- ⭐️ Quill 이미지 리사이즈 모듈 추가 -->
-    <script src="https://cdn.jsdelivr.net/npm/quill-image-resize-module@3.0.0/image-resize.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/quill-image-resize-module@3.0.0/image-resize.min.js"></script>
     <!-- ⭐️ SheetJS (Excel 내보내기/가져오기) 라이브러리 추가 -->
-    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script defer src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <!-- ⭐️ 외부 CSS 파일 연결 -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ get_mtime('style.css') }}" onerror="this.onerror=null; this.href=this.href+'&retry='+new Date().getTime();">
 </head>
@@ -498,7 +505,7 @@
 
     <!-- ⭐️ 외부 JS 파일 연결 -->
     <!-- 매매 계산 단일 소스(백엔드 stats.py 와 동일 알고리즘). script.js 보다 먼저 로드 -->
-    <script src="{{ url_for('static', filename='calc.js') }}?v={{ get_mtime('calc.js') }}"></script>
-    <script src="{{ url_for('static', filename='script.js') }}?v={{ get_mtime('script.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='calc.js') }}?v={{ get_mtime('calc.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='script.js') }}?v={{ get_mtime('script.js') }}"></script>
 </body>
 </html>

@@ -1012,6 +1012,12 @@ function ensureCalcLoaded() {
 async function loadDataFromLocal() {
     console.log("[Data Load] loadDataFromLocal() 시작 - 사용자 데이터 호출 중...");
     try {
+        // ⭐️ 초기 데이터 수신 동안 빈 화면(멈춘 것처럼 보이는 현상) 방지용 로딩 안내
+        //    (재시도 시 기존 목록이 이미 렌더링돼 있으면 덮어쓰지 않는다)
+        if (historyList && historyList.children.length === 0) {
+            historyList.innerHTML = '<p style="text-align:center; color:var(--text-muted-color); font-size: 14px; padding: 30px 0;">⏳ 데이터를 불러오는 중입니다...</p>';
+        }
+
         // ⭐️ 계산 엔진(calc.js)이 준비됐는지 먼저 확인·복구 (없으면 displayEntries 에서 크래시)
         await ensureCalcLoaded();
 
