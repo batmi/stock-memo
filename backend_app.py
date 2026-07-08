@@ -297,6 +297,48 @@ def db_conn():
 prices.set_db_provider(get_db)
 
 
+# ⭐️ 본문(thoughts) HTML 에 내장된 base64 이미지 패턴
+#    Quill 에디터가 이미지를 base64 로 본문에 심으면 기록 1건이 수백 KB 가 되어
+#    /api/data 응답이 수 MB 로 커지고, 초기 로딩 시 '멈칫' 현상의 주원인이 된다.
+_INLINE_IMG_RE = re.compile(
+    r'src=(["\'])(data:image/(png|jpe?g|gif|webp);base64,([^"\']+))\1',
+    re.IGNORECASE)
+
+
+def extract_inline_images(username, entry):
+    """본문 HTML 내 base64 이미지를 사용자 업로드 폴더의 파일로 추출하고
+    src 를 /uploads/ URL 로 치환한 새 entry(dict)를 반환한다.
+
+    이미지가 없으면 원본 entry 를 그대로 반환한다. 디코딩 불가능한 손상
+    데이터는 원본 그대로 보존한다.
+    """
+    thoughts = entry.get('thoughts')
+    if not username or not thoughts or 'data:image' not in thoughts:
+        return entry
+
+    user_folder = os.path.join(UPLOAD_FOLDER, username)
+    os.makedirs(user_folder, exist_ok=True)
+
+    def _save_to_file(match):
+        quote, ext, b64 = match.group(1), match.group(3), match.group(4)
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            return match.group(0)
+        ext = 'jpg' if ext.lower() in ('jpeg', 'jpg') else ext.lower()
+        filename = f"qimg_{uuid.uuid4().hex[:12]}.{ext}"
+        with open(os.path.join(user_folder, filename), 'wb') as f:
+            f.write(raw)
+        return f'src={quote}/uploads/{username}/{filename}{quote}'
+
+    new_thoughts = _INLINE_IMG_RE.sub(_save_to_file, thoughts)
+    if new_thoughts == thoughts:
+        return entry
+    new_entry = dict(entry)
+    new_entry['thoughts'] = new_thoughts
+    return new_entry
+
+
 def process_image(image_data, entry_id):
     """Base64 이미지를 파일로 저장하고 URL 경로를 반환"""
     if not image_data:
@@ -416,6 +458,41 @@ def init_db():
         pass
     conn.commit()
     conn.close()
+
+
+# ⭐️ 기존 기록의 본문 내장 base64 이미지를 파일로 일괄 추출하는 1회성 마이그레이션
+#    (서버 시작 시 실행. 실행 전 DB 파일을 backup/ 폴더에 안전 복사한다.)
+def migrate_inline_images():
+    conn = get_db()
+    try:
+        c = conn.cursor()
+        c.execute("SELECT id, username, thoughts FROM entries WHERE thoughts LIKE '%data:image%'")
+        rows = c.fetchall()
+        if not rows:
+            return
+
+        # 마이그레이션 직전 DB 원본을 1회 백업 (이미 있으면 생략)
+        safety_copy = os.path.join(BACKUP_DIR, 'journal_pre_imgmigration.db')
+        if not os.path.exists(safety_copy):
+            # WAL 에 남은 변경분까지 본 파일에 합친 뒤 복사 (스냅샷 무결성 보장)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            shutil.copy2(DB_FILE, safety_copy)
+            app.logger.info(f"🛡️ 이미지 마이그레이션 전 DB 백업 생성: {safety_copy}")
+
+        migrated = 0
+        for row in rows:
+            username = row['username'] or ''
+            new_entry = extract_inline_images(username, {'thoughts': row['thoughts']})
+            if new_entry['thoughts'] != row['thoughts']:
+                c.execute("UPDATE entries SET thoughts = ? WHERE id = ?", (new_entry['thoughts'], row['id']))
+                migrated += 1
+        conn.commit()
+        if migrated:
+            app.logger.info(f"🔄 본문 내장 base64 이미지 {migrated}건을 파일로 추출했습니다 (초기 로딩 최적화).")
+    except Exception as e:
+        app.logger.error(f"❌ 이미지 마이그레이션 중 오류 발생: {e}", exc_info=True)
+    finally:
+        conn.close()
 
 
 # ⭐️ 자동 백업 스레드 함수
@@ -680,6 +757,7 @@ def signup():
                                 old_data = json.load(f)
                                 for entry in old_data:
                                     img_url = process_image(entry.get('attachedImage'), entry.get('id'))
+                                    entry = extract_inline_images(username, entry)
                                     entry_logic.insert_entry(c, username, entry, attached_image=img_url)
                                 conn.commit()
                                 app.logger.info("✅ 데이터 마이그레이션 완료! (이제부터 db/journal.db와 uploads 폴더를 사용합니다)")
@@ -887,6 +965,8 @@ def get_data():
 def create_entry():
     username = session.get('username')
     entry = request.json
+    # ⭐️ 본문 내장 base64 이미지를 파일로 추출 (초기 로딩 응답 크기 유지)
+    entry = extract_inline_images(username, entry)
     with db_conn() as conn:
         c = conn.cursor()
 
@@ -905,6 +985,8 @@ def create_entry():
 def update_entry(entry_id):
     username = session.get('username')
     entry = request.json
+    # ⭐️ 본문 내장 base64 이미지를 파일로 추출 (초기 로딩 응답 크기 유지)
+    entry = extract_inline_images(username, entry)
     with db_conn() as conn:
         c = conn.cursor()
 
@@ -1194,8 +1276,9 @@ def full_restore():
             # 1. 기존 사용자의 데이터만 삭제
             c.execute("DELETE FROM entries WHERE username = ?", (username,))
 
-            # 2. 복원할 데이터 삽입
+            # 2. 복원할 데이터 삽입 (구버전 백업의 본문 내장 base64 이미지도 파일로 추출)
             for entry in entries:
+                entry = extract_inline_images(username, entry)
                 entry_logic.insert_entry(c, username, entry)
             conn.commit()
 
@@ -1223,6 +1306,9 @@ def full_restore():
 
 if __name__ == '__main__':
     init_db()
+
+    # ⭐️ 본문 내장 base64 이미지 → 파일 추출 (1회성, 이미 완료된 경우 즉시 통과)
+    migrate_inline_images()
 
     # 자동 백업 스레드 시작
     backup_thread = threading.Thread(target=auto_backup_job, daemon=True)

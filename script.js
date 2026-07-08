@@ -15,6 +15,18 @@ function fetchWithTimeout(url, options = {}, timeout = 15000) {
         .finally(() => clearTimeout(id));
 }
 
+// ⭐️ HTML head 인라인 스크립트(window.__initialFetches)가 문서 파싱 시작 시점에
+//    미리 발사해둔 초기 API 요청을 이어받는다. (라이브러리 로딩과 데이터 수신 병렬화)
+//    프리페치가 없거나 실패(null)·15초 내 미완료 시 새 요청으로 폴백한다.
+function initialFetchOrFresh(key, url) {
+    const pre = window.__initialFetches;
+    const prefetched = pre && pre[key];
+    if (pre) pre[key] = null; // 재시도(visibilitychange 등) 시에는 항상 새 요청 사용
+    if (!prefetched) return fetchWithTimeout(url);
+    const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 15000));
+    return Promise.race([prefetched, timeout]).then(res => res ? res : fetchWithTimeout(url));
+}
+
 let cloudEntries = [];
 let currentHoldings = [];
 let newsInterval = null;
@@ -1022,10 +1034,11 @@ async function loadDataFromLocal() {
         await ensureCalcLoaded();
 
         // ⭐️ 초기 필수 데이터(사용자 정보, 환경설정, 매매기록)를 병렬로 호출하여 로딩 속도 최적화
+        //    (HTML head 에서 미리 발사한 프리페치가 있으면 이어받아 대기 시간 단축)
         const [mePromise, prefPromise, dataPromise] = [
-            fetchWithTimeout('/api/me').catch(e => { console.warn("사용자 정보 로드 실패", e); return null; }),
-            fetchWithTimeout('/api/preferences').catch(e => { console.warn("환경설정 로드 실패", e); return null; }),
-            fetchWithTimeout('/api/data')
+            initialFetchOrFresh('me', '/api/me').catch(e => { console.warn("사용자 정보 로드 실패", e); return null; }),
+            initialFetchOrFresh('pref', '/api/preferences').catch(e => { console.warn("환경설정 로드 실패", e); return null; }),
+            initialFetchOrFresh('data', '/api/data')
         ];
 
         console.log("[Data Load] 사용자 정보, 환경설정, 매매 기록 병렬 호출 시작...");
@@ -2591,13 +2604,26 @@ if (btnFullRestore && restoreFileInput) {
     });
 }
 
+// ⭐️ SheetJS(약 1MB)는 초기 로딩에서 제외하고 엑셀 내보내기 시점에만 동적 로드
+function ensureXlsxLoaded() {
+    return new Promise((resolve, reject) => {
+        if (window.XLSX) { resolve(); return; }
+        const tag = document.createElement('script');
+        tag.src = 'https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js';
+        tag.onload = () => window.XLSX ? resolve() : reject(new Error('엑셀 모듈이 초기화되지 않았습니다.'));
+        tag.onerror = () => reject(new Error('엑셀 모듈을 불러오지 못했습니다. (네트워크 연결을 확인해주세요)'));
+        document.head.appendChild(tag);
+    });
+}
+
 document.getElementById('btnExportExcel').addEventListener('click', async () => {
     if (await customConfirm('모든 매매 기록을 엑셀 파일(.xlsx)로 \n다운로드하시겠습니까?')) {
         window.showLoadingOverlay('엑셀 파일을 생성 중입니다...\n잠시만 기다려주세요.');
-        
+
         // ⭐️ UI 스레드가 블록되기 전에 로딩 애니메이션이 화면에 렌더링될 수 있도록 약간의 지연(setTimeout)을 줌
         setTimeout(async () => {
             try {
+        await ensureXlsxLoaded();
         const header = ['작성일', '분류', '종목명', '증권사', '증권계좌', '계좌분류', '매매종류', '단가', '수량', '태그', '메모/생각'];
         const rows = cloudEntries.map(e => [
             e.date, (e.type || '').toUpperCase(), e.stockName||'', e.brokerAccount||'', e.subAccount||'', e.accountName||'',
@@ -2643,6 +2669,9 @@ document.getElementById('btnExportExcel').addEventListener('click', async () => 
         const filename = `TradingJournal_export_${yyyy}${mm}${dd}_${hh}${min}${ss}.xlsx`;
         
         XLSX.writeFile(workbook, filename);
+            } catch (err) {
+                console.error("엑셀 내보내기 실패:", err);
+                await customAlert(`엑셀 내보내기에 실패했습니다.\n(${err && err.message ? err.message : '알 수 없는 오류'})`);
             } finally {
                 await window.hideLoadingOverlay();
             }
@@ -3829,7 +3858,7 @@ function renderPage() {
         const card = document.createElement('div');
         card.className = 'entry-card';
         const entryType = entry.type || 'trade';
-        const imageHtml = entry.attachedImage ? `<div style="margin-top:10px;"><img src="${entry.attachedImage}" class="entry-thumbnail" onclick="openImageViewer(this.src, event)" title="클릭하여 원본 보기"></div>` : '';
+        const imageHtml = entry.attachedImage ? `<div style="margin-top:10px;"><img src="${entry.attachedImage}" class="entry-thumbnail" loading="lazy" decoding="async" onclick="openImageViewer(this.src, event)" title="클릭하여 원본 보기"></div>` : '';
 
         const createdStr = entry.createdAt ? new Date(entry.createdAt).toLocaleString() : new Date(entry.id).toLocaleString();
         const updatedStr = entry.updatedAt ? new Date(entry.updatedAt).toLocaleString() : '';
@@ -3933,8 +3962,11 @@ function renderPage() {
         deleteBtn.addEventListener('click', () => deleteEntry(entry.id));
 
         // ⭐️ 에디터 본문 내 이미지 클릭 시 원본 보기 (확대/축소 지원)
+        //    + 화면 밖 이미지는 스크롤 시점에 지연 로드하여 초기 렌더링 부담 제거
         const contentImages = card.querySelectorAll('.entry-content img');
         contentImages.forEach(img => {
+            img.loading = 'lazy';
+            img.decoding = 'async';
             img.addEventListener('click', (e) => {
                 window.openImageViewer(img.src, e);
             });
