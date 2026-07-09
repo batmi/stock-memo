@@ -4,6 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
     <title>주식 매매 일지</title>
+    <!-- ⭐️ 테마 FOUC 방지: script.js 는 defer 로 늦게 실행되므로,
+         첫 페인트 전에 저장된 테마(기본: 다크)를 즉시 적용하여
+         라이트 테마가 잠깐 보였다가 다크로 바뀌는 깜빡임을 없앤다. -->
+    <script>
+        (function () {
+            var theme = 'dark';
+            try { theme = localStorage.getItem('theme') || 'dark'; } catch (e) { }
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
     <!-- ⭐️ 초기 필수 API 프리페치: 문서 파싱 시작 즉시 요청을 발사하여
          라이브러리(js) 다운로드와 데이터 수신을 병렬화한다.
          script.js 의 loadDataFromLocal() 이 이 프라미스를 이어받아 사용한다. -->
