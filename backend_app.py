@@ -1329,7 +1329,7 @@ if __name__ == '__main__':
     app.logger.info(f"웹 브라우저를 열고 http://127.0.0.1:{port} 또는 기기의 로컬 IP 주소(예: 192.168.x.x:{port})로 접속해주세요.")
 
     try:
-        from waitress import serve
+        from waitress import serve  # type: ignore
         app.logger.info("🚀 Waitress WSGI 프로덕션 서버로 실행 중입니다.")
         # ⭐️ 기본 스레드(4개)로는 시세/뉴스처럼 외부 API 를 수 초씩 점유하는 요청이
         #    겹칠 때 초기 필수 API(/api/data 등)가 큐에서 대기하며 화면이 멈춘 것처럼
