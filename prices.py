@@ -128,6 +128,15 @@ _executor = concurrent.futures.ThreadPoolExecutor(max_workers=10)
 # ─────────────────────────────────────────────────────────────
 def save_price_cache(conn, code_val, price_val, market_type='KRX'):
     try:
+        # ⭐️ 가격이 직전 저장값과 동일하면 쓰기 생략 — 60초 폴링마다 종목 수만큼
+        #    REPLACE+commit 이 발생해 SD카드(라즈베리파이)에 상시 쓰기가 쌓이는 것을 방지.
+        #    시세는 대부분 직전 값과 같으므로 실제 쓰기는 가격 변동 시에만 일어난다.
+        cur = conn.execute(
+            "SELECT price FROM price_cache WHERE code = ? AND market_type = ?",
+            (code_val, market_type))
+        row = cur.fetchone()
+        if row is not None and row['price'] == price_val:
+            return
         now_str = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         conn.execute(
             "REPLACE INTO price_cache (code, market_type, price, updated_at) VALUES (?, ?, ?, ?)",
@@ -241,13 +250,20 @@ def _fetch_kr(conn, code_str, market_mode):
         # 정규장 실시간 시세 (장중일 때만)
         realtime_krx_price = None if out_of_hours else _fetch_krx_realtime(code_str)
 
+        # ⭐️ 장중 실시간 시세 성공 시 즉시 반환 — 기존에는 모바일 기본 시세까지
+        #    항상 호출한 뒤 실시간 값을 우선 반환했으므로, KRX/NXT 모든 모드에서
+        #    동작은 동일하고 장중 외부 HTTP 요청만 절반으로 줄어든다.
+        if realtime_krx_price:
+            save_price_cache(conn, code_str, realtime_krx_price, 'KRX')
+            return realtime_krx_price
+
         # 네이버 모바일 기본 시세 (캐시 방지 파라미터 포함)
         ts = int(time.time() * 1000)
         url = f"https://m.stock.naver.com/api/stock/{code_str}/basic?_={ts}"
         res_data = json.loads(_http_get(url, _MOBILE_HEADERS))
         price_str = str(res_data.get('closePrice', ''))
         close_price = float(price_str.replace(',', '')) if price_str and price_str != '0' else None
-        current_krx_price = realtime_krx_price if realtime_krx_price else close_price
+        current_krx_price = close_price
 
         if market_mode == 'NXT':
             # 1) 정규장에는 무조건 KRX 실시간 우선
@@ -342,16 +358,42 @@ def _fetch_price_uncached(conn, code_str, market_mode):
     return None
 
 
-def fetch_price(code, market_mode='AUTO'):
-    """단일 종목 현재가 조회. (code, price) 튜플 반환."""
+# ─────────────────────────────────────────────────────────────
+# 자동 폴링 전용 단기 메모리 캐시
+#   - 여러 탭/기기(폰+PC)가 동시에 60초 폴링할 때 외부 API 중복 호출을 흡수한다.
+#   - ⭐️ 수동 새로고침(allow_cached=False, 기본값)은 이 캐시를 완전히 우회하여
+#     항상 실제 현재 시세를 다시 조회한다. (사용자가 "진짜 현재가"를 신뢰할 수 있어야 함)
+#   - 수동/자동 어느 쪽이든 라이브 조회 성공 값은 캐시에 갱신해 둔다.
+# ─────────────────────────────────────────────────────────────
+PRICE_MEM_TTL = 25  # 초 — 60초 폴링 주기보다 짧아 자동 갱신 체감에는 영향 없음
+_price_mem_cache = {}  # (code_str, market_mode) -> (price, timestamp)
+_price_mem_lock = threading.Lock()
+
+
+def fetch_price(code, market_mode='AUTO', allow_cached=False):
+    """단일 종목 현재가 조회. (code, price) 튜플 반환.
+
+    allow_cached=True(자동 폴링)일 때만 단기 메모리 캐시를 조회하며,
+    수동 새로고침은 항상 외부 API 라이브 조회를 수행한다.
+    """
     code_str = str(code).strip().upper()
     if not code_str:
         return None, None  # 빈 코드는 결과에서 제외 (호출자가 code is None 으로 필터)
 
+    if allow_cached:
+        with _price_mem_lock:
+            hit = _price_mem_cache.get((code_str, market_mode))
+        if hit is not None and (time.time() - hit[1]) < PRICE_MEM_TTL:
+            return code, hit[0]
+
     conn = None
     try:
         conn = _get_db()
-        return code, _fetch_price_uncached(conn, code_str, market_mode)
+        price = _fetch_price_uncached(conn, code_str, market_mode)
+        if price is not None:
+            with _price_mem_lock:
+                _price_mem_cache[(code_str, market_mode)] = (price, time.time())
+        return code, price
     except Exception:
         return code, None
     finally:
@@ -362,10 +404,10 @@ def fetch_price(code, market_mode='AUTO'):
                 pass
 
 
-def get_prices(codes, market_mode='AUTO'):
+def get_prices(codes, market_mode='AUTO', allow_cached=False):
     """다수 종목 현재가를 상주 스레드 풀로 병렬 조회하여 {code: price} 반환."""
     prices = {}
-    results = _executor.map(lambda c: fetch_price(c, market_mode), codes)
+    results = _executor.map(lambda c: fetch_price(c, market_mode, allow_cached), codes)
     for code, price in results:
         if code is not None:
             prices[code] = price

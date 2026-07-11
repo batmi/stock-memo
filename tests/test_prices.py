@@ -432,7 +432,7 @@ def test_fetch_price_closes_connection():
 
 
 def test_get_prices_aggregates(conn):
-    def fake_fetch(code, market_mode='AUTO'):
+    def fake_fetch(code, market_mode='AUTO', allow_cached=False):
         return code, {'005930': 95000.0, 'AAPL': 250.5}.get(code)
 
     with patch.object(prices, 'fetch_price', side_effect=fake_fetch):
@@ -441,7 +441,7 @@ def test_get_prices_aggregates(conn):
 
 
 def test_get_prices_filters_none_code():
-    def fake_fetch(code, market_mode='AUTO'):
+    def fake_fetch(code, market_mode='AUTO', allow_cached=False):
         return (None, None) if code == '' else (code, 1.0)
 
     with patch.object(prices, 'fetch_price', side_effect=fake_fetch):

@@ -1320,12 +1320,14 @@ async function fetchRealtimeNews(forceRefresh = false) {
         
         filteredNewsData.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
 
-        newsListEl.innerHTML = '';
+        // ⭐️ 루프 안에서 innerHTML += 를 반복하면 매 회 목록 전체를 재파싱(O(n²))하므로
+        //    문자열로 모아 한 번에 대입한다.
+        let newsHtml = '';
         filteredNewsData.forEach(news => {
             const dateObj = new Date(news.pubDate);
             const dateStr = !isNaN(dateObj) ? (dateObj.getMonth()+1) + '/' + dateObj.getDate() + ' ' + String(dateObj.getHours()).padStart(2,'0') + ':' + String(dateObj.getMinutes()).padStart(2,'0') : news.pubDate;
-            
-            newsListEl.innerHTML += `
+
+            newsHtml += `
                 <div class="news-item">
                     <a href="${news.link}" target="_blank">${news.title}</a>
                     <div class="news-meta">
@@ -1333,6 +1335,7 @@ async function fetchRealtimeNews(forceRefresh = false) {
                     </div>
                 </div>`;
         });
+        newsListEl.innerHTML = newsHtml;
     } catch (err) {
         console.error("뉴스 로딩 실패:", err);
             newsListEl.innerHTML = '<div style="text-align:center; padding: 20px; color:var(--danger-color);">뉴스를 불러오지 못했습니다.</div>';
@@ -2770,10 +2773,12 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
     if (codesToFetch.length === 0) return; // ⭐️ 업데이트할 종목이 없으면 리턴 (평가액 유지를 위해 기존 UI 상태 유지)
     
     try {
+        // ⭐️ allow_cached: 60초 자동 폴링(isAuto)만 서버측 단기 캐시를 허용한다.
+        //    수동 새로고침은 항상 false → 서버가 외부 API 를 라이브 조회하여 "진짜 현재가"를 보장.
         const res = await fetch('/api/current_price', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ codes: codesToFetch, market_mode: displayMarket })
+            body: JSON.stringify({ codes: codesToFetch, market_mode: displayMarket, allow_cached: isAuto === true })
         });
         const prices = await res.json();
         

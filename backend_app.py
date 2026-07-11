@@ -198,6 +198,23 @@ def add_cache_headers(response):
 _COMPRESSIBLE_TYPES = ('application/json', 'text/html', 'text/css',
                        'application/javascript', 'text/javascript', 'text/plain')
 
+# ⭐️ 정적 자산(js/css) 압축 결과 메모리 캐시 — 라즈베리파이의 느린 CPU 에서
+#    script.js(260KB) 를 요청마다 매번 gzip 압축하면 요청당 수십 ms 를 소모한다.
+#    파일 mtime 을 키에 포함해, 파일이 바뀌지 않는 한 최초 1회만 압축한다.
+#    (압축 결과물은 자산당 수십 KB 수준이라 메모리 부담이 거의 없다)
+_static_gzip_cache = {}  # request.path -> (mtime, compressed_bytes | None)  None 은 "압축 비적용" 결정 캐시
+_static_gzip_lock = threading.Lock()
+
+
+def _gzip_if_smaller(data):
+    """압축 이득이 있을 때만 압축 결과를 반환, 아니면 None."""
+    if len(data) < 500:  # 소형 응답은 압축 이득이 없음
+        return None
+    compressed = gzip.compress(data, 6)
+    if len(compressed) >= len(data):
+        return None
+    return compressed
+
 
 @app.after_request
 def compress_response(response):
@@ -212,6 +229,26 @@ def compress_response(response):
     # 지나치게 큰 응답은 메모리 보호를 위해 압축 생략
     if response.content_length is not None and response.content_length > 16 * 1024 * 1024:
         return response
+
+    # ⭐️ 정적 파일은 mtime 기반 캐시를 먼저 조회 (파일 읽기·압축 모두 생략)
+    static_mtime = None
+    if request.endpoint == 'static':
+        try:
+            static_mtime = os.path.getmtime(
+                os.path.join(app.root_path, request.path.lstrip('/')))
+        except OSError:
+            static_mtime = None
+        if static_mtime is not None:
+            with _static_gzip_lock:
+                cached = _static_gzip_cache.get(request.path)
+            if cached is not None and cached[0] == static_mtime:
+                compressed = cached[1]
+                if compressed is None:
+                    return response  # 이전에 "압축 이득 없음"으로 판정된 자산
+                response.direct_passthrough = False
+                _apply_gzip(response, compressed)
+                return response
+
     try:
         # 정적 파일(js/css)은 파일 스트리밍(direct_passthrough) 모드라 그대로는
         # get_data() 가 실패한다. 텍스트 자산은 크기가 작으므로 버퍼로 전환해 압축한다.
@@ -219,11 +256,19 @@ def compress_response(response):
         data = response.get_data()
     except Exception:
         return response
-    if len(data) < 500:  # 소형 응답은 압축 이득이 없음
+    compressed = _gzip_if_smaller(data)
+
+    if static_mtime is not None:
+        with _static_gzip_lock:
+            _static_gzip_cache[request.path] = (static_mtime, compressed)
+
+    if compressed is None:
         return response
-    compressed = gzip.compress(data, 6)
-    if len(compressed) >= len(data):
-        return response
+    _apply_gzip(response, compressed)
+    return response
+
+
+def _apply_gzip(response, compressed):
     response.set_data(compressed)
     response.headers['Content-Encoding'] = 'gzip'
     response.headers['Content-Length'] = str(len(compressed))
@@ -231,7 +276,6 @@ def compress_response(response):
     existing_vary = response.headers.get('Vary', '')
     if 'accept-encoding' not in existing_vary.lower():
         response.headers['Vary'] = (existing_vary + ', Accept-Encoding') if existing_vary else 'Accept-Encoding'
-    return response
 
 
 # ⭐️ 전역 서버 에러 핸들러 추가 (서버 중단/500 에러 발생 시 상세 로그 기록)
@@ -499,10 +543,12 @@ def migrate_inline_images():
 def auto_backup_job():
     while True:
         now = datetime.now()
-        # 다음 자정 시간 계산
-        next_midnight = datetime(now.year, now.month, now.day) + timedelta(days=1)
-        # 자정까지 대기
-        time_to_sleep = (next_midnight - now).total_seconds()
+        # ⭐️ 다음 새벽 3시 계산 — 자정에는 로그 로테이션과 겹쳐 라즈베리파이의
+        #    CPU/SD카드 I/O 부하가 집중되므로 사용이 없는 새벽 시간대로 분산한다.
+        next_run = datetime(now.year, now.month, now.day, 3, 0)
+        if next_run <= now:
+            next_run += timedelta(days=1)
+        time_to_sleep = (next_run - now).total_seconds()
         time.sleep(time_to_sleep)
 
         try:
@@ -654,11 +700,20 @@ def login():
     client_ip = request.remote_addr
     current_time = time.time()
 
+    # ⭐️ 24시간 상시 구동 시 IP 별 기록이 무한히 쌓이는 것을 방지 —
+    #    1시간 이상 활동이 없고 차단도 풀린 IP 는 정리한다.
+    if len(login_attempts) > 50:
+        stale_cutoff = current_time - 3600
+        for ip in [ip for ip, r in login_attempts.items()
+                   if r.get('last_seen', 0) < stale_cutoff and r['lockout_until'] < current_time]:
+            del login_attempts[ip]
+
     # 접속 IP별 시도 횟수 및 차단 시간 초기화
     if client_ip not in login_attempts:
         login_attempts[client_ip] = {'count': 0, 'lockout_until': 0}
 
     record = login_attempts[client_ip]
+    record['last_seen'] = current_time
     error_message = None
     timeout_message = None
 
@@ -954,11 +1009,26 @@ def get_data():
     username = session.get('username')
     if not username:  # ⭐️ 세션 만료/미로그인 시 빈 배열 대신 401 반환 (화면 공백 방지)
         return jsonify({"error": "unauthorized"}), 401
+
+    # ⭐️ ETag 기반 조건부 응답: 데이터가 바뀌지 않았으면 본문 없이 304 만 반환.
+    #    브라우저가 If-None-Match 를 자동으로 보내고 304 수신 시 캐시 본문을 그대로
+    #    사용하므로 프론트엔드 수정 없이 재방문 전송량과 서버 직렬화 비용이 사라진다.
+    etag = _data_etag(username)
+    if request.if_none_match.contains(etag):
+        response = app.make_response(('', 304))
+        response.set_etag(etag)
+        response.headers['Cache-Control'] = 'no-cache, private'
+        return response
+
     with db_conn() as conn:
         c = conn.cursor()
         c.execute("SELECT * FROM entries WHERE username = ? ORDER BY id DESC", (username,))
         data = [dict(row) for row in c.fetchall()]
-    return jsonify(data)
+    response = jsonify(data)
+    response.set_etag(etag)
+    # no-cache = 저장은 하되 매번 재검증 (다른 계정 로그인 시 세션이 달라 ETag 도 달라짐)
+    response.headers['Cache-Control'] = 'no-cache, private'
+    return response
 
 
 @app.route('/api/entry', methods=['POST'])
@@ -1019,14 +1089,27 @@ def delete_entry(entry_id):
 _stats_cache = {}
 _stats_cache_lock = threading.Lock()
 
+# ⭐️ /api/data ETag 용 사용자별 데이터 버전 — 기록 변경 시마다 증가.
+#    서버 재시작 시 버전이 0부터 다시 시작해도 잘못된 304 가 나가지 않도록
+#    부팅마다 달라지는 식별자를 ETag 에 포함한다.
+_BOOT_ID = uuid.uuid4().hex[:8]
+_data_versions = {}  # username -> int
+
+
+def _data_etag(username):
+    with _stats_cache_lock:
+        version = _data_versions.get(username, 0)
+    return f"{username}-{_BOOT_ID}-{version}"
+
 
 def invalidate_stats_cache(username):
-    """해당 사용자의 통계 캐시를 무효화한다 (기록 추가/수정/삭제 시 호출)."""
+    """해당 사용자의 통계 캐시 무효화 + 데이터 버전 증가 (기록 추가/수정/삭제 시 호출)."""
     if not username:
         return
     with _stats_cache_lock:
         for key in [k for k in _stats_cache if k[0] == username]:
             _stats_cache.pop(key, None)
+        _data_versions[username] = _data_versions.get(username, 0) + 1
 
 
 @app.route('/api/stats', methods=['GET', 'POST'])
@@ -1049,6 +1132,9 @@ def get_stats():
         if cached is not None:
             return jsonify(cached)
 
+    # ⭐️ 통계 계산에 필요한 컬럼만 조회 — SELECT * 는 본문 HTML(thoughts)까지
+    #    전부 읽어와, 본문이 커질수록 통계 응답이 느려진다. (특히 캐시가 없는 POST 필터 요청)
+    stats_cols = "id, type, stockName, tradeType, price, quantity, rawDate"
     with db_conn() as conn:
         c = conn.cursor()
         if entry_ids is not None:
@@ -1060,10 +1146,10 @@ def get_stats():
                 for i in range(0, len(entry_ids), chunk_size):
                     chunk = entry_ids[i:i+chunk_size]
                     placeholders = ','.join('?' for _ in chunk)
-                    c.execute(f"SELECT * FROM entries WHERE username = ? AND id IN ({placeholders})", (username, *chunk))
+                    c.execute(f"SELECT {stats_cols} FROM entries WHERE username = ? AND id IN ({placeholders})", (username, *chunk))
                     rows.extend([dict(row) for row in c.fetchall()])
         else:
-            c.execute("SELECT * FROM entries WHERE username = ?", (username,))
+            c.execute(f"SELECT {stats_cols} FROM entries WHERE username = ?", (username,))
             rows = [dict(row) for row in c.fetchall()]
 
     result = stats.compute_trade_stats(rows, granularity=granularity)
@@ -1080,7 +1166,10 @@ def get_current_price():
     data = request.json or {}
     codes = data.get('codes', [])
     market_mode = data.get('market_mode', 'AUTO')
-    return jsonify(prices.get_prices(codes, market_mode))
+    # ⭐️ allow_cached: 자동 폴링(60초 주기)만 True 로 보내 서버측 단기(25초) 캐시 허용.
+    #    수동 새로고침은 False(기본) → 항상 외부 API 라이브 조회로 "진짜 현재가"를 보장.
+    allow_cached = bool(data.get('allow_cached', False))
+    return jsonify(prices.get_prices(codes, market_mode, allow_cached=allow_cached))
 
 
 @app.route('/api/change_password', methods=['POST'])
