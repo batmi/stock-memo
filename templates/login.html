@@ -38,6 +38,24 @@
             box-shadow: 0 0 0 3px rgba(138, 43, 226, 0.3);
             background-color: #121212;
         }
+        .keep-login {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin: 0 0 4px 2px;
+            font-size: 13px;
+            color: #888;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .keep-login input[type="checkbox"] {
+            width: 15px;
+            height: 15px;
+            margin: 0;
+            accent-color: #8a2be2;
+            cursor: pointer;
+        }
         button {
             width: 100%; padding: 10px; margin-top: 5px; background: linear-gradient(135deg, #9d4edd 0%, #7b2cbf 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer;
             transition: all 0.3s ease;
@@ -94,6 +112,10 @@
         <form method="post">
             <input type="text" name="username" placeholder="아이디를 입력하세요" required autofocus>
             <input type="password" name="password" placeholder="비밀번호를 입력하세요" required>
+            <label class="keep-login">
+                <input type="checkbox" name="keep_logged_in">
+                로그인 유지 (24시간)
+            </label>
             <button type="submit">접속하기</button>
         </form>
         <div style="margin-top: 15px; font-size: 13px;">

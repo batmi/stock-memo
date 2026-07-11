@@ -289,8 +289,8 @@ def handle_exception(e):
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # 자바스크립트(XSS)로 쿠키 접근 원천 차단
 app.config['SESSION_COOKIE_SECURE'] = False   # ⭐️ 로컬(HTTP) 환경 접속 시 로그인 갱신 오류 방지를 위해 비활성화
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF(크로스 사이트 요청 위조) 공격 방어
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)  # ⭐️ 영구 세션(모바일) 유효 기간 24시간 — PC는 비영구 세션이라 이 값의 영향을 받지 않음
-app.config['SESSION_REFRESH_EACH_REQUEST'] = True   # ⭐️ 요청 시마다 세션 갱신하여 활성 사용자 세션 만료 방지
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)  # ⭐️ "로그인 유지" 선택 시 쿠키 수명 24시간 (실제 만료는 서버의 expires_at 검사로 강제)
+app.config['SESSION_REFRESH_EACH_REQUEST'] = False  # ⭐️ 만료 시각은 로그인 시점에 확정되므로 요청마다 쿠키 수명을 연장하지 않음
 
 # ⭐️ 2. 악의적인 대용량 파일 업로드 방어 (Payload 제한: 16MB)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
@@ -676,9 +676,13 @@ def check_login():
             # 일반 페이지 접근은 로그인 화면으로 리다이렉트
             return redirect(url_for('login'))
 
-        # ⭐️ 자동 폴링되는 API는 세션 갱신에서 제외하여 무한 로그인 유지 현상 방지
-        if request.path not in ['/api/current_price', '/api/news']:
-            session.modified = True
+        # ⭐️ 로그인 시점에 확정된 절대 만료 시각(expires_at)이 지나면 활동 여부와 무관하게 무조건 세션 파기
+        #    (만료 정보가 없는 구버전 세션도 즉시 만료 처리하여 재로그인 유도)
+        if time.time() > session.get('expires_at', 0):
+            session.clear()
+            if request.path.startswith('/api/'):
+                return jsonify({"error": "Unauthorized"}), 401
+            return redirect(url_for('login', timeout=1))
 
 
 # ⭐️ 관리자 권한 필요 라우트용 데코레이터
@@ -718,7 +722,7 @@ def login():
     timeout_message = None
 
     if request.method == 'GET' and request.args.get('timeout'):
-        timeout_message = "보안을 위해 장시간 활동이 없어 자동으로 로그아웃 되었습니다."
+        timeout_message = "보안을 위해 로그인 세션이 만료되어 자동으로 로그아웃 되었습니다."
 
     if request.method == 'POST':
         # 현재 차단된 상태인지 확인
@@ -749,12 +753,13 @@ def login():
 
                     record['count'] = 0
                     record['lockout_until'] = 0
-                    # ⭐️ 접속 기기에 따라 세션 유지 방식 분기
-                    #   - 모바일: 영구 세션 → PERMANENT_SESSION_LIFETIME(24시간) 동안 유지 (요청 시마다 연장)
-                    #   - PC: 브라우저 세션 쿠키 → 브라우저 완전 종료 시 즉시 만료
-                    ua = (request.user_agent.string or "").lower()
-                    is_mobile = any(k in ua for k in ('mobile', 'android', 'iphone', 'ipad'))
-                    session.permanent = is_mobile
+                    # ⭐️ "로그인 유지" 선택 여부에 따라 절대 만료 시각 확정
+                    #   - 미선택: 1시간 뒤 만료(사용 중이면 연장 팝업으로 1시간씩 연장 가능) + 브라우저 완전 종료 시에도 만료(세션 쿠키)
+                    #   - 선택: 24시간 뒤 무조건 만료(연장 없음), 브라우저를 닫아도 유지(영구 쿠키)
+                    keep_logged_in = request.form.get('keep_logged_in') == 'on'
+                    session.permanent = keep_logged_in
+                    session['keep_logged_in'] = keep_logged_in
+                    session['expires_at'] = time.time() + (24 * 3600 if keep_logged_in else 3600)
                     session['logged_in'] = True
                     session['username'] = username  # ⭐️ 계정별 설정 저장을 위해 세션에 저장
                     session['is_admin'] = bool(user_record['is_admin'])
@@ -835,6 +840,8 @@ def logout():
     session.pop('logged_in', None)
     session.pop('username', None)  # ⭐️ 로그아웃 시 계정 정보 완벽 파기
     session.pop('is_admin', None)
+    session.pop('expires_at', None)
+    session.pop('keep_logged_in', None)
     if request.args.get('timeout'):
         return redirect(url_for('login', timeout=1))
     return redirect(url_for('login'))
@@ -852,14 +859,20 @@ def inject_get_mtime():
 @app.route('/')
 def index():
     app.logger.debug("index() route 호출됨: templates/stock-memo.html 파일을 렌더링합니다.")
-    return render_template('stock-memo.html')
+    # ⭐️ 프런트 세션 타이머가 서버의 절대 만료 시각과 동기화되도록 렌더링 시점에 전달
+    return render_template('stock-memo.html',
+                           session_expires_at=session.get('expires_at', 0),
+                           keep_logged_in=bool(session.get('keep_logged_in', False)))
 
 
 @app.route('/api/ping', methods=['POST'])
 def ping():
-    # 세션 갱신을 위한 엔드포인트. 요청이 오면 세션 수명 1시간이 다시 연장됨
-    session.modified = True
-    return jsonify({"status": "success"})
+    # ⭐️ 세션 연장 팝업의 "연장하기" 전용 엔드포인트.
+    #    "로그인 유지" 미선택 세션만 현재 시각 기준 1시간으로 만료 시각을 재설정한다.
+    #    (로그인 유지 세션은 로그인 시점 + 24시간에 그대로 만료되므로 연장하지 않음)
+    if not session.get('keep_logged_in'):
+        session['expires_at'] = time.time() + 3600
+    return jsonify({"status": "success", "expires_at": session.get('expires_at', 0)})
 
 
 @app.route('/api/me', methods=['GET'])

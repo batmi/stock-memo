@@ -157,32 +157,44 @@ window.hideLoadingOverlay = function() {
     });
 };
 
-// ⭐️ 1시간 동안 아무런 동작이 없으면 자동 로그아웃 (5분 전 경고 팝업 표시)
+// ⭐️ 세션 만료 관리 — 서버가 로그인 시점에 확정한 절대 만료 시각(expires_at) 기준으로 동작
+//   - 로그인 유지 미선택(1시간): 만료 5분 전 연장 팝업 표시, "연장하기" 선택 시 1시간 단위로 반복 연장
+//   - 로그인 유지 선택(24시간): 연장 팝업 없이 만료 시각에 자동 로그아웃
 let warningTimer;
 let logoutTimer;
 let countdownInterval;
-let lastActivityTime = Date.now(); // ⭐️ 마지막 동작의 절대 시간 기록
-const TOTAL_SESSION_LIMIT = 60 * 60 * 1000; // 1시간 (밀리초)
-const WARNING_BEFORE = 5 * 60 * 1000;       // 5분 전 (밀리초)
-const WARNING_TRIGGER_TIME = TOTAL_SESSION_LIMIT - WARNING_BEFORE; // 55분
+let sessionExpiresAtMs = window.SESSION_EXPIRES_AT_MS || (Date.now() + 60 * 60 * 1000);
+const SESSION_KEEP_LOGGED_IN = window.SESSION_KEEP_LOGGED_IN === true;
+const WARNING_BEFORE = 5 * 60 * 1000; // 만료 5분 전 경고 (밀리초)
 
-function resetInactivityTimers() {
-    // 경고 팝업이 떠 있는 상태에서는 배경 클릭/스크롤 등으로 연장되지 않도록 방지
-    const extensionModal = document.getElementById('sessionExtensionModalOverlay');
-    if (extensionModal && extensionModal.style.display === 'flex') return;
-
-    lastActivityTime = Date.now(); // ⭐️ 초기화 시점의 시간 갱신
-
+function scheduleSessionTimers() {
     clearTimeout(warningTimer);
     clearTimeout(logoutTimer);
     clearInterval(countdownInterval);
 
-    warningTimer = setTimeout(showExtensionWarning, WARNING_TRIGGER_TIME);
+    const remainingMs = sessionExpiresAtMs - Date.now();
+    if (remainingMs <= 0) {
+        window.location.href = '/logout?timeout=1';
+        return;
+    }
+
+    // 로그인 유지(24시간) 세션은 연장 개념이 없으므로 만료 시각에 자동 로그아웃만 예약
+    if (SESSION_KEEP_LOGGED_IN) {
+        logoutTimer = setTimeout(() => { window.location.href = '/logout?timeout=1'; }, remainingMs);
+        return;
+    }
+
+    if (remainingMs <= WARNING_BEFORE) {
+        showExtensionWarning();
+    } else {
+        warningTimer = setTimeout(showExtensionWarning, remainingMs - WARNING_BEFORE);
+    }
 }
 
 function showExtensionWarning() {
-    // ⭐️ 브라우저 백그라운드 지연으로 인해 이미 전체 시간이 만료된 경우 즉시 로그아웃
-    if (Date.now() - lastActivityTime >= TOTAL_SESSION_LIMIT) {
+    // ⭐️ 브라우저 백그라운드 지연으로 인해 이미 만료된 경우 즉시 로그아웃
+    const remainingMs = sessionExpiresAtMs - Date.now();
+    if (remainingMs <= 0) {
         window.location.href = '/logout?timeout=1';
         return;
     }
@@ -190,14 +202,12 @@ function showExtensionWarning() {
     const extensionModal = document.getElementById('sessionExtensionModalOverlay');
     const countdownEl = document.getElementById('sessionCountdown');
     if (!extensionModal || !countdownEl) return;
+    if (extensionModal.style.display === 'flex') return; // 이미 표시 중이면 중복 방지
 
     extensionModal.style.display = 'flex';
-    
-    // ⭐️ 백그라운드 지연을 감안하여, 남은 시간 5분을 고정하지 않고 실제 잔여 시간 계산
-    let remainingMs = TOTAL_SESSION_LIMIT - (Date.now() - lastActivityTime);
-    if (remainingMs < 0) remainingMs = 0;
-    let timeLeft = Math.floor(remainingMs / 1000);
 
+    // ⭐️ 남은 시간 5분을 고정하지 않고 실제 잔여 시간으로 카운트다운
+    let timeLeft = Math.floor(remainingMs / 1000);
     countdownEl.innerText = `${Math.floor(timeLeft / 60).toString().padStart(2, '0')}:${(timeLeft % 60).toString().padStart(2, '0')}`;
 
     countdownInterval = setInterval(() => {
@@ -215,28 +225,7 @@ function showExtensionWarning() {
     }, remainingMs);
 }
 
-// ⭐️ 사용자의 미세한 마우스 흔들림으로 인한 무의도적인 세션 연장을 막기 위해 'mousemove' 이벤트 제거
-['mousedown', 'keydown', 'scroll', 'touchstart', 'click'].forEach(evt => {
-    document.addEventListener(evt, resetInactivityTimers, { passive: true });
-});
-
-// ⭐️ 사용자가 조작 중일 때 서버 세션도 만료되지 않도록 주기적으로 Ping을 보내 동기화
-let lastPingSentTime = Date.now();
-function sendPingToServerIfActive() {
-    const now = Date.now();
-    // 마지막 핑을 보낸 지 10분이 지났고, 최근 10분 내에 사용자의 동작이 있었다면 서버에 연장 신호 전송
-    if (now - lastPingSentTime >= 10 * 60 * 1000) {
-        if (now - lastActivityTime < 10 * 60 * 1000) {
-            fetch('/api/ping', { method: 'POST' })
-                .catch(() => console.warn('세션 연장 Ping 전송 실패'));
-            lastPingSentTime = now;
-        }
-    }
-}
-// 1분마다 상태 검사
-setInterval(sendPingToServerIfActive, 60000);
-
-// ⭐️ 브라우저 탭 활성화 시 실제 경과 시간을 확인하여 동기화
+// ⭐️ 브라우저 탭 활성화 시 실제 만료 여부를 확인하여 동기화
 document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
         // ⭐️ 모바일에서 앱 전환 후 복귀 시, 초기 로딩이 실패해 멈춰 있던 상태면 자동으로 재시도
@@ -244,9 +233,8 @@ document.addEventListener('visibilitychange', async () => {
             loadDataFromLocal();
         }
 
-        const elapsed = Date.now() - lastActivityTime;
-        if (elapsed >= TOTAL_SESSION_LIMIT) {
-            // 이미 1시간이 넘게 지났다면 즉시 자동 로그아웃 처리
+        if (Date.now() >= sessionExpiresAtMs) {
+            // 백그라운드에 있는 동안 이미 만료되었다면 즉시 자동 로그아웃 처리
             window.location.href = '/logout?timeout=1';
             return;
         }
@@ -260,17 +248,15 @@ document.addEventListener('visibilitychange', async () => {
             }
         } catch(e) { console.warn("세션 상태 확인 실패", e); }
 
-        if (elapsed >= WARNING_TRIGGER_TIME) {
-            // 아직 1시간이 안 지났지만, 경고창이 뜰 시간이 넘었다면 모달 띄우기
-            const extensionModal = document.getElementById('sessionExtensionModalOverlay');
-            if (!extensionModal || extensionModal.style.display !== 'flex') {
-                showExtensionWarning();
-            }
+        // ⭐️ 백그라운드에서 setTimeout 이 지연되었을 수 있으므로 타이머 재정렬 (팝업 표시 중이면 유지)
+        const extensionModal = document.getElementById('sessionExtensionModalOverlay');
+        if (!extensionModal || extensionModal.style.display !== 'flex') {
+            scheduleSessionTimers();
         }
     }
 });
 
-resetInactivityTimers(); // 초기 타이머 시작
+scheduleSessionTimers(); // 초기 타이머 시작
 
 const mainApp = document.getElementById('mainApp');
 window.addEventListener('DOMContentLoaded', () => {
@@ -673,15 +659,17 @@ window.addEventListener('DOMContentLoaded', () => {
     if (btnExtendSession && extensionModal) {
         btnExtendSession.addEventListener('click', async () => {
             try {
-                // 백엔드(Flask) 서버의 세션 만료 시간도 동기화하여 갱신
-                await fetch('/api/ping', { method: 'POST'});
+                // 백엔드(Flask) 서버의 세션 만료 시각을 현재 기준 1시간 뒤로 재설정
+                const res = await fetch('/api/ping', { method: 'POST'});
+                const data = await res.json();
+                if (data.expires_at) sessionExpiresAtMs = data.expires_at * 1000;
             } catch(e) {}
-            
+
             extensionModal.classList.add('closing');
             setTimeout(() => {
                 extensionModal.style.display = 'none';
                 extensionModal.classList.remove('closing');
-                resetInactivityTimers();
+                scheduleSessionTimers(); // 연장된 만료 시각 기준으로 다음 팝업(만료 5분 전) 재예약
             }, 180);
         });
     }
