@@ -211,7 +211,8 @@ function showExtensionWarning() {
     countdownEl.innerText = `${Math.floor(timeLeft / 60).toString().padStart(2, '0')}:${(timeLeft % 60).toString().padStart(2, '0')}`;
 
     countdownInterval = setInterval(() => {
-        timeLeft -= 1;
+        // ⭐️ 백그라운드 스로틀링으로 인터벌이 밀려도 정확하도록 실제 만료 시각에서 매번 재계산
+        timeLeft = Math.floor((sessionExpiresAtMs - Date.now()) / 1000);
         if (timeLeft <= 0) {
             clearInterval(countdownInterval);
             window.location.href = '/logout?timeout=1'; // 타이머가 0이 되면 즉시 이동
@@ -224,6 +225,19 @@ function showExtensionWarning() {
         window.location.href = '/logout?timeout=1';
     }, remainingMs);
 }
+
+// ⭐️ 워치독: 절전 모드·백그라운드 스로틀링으로 setTimeout 이 밀리거나 유실되어도
+//    30초마다 실제 잔여 시간을 재확인하여 연장 팝업 표시와 자동 로그아웃을 보장
+setInterval(() => {
+    const remainingMs = sessionExpiresAtMs - Date.now();
+    if (remainingMs <= 0) {
+        window.location.href = '/logout?timeout=1';
+        return;
+    }
+    if (!SESSION_KEEP_LOGGED_IN && remainingMs <= WARNING_BEFORE) {
+        showExtensionWarning(); // 이미 표시 중이면 내부에서 중복 방지됨
+    }
+}, 30000);
 
 // ⭐️ 브라우저 탭 활성화 시 실제 만료 여부를 확인하여 동기화
 document.addEventListener('visibilitychange', async () => {
