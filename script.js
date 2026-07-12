@@ -52,6 +52,7 @@ let currentRenderPage = 1;
 const entriesPerPage = 15;
 let lastRenderedMonth = '';
 let userPreferences = {};       // ⭐️ 사용자별 설정(포트폴리오 정렬 순서 등) 저장
+let preferencesLoaded = false;  // ⭐️ 서버 환경설정 수신 성공 여부 — 실패 상태로 저장하면 빈 설정이 DB를 덮어써 기존 설정이 유실되므로 가드로 사용
 let portfolioSortable = null;   // ⭐️ SortableJS 드래그 앤 드롭 인스턴스
 window.currentPriceCache = {};  // ⭐️ 장 종료 시 이전 가격을 유지하기 위한 전역 캐시
 window.monthlyProfitChartInstance = null; // ⭐️ 월별 손익 차트 인스턴스 변수 추가
@@ -1072,10 +1073,25 @@ async function loadDataFromLocal() {
         }
 
         // 2. 환경설정 처리
-        if (prefRes && prefRes.ok) {
+        // ⭐️ 환경설정 로드가 실패한 채로 진행하면 필터가 모두 풀려 보일 뿐 아니라,
+        //    이후 첫 저장 때 빈 userPreferences 가 DB 를 통째로 덮어써 기존 설정이 영구 유실된다.
+        //    네트워크 오류·5xx 실패 시 최대 2회 재시도하고, 끝내 실패하면 preferencesLoaded 를
+        //    세우지 않아 savePreferences() 가 이번 세션의 서버 저장을 건너뛰게 한다. (401 은 재시도 무의미)
+        let prefResFinal = (prefRes && (prefRes.ok || prefRes.status === 401)) ? prefRes : null;
+        for (let retry = 0; !prefResFinal && retry < 2; retry++) {
             try {
-                userPreferences = await prefRes.json();
-                
+                console.warn(`[Data Load] 환경설정 로드 실패 - 재시도 ${retry + 1}회차`);
+                const r = await fetchWithTimeout('/api/preferences');
+                if (r.ok || r.status === 401) prefResFinal = r;
+            } catch (e) {
+                console.warn(`[Data Load] 환경설정 재시도 ${retry + 1}회차 실패`, e);
+            }
+        }
+        if (prefResFinal && prefResFinal.ok) {
+            try {
+                userPreferences = await prefResFinal.json();
+                preferencesLoaded = true; // ⭐️ 이 시점부터 서버 저장 허용 (기존 설정 덮어쓰기 방지 가드 해제)
+
                 // ⭐️ DB에서 불러온 환경설정을 UI(청산 종목 토글, 접기/펴기 등)에 반영
                 if (typeof userPreferences.isDashboardCollapsed !== 'undefined') {
                     isDashboardCollapsed = userPreferences.isDashboardCollapsed;
@@ -1249,12 +1265,20 @@ function showDataLoadError(err) {
 
 // ⭐️ 환경설정(사용자가 정렬한 카드 순서)을 DB에 저장
 async function savePreferences() {
+    // ⭐️ 서버 환경설정을 아직 받아오지 못한 상태(빈 객체)로 저장하면
+    //    기존에 저장된 필터·카드 순서 등 설정 전체가 덮어써져 유실되므로 건너뛴다.
+    if (!preferencesLoaded) {
+        console.warn("환경설정 미로드 상태 - 서버 저장 건너뜀 (기존 설정 보호)");
+        return;
+    }
     try {
         await fetch('/api/preferences', {
             method: 'POST',
-            headers: { 
+            headers: {
                 'Content-Type': 'application/json'
             },
+            // ⭐️ keepalive: 필터 변경 직후 새로고침·앱 전환으로 페이지가 내려가는 중에도 저장 요청이 완료되도록 보장
+            keepalive: true,
             body: JSON.stringify(userPreferences)
         });
     } catch (err) {
