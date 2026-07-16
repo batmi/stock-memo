@@ -1,15 +1,24 @@
 #!/bin/bash
-cd /home/batmi/stock-memo
+
+# 스크립트 파일이 위치한 tools 디렉토리를 기준으로 프로젝트 루트(stock-memo) 절대 경로 추출
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# 프로젝트 루트로 이동
+cd "$PROJECT_ROOT" || exit 1
+
+# 파라미터 저장
+ARGS="$@"
 
 # 1. 세션 생성 (Backend App - 첫 번째 윈도우)
-tmux new-session -d -s stock-memo -n "Backend App" "/usr/bin/bash -c \"cd /home/batmi/stock-memo && ./run.sh $*; echo 'Process exited. Press Enter to close...'; read\""
+# 참고: ~/.bashrc 등 환경설정 로드 (없어도 에러 메시지 무시)
+tmux new-session -d -s stock-memo -n "Backend App" "/usr/bin/bash -c \"source ~/.bashrc 2>/dev/null; cd '$PROJECT_ROOT' && ./run.sh $ARGS; echo 'Process exited. Press Enter to close...'; read\""
 
-# 2. localhost.run 창 추가 (두 번째 윈도우)
-tmux new-window -t stock-memo -n "Logs" '/usr/bin/bash -c "cd /home/batmi/stock-memo && journalctl -u cloudflared -f; echo \"Process exited. Press Enter to close...\"; read"'
+# 2. Logs 창 추가 (두 번째 윈도우)
+tmux new-window -t stock-memo -n "Logs" "/usr/bin/bash -c \"source ~/.bashrc 2>/dev/null; cd '$PROJECT_ROOT' && journalctl -u cloudflared -f; echo 'Process exited. Press Enter to close...'; read\""
 
-# 3. System Trading 윈도우로 이동 (첫 번째 선택)
+# 3. Backend App 윈도우로 이동 (첫 번째 선택)
 tmux select-window -t stock-memo:0
 
 # 4. 세션 연결
 tmux attach-session -t stock-memo
-
