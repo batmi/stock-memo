@@ -430,7 +430,8 @@ def init_db():
             updatedAt TEXT,
             tags TEXT,
             attachedFile TEXT,
-            attachedFileName TEXT
+            attachedFileName TEXT,
+            isHidden INTEGER DEFAULT 0
         )
     ''')
 
@@ -453,6 +454,7 @@ def init_db():
         "ALTER TABLE entries ADD COLUMN attachedFileName TEXT",
         "ALTER TABLE entries ADD COLUMN subAccount TEXT",
         "ALTER TABLE entries ADD COLUMN username TEXT",
+        "ALTER TABLE entries ADD COLUMN isHidden INTEGER DEFAULT 0",
         "ALTER TABLE users ADD COLUMN preferences TEXT",
         "ALTER TABLE users ADD COLUMN created_at TEXT",
         "ALTER TABLE users ADD COLUMN last_login_at TEXT",

@@ -42,7 +42,35 @@ let showClosedPositions = false; // 청산 종목 보기 상태
 let showCurrentPrice = true; // ⭐️ 현재가 및 평가금액 보기 상태 (기본값: 보기)
 let currentMarketMode = 'NXT'; // ⭐️ KRX/NXT 토글 상태 (기본값 NXT)
 let currentPortfolioArrayForPrice = []; // 현재가 계산용 임시 배열
-let showHistoryClosedPositions = true; // ⭐️ 기본적으로 히스토리에 청산 종목을 표시하도록 변경
+let showHistoryClosedPositions = false; // ⭐️ 히스토리도 포트폴리오와 동일하게 청산·숨김 종목을 기본 숨김 처리
+let hiddenStocks = new Set();  // ⭐️ 숨김 처리된 종목명 집합 — 각 종목의 최신 기록(updatedAt→createdAt→id)의 isHidden 으로 판정
+
+// ⭐️ 포트폴리오와 히스토리의 '청산 종목 보기' 버튼 UI 를 현재 상태로 함께 갱신한다.
+function syncClosedPositionsButtons() {
+    const label = showClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
+    const bg = showClosedPositions ? 'var(--primary-color)' : 'transparent';
+    const fg = showClosedPositions ? '#fff' : 'var(--primary-color)';
+    ['btnToggleClosed', 'btnToggleHistoryClosed'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.innerText = label;
+        btn.style.backgroundColor = bg;
+        btn.style.color = fg;
+    });
+}
+
+// ⭐️ 청산·숨김 종목 노출 상태를 포트폴리오와 히스토리 양쪽에 동일하게 적용한다.
+//    두 상태가 어긋나면 청산·숨김 종목 카드를 눌렀을 때 히스토리가 비어 보이므로 항상 함께 움직인다.
+function setClosedPositionsVisible(next, { persist = true } = {}) {
+    showClosedPositions = next;
+    showHistoryClosedPositions = next;
+    syncClosedPositionsButtons();
+    if (persist) {
+        userPreferences.showClosedPositions = next;
+        userPreferences.showHistoryClosedPositions = next;
+        savePreferences();
+    }
+}
 let currentDashboardBroker = 'all'; // 대시보드 증권사 필터 상태
 let currentDashboardSubAccount = 'all'; // 대시보드 계좌 필터 상태
 let currentDashboardAccount = 'all'; // 대시보드 투자 분류 필터 상태
@@ -439,21 +467,14 @@ window.addEventListener('DOMContentLoaded', () => {
     // 청산 종목 보기 토글 버튼 이벤트 연결
     const btnToggleClosed = document.getElementById('btnToggleClosed');
     if (btnToggleClosed) {
-        // 초기 버튼 상태 동기화
-        btnToggleClosed.innerText = showClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
-        btnToggleClosed.style.backgroundColor = showClosedPositions ? 'var(--primary-color)' : 'transparent';
-        btnToggleClosed.style.color = showClosedPositions ? '#fff' : 'var(--primary-color)';
+        // 초기 버튼 상태 동기화 (두 버튼을 함께 갱신)
+        syncClosedPositionsButtons();
 
         btnToggleClosed.addEventListener('click', () => {
-            showClosedPositions = !showClosedPositions;
-            btnToggleClosed.innerText = showClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
-            btnToggleClosed.style.backgroundColor = showClosedPositions ? 'var(--primary-color)' : 'transparent';
-            btnToggleClosed.style.color = showClosedPositions ? '#fff' : 'var(--primary-color)';
+            // ⭐️ 히스토리 버튼과 상태를 함께 전환하고 양쪽 화면을 모두 다시 그린다.
+            setClosedPositionsVisible(!showClosedPositions);
             updatePortfolioSummary();
-            
-            // ⭐️ 사용자 설정에 상태 저장 (정상 위치로 복구)
-            userPreferences.showClosedPositions = showClosedPositions;
-            savePreferences();
+            displayEntries(true);
         });
     }
 
@@ -576,24 +597,17 @@ window.addEventListener('DOMContentLoaded', () => {
     // 히스토리 청산 종목 숨기기/보기 토글 버튼 이벤트 연결
     const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
     if (btnToggleHistoryClosed) {
-        // 초기 버튼 상태 동기화
-        btnToggleHistoryClosed.innerText = showHistoryClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
-        btnToggleHistoryClosed.style.backgroundColor = showHistoryClosedPositions ? 'transparent' : 'var(--primary-color)';
-        btnToggleHistoryClosed.style.color = showHistoryClosedPositions ? 'var(--primary-color)' : '#fff';
+        // 초기 버튼 상태 동기화 (두 버튼을 함께 갱신)
+        syncClosedPositionsButtons();
 
         btnToggleHistoryClosed.addEventListener('click', () => {
-            showHistoryClosedPositions = !showHistoryClosedPositions;
-            btnToggleHistoryClosed.innerText = showHistoryClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
-            btnToggleHistoryClosed.style.backgroundColor = showHistoryClosedPositions ? 'transparent' : 'var(--primary-color)';
-            btnToggleHistoryClosed.style.color = showHistoryClosedPositions ? 'var(--primary-color)' : '#fff';
+            // ⭐️ 포트폴리오 버튼과 상태를 함께 전환하고 양쪽 화면을 모두 다시 그린다.
+            setClosedPositionsVisible(!showHistoryClosedPositions);
             displayEntries(true);
+            updatePortfolioSummary();
 
             // 필터 변경 시 히스토리 상단으로 부드럽게 스크롤
             window.scrollToFilterBox();
-            
-            // ⭐️ 사용자 설정에 상태 저장 (추가)
-            userPreferences.showHistoryClosedPositions = showHistoryClosedPositions;
-            savePreferences();
         });
     }
 
@@ -1096,23 +1110,14 @@ async function loadDataFromLocal() {
                 if (typeof userPreferences.isDashboardCollapsed !== 'undefined') {
                     isDashboardCollapsed = userPreferences.isDashboardCollapsed;
                 }
-                if (typeof userPreferences.showClosedPositions !== 'undefined') {
-                    showClosedPositions = userPreferences.showClosedPositions;
-                    const btn1 = document.getElementById('btnToggleClosed');
-                    if (btn1) {
-                        btn1.innerText = showClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
-                        btn1.style.backgroundColor = showClosedPositions ? 'var(--primary-color)' : 'transparent';
-                        btn1.style.color = showClosedPositions ? '#fff' : 'var(--primary-color)';
-                    }
-                }
-                if (typeof userPreferences.showHistoryClosedPositions !== 'undefined') {
-                    showHistoryClosedPositions = userPreferences.showHistoryClosedPositions;
-                    const btn2 = document.getElementById('btnToggleHistoryClosed');
-                    if (btn2) {
-                        btn2.innerText = showHistoryClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
-                        btn2.style.backgroundColor = showHistoryClosedPositions ? 'transparent' : 'var(--primary-color)';
-                        btn2.style.color = showHistoryClosedPositions ? 'var(--primary-color)' : '#fff';
-                    }
+                // ⭐️ 청산 종목 보기 상태 복원 — 포트폴리오/히스토리 두 버튼은 항상 같은 값을 쓴다.
+                //    구버전 환경설정에는 두 키가 따로 저장돼 있을 수 있어 포트폴리오 값을 우선하고,
+                //    없으면 히스토리 값으로 대체한다. (복원 시점에는 저장을 다시 트리거하지 않는다)
+                const savedClosedVisible = (typeof userPreferences.showClosedPositions !== 'undefined')
+                    ? userPreferences.showClosedPositions
+                    : userPreferences.showHistoryClosedPositions;
+                if (typeof savedClosedVisible !== 'undefined') {
+                    setClosedPositionsVisible(!!savedClosedVisible, { persist: false });
                 }
                 if (typeof userPreferences.showCurrentPrice !== 'undefined') {
                     showCurrentPrice = userPreferences.showCurrentPrice;
@@ -2108,7 +2113,11 @@ setupAutocomplete('subAccount', 'subAccountList', getSubAccountOptions);
 function autoFillStockInfo(e) {
     const val = (e.type === 'itemSelected' && e.detail) ? e.detail.value : this.value.trim();
     if (!val) return;
-    
+
+    // ⭐️ 이미 숨김 처리된 종목이면 체크박스를 켜둔 상태로 시작한다.
+    //    (기록을 하나 추가했다는 이유만으로 숨김이 풀리는 것을 방지)
+    syncHiddenCheckbox(val);
+
     // 증권사, 투자분류 등의 정보가 있는 가장 최근의 매매(trade) 기록을 우선 탐색
     let recentEntry = cloudEntries.find(entry => entry.stockName === val && entry.type === 'trade');
     
@@ -2478,14 +2487,18 @@ journalForm.addEventListener('submit', async function(e) {
             quantity = 1;
         }
 
+        // ⭐️ 종목 숨김 플래그 — 이 종목의 '최신 기록'이 가진 값이 숨김 여부를 결정한다.
+        const isHiddenEl = document.getElementById('isHidden');
+        const isHidden = isHiddenEl && isHiddenEl.checked ? 1 : 0;
+
         newEntry = {
             id: currentEditingId || Date.now(), type: 'trade', stockName, stockCode, brokerAccount, subAccount, accountName,
             tradeType, price: price ? Number(price) : 0, quantity: quantity ? Number(quantity) : 0, thoughts, date, rawDate: tradeDateRaw, attachedImage: null,
-            createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: '', attachedFileName: ''
+            createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: '', attachedFileName: '', isHidden
         };
     } else {
         const memoTitle = document.getElementById('memoTitle').value;
-        newEntry = { id: currentEditingId || Date.now(), type: 'memo', stockName: '', stockCode: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: '', attachedFileName: '', brokerAccount: '', subAccount: '' };
+        newEntry = { id: currentEditingId || Date.now(), type: 'memo', stockName: '', stockCode: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: '', attachedFileName: '', brokerAccount: '', subAccount: '', isHidden: 0 };
     }
 
     const method = currentEditingId ? 'PUT' : 'POST';
@@ -2868,6 +2881,9 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
 };
 
 function updatePortfolioSummary() {
+    // ⭐️ displayEntries 를 거치지 않고 직접 호출되는 경로(필터 변경 등)가 많으므로 여기서도 재계산
+    recomputeHiddenStocks();
+
     const portfolio = {};
     const chartLabels = [];
     const chartData = [];
@@ -2939,19 +2955,26 @@ function updatePortfolioSummary() {
     for (const stock in portfolio) {
         const p = portfolio[stock];
         const isClosed = p.qty <= 0;
+        // ⭐️ 보유 중인 숨김 종목은 카드 노출과 무관하게 배열에 항상 담는다.
+        //    총 투자금액·총 평가금액·누적 실현 손익은 숨김 여부와 관계없이 계속 반영해야 하고,
+        //    현재가 조회 대상(currentPortfolioArrayForPrice)에도 포함돼야 하기 때문이다.
+        //    실제 카드 노출 여부는 아래 렌더 루프에서 걸러낸다.
+        const isHiddenStock = hiddenStocks.has(stock);
         if (!isClosed) {
-            portfolioArray.push({ stock, ...p, isClosed: false });
-        } else if (showClosedPositions && p.traded) {
-            portfolioArray.push({ stock, ...p, isClosed: true }); // 청산 종목 포함
+            portfolioArray.push({ stock, ...p, isClosed: false, isHiddenStock });
+        } else if (showClosedPositions && (p.traded || isHiddenStock)) {
+            portfolioArray.push({ stock, ...p, isClosed: true, isHiddenStock }); // 청산 종목 포함
         }
     }
 
     currentPortfolioArrayForPrice = portfolioArray;
     const sortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "기타": 7 };
     portfolioArray.sort((a, b) => {
-        // ⭐️ 청산 종목을 가장 하단으로 정렬
-        if (a.isClosed !== b.isClosed) {
-            return a.isClosed ? 1 : -1;
+        // ⭐️ 청산·숨김 종목을 가장 하단으로 정렬
+        const aBottom = a.isClosed || a.isHiddenStock;
+        const bBottom = b.isClosed || b.isHiddenStock;
+        if (aBottom !== bBottom) {
+            return aBottom ? 1 : -1;
         }
         
         // ⭐️ 사용자가 드래그 앤 드롭으로 설정한 커스텀 순서가 있다면 최우선 적용
@@ -2994,16 +3017,28 @@ function updatePortfolioSummary() {
         const stock = data.stock;
         const isClosed = data.isClosed;
         
-        // 현재 보유 중인 종목만 차트 및 상단 요약 수치에 반영
+        // ⭐️ 숨김 종목이라도 보유 중이면 총 투자금액·보유 종목 수에 그대로 반영한다.
+        //    (종목만 가리는 것이지 수치를 빼는 것이 아니다. 총 평가금액은 현재가 조회 쪽에서
+        //     currentPortfolioArrayForPrice 를 그대로 합산하므로 함께 반영되고,
+        //     누적 실현 손익은 위쪽 기록 순회에서 이미 전 종목을 집계한다.)
         if (!isClosed) {
             totalInvestedAmount += data.totalCost;
             holdingsCount++;
-            currentHoldings.push(stock);
             hasHoldings = true;
+        }
+
+        // ⭐️ 숨김 종목은 '청산 종목 보기'가 꺼져 있으면 종목명이 드러나는 표현
+        //    (카드·도넛 차트·뉴스)에서 제외한다. 수치 반영은 위에서 이미 끝났다.
+        const hideThisStock = data.isHiddenStock && !showClosedPositions;
+
+        if (!isClosed && !hideThisStock) {
+            currentHoldings.push(stock);
             chartLabels.push(stock);
             chartData.push(data.totalCost);
         }
-        
+
+        if (hideThisStock) return;
+
         const shortAccountName = data.accountName ? (shortAccountNameMap[data.accountName] || data.accountName.substring(0, 2)) : '';
         const badgeClass = badgeClassMap[data.accountName] || 'badge-etc';
         const cardBorderClass = badgeClass.replace('badge-', 'card-border-');
@@ -3011,11 +3046,15 @@ function updatePortfolioSummary() {
         const card = document.createElement('div');
         card.className = `portfolio-card ${cardBorderClass}`;
         card.setAttribute('data-id', stock); // ⭐️ 드래그 앤 드롭 정렬을 위한 식별자 추가
+        // ⭐️ 흐리게 처리는 청산 종목에만 적용한다. 숨김 종목은 노출 규칙만 청산과 같을 뿐
+        //    실제로는 보유 중일 수 있으므로 일반 종목과 동일한 농도로 보여준다.
         if (isClosed) {
             card.style.opacity = '0.6'; // 청산 종목은 반투명하게 표시
             card.style.borderLeftColor = 'var(--text-muted-color)';
         }
-        const statusBadge = isClosed ? `<span style="font-size: 10px; background: var(--border-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px;">청산완료</span>` : '';
+        const closedBadge = isClosed ? `<span style="font-size: 10px; background: var(--border-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px;">청산완료</span>` : '';
+        const hiddenBadge = data.isHiddenStock ? `<span style="font-size: 10px; background: var(--text-muted-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px; margin-left: 2px;">숨김</span>` : '';
+        const statusBadge = `${closedBadge}${hiddenBadge}`;
         const accountBadgeHtml = shortAccountName ? `<span class="account-badge ${badgeClass}">${shortAccountName}</span>` : '';
         card.innerHTML = `
             <div class="stock-name" style="margin-bottom: 2px;">${stock}</div>
@@ -3126,7 +3165,8 @@ function updatePortfolioSummary() {
             // 사용자 편의를 위해 필터/히스토리 영역으로 부드럽게 스크롤
             window.scrollToFilterBox();
             
-            // ⭐️ 사용자 설정에 상태 저장
+            // ⭐️ 사용자 설정에 상태 저장 (두 키는 항상 같은 값으로 유지)
+            userPreferences.showClosedPositions = showClosedPositions;
             userPreferences.showHistoryClosedPositions = showHistoryClosedPositions;
             savePreferences();
         });
@@ -3640,7 +3680,45 @@ function updateFilterDropdown() {
     }
 }
 
+// ⭐️ 종목별 '가장 최근에 기록된 의도'의 isHidden 플래그로 숨김 종목 집합(hiddenStocks)을 재계산한다.
+//    판정 기준은 updatedAt → createdAt → id 순서.
+//    - rawDate(기록 일시)는 사용자가 과거 날짜로 지정할 수 있어 숨김 의도와 어긋나므로 쓰지 않는다.
+//    - updatedAt 을 최우선으로 두어야 오래된 기록을 수정해 숨김을 걸/풀 때도 즉시 반영된다.
+//      (수정 시 폼은 '종목의 현재 숨김 상태'로 프리필되므로 무관한 수정이 상태를 뒤집지 않는다.)
+function recomputeHiddenStocks() {
+    const latest = {}; // stockName -> { ts, id, isHidden }
+    cloudEntries.forEach(entry => {
+        const stockName = entry.stockName;
+        if (!stockName || (entry.type || 'trade') !== 'trade') return;
+
+        const stamp = entry.updatedAt || entry.createdAt;
+        const ts = stamp ? (new Date(stamp).getTime() || 0) : 0;
+        const id = Number(entry.id) || 0;
+        const prev = latest[stockName];
+        if (!prev || ts > prev.ts || (ts === prev.ts && id > prev.id)) {
+            latest[stockName] = { ts, id, isHidden: !!entry.isHidden };
+        }
+    });
+
+    hiddenStocks = new Set(Object.keys(latest).filter(name => latest[name].isHidden));
+}
+
+// ⭐️ 특정 종목이 현재 숨김 상태인지 조회 (입력 폼 프리필용)
+function isStockHidden(stockName) {
+    return !!stockName && hiddenStocks.has(stockName.trim());
+}
+
+// ⭐️ 입력 폼의 숨김 체크박스를 해당 종목의 현재 숨김 상태로 동기화한다.
+//    이걸 빼먹으면 숨긴 종목에 새 기록을 하나 추가했을 뿐인데 숨김이 풀려버린다.
+function syncHiddenCheckbox(stockName) {
+    const el = document.getElementById('isHidden');
+    if (!el) return;
+    recomputeHiddenStocks(); // 폼을 여는 시점의 최신 상태 보장
+    el.checked = isStockHidden(stockName);
+}
+
 function displayEntries(isFilterUpdate = false) {
+    recomputeHiddenStocks();
     cloudEntries.sort((a, b) => {
         const timeA = a.rawDate ? new Date(a.rawDate).getTime() : a.id;
         const timeB = b.rawDate ? new Date(b.rawDate).getTime() : b.id;
@@ -3747,10 +3825,11 @@ function displayEntries(isFilterUpdate = false) {
             if (!isMatchTrade && !isMatchMemo) return false;
         }
         
-        // ⭐️ 청산 종목 숨기기 상태일 때 (보유 수량이 0인 종목을 검색 및 필터에서 제외)
-        if (!showHistoryClosedPositions) {
-            if (entry.stockName && stockQtys[entry.stockName] !== undefined && stockQtys[entry.stockName] <= 0) {
-                return false; 
+        // ⭐️ 청산 종목 숨기기 상태일 때 (보유 수량이 0인 종목과 숨김 종목을 검색 및 필터에서 제외)
+        if (!showHistoryClosedPositions && entry.stockName) {
+            const qty = stockQtys[entry.stockName];
+            if (hiddenStocks.has(entry.stockName) || (qty !== undefined && qty <= 0)) {
+                return false;
             }
         }
         
@@ -4040,6 +4119,10 @@ function editEntry(entry) {
     document.getElementById('stockCode').value = entry.stockCode || '';
     document.getElementById('brokerAccount').value = entry.brokerAccount || '';
     document.getElementById('subAccount').value = entry.subAccount || '';
+
+    // ⭐️ 숨김 체크박스는 이 기록 자신의 값이 아니라 '해당 종목의 현재 숨김 상태'로 채운다.
+    //    (숨김은 기록 단위가 아닌 종목 단위 속성이므로, 무관한 수정이 상태를 뒤집지 않게 한다)
+    syncHiddenCheckbox(entry.stockName);
     
     // ⭐️ 과거 하단에 첨부했던 이미지가 있다면 에디터 본문으로 자동 이동(마이그레이션)
     let contentHtml = entry.thoughts || '';

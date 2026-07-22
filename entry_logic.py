@@ -10,7 +10,7 @@ INSERT_COLUMNS = [
     'id', 'username', 'type', 'stockName', 'stockCode', 'title', 'thoughts',
     'date', 'rawDate', 'attachedImage', 'brokerAccount', 'subAccount',
     'accountName', 'tradeType', 'price', 'quantity', 'createdAt', 'updatedAt',
-    'tags', 'attachedFile', 'attachedFileName',
+    'tags', 'attachedFile', 'attachedFileName', 'isHidden',
 ]
 
 # UPDATE 시 갱신하는 컬럼 (id/username/createdAt 제외)
@@ -18,11 +18,13 @@ _UPDATE_COLUMNS = [
     'type', 'stockName', 'stockCode', 'title', 'thoughts', 'date', 'rawDate',
     'attachedImage', 'brokerAccount', 'subAccount', 'accountName', 'tradeType',
     'price', 'quantity', 'updatedAt', 'tags', 'attachedFile', 'attachedFileName',
+    'isHidden',
 ]
 
 # 문자열 기본값 컬럼(없으면 ''), 숫자 기본값 컬럼(없으면 0)
 _DEFAULT_EMPTY = {'stockCode', 'subAccount', 'tags', 'attachedFile', 'attachedFileName'}
-_DEFAULT_ZERO = {'price', 'quantity'}
+# isHidden: 종목 숨김 플래그(0/1). 값이 없으면 0(표시)으로 저장한다.
+_DEFAULT_ZERO = {'price', 'quantity', 'isHidden'}
 
 _INSERT_SQL = (
     "INSERT INTO entries ({cols}) VALUES ({ph})".format(
@@ -39,6 +41,9 @@ _UPDATE_SQL = (
 
 
 def _value_for(entry, col):
+    if col == 'isHidden':
+        # 프론트엔드가 true/false 로 보내므로 NULL 없이 항상 0/1 로 정규화한다.
+        return 1 if entry.get(col) else 0
     if col in _DEFAULT_EMPTY:
         return entry.get(col, '')
     if col in _DEFAULT_ZERO:
