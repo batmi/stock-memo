@@ -542,6 +542,58 @@ button:hover {
 .type-selector input[type="radio"] { margin-right: 8px; width: 18px; height: 18px; }
 .form-row { display: flex; gap: 10px; margin-bottom: 10px; }
 .form-row .form-group { flex: 1; margin-bottom: 0; }
+
+/* ⭐️ 종목코드 + 숨김 체크박스 묶음 — 모바일에서 .form-row 가 세로로 쌓여도
+   이 둘만은 한 줄에 나란히 유지한다. (종목코드 입력창이 남는 폭을 차지) */
+.form-col-pair { display: flex; gap: 10px; flex: 1; }
+.form-col-pair .form-group { margin-bottom: 0; }
+#isHiddenGroup { flex: 0 0 auto; }
+/* 라벨은 '종목코드'와 크기·굵기·글꼴을 그대로 공유하고 색만 흐리게 둔다 */
+#isHiddenGroup label { color: var(--text-muted-color); }
+/* 체크박스 자리는 입력창과 같은 높이(30px)를 유지하되, 위쪽 여백을 조금 줘서
+   좌측 종목코드 입력창의 세로 중앙보다 살짝 아래에 오도록 맞춘다. */
+#isHiddenGroup .checkbox-slot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    height: 30px;
+    padding: 4px 4px 0;
+}
+
+/* ⭐️ 종목 숨김 체크박스 — 기본 렌더링(accent-color)을 끄고 다른 입력창과 같은
+   배경/테두리로 통일한다. 체크 여부와 무관하게 바탕색이 바뀌지 않도록
+   체크 표시는 ::after 로 직접 그린다. */
+#isHidden {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    padding: 0;
+    flex: 0 0 auto;
+    position: relative;
+    box-sizing: border-box;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--bg-color);
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+#isHidden:hover { border-color: var(--primary-color); }
+#isHidden:focus-visible { border-color: var(--primary-color); box-shadow: 0 0 0 2px var(--badge-memo-border); outline: none; }
+#isHidden:checked::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 45%;
+    width: 4px;
+    height: 9px;
+    border: solid var(--text-color);
+    border-width: 0 2px 2px 0;
+    /* 박스 크기가 바뀌어도 체크 표시가 항상 가운데에 오도록 비율 기준으로 배치 */
+    transform: translate(-50%, -50%) rotate(45deg);
+}
 .total-amount-display { margin-top: 5px; margin-bottom: 10px; font-size: 13px; font-weight: var(--fw-bold, bold); color: var(--danger-color); text-align: right; }
 
 /* ⭐️ 총 금액 영수증 하이라이트 박스 */
@@ -573,6 +625,11 @@ button:hover {
 @media (max-width: 600px) {
     .form-row { flex-direction: column; gap: 0; }
     .form-row .form-group { margin-bottom: 12px; }
+    /* ⭐️ 종목코드와 숨김 체크박스는 세로로 쌓지 않고 한 줄에 나란히 둔다.
+       종목코드 입력창이 체크박스 폭을 뺀 나머지를 차지하도록 줄어든다. */
+    .form-col-pair { flex-direction: row; gap: 10px; margin-bottom: 12px; }
+    .form-col-pair .form-group { margin-bottom: 0; }
+    #stockCodeGroup { min-width: 0; }
 }
 
 /* ⭐️ 차트 단위 토글 + 종류 버튼 영역: 항상 한 줄 유지, 넘칠 경우 가로 스크롤 (모바일 대응) */
