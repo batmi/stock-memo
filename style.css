@@ -919,6 +919,7 @@ button:hover {
 .badge-scalp { background-color: #fee2e2; color: #b91c1c; }
 .badge-dividend { background-color: #f3e8ff; color: #7e22ce; }
 .badge-ipo { background-color: #ffedd5; color: #c2410c; }
+.badge-system { background-color: #e0e7ff; color: #4338ca; }
 .badge-etc { background-color: #f1f5f9; color: #475569; }
 /* ⭐️ 포트폴리오 카드 테두리 색상 (라이트모드: 밝은 계열) */
 .card-border-long { border-left-color: #7fa6c7; }
@@ -927,6 +928,7 @@ button:hover {
 .card-border-scalp { border-left-color: #c97575; }
 .card-border-dividend { border-left-color: #a883c7; }
 .card-border-ipo { border-left-color: #c48560; }
+.card-border-system { border-left-color: #818cf8; }
 .card-border-etc { border-left-color: #8b949e; }
 /* ⭐️ 포트폴리오 카드 테두리 호버 (라이트모드: 어두운 계열로 반전) */
 .portfolio-card.card-border-long:hover { border-left-color: #0369a1; }
@@ -973,6 +975,7 @@ button:hover {
 [data-theme="dark"] .badge-scalp { background-color: #451a1a; color: #c97575; }
 [data-theme="dark"] .badge-dividend { background-color: #321c45; color: #a883c7; }
 [data-theme="dark"] .badge-ipo { background-color: #452211; color: #c48560; }
+[data-theme="dark"] .badge-system { background-color: #312e81; color: #818cf8; }
 [data-theme="dark"] .badge-etc { background-color: #272a30; color: #8b949e; }
 /* ⭐️ 다크모드 포트폴리오 카드 테두리 색상 (다크모드: 어두운 계열) */
 [data-theme="dark"] .card-border-long { border-left-color: #0369a1; }
@@ -981,6 +984,7 @@ button:hover {
 [data-theme="dark"] .card-border-scalp { border-left-color: #b91c1c; }
 [data-theme="dark"] .card-border-dividend { border-left-color: #7e22ce; }
 [data-theme="dark"] .card-border-ipo { border-left-color: #c2410c; }
+[data-theme="dark"] .card-border-system { border-left-color: #4338ca; }
 [data-theme="dark"] .card-border-etc { border-left-color: #475569; }
 /* ⭐️ 다크모드 포트폴리오 카드 테두리 호버 (다크모드: 밝은 계열로 반전) */
 [data-theme="dark"] .portfolio-card.card-border-long:hover { border-left-color: #7fa6c7; }
@@ -989,6 +993,7 @@ button:hover {
 [data-theme="dark"] .portfolio-card.card-border-scalp:hover { border-left-color: #c97575; }
 [data-theme="dark"] .portfolio-card.card-border-dividend:hover { border-left-color: #a883c7; }
 [data-theme="dark"] .portfolio-card.card-border-ipo:hover { border-left-color: #c48560; }
+[data-theme="dark"] .portfolio-card.card-border-system:hover { border-left-color: #818cf8; }
 [data-theme="dark"] .portfolio-card.card-border-etc:hover { border-left-color: #8b949e; }
 .main-layout { display: flex; gap: 25px; align-items: flex-start; justify-content: center; }
 .content-left { flex: 1; min-width: 0; max-width: 680px; }

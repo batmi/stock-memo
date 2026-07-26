@@ -2968,7 +2968,7 @@ function updatePortfolioSummary() {
     }
 
     currentPortfolioArrayForPrice = portfolioArray;
-    const sortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "기타": 7 };
+    const sortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "시스템": 7, "기타": 8 };
     portfolioArray.sort((a, b) => {
         // ⭐️ 청산·숨김 종목을 가장 하단으로 정렬
         const aBottom = a.isClosed || a.isHiddenStock;
@@ -3000,6 +3000,7 @@ function updatePortfolioSummary() {
         "단타(스캘핑)": "단타",
         "배당투자": "배당",
         "공모주": "공모",
+        "시스템": "시스템",
         "기타": "기타"
     };
 
@@ -3010,6 +3011,7 @@ function updatePortfolioSummary() {
         "단타(스캘핑)": "badge-scalp",
         "배당투자": "badge-dividend",
         "공모주": "badge-ipo",
+        "시스템": "badge-system",
         "기타": "badge-etc"
     };
 
@@ -3482,7 +3484,7 @@ function updateFilterDropdown() {
         window.updateDashboardFilterStyle(stockSelect);
     }
 
-    const accountSortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "기타": 7 };
+    const accountSortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "시스템": 7, "기타": 8 };
     const accounts = [...new Set(cloudEntries.map(e => e.accountName).filter(Boolean))].sort((a, b) => {
         const orderA = accountSortOrder[a] || 99;
         const orderB = accountSortOrder[b] || 99;
