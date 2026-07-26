@@ -50,11 +50,26 @@
             -webkit-user-select: none;
         }
         .keep-login input[type="checkbox"] {
-            width: 15px;
-            height: 15px;
+            appearance: none;
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
             margin: 0;
-            accent-color: #8a2be2;
+            background-color: #b388ff;
+            border-radius: 4px;
             cursor: pointer;
+            position: relative;
+        }
+        .keep-login input[type="checkbox"]:checked::after {
+            content: '';
+            position: absolute;
+            left: 5px;
+            top: 2px;
+            width: 4px;
+            height: 8px;
+            border: solid white;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
         }
         button {
             width: 100%; padding: 10px; margin-top: 5px; background: linear-gradient(135deg, #9d4edd 0%, #7b2cbf 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer;
