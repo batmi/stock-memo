@@ -1,0 +1,224 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Universal Trading History API (Token Auth Supported)",
+    "description": "시스템 트레이딩 봇(HTS)과 원격 웹 서버 간의 매매 기록 송수신을 위한 범용 REST API 설계입니다.\n정적 API Key를 사용하여 24시간 유효한 단기 토큰(Access Token)을 발급받고, 이 토큰으로 실데이터 API에 접근합니다.",
+    "version": "1.2.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5000",
+      "description": "API 서버 주소"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Auth",
+      "description": "API 토큰 발급 (HTS 전용)"
+    },
+    {
+      "name": "Bot Status",
+      "description": "HTS 봇 가동 상태 동기화 API"
+    },
+    {
+      "name": "Trading History",
+      "description": "매매 히스토리 기록 API"
+    },
+    {
+      "name": "System Status",
+      "description": "서버 상태 확인 API"
+    }
+  ],
+  "paths": {
+    "/api/v1/auth/token": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "단기 Access Token 발급",
+        "description": "정적 API 키(X-API-KEY 헤더)를 전송하여 24시간 유효한 Access Token을 발급받습니다.",
+        "parameters": [
+          {
+            "name": "X-API-KEY",
+            "in": "header",
+            "description": "웹 대시보드(설정)에서 발급받은 정적 API 키",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "토큰 발급 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "access_token": { "type": "string" },
+                    "token_type": { "type": "string", "example": "Bearer" },
+                    "expires_in": { "type": "integer", "example": 86400, "description": "토큰 만료 시간 (초)" }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "유효하지 않은 API 키"
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "tags": ["System Status"],
+        "summary": "서버 상태 확인",
+        "description": "서버가 정상적으로 구동되어 응답 가능한 상태인지 확인합니다.",
+        "responses": {
+          "200": {
+            "description": "정상 작동 중"
+          }
+        }
+      }
+    },
+    "/api/v1/bot/status": {
+      "post": {
+        "tags": ["Bot Status"],
+        "summary": "HTS 봇 상태 전송 (Ping)",
+        "description": "HTS 봇이 주기적으로(예: 1분) 자신의 상태를 서버에 전송합니다.",
+        "security": [
+          { "BearerAuth": [] }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {
+                  "status": { "type": "string", "enum": ["running", "stopped", "error"] },
+                  "message": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "상태 업데이트 성공" }
+        }
+      }
+    },
+    "/api/v1/trades/last-sync": {
+      "get": {
+        "tags": ["Trading History"],
+        "summary": "서버에 저장된 마지막 체결 시간 조회 (Backfill용)",
+        "description": "HTS 봇이 누락된 데이터를 동기화하기 위해 서버가 마지막으로 저장한 체결 시간(rawDate)을 확인합니다.",
+        "security": [
+          { "BearerAuth": [] }
+        ],
+        "responses": {
+          "200": {
+            "description": "마지막 체결 시간",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lastExecutedAt": { "type": "string", "format": "date-time", "nullable": true }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trades": {
+      "post": {
+        "tags": ["Trading History"],
+        "summary": "매매 기록 단건 전송/저장",
+        "description": "HTS가 매매 체결 직후 해당 내역(1건)을 원격 웹 서버로 전송합니다. brokerExecutionId를 보내면 중복 저장을 방지할 수 있습니다.",
+        "security": [
+          { "BearerAuth": [] }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeRecordInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "저장 성공" },
+          "401": { "description": "인증 실패 (토큰 누락, 만료, 위조)" },
+          "400": { "description": "잘못된 요청" }
+        }
+      }
+    },
+    "/api/v1/trades/batch": {
+      "post": {
+        "tags": ["Trading History"],
+        "summary": "매매 기록 일괄(Batch) 전송/저장",
+        "description": "HTS가 통신 장애 복구 후 누락된 다건의 매매 내역을 일괄 전송합니다.",
+        "security": [
+          { "BearerAuth": [] }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TradeRecordInput"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "일괄 저장 성공" },
+          "401": { "description": "인증 실패 (토큰 누락, 만료, 위조)" },
+          "400": { "description": "잘못된 요청" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "/api/v1/auth/token 에서 발급받은 Access Token을 입력하세요."
+      }
+    },
+    "schemas": {
+      "TradeRecordInput": {
+        "type": "object",
+        "required": ["symbol", "side", "price", "volume", "executedAt"],
+        "properties": {
+          "symbol": { "type": "string", "description": "(필수) 종목코드 (예: 005930)" },
+          "side": { "type": "string", "enum": ["BUY", "SELL"], "description": "(필수) 매매 구분. BUY(매수) 또는 SELL(매도)" },
+          "price": { "type": "number", "description": "(필수) 체결 단가" },
+          "volume": { "type": "number", "description": "(필수) 체결 수량" },
+          "executedAt": { "type": "string", "format": "date-time", "description": "(필수) 체결 시간. KST(한국 시간) 기준의 로컬 타임(예: 2026-08-01T09:30:00)을 권장합니다." },
+          "brokerExecutionId": { "type": "string", "description": "(선택 - 권장) 증권사 체결 고유번호. 통신 장애 복구 시 데이터 중복 저장을 방지하기 위해 가급적 HTS에서 넘겨주는 것을 권장합니다." },
+          "memo": { "type": "string", "description": "(선택) 매매 일지의 '메모(진입/청산 근거)' 영역에 기록됩니다. HTS의 조건식 이름이나, 수수료/세금 등의 기타 체결 부가 정보를 텍스트로 묶어서 보내면 유용합니다." },
+          "tradeClass": { "type": ["integer", "string"], "description": "(선택) 투자 분류(전략). 1=장기투자, 2=중기투자, 3=단기스윙(기본값), 4=단타(스캘핑), 5=배당투자, 6=공모주, 7=시스템, 8=기타. 숫자 대신 문자열(예: '장기투자')을 직접 보내도 무방합니다." },
+          "name": { "type": "string", "description": "(선택) 종목명. 누락 시 서버가 종목코드를 기반으로 기존 DB에서 자동 조회합니다." },
+          "brokerAccount": { "type": "string", "description": "(선택) 금융결제원 금융기관 공동코드(표준코드) 3자리. 예: 264(키움), 238(미래에셋), 247(NH), 243(한국투자), 240(삼성), 271(토스). '계좌 관리'에 등록된 매핑 정보를 통해 이름으로 자동 치환됩니다." },
+          "subAccount": { "type": "string", "description": "(선택) 체결 계좌번호. 서버에 사전 등록해둔 계좌번호를 보내면 매핑된 계좌이름(별칭)이 자동 할당됩니다." },
+          "accountName": { "type": "string", "description": "(선택) 계좌이름(별칭) (예: KRX금계좌, ISA계좌). subAccount 매핑 정보가 있을 경우 서버가 알아서 처리하므로 생략 가능합니다." },
+          "currency": { "type": "string", "description": "(선택) 통화. 예: KRW, USD. 기본값은 KRW로 간주됩니다." },
+          "exchange": { "type": "string", "description": "(선택) 거래소 구분. 예: KRX, NXT, NASDAQ, NYSE 등" },
+          "assetType": { "type": "string", "description": "(선택) 자산 구분. 예: STOCK, ETF" },
+          "tags": { "type": "array", "items": { "type": "string" }, "description": "(선택) 추가 태그 목록 배열" }
+        },
+        "description": "※ 주의 (불필요한 파라미터): 현재 시스템은 '수수료(Fee)', '세금(Tax)', '주문타입(시장가/지정가)' 등을 별도의 DB 칼럼으로 관리하지 않습니다. 따라서 해당 정보들은 JSON 필드로 따로 파싱하지 않으므로 HTS에서 보내지 않아도 무방합니다. 만약 기록으로 꼭 남기고 싶다면 `memo` 필드 안에 텍스트로 합쳐서 보내시는 것을 추천합니다."
+      }
+    }
+  }
+}

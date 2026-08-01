@@ -10,7 +10,8 @@ INSERT_COLUMNS = [
     'id', 'username', 'type', 'stockName', 'stockCode', 'title', 'thoughts',
     'date', 'rawDate', 'attachedImage', 'brokerAccount', 'subAccount',
     'accountName', 'tradeType', 'price', 'quantity', 'createdAt', 'updatedAt',
-    'tags', 'attachedFile', 'attachedFileName', 'isHidden',
+    'tags', 'attachedFile', 'attachedFileName', 'isHidden', 'brokerExecutionId',
+    'currency', 'exchange', 'assetType', 'tradeClass'
 ]
 
 # UPDATE 시 갱신하는 컬럼 (id/username/createdAt 제외)
@@ -18,11 +19,11 @@ _UPDATE_COLUMNS = [
     'type', 'stockName', 'stockCode', 'title', 'thoughts', 'date', 'rawDate',
     'attachedImage', 'brokerAccount', 'subAccount', 'accountName', 'tradeType',
     'price', 'quantity', 'updatedAt', 'tags', 'attachedFile', 'attachedFileName',
-    'isHidden',
+    'isHidden', 'brokerExecutionId', 'currency', 'exchange', 'assetType', 'tradeClass'
 ]
 
 # 문자열 기본값 컬럼(없으면 ''), 숫자 기본값 컬럼(없으면 0)
-_DEFAULT_EMPTY = {'stockCode', 'subAccount', 'tags', 'attachedFile', 'attachedFileName'}
+_DEFAULT_EMPTY = {'stockCode', 'subAccount', 'tags', 'attachedFile', 'attachedFileName', 'brokerExecutionId', 'currency', 'exchange', 'assetType', 'tradeClass'}
 # isHidden: 종목 숨김 플래그(0/1). 값이 없으면 0(표시)으로 저장한다.
 _DEFAULT_ZERO = {'price', 'quantity', 'isHidden'}
 

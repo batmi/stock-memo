@@ -72,7 +72,7 @@
         <!-- ⭐️ 데이터 관리 및 로그아웃 버튼 -->
         <div style="margin-left: auto; display: flex; gap: 6px; align-items: center; margin-right: max(0px, calc((100% - 955px) / 2));">
             <!-- ⭐️ 로그인된 사용자 표시 영역 -->
-            <div id="loggedInUserDisplay" style="font-size: 12px; font-weight: bold; color: var(--text-strong-color); margin-right: 4px; display: flex; align-items: center; gap: 4px; background: var(--card-bg-color); padding: 2px 8px; border-radius: 12px; border: 1px solid var(--border-color); display: none;"></div>
+            <div id="loggedInUserDisplay" style="font-size: 12px; font-weight: bold; color: var(--text-strong-color); margin-right: 4px; display: flex; align-items: center; gap: 4px; background: var(--card-bg-color); padding: 2px 8px; border-radius: 12px; border: 1px solid var(--border-color); display: none; cursor: pointer;" title="계좌 관리"></div>
             <input type="file" id="restoreFileInput" accept=".zip" style="display:none;">
             
             <!-- ⭐️ 호버 시 분리되는 설정 버튼 그룹 -->
@@ -130,16 +130,16 @@
                     </div>
                 </div>
                 <div class="form-row">
-                    <div class="form-group" id="brokerAccountGroup" style="position: relative; flex: 1;">
-                        <label for="brokerAccount">증권사</label>
-                        <input type="text" id="brokerAccount" placeholder="예: 키움증권" autocomplete="off" required>
-                        <div id="brokerAccountList" class="autocomplete-list"></div>
+                    <div class="form-group" id="journalAccountSelectGroup" style="position: relative; flex: 2;">
+                        <label for="journalAccountSelect">매매 계좌</label>
+                        <select id="journalAccountSelect" required style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-color); color: var(--text-color); appearance: auto;">
+                            <!-- JS로 동적 채움 -->
+                        </select>
                     </div>
-                    <div class="form-group" id="subAccountGroup" style="position: relative; flex: 1;">
-                        <label for="subAccount">증권 계좌</label>
-                        <input type="text" id="subAccount" placeholder="예: 일반, 연금저축" autocomplete="off" required>
-                        <div id="subAccountList" class="autocomplete-list"></div>
-                    </div>
+                    <!-- 호환성 유지를 위한 숨김 필드 -->
+                    <input type="hidden" id="brokerAccount">
+                    <input type="hidden" id="subAccount">
+                    <input type="hidden" id="accountName">
                     <div class="form-group" style="flex: 1;">
                         <label for="tradeDate">기록 일시</label>
                         <input type="text" id="tradeDate" required>
@@ -153,8 +153,8 @@
 
                 <div class="form-row" id="tradeRow1">
                     <div class="form-group">
-                        <label for="accountName">투자 분류</label>
-                        <select id="accountName" required>
+                        <label for="tradeClass">투자 분류</label>
+                        <select id="tradeClass" required>
                             <option value="" disabled selected>분류를 선택하세요</option>
                             <option value="장기투자">장기투자</option>
                             <option value="중기투자">중기투자</option>
@@ -423,6 +423,66 @@
         </div>
     </div>
 
+    <!-- ⭐️ 계좌 관리(매핑) 팝업(모달) -->
+    <div id="accountMappingModalOverlay" class="modal-overlay" style="display:none; z-index: 3000;">
+        <div class="form-container" style="max-width: 400px; padding: 25px;">
+            <div class="form-header-container" style="margin-bottom: 20px; border: none; padding: 0;">
+                <h3 style="font-size: 16px;">🏦 계좌 관리</h3>
+                <button type="button" class="btn-close" id="btnCloseAccountMappingModal" title="닫기">&times;</button>
+            </div>
+            
+            <div style="font-size: 12px; color: var(--text-muted-color); margin-bottom: 20px; line-height: 1.5;">
+                매매 일지 작성에 사용할 증권사 계좌 정보를 등록하고 관리합니다. 등록된 계좌는 매매 기록 작성 시 편리하게 선택할 수 있습니다.
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 15px;">
+                <!-- 통합 계좌 매핑 -->
+                <div>
+                    <div id="unifiedMappingList" style="margin-bottom: 12px; max-height: 250px; overflow-y: auto;">
+                        <!-- JS로 동적 렌더링 -->
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 10px; padding: 15px; background: var(--card-bg-color); border: 1px solid var(--border-color); border-radius: 6px; margin-top: 10px;">
+                        <div style="font-size: 14px; font-weight: bold; margin-bottom: 5px;">➕ 신규 계좌 등록</div>
+                        
+                        <div>
+                            <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-muted-color);">1. 증권사</label>
+                            <select id="unifiedBrokerCode" style="width: 100%; padding: 10px; font-size: 13px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; appearance: auto;">
+                                <option value="" disabled selected>증권사 선택</option>
+                                <option value="264" data-name="키움증권">키움증권</option>
+                                <option value="238" data-name="미래에셋증권">미래에셋증권</option>
+                                <option value="247" data-name="NH투자증권">NH투자증권</option>
+                                <option value="243" data-name="한국투자증권">한국투자증권</option>
+                                <option value="240" data-name="삼성증권">삼성증권</option>
+                                <option value="271" data-name="토스증권">토스증권</option>
+                                <option value="218" data-name="KB증권">KB증권</option>
+                                <option value="278" data-name="신한투자증권">신한투자증권</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-muted-color);">2. 계좌번호</label>
+                            <input type="text" id="unifiedAccountCode" placeholder="예: 1234-5678" style="width: 100%; padding: 10px; font-size: 13px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;">
+                        </div>
+                        
+                        <div>
+                            <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-muted-color);">3. 계좌별칭</label>
+                            <input type="text" id="unifiedAccountName" placeholder="예: 단기스윙계좌, ISA계좌" style="width: 100%; padding: 10px; font-size: 13px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;">
+                        </div>
+                        
+                        <div style="margin-top: 5px;">
+                            <button type="button" id="btnAddUnifiedMapping" style="width: 100%; margin: 0; padding: 10px; font-size: 13px;">➕ 추가하기</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 25px;">
+                <button type="button" id="btnCancelAccountMappings">취소</button>
+                <button type="button" id="btnSaveAccountMappings">저장</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ⭐️ 비밀번호 변경 팝업(모달) -->
     <div id="passwordModalOverlay" class="modal-overlay" style="display:none; z-index: 3000;">
         <div class="form-container" style="max-width: 250px; padding: 18px;">
@@ -448,6 +508,30 @@
                     <button type="button" id="btnDeleteAccount" style="background: none; border: none; color: var(--danger-color); font-size: 11px; text-decoration: underline; cursor: pointer; box-shadow: none; width: auto; padding: 0;">회원 탈퇴 및 데이터 삭제</button>
                 </div>
             </form>
+
+            <hr style="border: 0; height: 1px; background: rgba(255,255,255,0.05); margin: 20px 0 15px 0;">
+            <div id="apiKeySection">
+                <h4 style="font-size: 13px; margin: 0 0 10px 0; color: var(--text-strong-color);">🤖 HTS 연동 API 키</h4>
+                <div style="font-size: 11px; color: var(--text-muted-color); margin-bottom: 8px; line-height: 1.4;">
+                    이 키를 사용하여 HTS 시스템에서 보안 접속 토큰(Access Token)을 교환받을 수 있습니다.
+                </div>
+                <div style="display: flex; gap: 5px; margin-bottom: 5px;">
+                    <input type="text" id="apiKeyValue" readonly placeholder="발급된 키가 없습니다." style="flex: 1; font-size: 11px; padding: 6px; margin: 0; background: var(--bg-color); color: var(--text-strong-color); text-align: center;">
+                    <button type="button" id="btnCopyApiKey" style="margin: 0; padding: 0 10px; font-size: 11px; width: auto; background: var(--neutral-color);">복사</button>
+                </div>
+                <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 5px;">
+                    <button type="button" id="btnGenerateApiKey" style="margin: 0; padding: 5px 10px; font-size: 11px; width: auto; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color); border-radius: 4px;">새 API 키 발급</button>
+                </div>
+                <div id="botStatusWidget" style="margin-top: 15px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                        <span style="font-size: 12px; color: var(--text-strong-color);">상태</span>
+                        <span id="botStatusIndicator" style="font-size: 11px; font-weight: bold; color: var(--text-muted-color);">확인 중...</span>
+                    </div>
+                    <div style="font-size: 10px; color: var(--text-muted-color); text-align: right;">
+                        최근 연결: <span id="botLastSeenText">-</span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 

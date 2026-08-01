@@ -28,6 +28,7 @@ from functools import wraps
 from contextlib import contextmanager
 from logging.handlers import TimedRotatingFileHandler
 from datetime import timedelta, datetime
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 from flask import (Flask, jsonify, request, send_from_directory, session, redirect,
                    url_for, render_template, send_file)
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -431,7 +432,12 @@ def init_db():
             tags TEXT,
             attachedFile TEXT,
             attachedFileName TEXT,
-            isHidden INTEGER DEFAULT 0
+            isHidden INTEGER DEFAULT 0,
+            brokerExecutionId TEXT,
+            currency TEXT,
+            exchange TEXT,
+            assetType TEXT,
+            tradeClass TEXT DEFAULT ''
         )
     ''')
 
@@ -455,11 +461,19 @@ def init_db():
         "ALTER TABLE entries ADD COLUMN subAccount TEXT",
         "ALTER TABLE entries ADD COLUMN username TEXT",
         "ALTER TABLE entries ADD COLUMN isHidden INTEGER DEFAULT 0",
+        "ALTER TABLE entries ADD COLUMN brokerExecutionId TEXT",
+        "ALTER TABLE entries ADD COLUMN currency TEXT",
+        "ALTER TABLE entries ADD COLUMN exchange TEXT",
+        "ALTER TABLE entries ADD COLUMN assetType TEXT",
+        "ALTER TABLE entries ADD COLUMN tradeClass TEXT",
         "ALTER TABLE users ADD COLUMN preferences TEXT",
         "ALTER TABLE users ADD COLUMN created_at TEXT",
         "ALTER TABLE users ADD COLUMN last_login_at TEXT",
         "ALTER TABLE users ADD COLUMN is_allowed INTEGER DEFAULT 1",
         "ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN api_key TEXT",
+        "ALTER TABLE users ADD COLUMN bot_status TEXT",
+        "ALTER TABLE users ADD COLUMN bot_last_seen TEXT",
     ):
         try:
             c.execute(ddl)
@@ -490,6 +504,7 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_entries_username ON entries(username)",
         "CREATE INDEX IF NOT EXISTS idx_entries_user_type ON entries(username, type)",
         "CREATE INDEX IF NOT EXISTS idx_entries_user_stock ON entries(username, stockName)",
+        "CREATE INDEX IF NOT EXISTS idx_entries_exec_id ON entries(brokerExecutionId)",
     ):
         try:
             c.execute(idx)
@@ -588,6 +603,10 @@ def auto_backup_job():
                                 file_path = os.path.join(root, file)
                                 arcname = os.path.join('uploads', file)
                                 zf.write(file_path, arcname=arcname)
+                                
+                    account_info_path = os.path.join('json', username, 'account_info.json')
+                    if os.path.exists(account_info_path):
+                        zf.write(account_info_path, arcname='account_info.json')
 
                 # ⭐️ 생성된 백업 파일의 무결성을 즉시 검증 (복원 가능 여부 확인)
                 ok, detail = verify_backup_zip(filepath, len(rows))
@@ -668,8 +687,8 @@ def auto_fetch_nxt_close_job():
 
 @app.before_request
 def check_login():
-    # 로그인 및 회원가입 처리를 수행하는 라우트는 검사에서 제외
-    if request.endpoint not in ['login', 'signup', 'logout']:
+    # 로그인 및 회원가입 처리를 수행하는 라우트 및 API Key 연동 라우트는 세션 검사에서 제외
+    if request.endpoint not in ['login', 'signup', 'logout'] and not request.path.startswith('/api/v1/'):
         # 세션에 로그인 상태가 없으면 차단
         if not session.get('logged_in'):
             # 백엔드 API 요청인 경우 401 인증 에러 반환
@@ -686,6 +705,38 @@ def check_login():
                 return jsonify({"error": "Unauthorized"}), 401
             return redirect(url_for('login', timeout=1))
 
+
+def get_token_serializer():
+    if app.secret_key is None:
+        raise RuntimeError("Flask secret key is not set.")
+    return URLSafeTimedSerializer(app.secret_key)
+
+# ⭐️ 단기 토큰 인증 전용 데코레이터
+def require_token(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({"error": "토큰이 누락되었거나 형식이 잘못되었습니다 (Bearer <TOKEN>)."}), 401
+            
+        token = auth_header.split(' ')[1]
+        serializer = get_token_serializer()
+        
+        try:
+            # 86400 seconds = 24 hours
+            data = serializer.loads(token, max_age=86400)
+            username = data.get('username')
+        except SignatureExpired:
+            return jsonify({"error": "토큰이 만료되었습니다. API 키를 사용하여 새 토큰을 발급받으세요."}), 401
+        except BadSignature:
+            return jsonify({"error": "유효하지 않은 토큰입니다."}), 401
+            
+        if not username:
+            return jsonify({"error": "토큰 페이로드가 유효하지 않습니다."}), 401
+            
+        return f(username=username, *args, **kwargs)
+        
+    return decorated
 
 # ⭐️ 관리자 권한 필요 라우트용 데코레이터
 def admin_required(f):
@@ -877,27 +928,365 @@ def ping():
     return jsonify({"status": "success", "expires_at": session.get('expires_at', 0)})
 
 
+@app.route('/api/me/api-key', methods=['GET'])
+def get_api_key():
+    username = session.get('username')
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT api_key FROM users WHERE username = ?", (username,))
+        row = c.fetchone()
+        
+    return jsonify({
+        "api_key": row['api_key'] if row else None
+    })
+
+@app.route('/api/me/api-key', methods=['POST'])
+def generate_api_key():
+    username = session.get('username')
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+        
+    new_key = str(uuid.uuid4())
+    
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE users SET api_key = ? WHERE username = ?", (new_key, username))
+        conn.commit()
+        
+    return jsonify({
+        "status": "success", 
+        "api_key": new_key
+    })
+
+# ======== HTS / System Trading REST API ========
+@app.route('/api/v1/auth/token', methods=['POST'])
+def api_v1_auth_token():
+    api_key = request.headers.get('X-API-KEY')
+    if not api_key and request.is_json:
+        api_key = request.json.get('api_key')
+        
+    if not api_key:
+        return jsonify({"error": "API 키가 누락되었습니다."}), 400
+        
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT username FROM users WHERE api_key = ?", (api_key,))
+        row = c.fetchone()
+        
+    if not row:
+        return jsonify({"error": "유효하지 않은 API 키입니다."}), 401
+        
+    serializer = get_token_serializer()
+    token = serializer.dumps({'username': row['username']})
+    
+    return jsonify({
+        "access_token": token,
+        "token_type": "Bearer",
+        "expires_in": 86400
+    }), 200
+
+@app.route('/api/v1/health', methods=['GET'])
+def api_v1_health():
+    return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()}), 200
+
+def get_user_mappings(username):
+    file_path = os.path.join('json', username, 'account_info.json')
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"brokers": {}, "accounts": {}}
+
+@app.route('/api/mappings', methods=['GET'])
+def get_mappings_frontend():
+    username = session.get('username')
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    return jsonify(get_user_mappings(username)), 200
+
+@app.route('/api/mappings', methods=['POST'])
+def save_mappings_frontend():
+    username = session.get('username')
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.json
+    if not isinstance(data, dict):
+        return jsonify({"error": "잘못된 데이터 형식입니다."}), 400
+        
+    user_dir = os.path.join('json', username)
+    os.makedirs(user_dir, exist_ok=True)
+    file_path = os.path.join(user_dir, 'account_info.json')
+    
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        
+    return jsonify({"status": "success"}), 200
+
+@app.route('/api/v1/trades', methods=['POST'])
+@require_token
+def api_v1_trades_post(username):
+    data = request.json
+    if not data or not all(k in data for k in ['symbol', 'side', 'price', 'volume', 'executedAt']):
+        return jsonify({"error": "잘못된 요청: 필수 파라미터가 누락되었습니다."}), 400
+        
+    side_map = {'BUY': '매수', 'SELL': '매도'}
+    trade_type = side_map.get(data['side'], data['side'])
+    
+    tags = data.get('tags', [])
+    trade_class_code = data.get('tradeClass', 3) # 기본값 3 (단기스윙)
+    class_map = {1: '장기투자', 2: '중기투자', 3: '단기스윙', 4: '단타(스캘핑)', 5: '배당투자', 6: '공모주', 7: '시스템', 8: '기타'}
+    if isinstance(trade_class_code, int):
+        class_tag = class_map.get(trade_class_code, '단기스윙')
+    else:
+        class_tag = str(trade_class_code)
+    if class_tag not in tags:
+        tags.append(class_tag)
+        
+    tags_str = ",".join(tags) if isinstance(tags, list) else str(tags)
+    
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    with db_conn() as conn:
+        c = conn.cursor()
+        
+        exec_id = data.get('brokerExecutionId')
+        if exec_id:
+            c.execute("SELECT id, createdAt FROM entries WHERE username = ? AND brokerExecutionId = ?", (username, exec_id))
+            row = c.fetchone()
+            if row:
+                data['id'] = str(row['id'])
+                data['createdAt'] = row['createdAt']
+                return jsonify(data), 200
+                
+        stock_name = data.get('name')
+        if not stock_name:
+            c.execute("SELECT stockName FROM entries WHERE stockCode = ? AND stockName != '' LIMIT 1", (data['symbol'],))
+            row = c.fetchone()
+            stock_name = row['stockName'] if row else data['symbol']
+            
+        mappings = get_user_mappings(username)
+        raw_broker = data.get('brokerAccount', '')
+        raw_sub = data.get('subAccount', '').replace('-', '')
+        
+        acc_info = mappings.get('accounts', {}).get(raw_sub)
+        if isinstance(acc_info, dict):
+            mapped_broker = acc_info.get('broker_name', raw_broker)
+            mapped_account_name = acc_info.get('alias', data.get('accountName', ''))
+        else:
+            mapped_broker = mappings.get('brokers', {}).get(raw_broker, raw_broker)
+            mapped_account_name = mappings.get('accounts', {}).get(raw_sub, data.get('accountName', ''))
+            
+        entry_dict = {
+            'type': 'trade',
+            'stockName': stock_name,
+            'stockCode': data['symbol'],
+            'title': '',
+            'thoughts': data.get('memo', ''),
+            'date': data['executedAt'].split('T')[0] if 'T' in data['executedAt'] else data['executedAt'][:10],
+            'rawDate': data['executedAt'],
+            'brokerAccount': mapped_broker,
+            'subAccount': raw_sub,
+            'accountName': mapped_account_name,
+            'tradeClass': class_tag,
+            'tradeType': trade_type,
+            'price': data['price'],
+            'quantity': data['volume'],
+            'tags': tags_str,
+            'createdAt': current_time,
+            'brokerExecutionId': exec_id,
+            'currency': data.get('currency', ''),
+            'exchange': data.get('exchange', ''),
+            'assetType': data.get('assetType', '')
+        }
+        
+        error_msg = validate_trade_entry(c, username, entry_dict)
+        if error_msg:
+            return jsonify({"error": error_msg}), 400
+            
+        entry_logic.insert_entry(c, username, entry_dict)
+        entry_id = c.lastrowid
+        conn.commit()
+        
+    data['id'] = str(entry_id)
+    data['createdAt'] = current_time
+    data['name'] = stock_name
+    return jsonify(data), 201
+
+@app.route('/api/v1/bot/status', methods=['POST'])
+@require_token
+def api_v1_bot_status(username):
+    data = request.json
+    if not data or 'status' not in data:
+        return jsonify({"error": "잘못된 요청"}), 400
+        
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute('''
+            UPDATE users 
+            SET bot_status = ?, bot_last_seen = ? 
+            WHERE username = ?
+        ''', (data['status'], current_time, username))
+        conn.commit()
+        
+    return jsonify({"status": "success", "updatedAt": current_time}), 200
+
+@app.route('/api/v1/trades/last-sync', methods=['GET'])
+@require_token
+def api_v1_trades_last_sync(username):
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute('''
+            SELECT MAX(rawDate) as lastExecutedAt 
+            FROM entries 
+            WHERE username = ? AND type = 'trade'
+        ''', (username,))
+        row = c.fetchone()
+        
+    last_executed = row['lastExecutedAt'] if row and row['lastExecutedAt'] else None
+    
+    return jsonify({
+        "lastExecutedAt": last_executed
+    }), 200
+
+@app.route('/api/v1/trades/batch', methods=['POST'])
+@require_token
+def api_v1_trades_batch(username):
+    trades = request.json
+    if not isinstance(trades, list):
+        return jsonify({"error": "잘못된 요청: 배열 형태여야 합니다."}), 400
+        
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    side_map = {'BUY': '매수', 'SELL': '매도'}
+    inserted = 0
+    skipped = 0
+    errors = []
+    
+    with db_conn() as conn:
+        c = conn.cursor()
+        for data in trades:
+            if not all(k in data for k in ['symbol', 'side', 'price', 'volume', 'executedAt']):
+                errors.append(f"누락된 필드: {data.get('symbol', 'unknown')}")
+                continue
+                
+            exec_id = data.get('brokerExecutionId')
+            if exec_id:
+                c.execute("SELECT id FROM entries WHERE username = ? AND brokerExecutionId = ?", (username, exec_id))
+                if c.fetchone():
+                    skipped += 1
+                    continue
+                    
+            stock_name = data.get('name')
+            if not stock_name:
+                c.execute("SELECT stockName FROM entries WHERE stockCode = ? AND stockName != '' LIMIT 1", (data['symbol'],))
+                row = c.fetchone()
+                stock_name = row['stockName'] if row else data['symbol']
+                
+            mappings = get_user_mappings(username)
+            raw_broker = data.get('brokerAccount', '')
+            raw_sub = data.get('subAccount', '').replace('-', '')
+            
+            acc_info = mappings.get('accounts', {}).get(raw_sub)
+            if isinstance(acc_info, dict):
+                mapped_broker = acc_info.get('broker_name', raw_broker)
+                mapped_account_name = acc_info.get('alias', data.get('accountName', ''))
+            else:
+                mapped_broker = mappings.get('brokers', {}).get(raw_broker, raw_broker)
+                mapped_account_name = mappings.get('accounts', {}).get(raw_sub, data.get('accountName', ''))
+                
+            trade_type = side_map.get(data['side'], data['side'])
+            
+            tags = data.get('tags', [])
+            trade_class_code = data.get('tradeClass', 3) # 기본값 3 (단기스윙)
+            class_map = {1: '장기투자', 2: '중기투자', 3: '단기스윙', 4: '단타(스캘핑)', 5: '배당투자', 6: '공모주', 7: '시스템', 8: '기타'}
+            if isinstance(trade_class_code, int):
+                class_tag = class_map.get(trade_class_code, '단기스윙')
+            else:
+                class_tag = str(trade_class_code)
+                
+            if class_tag not in tags:
+                tags.append(class_tag)
+                
+            tags_str = ",".join(tags) if isinstance(tags, list) else str(tags)
+            
+            entry_dict = {
+                'type': 'trade',
+                'stockName': stock_name,
+                'stockCode': data['symbol'],
+                'title': '',
+                'thoughts': data.get('memo', ''),
+                'date': data['executedAt'].split('T')[0] if 'T' in data['executedAt'] else data['executedAt'][:10],
+                'rawDate': data['executedAt'],
+                'brokerAccount': mapped_broker,
+                'subAccount': raw_sub,
+                'accountName': mapped_account_name,
+                'tradeClass': class_tag,
+                'tradeType': trade_type,
+                'price': data['price'],
+                'quantity': data['volume'],
+                'tags': tags_str,
+                'createdAt': current_time,
+                'brokerExecutionId': exec_id,
+                'currency': data.get('currency', ''),
+                'exchange': data.get('exchange', ''),
+                'assetType': data.get('assetType', '')
+            }
+            
+            error_msg = validate_trade_entry(c, username, entry_dict)
+            if error_msg:
+                errors.append(f"{stock_name}: {error_msg}")
+                continue
+                
+            entry_logic.insert_entry(c, username, entry_dict)
+            inserted += 1
+            
+        conn.commit()
+        
+    return jsonify({
+        "status": "success", 
+        "inserted": inserted, 
+        "skipped": skipped,
+        "errors": errors if errors else None
+    }), 201
+
 @app.route('/api/me', methods=['GET'])
 def get_me():
     username = session.get('username')
     pending_count = 0
     admin_flag = False
 
+    bot_status = None
+    bot_last_seen = None
+
     if username:
         with db_conn() as conn:
             c = conn.cursor()
             # ⭐️ 매 요청 시마다 DB에서 최신 관리자 권한을 조회하여 세션 동기화
-            c.execute("SELECT is_admin FROM users WHERE username = ?", (username,))
+            c.execute("SELECT is_admin, bot_status, bot_last_seen FROM users WHERE username = ?", (username,))
             user = c.fetchone()
             if user:
                 admin_flag = bool(user['is_admin'])
                 session['is_admin'] = admin_flag  # 브라우저 세션에 즉각 갱신 반영
+                bot_status = user['bot_status']
+                bot_last_seen = user['bot_last_seen']
 
             if admin_flag:
                 c.execute("SELECT COUNT(*) FROM users WHERE is_allowed = 0")
                 pending_count = c.fetchone()[0]
 
-    return jsonify({"username": username, "is_admin": admin_flag, "pending_count": pending_count})
+    return jsonify({
+        "username": username, 
+        "is_admin": admin_flag, 
+        "pending_count": pending_count,
+        "bot_status": bot_status,
+        "bot_last_seen": bot_last_seen
+    })
 
 
 @app.route('/api/account', methods=['DELETE'])
@@ -1342,6 +1731,11 @@ def full_backup():
                     file_path = os.path.join(root, file)
                     arcname = os.path.join('uploads', file)
                     zf.write(file_path, arcname=arcname)
+                    
+        # 3. 사용자 매핑 정보 백업
+        account_info_path = os.path.join('json', username, 'account_info.json')
+        if os.path.exists(account_info_path):
+            zf.write(account_info_path, arcname='account_info.json')
 
     memory_file.seek(0)
 
@@ -1405,6 +1799,13 @@ def full_restore():
                 src_path = os.path.join(temp_uploads, f)
                 if os.path.isfile(src_path):
                     shutil.copy2(src_path, os.path.join(user_folder, f))
+                    
+        # 4. 사용자 매핑 정보 복원
+        temp_account_info = os.path.join(temp_dir, 'account_info.json')
+        if os.path.exists(temp_account_info):
+            user_json_dir = os.path.join('json', username)
+            os.makedirs(user_json_dir, exist_ok=True)
+            shutil.copy2(temp_account_info, os.path.join(user_json_dir, 'account_info.json'))
 
         return jsonify({'status': 'success'})
     except Exception as e:
