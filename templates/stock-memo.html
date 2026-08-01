@@ -534,8 +534,8 @@
 
     <!-- ⭐️ 서버가 로그인 시점에 확정한 세션 만료 정보 전달 (script.js 의 세션 타이머가 사용) -->
     <script>
-        window.SESSION_EXPIRES_AT_MS = {{ session_expires_at }} * 1000;
-        window.SESSION_KEEP_LOGGED_IN = {{ 'true' if keep_logged_in else 'false' }};
+        window.SESSION_EXPIRES_AT_MS = Number("{{ session_expires_at }}") * 1000;
+        window.SESSION_KEEP_LOGGED_IN = "{{ 'true' if keep_logged_in else 'false' }}" === "true";
     </script>
 
     <!-- ⭐️ 외부 JS 파일 연결 -->
