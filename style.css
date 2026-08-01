@@ -1355,3 +1355,36 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 .ql-snow .ql-picker.ql-size .ql-picker-item[data-value="medium"]::before {
     content: 'Medium';
 }
+
+/* ⭐️ 계정 설정 모달 레이아웃 (비밀번호 / API 키) */
+.account-settings-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+.account-settings-divider {
+    border: 0;
+    height: 1px;
+    background: var(--border-color);
+    margin: 5px 0;
+}
+@media (min-width: 500px) {
+    #passwordModalOverlay .form-container {
+        max-width: 480px !important;
+    }
+    .account-settings-layout {
+        flex-direction: row;
+        gap: 20px;
+    }
+    .account-settings-layout > .password-section,
+    .account-settings-layout > .api-key-section {
+        flex: 1;
+        width: 50%;
+    }
+    .account-settings-divider {
+        width: 1px;
+        height: auto;
+        margin: 0;
+        background: var(--border-color);
+    }
+}

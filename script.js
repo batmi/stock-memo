@@ -5624,10 +5624,14 @@ if (btnChangePassword && passwordModalOverlay) {
     
     function updateApiKeyUI(apiKey) {
         const input = document.getElementById('apiKeyValue');
+        const container = document.getElementById('newApiKeyContainer');
         if (!input) return;
         // 원문이 없으면(재조회 시) 이미 표시 중인 값을 지우지 않는다 —
         // 방금 발급받은 키를 사용자가 복사하기 전에 사라지면 영영 볼 수 없다.
-        if (apiKey) input.value = apiKey;
+        if (apiKey) {
+            input.value = apiKey;
+            if (container) container.style.display = 'flex';
+        }
     }
 
     // ⭐️ 발급된 키 목록. 원문은 없고 식별용 앞자리·사용 이력만 보여준다.
@@ -5650,7 +5654,7 @@ if (btnChangePassword && passwordModalOverlay) {
                 </span>
                 <button type="button" data-key-id="${k.id}" class="btnRevokeApiKey"
                         style="margin:0; padding:2px 6px; font-size:10px; width:auto; background:transparent;
-                               border:1px solid var(--danger-color); color:var(--danger-color); border-radius:4px;">폐기</button>
+                               border:1px solid var(--danger-color); color:var(--danger-color); border-radius:4px; flex-shrink:0; white-space:nowrap;">폐기</button>
             </div>`).join('');
 
         box.querySelectorAll('.btnRevokeApiKey').forEach(btn => {
@@ -5658,6 +5662,8 @@ if (btnChangePassword && passwordModalOverlay) {
                 if (!(await customConfirm("이 키를 폐기하시겠습니까?\n이 키로 발급된 접속 토큰도 즉시 무효화됩니다."))) return;
                 const res = await fetch(`/api/me/api-key/${btn.dataset.keyId}`, { method: 'DELETE' });
                 if (res.ok) {
+                    const container = document.getElementById('newApiKeyContainer');
+                    if (container) container.style.display = 'none';
                     document.getElementById('apiKeyValue').value = '';
                     fetchApiKeyStatus();
                 } else {
@@ -5725,6 +5731,10 @@ if (btnChangePassword && passwordModalOverlay) {
             passwordModalOverlay.classList.remove('closing');
             document.body.style.overflow = '';
             if(passwordForm) passwordForm.reset();
+            const container = document.getElementById('newApiKeyContainer');
+            if(container) container.style.display = 'none';
+            const apiKeyValue = document.getElementById('apiKeyValue');
+            if(apiKeyValue) apiKeyValue.value = '';
         }, 180);
     };
     
