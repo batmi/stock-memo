@@ -1534,6 +1534,25 @@ if (journalAccountSelect) {
     });
 }
 
+// ⭐️ 저장된 계좌번호(subAccount)에 맞춰 '매매 계좌' 드롭다운 선택값을 동기화
+//    (등록 목록에 없는 이전 형식 계좌는 임시 옵션을 만들어 표시)
+function syncJournalAccountSelect(rawVal) {
+    const select = document.getElementById('journalAccountSelect');
+    if (!select) return false;
+    const val = (rawVal || '').trim();
+    if (!val) return false;
+
+    let targetOpt = Array.from(select.options).find(opt => opt.value.replace(/-/g, '') === val.replace(/-/g, ''));
+    if (!targetOpt) {
+        targetOpt = document.createElement('option');
+        targetOpt.value = val;
+        targetOpt.text = `[미등록/이전형식] ${val}`;
+        select.appendChild(targetOpt);
+    }
+    select.value = targetOpt.value;
+    return true;
+}
+
 btnFab.addEventListener('click', async () => {
     const isTrade = document.querySelector('input[name="recordType"]:checked')?.value === 'trade';
     if (isTrade || !document.querySelector('input[name="recordType"]:checked')) {
@@ -2213,6 +2232,16 @@ function autoFillStockInfo(e) {
         if (recentEntry.brokerAccount) document.getElementById('brokerAccount').value = recentEntry.brokerAccount;
         if (recentEntry.subAccount) document.getElementById('subAccount').value = recentEntry.subAccount;
         if (recentEntry.accountName) document.getElementById('accountName').value = recentEntry.accountName;
+
+        // ⭐️ 계좌는 화면상 '매매 계좌' 드롭다운으로 입력되므로 숨김 필드와 함께 선택값도 맞춰준다.
+        syncJournalAccountSelect(recentEntry.subAccount);
+
+        // ⭐️ 투자 분류도 직전 기록 값으로 자동 선택 (목록에 없는 이전 값은 건드리지 않음)
+        const classSelect = document.getElementById('tradeClass');
+        if (classSelect && recentEntry.tradeClass) {
+            const hasOption = Array.from(classSelect.options).some(opt => opt.value === recentEntry.tradeClass);
+            if (hasOption) classSelect.value = recentEntry.tradeClass;
+        }
     }
 }
 
@@ -4230,19 +4259,8 @@ window.editEntry = async function(entry) {
     document.getElementById('tradeClass').value = entry.tradeClass || '';
     document.getElementById('accountName').value = entry.accountName || '';
 
-    const select = document.getElementById('journalAccountSelect');
-    if (select && entry.type === 'trade') {
-        let rawVal = (entry.subAccount || '');
-        let targetOpt = Array.from(select.options).find(opt => opt.value.replace(/-/g, '') === rawVal.replace(/-/g, ''));
-        if (targetOpt) {
-            select.value = targetOpt.value;
-        } else if (rawVal) {
-            const option = document.createElement('option');
-            option.value = rawVal;
-            option.text = `[미등록/이전형식] ${rawVal}`;
-            select.appendChild(option);
-            select.value = rawVal;
-        }
+    if (entry.type === 'trade') {
+        syncJournalAccountSelect(entry.subAccount);
     }
 
     // ⭐️ 숨김 체크박스는 이 기록 자신의 값이 아니라 '해당 종목의 현재 숨김 상태'로 채운다.
