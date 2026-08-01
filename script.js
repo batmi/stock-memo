@@ -63,6 +63,35 @@ let currentPortfolioArrayForPrice = []; // 현재가 계산용 임시 배열
 let showHistoryClosedPositions = false; // ⭐️ 히스토리도 포트폴리오와 동일하게 청산·숨김 종목을 기본 숨김 처리
 let hiddenStocks = new Set();  // ⭐️ 숨김 처리된 종목명 집합 — 각 종목의 최신 기록(updatedAt→createdAt→id)의 isHidden 으로 판정
 
+// ══════════════════════════════════════════════════════════════════════
+// ⭐️ 모의투자(isSimulated) 기록 분리
+//
+// HTS 모의투자 계좌에서 들어온 체결은 실제 돈이 오간 기록이 아니다.
+// 포트폴리오 '카드'로는 보여주되(무엇을 굴리고 있는지 확인용), 금액을 합산하는
+// 모든 지표에서는 빼야 한다 — 도넛 차트, 총 투자금액·평가금액·실현손익,
+// 보유 종목 수, 캘린더 일별 손익, 통계 화면.
+//
+// 카드 키에 접미사를 붙여 실거래와 같은 종목이라도 절대 한 칸에 합쳐지지 않게 한다.
+// 합쳐지면 모의 매수가 실거래 평균단가를 오염시킨다.
+// ══════════════════════════════════════════════════════════════════════
+const SIM_KEY_SUFFIX = '::모의';
+
+function isSimulatedEntry(entry) {
+    return !!Number(entry && entry.isSimulated);
+}
+
+function portfolioKey(stockName, isSim) {
+    return isSim ? stockName + SIM_KEY_SUFFIX : stockName;
+}
+
+// HTML 속성값·속성 선택자에 문자열을 안전하게 넣기 위한 최소 이스케이프
+function escapeAttr(value) {
+    return String(value == null ? '' : value).replace(/"/g, '&quot;');
+}
+function escapeAttrSelector(value) {
+    return String(value == null ? '' : value).replace(/["\\]/g, '\\$&');
+}
+
 // ⭐️ 포트폴리오와 히스토리의 '청산 종목 보기' 버튼 UI 를 현재 상태로 함께 갱신한다.
 function syncClosedPositionsButtons() {
     const label = showClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
@@ -1938,6 +1967,8 @@ window.loadTradeStats = async function() {
         let entryIds = [];
         cloudEntries.forEach(entry => {
             if (entry.type !== 'trade' || !entry.stockName) return;
+            // ⭐️ 모의투자는 실제 성과가 아니므로 통계·차트에서 제외한다. (백엔드에서도 한 번 더 거른다)
+            if (isSimulatedEntry(entry)) return;
             if (currentChartStock !== 'all' && entry.stockName !== currentChartStock) return;
             if (currentChartAccount !== 'all' && (entry.tradeClass || '') !== currentChartAccount) return;
             if (currentChartBroker !== 'all' && getMappedBroker(entry.brokerAccount) !== currentChartBroker) return;
@@ -2948,10 +2979,13 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
                 cp = window.currentPriceCache[data.stockCode];
             }
             
-            const pEls = document.querySelectorAll(`.cp-price[data-code="${data.stockCode || ''}"]`);
-            const eEls = document.querySelectorAll(`.cp-eval[data-code="${data.stockCode || ''}"]`);
-            const pfEls = document.querySelectorAll(`.cp-profit[data-code="${data.stockCode || ''}"]`);
-            
+            // ⭐️ 카드 단위 식별자로 찾는다. 같은 종목의 실거래·모의 카드가 함께 있을 때
+            //    data-code 로 찾으면 두 카드가 서로의 평가금액·손익을 덮어쓴다.
+            const sel = `[data-pkey="${escapeAttrSelector(data.key)}"]`;
+            const pEls = document.querySelectorAll(`.cp-price${sel}`);
+            const eEls = document.querySelectorAll(`.cp-eval${sel}`);
+            const pfEls = document.querySelectorAll(`.cp-profit${sel}`);
+
             if (cp !== undefined && cp !== null) {
                 const evalAmount = cp * data.qty;
                 const profitAmount = evalAmount - data.totalCost;
@@ -2974,12 +3008,14 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
                         }
                     });
                 }
-                totalEval += evalAmount;
+                // ⭐️ 모의투자 카드에도 현재가·평가손익은 보여주되(시세는 실제 시세다),
+                //    총 평가금액 합계에는 넣지 않는다.
+                if (!data.isSim) totalEval += evalAmount;
             } else {
                 if (isFresh) {
                     pEls.forEach(el => el.innerText = '조회 실패');
                 }
-                totalEval += data.totalCost; // 조회 실패 시 기본 투자원금으로 임시 합산
+                if (!data.isSim) totalEval += data.totalCost; // 조회 실패 시 기본 투자원금으로 임시 합산
             }
         });
         
@@ -3025,9 +3061,14 @@ function updatePortfolioSummary() {
         const qty = Number(entry.quantity) || 0;
         const price = Number(entry.price) || 0;
 
-        if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, realizedCost: 0, accountName: '', tradeClass: '', traded: false, stockCode: '' };
-        if (entry.tradeClass) portfolio[stock].tradeClass = entry.tradeClass; // 가장 최근 거래의 투자 분류 기록
-        if (entry.stockCode) portfolio[stock].stockCode = entry.stockCode; // 종목코드 기록
+        // ⭐️ 모의투자는 실거래와 다른 칸에 쌓는다. 같은 종목이라도 합치면
+        //    모의 매수가 실거래 평균단가·실현손익을 오염시킨다.
+        const isSim = isSimulatedEntry(entry);
+        const key = portfolioKey(stock, isSim);
+
+        if (!portfolio[key]) portfolio[key] = { stock, isSim, qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, realizedCost: 0, accountName: '', tradeClass: '', traded: false, stockCode: '' };
+        if (entry.tradeClass) portfolio[key].tradeClass = entry.tradeClass; // 가장 최근 거래의 투자 분류 기록
+        if (entry.stockCode) portfolio[key].stockCode = entry.stockCode; // 종목코드 기록
 
         // 이번 달 거래인지 확인
         let isCurrentMonth = false;
@@ -3041,16 +3082,18 @@ function updatePortfolioSummary() {
 
         const tt = entry.tradeType;
         if (tt === '매수' || tt === '매도' || tt === '배당') {
-            portfolio[stock].traded = true;
-            if (isCurrentMonth) {
+            portfolio[key].traded = true;
+            // ⭐️ 월간 매매 건수는 실거래만 센다.
+            if (isCurrentMonth && !isSim) {
                 if (tt === '매수') monthlyBuyCount++;
                 else if (tt === '매도') monthlySellCount++;
             }
             // ⭐️ 공용 계산 엔진(calc.js) — 평균단가/실현손익 단일 소스
-            const r = applyTradeToHolding(portfolio[stock], qty, price, tt);
-            portfolio[stock].realizedProfit += r.realized + r.dividend;
-            portfolio[stock].realizedCost += r.cost;
-            totalRealizedProfit += r.realized + r.dividend;
+            const r = applyTradeToHolding(portfolio[key], qty, price, tt);
+            portfolio[key].realizedProfit += r.realized + r.dividend;
+            portfolio[key].realizedCost += r.cost;
+            // ⭐️ 카드에 표시할 종목별 손익은 모의도 계산하되, 누적 실현 손익 합계에는 넣지 않는다.
+            if (!isSim) totalRealizedProfit += r.realized + r.dividend;
         }
     });
 
@@ -3062,8 +3105,9 @@ function updatePortfolioSummary() {
 
     // ⭐️ 포트폴리오를 배열로 변환하고 투자 분류에 따라 정렬
     const portfolioArray = [];
-    for (const stock in portfolio) {
-        const p = portfolio[stock];
+    for (const key in portfolio) {
+        const p = portfolio[key];
+        const stock = p.stock;
         const isClosed = p.qty <= 0;
         // ⭐️ 보유 중인 숨김 종목은 카드 노출과 무관하게 배열에 항상 담는다.
         //    총 투자금액·총 평가금액·누적 실현 손익은 숨김 여부와 관계없이 계속 반영해야 하고,
@@ -3071,26 +3115,27 @@ function updatePortfolioSummary() {
         //    실제 카드 노출 여부는 아래 렌더 루프에서 걸러낸다.
         const isHiddenStock = hiddenStocks.has(stock);
         if (!isClosed) {
-            portfolioArray.push({ stock, ...p, isClosed: false, isHiddenStock });
+            portfolioArray.push({ key, ...p, isClosed: false, isHiddenStock });
         } else if (showClosedPositions && (p.traded || isHiddenStock)) {
-            portfolioArray.push({ stock, ...p, isClosed: true, isHiddenStock }); // 청산 종목 포함
+            portfolioArray.push({ key, ...p, isClosed: true, isHiddenStock }); // 청산 종목 포함
         }
     }
 
     currentPortfolioArrayForPrice = portfolioArray;
     const sortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "시스템": 7, "기타": 8 };
     portfolioArray.sort((a, b) => {
-        // ⭐️ 청산·숨김 종목을 가장 하단으로 정렬
-        const aBottom = a.isClosed || a.isHiddenStock;
-        const bBottom = b.isClosed || b.isHiddenStock;
+        // ⭐️ 청산·숨김 종목과 모의투자 종목을 가장 하단으로 정렬
+        //    (실제 돈이 들어간 종목이 위쪽에 모여 있어야 한눈에 읽힌다)
+        const aBottom = a.isClosed || a.isHiddenStock || a.isSim;
+        const bBottom = b.isClosed || b.isHiddenStock || b.isSim;
         if (aBottom !== bBottom) {
             return aBottom ? 1 : -1;
         }
-        
+
         // ⭐️ 사용자가 드래그 앤 드롭으로 설정한 커스텀 순서가 있다면 최우선 적용
         if (userPreferences.portfolioOrder) {
-            const idxA = userPreferences.portfolioOrder.indexOf(a.stock);
-            const idxB = userPreferences.portfolioOrder.indexOf(b.stock);
+            const idxA = userPreferences.portfolioOrder.indexOf(a.key);
+            const idxB = userPreferences.portfolioOrder.indexOf(b.key);
             
             if (idxA !== -1 && idxB !== -1) return idxA - idxB;
             if (idxA !== -1) return -1;
@@ -3128,12 +3173,14 @@ function updatePortfolioSummary() {
     portfolioArray.forEach(data => {
         const stock = data.stock;
         const isClosed = data.isClosed;
-        
+        const isSim = !!data.isSim;
+
         // ⭐️ 숨김 종목이라도 보유 중이면 총 투자금액·보유 종목 수에 그대로 반영한다.
         //    (종목만 가리는 것이지 수치를 빼는 것이 아니다. 총 평가금액은 현재가 조회 쪽에서
         //     currentPortfolioArrayForPrice 를 그대로 합산하므로 함께 반영되고,
         //     누적 실현 손익은 위쪽 기록 순회에서 이미 전 종목을 집계한다.)
-        if (!isClosed) {
+        // ⭐️ 단, 모의투자는 실제 돈이 아니므로 어떤 합계에도 넣지 않는다. 카드만 보여준다.
+        if (!isClosed && !isSim) {
             totalInvestedAmount += data.totalCost;
             holdingsCount++;
             hasHoldings = true;
@@ -3143,7 +3190,8 @@ function updatePortfolioSummary() {
         //    (카드·도넛 차트·뉴스)에서 제외한다. 수치 반영은 위에서 이미 끝났다.
         const hideThisStock = data.isHiddenStock && !showClosedPositions;
 
-        if (!isClosed && !hideThisStock) {
+        // ⭐️ 도넛 차트는 실거래 비중만 그린다 — 모의 물량이 섞이면 비중이 왜곡된다.
+        if (!isClosed && !hideThisStock && !isSim) {
             currentHoldings.push(stock);
             chartLabels.push(stock);
             chartData.push(data.totalCost);
@@ -3157,16 +3205,23 @@ function updatePortfolioSummary() {
         
         const card = document.createElement('div');
         card.className = `portfolio-card ${cardBorderClass}`;
-        card.setAttribute('data-id', stock); // ⭐️ 드래그 앤 드롭 정렬을 위한 식별자 추가
+        card.setAttribute('data-id', data.key); // ⭐️ 드래그 앤 드롭 정렬을 위한 식별자 (모의는 실거래와 별개 카드)
         // ⭐️ 흐리게 처리는 청산 종목에만 적용한다. 숨김 종목은 노출 규칙만 청산과 같을 뿐
         //    실제로는 보유 중일 수 있으므로 일반 종목과 동일한 농도로 보여준다.
         if (isClosed) {
             card.style.opacity = '0.6'; // 청산 종목은 반투명하게 표시
             card.style.borderLeftColor = 'var(--text-muted-color)';
         }
+        // ⭐️ 모의투자 카드는 합계에 잡히지 않는다는 사실이 한눈에 보여야 오해가 없다.
+        if (isSim) {
+            card.style.opacity = isClosed ? '0.5' : '0.75';
+            card.style.borderLeftColor = 'var(--warning-color)';
+            card.style.borderStyle = 'dashed';
+        }
         const closedBadge = isClosed ? `<span style="font-size: 10px; background: var(--border-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px;">청산완료</span>` : '';
         const hiddenBadge = data.isHiddenStock ? `<span style="font-size: 10px; background: var(--text-muted-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px; margin-left: 2px;">숨김</span>` : '';
-        const statusBadge = `${closedBadge}${hiddenBadge}`;
+        const simBadge = isSim ? `<span style="font-size: 10px; background: var(--warning-color); color: #fff; padding: 1px 4px; border-radius: 3px; margin-left: 2px;" title="모의투자 기록입니다. 총 투자금액·평가금액·실현손익·도넛 차트·통계에는 반영되지 않습니다.">모의</span>` : '';
+        const statusBadge = `${closedBadge}${hiddenBadge}${simBadge}`;
         const accountBadgeHtml = shortAccountName ? `<span class="account-badge ${badgeClass}">${shortAccountName}</span>` : '';
         card.innerHTML = `
             <div class="stock-name" style="margin-bottom: 2px;">${stock}</div>
@@ -3188,12 +3243,16 @@ function updatePortfolioSummary() {
             }
             
             // ⭐️ 현재 보유 중인 종목만 현재가 영역 추가
+            //    data-pkey 는 카드 단위 식별자다. 같은 종목을 실거래·모의로 함께 들고 있으면
+            //    data-code 만으로는 두 카드가 구분되지 않아 서로의 평가금액을 덮어쓴다.
             if (!isClosed) {
+                const pkey = escapeAttr(data.key);
+                const code = escapeAttr(data.stockCode || '');
                 card.innerHTML += `
                     <div class="current-price-section" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);" title="클릭하여 현재가 갱신">
-                        <div class="stat-row" style="align-items: center;"><span>현재가</span><span class="cp-price" data-code="${data.stockCode || ''}">조회 중...</span></div>
-                        <div class="stat-row" style="align-items: center;"><span>평가금액</span><span class="cp-eval" data-code="${data.stockCode || ''}">-</span></div>
-                        <div class="stat-row" style="align-items: center;"><span>평가손익</span><span class="cp-profit" data-code="${data.stockCode || ''}">-</span></div>
+                        <div class="stat-row" style="align-items: center;"><span>현재가</span><span class="cp-price" data-pkey="${pkey}" data-code="${code}">조회 중...</span></div>
+                        <div class="stat-row" style="align-items: center;"><span>평가금액</span><span class="cp-eval" data-pkey="${pkey}" data-code="${code}">-</span></div>
+                        <div class="stat-row" style="align-items: center;"><span>평가손익</span><span class="cp-profit" data-pkey="${pkey}" data-code="${code}">-</span></div>
                     </div>
                 `;
             }
@@ -3806,6 +3865,9 @@ function recomputeHiddenStocks() {
     cloudEntries.forEach(entry => {
         const stockName = entry.stockName;
         if (!stockName || (entry.type || 'trade') !== 'trade') return;
+        // ⭐️ 숨김은 사용자가 실거래 종목에 대해 정한 의도다. 봇이 밀어 넣는 모의투자 기록은
+        //    항상 isHidden=0 이고 가장 최신이라, 포함시키면 숨김이 저절로 풀려버린다.
+        if (isSimulatedEntry(entry)) return;
 
         const stamp = entry.updatedAt || entry.createdAt;
         const ts = stamp ? (new Date(stamp).getTime() || 0) : 0;
@@ -3868,7 +3930,9 @@ function displayEntries(isFilterUpdate = false) {
         if (entryType !== 'trade' || !entry.stockName) return;
         const stockName = entry.stockName;
 
-        if (entry.tradeType === '매수' || entry.tradeType === '매도') {
+        // ⭐️ 청산 판정 수량은 실거래만 누적한다. 모의 물량이 섞이면 이미 청산한 실거래 종목이
+        //    잔량이 남은 것처럼 보이거나 그 반대가 된다.
+        if (!isSimulatedEntry(entry) && (entry.tradeType === '매수' || entry.tradeType === '매도')) {
             if (stockQtys[stockName] === undefined) stockQtys[stockName] = 0;
             if (entry.tradeType === '매수') stockQtys[stockName] += (Number(entry.quantity) || 0);
             else stockQtys[stockName] -= (Number(entry.quantity) || 0);
@@ -4174,6 +4238,10 @@ function renderPage() {
                 `;
             }
             const tradeBadge = `<span style="background-color: ${typeColor}; color: white; padding:4px 8px; border-radius:12px; font-size:0.85em; font-weight:bold; margin:0;">${entry.tradeType}</span>`;
+            // ⭐️ 모의투자 체결은 기록으로는 남기되, 합계·통계에 안 잡힌다는 걸 목록에서도 알 수 있게 한다.
+            const simBadge = isSimulatedEntry(entry)
+                ? `<span style="background-color: var(--warning-color); color: white; padding:4px 8px; border-radius:12px; font-size:0.85em; font-weight:bold; margin:0;" title="모의투자 기록입니다. 총 투자금액·평가금액·실현손익·도넛 차트·통계에는 반영되지 않습니다.">모의</span>`
+                : '';
             const DEFAULT_BROKERS = {'264': '키움증권', '1': '키움증권', '238': '미래에셋증권', '2': '미래에셋증권', '247': 'NH투자증권', '3': 'NH투자증권', '243': '한국투자증권', '4': '한국투자증권', '240': '삼성증권', '5': '삼성증권', '271': '토스증권', '6': '토스증권', '218': 'KB증권', '278': '신한투자증권'};
             const actualBroker = DEFAULT_BROKERS[entry.brokerAccount] || entry.brokerAccount;
             const displayBroker = highlight(actualBroker);
@@ -4190,7 +4258,7 @@ function renderPage() {
                 ${timeDisplayHtml}
                 <div class="header-right"><span>💼 ${entry.tradeClass}</span><button class="btn-edit">수정</button><button class="btn-delete">삭제</button></div>
             </div>
-                <div class="entry-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">${stockBadge}${tradeBadge}${brokerBadge}</div>
+                <div class="entry-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">${stockBadge}${tradeBadge}${simBadge}${brokerBadge}</div>
                 ${detailsHtml}
                 <div class="entry-content ql-snow" style="border:none; padding:0;"><div class="ql-editor" style="padding:0; min-height:auto; font-family:inherit; font-size:inherit;">${displayThoughts}</div></div>
                 ${tagsHtml}
@@ -4408,7 +4476,9 @@ function renderCalendar() {
             else if (entry.tradeType === '주시' || entry.tradeType === '관망') dailyStats[dateKey].details[stockKey].watchCount++;
             else if (entry.tradeType === '배당') dailyStats[dateKey].details[stockKey].dividendCount++;
 
-            if (entry.stockName) {
+            // ⭐️ 일별 실현손익은 실거래만 계산한다. 모의투자 체결을 같은 종목 칸에 섞으면
+            //    평균단가가 오염되어 실제 손익까지 틀어진다. (기록 자체는 달력에 그대로 표시)
+            if (entry.stockName && !isSimulatedEntry(entry)) {
                 const stock = entry.stockName, qty = Number(entry.quantity) || 0, price = Number(entry.price) || 0;
                 if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0 };
 

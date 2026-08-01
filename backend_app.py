@@ -1296,6 +1296,9 @@ def get_stats():
     # ⭐️ 통계 계산에 필요한 컬럼만 조회 — SELECT * 는 본문 HTML(thoughts)까지
     #    전부 읽어와, 본문이 커질수록 통계 응답이 느려진다. (특히 캐시가 없는 POST 필터 요청)
     stats_cols = "id, type, stockName, tradeType, price, quantity, rawDate"
+    # ⭐️ 모의투자(isSimulated=1) 체결은 실제 돈이 오간 기록이 아니므로 성과 분석에서 제외한다.
+    #    프론트에서도 걸러 보내지만, 통계는 '실제 성과'를 말하는 화면이라 여기서도 막는다.
+    real_only = "COALESCE(isSimulated, 0) = 0"
     with db_conn() as conn:
         c = conn.cursor()
         if entry_ids is not None:
@@ -1307,10 +1310,11 @@ def get_stats():
                 for i in range(0, len(entry_ids), chunk_size):
                     chunk = entry_ids[i:i+chunk_size]
                     placeholders = ','.join('?' for _ in chunk)
-                    c.execute(f"SELECT {stats_cols} FROM entries WHERE username = ? AND id IN ({placeholders})", (username, *chunk))
+                    c.execute(f"SELECT {stats_cols} FROM entries WHERE username = ? AND {real_only} "
+                              f"AND id IN ({placeholders})", (username, *chunk))
                     rows.extend([dict(row) for row in c.fetchall()])
         else:
-            c.execute(f"SELECT {stats_cols} FROM entries WHERE username = ?", (username,))
+            c.execute(f"SELECT {stats_cols} FROM entries WHERE username = ? AND {real_only}", (username,))
             rows = [dict(row) for row in c.fetchall()]
 
     result = stats.compute_trade_stats(rows, granularity=granularity)
