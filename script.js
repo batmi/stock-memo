@@ -5377,12 +5377,86 @@ const btnClosePasswordModal = document.getElementById('btnClosePasswordModal');
 const passwordForm = document.getElementById('passwordForm');
 
 if (btnChangePassword && passwordModalOverlay) {
+    // ⭐️ 상태 표시등은 모달이 열려 있는 동안만 주기적으로 갱신한다.
+    //    (예전에는 모달을 열 때 딱 한 번만 조회해서, 열어둔 채로 HTS 를 꺼도
+    //     표시가 '정상 가동중'에서 영영 바뀌지 않았다)
+    const BOT_STATUS_POLL_MS = 5000;
+    let botStatusPollTimer = null;
+
+    function startBotStatusPolling() {
+        stopBotStatusPolling();
+        botStatusPollTimer = setInterval(fetchBotStatusOnly, BOT_STATUS_POLL_MS);
+    }
+
+    function stopBotStatusPolling() {
+        if (botStatusPollTimer) {
+            clearInterval(botStatusPollTimer);
+            botStatusPollTimer = null;
+        }
+    }
+
+    // 폴링 중에는 상태만 다시 읽는다 — 키 목록까지 매번 받아올 이유가 없고,
+    // 방금 발급해 화면에 떠 있는 키 원문을 건드릴 위험도 없다.
+    async function fetchBotStatusOnly() {
+        // 모달이 닫혔는데 타이머만 살아있는 경우를 방어
+        if (passwordModalOverlay.style.display === 'none' || !passwordModalOverlay.style.display) {
+            stopBotStatusPolling();
+            return;
+        }
+        try {
+            const res = await fetch('/api/me');
+            if (res.ok) renderBotStatus(await res.json());
+        } catch(e) { /* 일시적 통신 오류는 다음 주기에 회복된다 */ }
+    }
+
+    // ⭐️ 상태 판정은 서버(/api/me)가 확정해 내려주는 bot_state 를 그대로 그린다.
+    //    브라우저 시계·타임존에 따라 표시가 달라지지 않게 하기 위함이다.
+    function renderBotStatus(meData) {
+        const indicator = document.getElementById('botStatusIndicator');
+        const lastSeenText = document.getElementById('botLastSeenText');
+        if (!indicator || !lastSeenText) return;
+
+        const STATE_UI = {
+            never:   { text: '연결 기록 없음',   color: 'var(--text-muted-color)' },
+            running: { text: '🟢 정상 가동중',   color: 'var(--success-color)' },
+            stopped: { text: '🟡 정지됨',        color: 'var(--warning-color)' },
+            error:   { text: '🔴 오류',          color: 'var(--danger-color)' },
+            offline: { text: '🔴 통신단절',      color: 'var(--danger-color)' }
+        };
+        const ui = STATE_UI[meData.bot_state] || STATE_UI.never;
+        indicator.innerText = ui.text;
+        indicator.style.color = ui.color;
+
+        if (meData.bot_state === 'never' || !meData.bot_last_seen) {
+            lastSeenText.innerText = '-';
+            return;
+        }
+
+        const elapsed = meData.bot_elapsed_seconds;
+        const ago = (elapsed === null || elapsed === undefined) ? ''
+            : elapsed < 60 ? ` (${Math.max(0, Math.round(elapsed))}초 전)`
+            : elapsed < 3600 ? ` (${Math.floor(elapsed / 60)}분 전)`
+            : ` (${Math.floor(elapsed / 3600)}시간 전)`;
+        lastSeenText.innerText = formatBotTimestamp(meData.bot_last_seen) + ago;
+    }
+
+    // 서버는 오프셋 포함 ISO 8601 로 내려주지만, 이전 버전이 남긴 오프셋 없는
+    // 'YYYY-MM-DD HH:MM:SS' 값도 그대로 보여줄 수 있어야 한다.
+    function formatBotTimestamp(raw) {
+        const dt = new Date(raw);
+        if (isNaN(dt.getTime())) return raw;
+        const p = n => String(n).padStart(2, '0');
+        return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())} `
+             + `${p(dt.getHours())}:${p(dt.getMinutes())}:${p(dt.getSeconds())}`;
+    }
+
     btnChangePassword.addEventListener('click', () => {
         passwordModalOverlay.style.display = 'flex';
         document.body.style.overflow = 'hidden';
         fetchApiKeyStatus();
+        startBotStatusPolling();
     });
-    
+
     // ⭐️ HTS 연동 API 키 발급 및 복사 로직 추가
     async function fetchApiKeyStatus() {
         try {
@@ -5401,33 +5475,7 @@ if (btnChangePassword && passwordModalOverlay) {
 
             if (meRes.ok) {
                 const meData = await meRes.json();
-                const indicator = document.getElementById('botStatusIndicator');
-                const lastSeenText = document.getElementById('botLastSeenText');
-                
-                if (indicator && lastSeenText) {
-                    if (!meData.bot_status) {
-                        indicator.innerText = '연결 기록 없음';
-                        indicator.style.color = 'var(--text-muted-color)';
-                        lastSeenText.innerText = '-';
-                    } else {
-                        // Check if it's been seen in the last 5 minutes
-                        const lastSeen = new Date(meData.bot_last_seen);
-                        const now = new Date();
-                        const diffMins = (now - lastSeen) / 1000 / 60;
-                        
-                        if (diffMins > 5 || meData.bot_status === 'error') {
-                            indicator.innerText = '🔴 통신단절/에러';
-                            indicator.style.color = 'var(--danger-color)';
-                        } else if (meData.bot_status === 'stopped') {
-                            indicator.innerText = '🟡 정지됨';
-                            indicator.style.color = 'var(--warning-color)';
-                        } else {
-                            indicator.innerText = '🟢 정상 가동중';
-                            indicator.style.color = 'var(--success-color)';
-                        }
-                        lastSeenText.innerText = meData.bot_last_seen;
-                    }
-                }
+                renderBotStatus(meData);
             }
         } catch(e) { console.error('API Key/Status 로드 실패', e); }
     }
@@ -5528,6 +5576,7 @@ if (btnChangePassword && passwordModalOverlay) {
     }
     
     const closePwModal = () => {
+        stopBotStatusPolling(); // 닫힌 모달을 위해 계속 /api/me 를 두드리지 않는다
         passwordModalOverlay.classList.add('closing');
         setTimeout(() => {
             passwordModalOverlay.style.display = 'none';

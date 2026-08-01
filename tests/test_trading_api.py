@@ -6,6 +6,9 @@
   - 유실 금지: 매도 무결성 위반도 저장하되 needsReview 로 표시한다
   - 모의/실거래 분리, 해외 거래일 귀속, 배치 부분 성공
 """
+import time
+from datetime import datetime, timedelta
+
 import pytest
 
 import backend_app
@@ -444,18 +447,72 @@ def test_bot_status_ping(api):
     res = api['client'].post('/api/v1/bot/status', json={'status': 'running'},
                              headers=api['headers'])
     assert res.status_code == 200
-    assert res.get_json()['nextPingSeconds'] == 60
+    assert res.get_json()['nextPingSeconds'] == trading_api.BOT_PING_INTERVAL_SECONDS
 
     with backend_app.db_conn() as conn:
         row = conn.cursor().execute(
-            "SELECT bot_status FROM users WHERE username = 'bot'").fetchone()
+            "SELECT bot_status, bot_last_seen FROM users WHERE username = 'bot'").fetchone()
     assert row['bot_status'] == 'running'
+    # 만료 판정에 쓰이는 값이므로 오프셋(타임존)이 반드시 붙어 있어야 한다.
+    assert datetime.fromisoformat(row['bot_last_seen']).tzinfo is not None
 
 
 def test_bot_status_rejects_unknown_value(api):
     res = api['client'].post('/api/v1/bot/status', json={'status': '몰라'},
                              headers=api['headers'])
     assert res.status_code == 400
+
+
+# ── 봇 상태 판정(서버 확정) ───────────────────────────────────────────
+
+def _seen(seconds_ago):
+    return (trading_api._now_kst() - timedelta(seconds=seconds_ago)).isoformat(timespec='seconds')
+
+
+def test_evaluate_bot_state_running_within_threshold():
+    """Ping 을 3회 놓치기 전까지는 정상 가동중을 유지한다."""
+    state, _ = trading_api.evaluate_bot_state('running', _seen(20))
+    assert state == 'running'
+
+
+def test_evaluate_bot_state_offline_after_three_missed_pings():
+    """10초 간격 Ping 이 3회 연속 누락되면(+여유) 통신단절로 본다."""
+    state, elapsed = trading_api.evaluate_bot_state(
+        'running', _seen(trading_api.BOT_OFFLINE_AFTER_SECONDS + 1))
+    assert state == 'offline'
+    assert elapsed > trading_api.BOT_OFFLINE_AFTER_SECONDS
+
+
+def test_evaluate_bot_state_stopped_beats_staleness():
+    """HTS 가 종료를 알렸으면 오래된 기록이어도 '통신단절'이 아니라 '정지됨'이다."""
+    state, _ = trading_api.evaluate_bot_state('stopped', _seen(86400))
+    assert state == 'stopped'
+
+
+def test_evaluate_bot_state_never_without_record():
+    assert trading_api.evaluate_bot_state(None, None)[0] == 'never'
+    assert trading_api.evaluate_bot_state('running', '이상한값')[0] == 'never'
+
+
+def test_evaluate_bot_state_accepts_legacy_naive_timestamp():
+    """오프셋 없이 저장된 이전 형식 값은 KST 로 간주해 그대로 판정한다."""
+    legacy = trading_api._now_kst().strftime('%Y-%m-%d %H:%M:%S')
+    assert trading_api.evaluate_bot_state('running', legacy)[0] == 'running'
+
+
+def test_api_me_exposes_server_computed_state(api):
+    """화면이 직접 만료를 계산하지 않도록 /api/me 가 확정 상태를 내려준다."""
+    api['client'].post('/api/v1/bot/status', json={'status': 'running'},
+                       headers=api['headers'])
+    with api['client'].session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'bot'
+        sess['expires_at'] = time.time() + 3600
+
+    data = api['client'].get('/api/me').get_json()
+    assert data['bot_state'] == 'running'
+    assert data['bot_ping_interval_seconds'] == trading_api.BOT_PING_INTERVAL_SECONDS
+    assert data['bot_offline_after_seconds'] == trading_api.BOT_OFFLINE_AFTER_SECONDS
 
 
 # ── 레거시 키 이관 ────────────────────────────────────────────────────

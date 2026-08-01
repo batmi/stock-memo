@@ -1022,12 +1022,20 @@ def get_me():
                 c.execute("SELECT COUNT(*) FROM users WHERE is_allowed = 0")
                 pending_count = c.fetchone()[0]
 
+    # ⭐️ 봇 만료 판정은 서버가 확정해서 내려준다. 브라우저 시계가 틀어져 있거나
+    #    타임존이 다르면 클라이언트 계산은 그대로 오판이 되기 때문이다.
+    bot_state, bot_elapsed = trading_api.evaluate_bot_state(bot_status, bot_last_seen)
+
     return jsonify({
-        "username": username, 
-        "is_admin": admin_flag, 
+        "username": username,
+        "is_admin": admin_flag,
         "pending_count": pending_count,
         "bot_status": bot_status,
-        "bot_last_seen": bot_last_seen
+        "bot_last_seen": bot_last_seen,
+        "bot_state": bot_state,
+        "bot_elapsed_seconds": round(bot_elapsed, 1) if bot_elapsed is not None else None,
+        "bot_ping_interval_seconds": trading_api.BOT_PING_INTERVAL_SECONDS,
+        "bot_offline_after_seconds": trading_api.BOT_OFFLINE_AFTER_SECONDS
     })
 
 

@@ -50,6 +50,16 @@ DEFAULT_SCOPES = ' '.join(ALL_SCOPES)
 
 API_KEY_PREFIX = 'skm_'
 
+# ── 봇 하트비트 ────────────────────────────────────────────────────────
+# HTS 는 BOT_PING_INTERVAL_SECONDS 마다 상태를 보고하고(응답의 nextPingSeconds 로도 안내),
+# 서버는 BOT_MISSED_PINGS_ALLOWED 회 연속 누락되면 '통신단절'로 판정한다.
+# 여유(GRACE)는 네트워크 지연·스케줄러 흔들림으로 정상 가동 중에 깜빡이는 것을 막는 완충값이다.
+BOT_PING_INTERVAL_SECONDS = 10
+BOT_MISSED_PINGS_ALLOWED = 3
+BOT_PING_GRACE_SECONDS = 5
+BOT_OFFLINE_AFTER_SECONDS = (BOT_PING_INTERVAL_SECONDS * BOT_MISSED_PINGS_ALLOWED
+                             + BOT_PING_GRACE_SECONDS)  # 35초
+
 # ── 주입 의존성 ────────────────────────────────────────────────────────
 _deps = {
     'db_conn': None,          # contextmanager -> sqlite3.Connection
@@ -225,6 +235,62 @@ def _now_kst():
 
 def _now_kst_str():
     return _now_kst().strftime('%Y-%m-%d %H:%M:%S')
+
+
+def _now_iso():
+    """오프셋을 포함한 ISO 8601 문자열 (예: 2026-08-01T20:08:04+09:00).
+
+    봇 하트비트처럼 '경과 시간'을 계산해야 하는 값은 오프셋 없는 KST 문자열로
+    저장하면 안 된다. 브라우저나 다른 타임존의 서버가 이를 로컬 시각으로 읽어
+    몇 시간씩 어긋난 경과 시간을 만들어내기 때문이다.
+    """
+    return _now_kst().isoformat(timespec='seconds')
+
+
+def _parse_stored_dt(value):
+    """DB 에 저장된 시각 문자열을 tz-aware datetime 으로 되돌린다.
+
+    ISO 8601(오프셋 포함)이 표준이지만, 이전 버전이 남긴 오프셋 없는
+    'YYYY-MM-DD HH:MM:SS' 값도 KST 로 간주해 함께 받아준다.
+    """
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).strip().replace(' ', 'T', 1))
+    except ValueError:
+        return None
+    return dt.replace(tzinfo=KST) if dt.tzinfo is None else dt
+
+
+def evaluate_bot_state(bot_status, bot_last_seen, now=None):
+    """봇 표시 상태를 서버에서 확정한다.
+
+    만료 판정을 클라이언트에 맡기면 브라우저 시계 오차와 타임존 해석 차이가
+    그대로 오판이 된다. 화면은 여기서 내려준 state 를 그리기만 하면 된다.
+
+    반환: (state, elapsed_seconds)
+      never   — 연동 기록 없음
+      running — 정상 가동중
+      stopped — HTS 가 정상 종료를 알림
+      error   — HTS 가 오류를 알림
+      offline — Ping 이 BOT_MISSED_PINGS_ALLOWED 회 연속 누락됨(통신단절)
+    """
+    if not bot_status:
+        return 'never', None
+
+    last_seen = _parse_stored_dt(bot_last_seen)
+    if last_seen is None:
+        return 'never', None
+
+    elapsed = ((now or _now_kst()) - last_seen).total_seconds()
+
+    # 마지막 보고가 'stopped'/'error' 면 오래됐든 아니든 그 사유가 통신단절보다 정확하다.
+    status = str(bot_status).strip().lower()
+    if status in ('stopped', 'error'):
+        return status, elapsed
+    if elapsed > BOT_OFFLINE_AFTER_SECONDS:
+        return 'offline', elapsed
+    return 'running', elapsed
 
 
 def _err(status, code, message, **details):
@@ -832,7 +898,9 @@ def bot_status(username, scopes):
         return _err(400, 'INVALID_FIELD',
                     'status 는 running/stopped/error 중 하나여야 합니다.', field='status')
 
-    now = _now_kst_str()
+    # ⭐️ 오프셋 포함 ISO 8601 로 저장한다. 만료 판정(마지막 Ping 이후 경과 시간)에
+    #    쓰이는 값이라 타임존이 빠지면 읽는 쪽에서 몇 시간씩 어긋난다.
+    now = _now_iso()
     with _db() as conn:
         c = conn.cursor()
         c.execute("UPDATE users SET bot_status = ?, bot_last_seen = ? WHERE username = ?",
@@ -842,7 +910,7 @@ def bot_status(username, scopes):
     return jsonify({
         'status': 'success',
         'updatedAt': now,
-        'nextPingSeconds': 60,
+        'nextPingSeconds': BOT_PING_INTERVAL_SECONDS,
         'command': 'none',
     }), 200
 
