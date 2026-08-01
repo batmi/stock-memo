@@ -133,6 +133,15 @@ window.currentPriceCache = {};  // ⭐️ 장 종료 시 이전 가격을 유지
 window.monthlyProfitChartInstance = null; // ⭐️ 월별 손익 차트 인스턴스 변수 추가
 window.currentChartGranularity = window.currentChartGranularity || 'monthly'; // ⭐️ 차트 집계 단위 (monthly/weekly, 기본 월간)
 
+// ⭐️ 주간 차트 과거 탐색 상태
+//    CHART_WEEK_WINDOW: 한 화면에 표시할 주 개수(12주)
+//    CHART_WEEK_MAX_BACK: 과거로 볼 수 있는 최대 기간(현재 주 포함 52주)
+//    chartWeekOffset: 화면을 과거로 밀어낸 주 수 (0 = 현재 주 포함 최근 12주)
+const CHART_WEEK_WINDOW = 12;
+const CHART_WEEK_MAX_BACK = 52;
+const CHART_WEEK_MAX_OFFSET = CHART_WEEK_MAX_BACK - CHART_WEEK_WINDOW; // 40주
+window.chartWeekOffset = 0;
+
 // ⭐️ 차트 전용 독립 필터 상태 변수
 let currentChartStock = 'all';
 let currentChartAccount = 'all';
@@ -1934,9 +1943,11 @@ if (btnStats && inlineStatsContainer) {
             btnStats.style.backgroundColor = 'var(--primary-color)';
             btnStats.style.color = '#fff';
             
-            // 차트 영역 및 상세내역 숨기기
+            // 차트 영역 및 상세내역 숨기기 (주간 기간 이동 내비게이션도 함께 숨김)
             if (monthlyProfitChartContainer) monthlyProfitChartContainer.style.display = 'none';
             if (chartDetailList) chartDetailList.style.display = 'none';
+            const chartRangeNav = document.getElementById('chartRangeNav');
+            if (chartRangeNav) chartRangeNav.style.display = 'none';
             
             // 기존 차트 타입 버튼들의 강조 효과 제거
             document.querySelectorAll('.chart-type-btn').forEach(btn => {
@@ -4648,12 +4659,57 @@ window.updateChartGranularityToggle = function() {
 // ⭐️ 클릭 시 월간 ↔ 주간 전환 (단일 토글 버튼)
 window.toggleChartGranularity = function() {
     window.currentChartGranularity = (window.currentChartGranularity || 'monthly') === 'monthly' ? 'weekly' : 'monthly';
+    window.chartWeekOffset = 0; // 단위 전환 시 항상 최근 기간부터 보여준다
     window.updateChartGranularityToggle();
     // 집계 단위 변경 시 열려있던 상세 내역은 닫아 혼동 방지
     const detailListEl = document.getElementById('chartDetailList');
     if (detailListEl) detailListEl.style.display = 'none';
     
     window.renderMonthlyProfitChart();
+};
+
+// ⭐️ 주간 차트 기간 이동 (dir: -1 = 과거로, +1 = 현재 방향으로 / 한 번에 12주씩)
+window.shiftChartWeekRange = function(dir) {
+    if ((window.currentChartGranularity || 'monthly') !== 'weekly') return;
+    const next = (window.chartWeekOffset || 0) + (dir < 0 ? CHART_WEEK_WINDOW : -CHART_WEEK_WINDOW);
+    window.chartWeekOffset = Math.max(0, Math.min(CHART_WEEK_MAX_OFFSET, next));
+    window.renderMonthlyProfitChart();
+};
+
+// ⭐️ 주간 차트를 최근 12주(현재)로 복귀
+window.resetChartWeekRange = function() {
+    if (!window.chartWeekOffset) return;
+    window.chartWeekOffset = 0;
+    window.renderMonthlyProfitChart();
+};
+
+// ⭐️ 기간 이동 내비게이션 표시 동기화 (주간 모드에서만 노출)
+window.updateChartRangeNav = function(rangeText) {
+    const nav = document.getElementById('chartRangeNav');
+    if (!nav) return;
+    const isWeekly = (window.currentChartGranularity || 'monthly') === 'weekly';
+    // 성과분석(분석) 화면이 열려 있으면 차트가 숨겨진 상태이므로 내비게이션도 숨긴다
+    const statsEl = document.getElementById('inlineStatsContainer');
+    const statsOpen = !!statsEl && statsEl.style.display === 'block';
+    nav.style.display = (isWeekly && !statsOpen) ? 'flex' : 'none';
+    if (!isWeekly || statsOpen) return;
+
+    const offset = window.chartWeekOffset || 0;
+    const btnPrev = document.getElementById('btnChartRangePrev');
+    const btnNext = document.getElementById('btnChartRangeNext');
+    const btnNow = document.getElementById('btnChartRangeNow');
+    const labelEl = document.getElementById('chartRangeLabel');
+
+    const setDisabled = (btn, disabled) => {
+        if (!btn) return;
+        btn.disabled = disabled;
+        btn.style.opacity = disabled ? '0.35' : '1';
+        btn.style.cursor = disabled ? 'default' : 'pointer';
+    };
+    setDisabled(btnPrev, offset >= CHART_WEEK_MAX_OFFSET); // 최대 52주까지만 과거 조회
+    setDisabled(btnNext, offset <= 0);
+    if (btnNow) btnNow.style.display = offset > 0 ? 'inline-flex' : 'none';
+    if (labelEl) labelEl.innerText = rangeText || '';
 };
 
 // ⭐️ 차트 막대 클릭 시 하단에 종목별 상세 내역을 그려주는 함수
@@ -4781,13 +4837,15 @@ window.renderMonthlyProfitChart = function() {
     const detailListEl = document.getElementById('chartDetailList');
     if (detailListEl) detailListEl.style.display = 'none';
     
-    // ⭐️ 최근 12개 기간(월간: 12개월 / 주간: 12주) 라벨 생성
+    // ⭐️ 12개 기간(월간: 12개월 / 주간: 12주) 라벨 생성
+    //    주간은 weekOffset 만큼 과거로 밀어서 최대 52주 전까지 조회 가능
     const thisMonday = getMonday(now);
+    const weekOffset = isWeekly ? Math.max(0, Math.min(CHART_WEEK_MAX_OFFSET, window.chartWeekOffset || 0)) : 0;
     for (let i = 11; i >= 0; i--) {
         let key;
         if (isWeekly) {
             const d = new Date(thisMonday);
-            d.setDate(d.getDate() - i * 7);
+            d.setDate(d.getDate() - (i + weekOffset) * 7);
             key = fmtYmd(d);
         } else {
             const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -5036,6 +5094,20 @@ window.renderMonthlyProfitChart = function() {
     const displayLabels = isWeekly
         ? labels.map(l => { const p = l.split('-'); return `${parseInt(p[1], 10)}/${parseInt(p[2], 10)}`; }) // 주: 월요일 'M/D'
         : labels.map(l => l.split('-')[1].replace(/^0+/, '') + '월');
+
+    // ⭐️ 주간 기간 이동 내비게이션 동기화 (표시 구간: 첫 주 월요일 ~ 마지막 주 일요일)
+    if (window.updateChartRangeNav) {
+        let rangeText = '';
+        if (isWeekly && labels.length) {
+            const toLocalDate = (ymd) => { const p = ymd.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); };
+            const start = toLocalDate(labels[0]);
+            const end = toLocalDate(labels[labels.length - 1]);
+            end.setDate(end.getDate() + 6);
+            const md = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+            rangeText = `${start.getFullYear()}. ${md(start)} ~ ${end.getFullYear() !== start.getFullYear() ? end.getFullYear() + '. ' : ''}${md(end)}`;
+        }
+        window.updateChartRangeNav(rangeText);
+    }
 
     const ctx = document.getElementById('monthlyProfitChart');
     if (!ctx) {
