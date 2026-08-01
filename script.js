@@ -5375,9 +5375,12 @@ if (btnChangePassword && passwordModalOverlay) {
             
             if (keyRes.ok) {
                 const data = await keyRes.json();
+                // ⭐️ 서버는 키를 해시로만 보관하므로 원문(api_key)은 항상 null 이다.
+                //    발급 직후 화면에 떠 있는 값은 지우지 않고 목록만 갱신한다.
                 updateApiKeyUI(data.api_key);
+                renderApiKeyList(data.keys || []);
             }
-            
+
             if (meRes.ok) {
                 const meData = await meRes.json();
                 const indicator = document.getElementById('botStatusIndicator');
@@ -5413,24 +5416,71 @@ if (btnChangePassword && passwordModalOverlay) {
     
     function updateApiKeyUI(apiKey) {
         const input = document.getElementById('apiKeyValue');
-        
-        if (!apiKey) {
-            input.value = "";
-        } else {
-            input.value = apiKey;
-        }
+        if (!input) return;
+        // 원문이 없으면(재조회 시) 이미 표시 중인 값을 지우지 않는다 —
+        // 방금 발급받은 키를 사용자가 복사하기 전에 사라지면 영영 볼 수 없다.
+        if (apiKey) input.value = apiKey;
     }
-    
+
+    // ⭐️ 발급된 키 목록. 원문은 없고 식별용 앞자리·사용 이력만 보여준다.
+    function renderApiKeyList(keys) {
+        const box = document.getElementById('apiKeyList');
+        if (!box) return;
+
+        const active = keys.filter(k => !k.revoked_at);
+        if (!active.length) {
+            box.innerHTML = '<span style="opacity:0.7;">발급된 키가 없습니다.</span>';
+            return;
+        }
+
+        box.innerHTML = active.map(k => `
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; padding:3px 0;">
+                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    <code>${escapeHtml(k.key_prefix)}…</code>
+                    ${escapeHtml(k.label || '')}
+                    <span style="opacity:0.6;">· 최근 사용 ${escapeHtml(k.last_used_at || '없음')}</span>
+                </span>
+                <button type="button" data-key-id="${k.id}" class="btnRevokeApiKey"
+                        style="margin:0; padding:2px 6px; font-size:10px; width:auto; background:transparent;
+                               border:1px solid var(--danger-color); color:var(--danger-color); border-radius:4px;">폐기</button>
+            </div>`).join('');
+
+        box.querySelectorAll('.btnRevokeApiKey').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!(await customConfirm("이 키를 폐기하시겠습니까?\n이 키로 발급된 접속 토큰도 즉시 무효화됩니다."))) return;
+                const res = await fetch(`/api/me/api-key/${btn.dataset.keyId}`, { method: 'DELETE' });
+                if (res.ok) {
+                    document.getElementById('apiKeyValue').value = '';
+                    fetchApiKeyStatus();
+                } else {
+                    await customAlert("키 폐기에 실패했습니다.");
+                }
+            });
+        });
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text == null ? '' : String(text);
+        return div.innerHTML;
+    }
+
     const btnGenerateApiKey = document.getElementById('btnGenerateApiKey');
     if (btnGenerateApiKey) {
         btnGenerateApiKey.addEventListener('click', async () => {
             if (!(await customConfirm("새 API 키를 발급하시겠습니까?\n기존 키를 사용하던 모든 연결이 즉시 끊어집니다."))) return;
             try {
-                const res = await fetch('/api/me/api-key', { method: 'POST' });
+                const res = await fetch('/api/me/api-key', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ label: 'HTS 연동 키' })
+                });
                 if(res.ok) {
                     const data = await res.json();
                     updateApiKeyUI(data.api_key);
-                    await customAlert("새 API 키가 발급되었습니다.");
+                    renderApiKeyList([]);
+                    await customAlert("새 API 키가 발급되었습니다.\n\n⚠️ 이 키는 지금 화면에 표시된 것이 마지막입니다.\n창을 닫기 전에 반드시 복사해 두세요.");
+                    fetchApiKeyStatus();
                 } else {
                     await customAlert("API 키 발급에 실패했습니다.");
                 }
@@ -5592,6 +5642,28 @@ window.editMapping = function(code) {
     }
 };
 
+const btnToggleNewAccountForm = document.getElementById('btnToggleNewAccountForm');
+if (btnToggleNewAccountForm) {
+    btnToggleNewAccountForm.addEventListener('click', () => {
+        const container = document.getElementById('newAccountFormContainer');
+        if (container.style.display === 'none') {
+            container.style.display = 'flex';
+        } else {
+            container.style.display = 'none';
+        }
+    });
+}
+
+const btnCancelNewAccountForm = document.getElementById('btnCancelNewAccountForm');
+if (btnCancelNewAccountForm) {
+    btnCancelNewAccountForm.addEventListener('click', () => {
+        document.getElementById('newAccountFormContainer').style.display = 'none';
+        document.getElementById('unifiedBrokerCode').value = '';
+        document.getElementById('unifiedAccountCode').value = '';
+        document.getElementById('unifiedAccountName').value = '';
+    });
+}
+
 const btnAddUnifiedMapping = document.getElementById('btnAddUnifiedMapping');
 if (btnAddUnifiedMapping) {
     btnAddUnifiedMapping.addEventListener('click', () => {
@@ -5613,6 +5685,7 @@ if (btnAddUnifiedMapping) {
             select.value = '';
             document.getElementById('unifiedAccountCode').value = '';
             document.getElementById('unifiedAccountName').value = '';
+            document.getElementById('newAccountFormContainer').style.display = 'none';
             renderAccountMappings();
         } else {
             customAlert("모든 입력값을 채워주세요.");

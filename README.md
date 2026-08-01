@@ -16,7 +16,8 @@
 4. [설치 및 실행 가이드 (Installation & Execution)](#4-설치-및-실행-가이드-installation--execution)
 5. [데이터 백업 및 보안 가이드 (Backup & Security)](#5-데이터-백업-및-보안-가이드-backup--security)
 6. [프로젝트 구조 (Project Structure)](#6-프로젝트-구조-project-structure)
-7. [테스트 가이드 (Testing)](#7-테스트-가이드-testing)
+7. [시스템 트레이딩 연동 API (Trading API)](#7-시스템-트레이딩-연동-api-trading-api)
+8. [테스트 가이드 (Testing)](#8-테스트-가이드-testing)
 
 ---
 
@@ -118,6 +119,7 @@ stock-memo/
 ├── prices.py           # 현재가(시세) 조회 서비스 (provider별 분해 + 폴백)
 ├── stats.py            # 매매 성과 분석(통계) 계산 로직 (순수 함수)
 ├── entry_logic.py      # 매매 기록 저장/무결성 검증 + INSERT 컬럼 단일 소스
+├── trading_api.py      # 시스템 트레이딩 연동 REST API (/api/v1/*) — 인증·멱등·정규화
 ├── backups.py          # 백업 ZIP 무결성 검증 로직 (순수 함수)
 ├── templates/          # 로그인·회원가입 HTML 템플릿
 ├── stock-memo.html     # 프론트엔드 메인 화면 구조 (HTML)
@@ -125,6 +127,7 @@ stock-memo/
 ├── calc.js             # 매매 계산 단일 소스 (백엔드 stats.py 와 동일 알고리즘)
 ├── script.js           # 화면 동작, 데이터 통신, 차트 로직 (JavaScript)
 ├── run.sh              # 자동화 실행 쉘 스크립트 (Mac/Linux)
+├── UniversalTradingHistoryAPI.json  # 트레이딩 봇 연동 API 계약 (OpenAPI 3.1)
 ├── backup/             # 매일 자동 생성되는 사용자별 백업 파일(ZIP) 저장 폴더
 ├── db/                 # 데이터베이스 폴더
 │   └── journal.db      # 자동 생성되는 매매 기록 데이터베이스 파일 (SQLite)
@@ -139,7 +142,70 @@ stock-memo/
 
 ---
 
-## 7. 테스트 가이드 (Testing)
+## 7. 시스템 트레이딩 연동 API (Trading API)
+
+외부 트레이딩 봇(HTS)이 체결 내역을 이 서버에 실시간으로 기록할 수 있는 REST API를 제공합니다.
+전체 계약은 [`UniversalTradingHistoryAPI.json`](UniversalTradingHistoryAPI.json) (OpenAPI 3.1)에 정의되어 있습니다.
+
+### 인증
+
+1. 웹 대시보드 → 설정 → **HTS 연동 API 키**에서 키를 발급받습니다. (`skm_`로 시작)
+2. 키를 `X-API-KEY` 헤더에 담아 `POST /api/v1/auth/token` 을 호출해 24시간 유효한 Access Token으로 교환합니다.
+3. 이후 모든 요청에 `Authorization: Bearer <token>` 을 붙입니다.
+
+> ⚠️ **키 원문은 발급 직후 한 번만 표시됩니다.** 서버에는 SHA-256 해시만 저장되어 다시 조회할 수 없으므로, 발급 시점에 복사해 두세요.
+> 키를 폐기하면 그 키로 발급된 토큰도 **즉시** 무효화됩니다.
+
+### 스코프
+
+키에는 스코프가 부여되고 토큰이 이를 상속합니다.
+
+| 스코프 | 허용 동작 |
+|---|---|
+| `trades:write` | 매매 기록 생성·수정·삭제, 기초잔고 등록 |
+| `trades:read` | 매매 기록 조회, 동기화 지점 조회 |
+| `bot:write` | 봇 상태(Ping) 전송 |
+
+### 주요 엔드포인트
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| `GET` | `/api/v1/health` | 서버 상태 확인 (무인증) |
+| `POST` | `/api/v1/auth/token` | API 키 → Access Token 교환 |
+| `POST` | `/api/v1/trades` | 매매 기록 단건 전송 |
+| `POST` | `/api/v1/trades/batch` | 일괄 전송 (최대 500건, 항목별 결과 반환) |
+| `GET` | `/api/v1/trades` | 기록 조회 (대사/Reconcile용, 커서 페이지네이션) |
+| `GET` | `/api/v1/trades/last-sync` | 마지막 동기화 지점 (백필 구간 계산) |
+| `GET` | `/api/v1/trades/by-exec-id/{id}` | 멱등키로 저장 여부 확인 |
+| `PATCH` / `DELETE` | `/api/v1/trades/{id}` | 기록 정정 / 삭제 |
+| `POST` | `/api/v1/positions/opening` | 연동 시작 시점의 기초 보유 잔고 등록 |
+| `POST` | `/api/v1/bot/status` | 봇 가동 상태 Ping |
+
+### 설계 원칙
+
+*   **멱등성**: `brokerExecutionId`에 UNIQUE 제약이 걸려 있어 중복 재전송은 새 기록을 만들지 않고 기존 기록을 `200`으로 돌려줍니다. 따라서 봇은 응답을 못 받았을 때 **무조건 재전송해도 안전**합니다.
+    권장 키 형식은 `{env}:{계좌}:{체결일}:{주문번호}` 입니다 — 증권사 주문번호는 영업일마다 재사용되므로 주문번호 단독 사용은 금지합니다.
+*   **유실 금지**: 봇이 보낸 체결은 보유 수량 초과 매도 같은 무결성 위반이 있어도 **저장하고 `needsReview`로 표시**합니다. `400`으로 되돌리면 봇이 재시도해도 계속 실패해 그 체결이 영구히 사라지기 때문입니다. (웹 UI에서 사람이 직접 입력하는 경우는 즉시 고칠 수 있으므로 종전대로 차단합니다.)
+*   **모의/실거래 분리**: `isSimulated` 플래그로 분리 저장하며 기본 조회·통계에서 제외됩니다.
+*   **거래일 귀속**: `executedAt`은 오프셋 포함 RFC3339로 받고, `exchange`와 함께 **거래소 현지 거래일**(`tradeDate`)을 산출합니다. 미국 애프터마켓 체결이 한국 날짜로 밀리지 않습니다.
+*   **레이트 리밋**: 토큰 발급은 IP당 5분 10회(무차별 대입 차단), 일반 API는 키당 1분 600회. 초과 시 `429` + `Retry-After`.
+
+### 오류 응답
+
+```json
+{ "error": "사람이 읽는 메시지", "errorCode": "OVERSELL", "details": {} }
+```
+
+분기는 반드시 `errorCode`로 하세요. `error` 문구는 예고 없이 바뀔 수 있습니다.
+
+### 운영 시 주의
+
+*   API 키가 평문으로 전송되지 않도록 **반드시 HTTPS**로 서비스하세요 (Nginx 등 리버스 프록시 + SSL).
+*   레이트 리밋은 프로세스 내 메모리 기준입니다. 다중 프로세스로 확장할 때는 Redis 등 공유 저장소로 교체해야 합니다.
+
+---
+
+## 8. 테스트 가이드 (Testing)
 
 백엔드 API와 데이터 무결성 검증, 백업 복원(라운드트립), 성과 분석 로직은 `pytest` 기반 단위 테스트로 검증됩니다.
 테스트 코드는 `tests/` 폴더에 위치하며, 임시 DB를 사용하므로 실제 구동 데이터(`db/journal.db`)에 영향을 주지 않습니다.

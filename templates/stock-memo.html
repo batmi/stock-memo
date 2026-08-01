@@ -438,14 +438,15 @@
             <div style="display: flex; flex-direction: column; gap: 15px;">
                 <!-- 통합 계좌 매핑 -->
                 <div>
-                    <div id="unifiedMappingList" style="margin-bottom: 12px; max-height: 250px; overflow-y: auto;">
+                    <div id="unifiedMappingList" style="margin-bottom: 12px; max-height: 400px; overflow-y: auto;">
                         <!-- JS로 동적 렌더링 -->
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 10px; padding: 15px; background: var(--card-bg-color); border: 1px solid var(--border-color); border-radius: 6px; margin-top: 10px;">
-                        <div style="font-size: 14px; font-weight: bold; margin-bottom: 5px;">➕ 신규 계좌 등록</div>
+                        <div id="btnToggleNewAccountForm" style="font-size: 14px; font-weight: bold; margin-bottom: 5px; cursor: pointer; user-select: none;">➕ 신규 계좌 등록</div>
                         
-                        <div>
-                            <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-muted-color);">1. 증권사</label>
+                        <div id="newAccountFormContainer" style="display: none; flex-direction: column; gap: 10px;">
+                            <div>
+                                <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-muted-color);">1. 증권사</label>
                             <select id="unifiedBrokerCode" style="width: 100%; padding: 10px; font-size: 13px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; appearance: auto;">
                                 <option value="" disabled selected>증권사 선택</option>
                                 <option value="264" data-name="키움증권">키움증권</option>
@@ -469,8 +470,10 @@
                             <input type="text" id="unifiedAccountName" placeholder="예: 단기스윙계좌, ISA계좌" style="width: 100%; padding: 10px; font-size: 13px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;">
                         </div>
                         
-                        <div style="margin-top: 5px;">
-                            <button type="button" id="btnAddUnifiedMapping" style="width: 100%; margin: 0; padding: 10px; font-size: 13px;">➕ 추가하기</button>
+                        <div style="margin-top: 5px; display: flex; justify-content: flex-end; gap: 8px;">
+                            <button type="button" id="btnCancelNewAccountForm" style="width: auto; margin: 0; padding: 8px 16px; font-size: 13px; background: transparent; color: var(--text-muted-color); border: 1px solid var(--border-color); border-radius: 4px;">취소</button>
+                            <button type="button" id="btnAddUnifiedMapping" style="width: auto; margin: 0; padding: 8px 16px; font-size: 13px; border-radius: 4px;">➕ 추가하기</button>
+                        </div>
                         </div>
                     </div>
                 </div>
@@ -513,12 +516,14 @@
             <div id="apiKeySection">
                 <h4 style="font-size: 13px; margin: 0 0 10px 0; color: var(--text-strong-color);">🤖 HTS 연동 API 키</h4>
                 <div style="font-size: 11px; color: var(--text-muted-color); margin-bottom: 8px; line-height: 1.4;">
-                    이 키를 사용하여 HTS 시스템에서 보안 접속 토큰(Access Token)을 교환받을 수 있습니다.
+                    이 키를 사용하여 HTS 시스템에서 보안 접속 토큰(Access Token)을 교환받을 수 있습니다.<br>
+                    <span style="color: var(--warning-color);">키 원문은 발급 직후 한 번만 표시됩니다.</span> 서버에는 해시만 저장되어 다시 볼 수 없으니 그 자리에서 복사해 두세요.
                 </div>
                 <div style="display: flex; gap: 5px; margin-bottom: 5px;">
                     <input type="text" id="apiKeyValue" readonly placeholder="발급된 키가 없습니다." style="flex: 1; font-size: 11px; padding: 6px; margin: 0; background: var(--bg-color); color: var(--text-strong-color); text-align: center;">
                     <button type="button" id="btnCopyApiKey" style="margin: 0; padding: 0 10px; font-size: 11px; width: auto; background: var(--neutral-color);">복사</button>
                 </div>
+                <div id="apiKeyList" style="font-size: 10px; color: var(--text-muted-color); margin-bottom: 5px; line-height: 1.6;"></div>
                 <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 5px;">
                     <button type="button" id="btnGenerateApiKey" style="margin: 0; padding: 5px 10px; font-size: 11px; width: auto; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color); border-radius: 4px;">새 API 키 발급</button>
                 </div>

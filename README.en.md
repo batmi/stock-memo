@@ -16,7 +16,8 @@ Built on a Python (Flask) backend and SQLite, it features a **multi-user environ
 4. [Installation & Execution](#4-installation--execution)
 5. [Backup & Security](#5-backup--security)
 6. [Project Structure](#6-project-structure)
-7. [Testing](#7-testing)
+7. [Trading API](#7-trading-api)
+8. [Testing](#8-testing)
 
 ---
 
@@ -118,6 +119,7 @@ stock-memo/
 ├── prices.py           # Real-time price inquiry service (modularized by provider + fallback)
 ├── stats.py            # Trading performance analytics & statistics calculation (pure functions)
 ├── entry_logic.py      # Trading record saving/integrity validation + INSERT column single source
+├── trading_api.py      # System-trading REST API (/api/v1/*) — auth, idempotency, normalization
 ├── backups.py          # Backup ZIP integrity validation logic (pure functions)
 ├── templates/          # HTML templates for login & sign-up
 ├── stock-memo.html     # Frontend main screen structure (HTML)
@@ -125,6 +127,7 @@ stock-memo/
 ├── calc.js             # Trading calculation single source (same algorithm as stats.py)
 ├── script.js           # Screen behavior, data communication, chart logic (JavaScript)
 ├── run.sh              # Automation execution shell script (Mac/Linux)
+├── UniversalTradingHistoryAPI.json  # Trading-bot integration API contract (OpenAPI 3.1)
 ├── backup/             # Daily auto-generated user backup files (ZIP) folder
 ├── db/                 # Database folder
 │   └── journal.db      # Auto-generated trading record database file (SQLite)
@@ -138,7 +141,70 @@ stock-memo/
 
 ---
 
-## 7. Testing
+## 7. Trading API
+
+A REST API that lets an external trading bot (HTS) record its fills on this server in real time.
+The full contract is defined in [`UniversalTradingHistoryAPI.json`](UniversalTradingHistoryAPI.json) (OpenAPI 3.1).
+
+### Authentication
+
+1. Issue a key from the web dashboard → Settings → **HTS API key** (it starts with `skm_`).
+2. Exchange it for a 24-hour Access Token by calling `POST /api/v1/auth/token` with the key in the `X-API-KEY` header.
+3. Send `Authorization: Bearer <token>` on every subsequent request.
+
+> ⚠️ **The key is shown exactly once, right after it is issued.** Only its SHA-256 hash is stored, so it can never be retrieved again — copy it at that moment.
+> Revoking a key invalidates tokens issued from it **immediately**.
+
+### Scopes
+
+Keys carry scopes, and tokens inherit them.
+
+| Scope | Allows |
+|---|---|
+| `trades:write` | Create, amend, and delete trade records; register opening balances |
+| `trades:read` | Read trade records and the sync checkpoint |
+| `bot:write` | Send bot status pings |
+
+### Main endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/health` | Health check (no auth) |
+| `POST` | `/api/v1/auth/token` | Exchange API key for an Access Token |
+| `POST` | `/api/v1/trades` | Submit a single trade record |
+| `POST` | `/api/v1/trades/batch` | Bulk submit (up to 500, per-item results) |
+| `GET` | `/api/v1/trades` | List records for reconciliation (cursor pagination) |
+| `GET` | `/api/v1/trades/last-sync` | Last sync checkpoint (for computing the backfill window) |
+| `GET` | `/api/v1/trades/by-exec-id/{id}` | Check whether an idempotency key was stored |
+| `PATCH` / `DELETE` | `/api/v1/trades/{id}` | Amend / delete a record |
+| `POST` | `/api/v1/positions/opening` | Register holdings held before the integration started |
+| `POST` | `/api/v1/bot/status` | Bot liveness ping |
+
+### Design principles
+
+*   **Idempotency**: `brokerExecutionId` carries a UNIQUE constraint, so a duplicate resend creates nothing new and returns the existing record with `200`. A bot that never received a response can therefore **always resend safely**.
+    The recommended key format is `{env}:{account}:{fill date}:{order no}` — broker order numbers are reused every business day, so the order number alone must never be used.
+*   **No silent loss**: A fill sent by a bot is **stored and flagged `needsReview`** even when it violates integrity checks (e.g. selling more than the recorded holding). Returning `400` would make every retry fail identically and the fill would vanish for good. (Records typed by a human in the web UI are still blocked, since the user can fix them on the spot.)
+*   **Mock vs. real separation**: The `isSimulated` flag stores them separately and excludes them from default queries and statistics.
+*   **Trading-day attribution**: `executedAt` is accepted as RFC3339 with an offset and, together with `exchange`, yields the **exchange-local trading day** (`tradeDate`). A US after-hours fill is no longer pushed onto the next Korean date.
+*   **Rate limiting**: Token issuance is 10 requests per 5 minutes per IP (brute-force protection); other API calls are 600 per minute per key. Exceeding either returns `429` with `Retry-After`.
+
+### Error responses
+
+```json
+{ "error": "human-readable message", "errorCode": "OVERSELL", "details": {} }
+```
+
+Always branch on `errorCode`. The `error` wording may change without notice.
+
+### Operational notes
+
+*   **Serve over HTTPS** so the API key is never transmitted in the clear (reverse proxy such as Nginx + SSL).
+*   Rate limiting is in-process memory. Scaling to multiple processes requires swapping it for a shared store such as Redis.
+
+---
+
+## 8. Testing
 
 Backend APIs, data integrity validations, backup restorations (round-trip), and performance analytics logic are verified by `pytest`-based unit tests.
 Test codes are located in the `tests/` folder and use a temporary DB, ensuring the actual operational data (`db/journal.db`) remains unaffected.

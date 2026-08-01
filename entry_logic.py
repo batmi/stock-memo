@@ -5,6 +5,17 @@ INSERT 컬럼 목록을 단일 소스로 관리하여 create_entry / 복원 / �
 모든 함수는 커서(cursor)를 인자로 받아 DB 모듈에 직접 의존하지 않습니다.
 """
 
+# 시스템 트레이딩 API(v2)가 채우는 확장 컬럼.
+# ⚠️ 이 컬럼들은 INSERT 에만 포함하고 _UPDATE_COLUMNS 에는 넣지 않는다.
+#    웹 UI 의 수정(PUT /api/entry/<id>)은 화면 입력값으로 entry 를 새로 조립하므로
+#    UPDATE 대상에 넣으면 봇이 기록한 손익·모의여부 등이 NULL 로 덮여 사라진다.
+#    API 경유 정정(PATCH)은 trading_api 가 대상 컬럼만 지정해 직접 UPDATE 한다.
+BOT_COLUMNS = [
+    'isSimulated', 'tradeStatus', 'confidence', 'orderOrigin', 'source',
+    'orderId', 'originalOrderId', 'realizedPnl', 'realizedPnlRate', 'fee', 'tax',
+    'strategyScore', 'stopLossRate', 'executedAtUtc', 'tradeDate', 'needsReview',
+]
+
 # entries 테이블 INSERT 시 사용하는 컬럼 순서 (단일 소스)
 INSERT_COLUMNS = [
     'id', 'username', 'type', 'stockName', 'stockCode', 'title', 'thoughts',
@@ -12,9 +23,9 @@ INSERT_COLUMNS = [
     'accountName', 'tradeType', 'price', 'quantity', 'createdAt', 'updatedAt',
     'tags', 'attachedFile', 'attachedFileName', 'isHidden', 'brokerExecutionId',
     'currency', 'exchange', 'assetType', 'tradeClass'
-]
+] + BOT_COLUMNS
 
-# UPDATE 시 갱신하는 컬럼 (id/username/createdAt 제외)
+# UPDATE 시 갱신하는 컬럼 (id/username/createdAt 및 BOT_COLUMNS 제외)
 _UPDATE_COLUMNS = [
     'type', 'stockName', 'stockCode', 'title', 'thoughts', 'date', 'rawDate',
     'attachedImage', 'brokerAccount', 'subAccount', 'accountName', 'tradeType',
@@ -25,7 +36,8 @@ _UPDATE_COLUMNS = [
 # 문자열 기본값 컬럼(없으면 ''), 숫자 기본값 컬럼(없으면 0)
 _DEFAULT_EMPTY = {'stockCode', 'subAccount', 'tags', 'attachedFile', 'attachedFileName', 'brokerExecutionId', 'currency', 'exchange', 'assetType', 'tradeClass'}
 # isHidden: 종목 숨김 플래그(0/1). 값이 없으면 0(표시)으로 저장한다.
-_DEFAULT_ZERO = {'price', 'quantity', 'isHidden'}
+# isSimulated/needsReview 도 NULL 을 남기지 않아야 `= 0` 필터가 기존 기록을 놓치지 않는다.
+_DEFAULT_ZERO = {'price', 'quantity', 'isHidden', 'isSimulated', 'needsReview'}
 
 _INSERT_SQL = (
     "INSERT INTO entries ({cols}) VALUES ({ph})".format(
@@ -42,8 +54,8 @@ _UPDATE_SQL = (
 
 
 def _value_for(entry, col):
-    if col == 'isHidden':
-        # 프론트엔드가 true/false 로 보내므로 NULL 없이 항상 0/1 로 정규화한다.
+    if col in ('isHidden', 'isSimulated', 'needsReview'):
+        # 프론트엔드/API 가 true/false 로 보내므로 NULL 없이 항상 0/1 로 정규화한다.
         return 1 if entry.get(col) else 0
     if col in _DEFAULT_EMPTY:
         return entry.get(col, '')
@@ -76,16 +88,37 @@ def update_entry_row(c, entry_id, username, entry):
     c.execute(_UPDATE_SQL, values)
 
 
-def net_holding_for_stock(c, username, stock_name, exclude_id=None):
+def net_holding_for_stock(c, username, stock_name, exclude_id=None, stock_code=None,
+                          is_simulated=0):
     """해당 사용자의 특정 종목 현재 순보유 수량(매수 합계 - 매도 합계)을 계산합니다.
-    프론트엔드 포트폴리오 대시보드와 동일하게 종목명을 기준으로 집계합니다."""
-    query = ("SELECT tradeType, quantity FROM entries "
-             "WHERE username = ? AND type = 'trade' AND stockName = ?")
-    params = [username, stock_name]
+
+    종목코드(stock_code)가 주어지면 코드를 1순위 기준으로 집계합니다. 종목명은
+    동일 종목이라도 표기가 갈리고(우선주·해외 티커·증권사별 명칭) 봇은 코드만
+    보내오므로, 이름만으로 맞추면 보유 매칭이 어긋나 정상 매도가 거부됩니다.
+    코드가 비어 있는 레거시 수동 기록도 함께 잡히도록 이름 조건을 OR 로 유지합니다.
+
+    모의투자(isSimulated=1) 기록은 실거래 잔고와 분리해 집계합니다.
+    """
+    conditions = ["username = ?", "type = 'trade'", "COALESCE(isSimulated, 0) = ?"]
+    params = [username, 1 if is_simulated else 0]
+
+    code = (stock_code or '').strip()
+    if code:
+        # 코드 일치 OR (코드가 없는 레거시 기록 중 이름 일치)
+        conditions.append("(stockCode = ? OR (COALESCE(stockCode, '') = '' AND stockName = ?))")
+        params.extend([code, stock_name])
+    else:
+        conditions.append("stockName = ?")
+        params.append(stock_name)
+
     if exclude_id is not None:
-        query += " AND id != ?"
+        conditions.append("id != ?")
         params.append(exclude_id)
-    c.execute(query, params)
+
+    # 취소된 주문과 미체결 접수는 잔고에 반영하지 않는다.
+    conditions.append("COALESCE(tradeStatus, 'FILLED') NOT IN ('CANCELED', 'SUBMITTED')")
+
+    c.execute("SELECT tradeType, quantity FROM entries WHERE " + " AND ".join(conditions), params)
 
     held = 0.0
     for row in c.fetchall():
@@ -97,20 +130,26 @@ def net_holding_for_stock(c, username, stock_name, exclude_id=None):
     return held
 
 
-def validate_trade_entry(c, username, entry, exclude_id=None):
-    """매도 거래의 데이터 무결성을 검증합니다.
+def check_sell_integrity(c, username, entry, exclude_id=None):
+    """매도 거래의 무결성을 점검하고 (오류코드, 메시지) 또는 None 을 반환합니다.
 
-    - 매수 보유 기록이 없는 종목의 매도를 차단합니다.
-    - 보유 수량을 초과하는 매도(오버셀)를 차단합니다.
+    - 매수 보유 기록이 없는 종목의 매도 → ('NO_POSITION', ...)
+    - 보유 수량을 초과하는 매도(오버셀) → ('OVERSELL', ...)
 
-    검증 통과 시 None, 위반 시 한국어 오류 메시지(str)를 반환합니다.
-    (※ 백업 복원 등 과거 데이터 일괄 삽입에는 적용하지 않습니다.)
+    호출자가 이 결과를 '차단'으로 쓸지 '경고'로 쓸지 결정합니다.
+    웹 UI 입력은 차단(사용자가 즉시 고칠 수 있음), 봇 API 는 경고 후 저장
+    (차단하면 그 체결이 영구 유실됨) — 이 차이가 이 함수를 분리한 이유입니다.
     """
     if entry.get('type') != 'trade' or entry.get('tradeType') != '매도':
         return None
 
+    # 취소·접수 기록은 잔고를 소모하지 않으므로 검증 대상이 아니다.
+    if (entry.get('tradeStatus') or 'FILLED') in ('CANCELED', 'SUBMITTED'):
+        return None
+
     stock_name = (entry.get('stockName') or '').strip()
-    if not stock_name:
+    stock_code = (entry.get('stockCode') or '').strip()
+    if not stock_name and not stock_code:
         return None
 
     try:
@@ -120,12 +159,25 @@ def validate_trade_entry(c, username, entry, exclude_id=None):
     if sell_qty <= 0:
         return None
 
-    held = net_holding_for_stock(c, username, stock_name, exclude_id=exclude_id)
+    held = net_holding_for_stock(
+        c, username, stock_name, exclude_id=exclude_id, stock_code=stock_code,
+        is_simulated=1 if entry.get('isSimulated') else 0,
+    )
+    label = stock_name or stock_code
 
     EPS = 1e-6  # 부동소수점 오차 허용
     if held <= EPS:
-        return f"'{stock_name}'은(는) 매수 보유 기록이 없어 매도할 수 없습니다."
+        return ('NO_POSITION', f"'{label}'은(는) 매수 보유 기록이 없어 매도할 수 없습니다.")
     if sell_qty > held + EPS:
-        return (f"'{stock_name}'의 매도 수량({sell_qty:g})이 "
-                f"현재 보유 수량({held:g})을 초과합니다.")
+        return ('OVERSELL', f"'{label}'의 매도 수량({sell_qty:g})이 "
+                            f"현재 보유 수량({held:g})을 초과합니다.")
     return None
+
+
+def validate_trade_entry(c, username, entry, exclude_id=None):
+    """웹 UI 입력용 검증 — 위반 시 한국어 오류 메시지(str), 통과 시 None.
+
+    (※ 백업 복원 등 과거 데이터 일괄 삽입에는 적용하지 않습니다.)
+    """
+    result = check_sell_integrity(c, username, entry, exclude_id=exclude_id)
+    return result[1] if result else None

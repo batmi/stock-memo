@@ -28,7 +28,6 @@ from functools import wraps
 from contextlib import contextmanager
 from logging.handlers import TimedRotatingFileHandler
 from datetime import timedelta, datetime
-from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 from flask import (Flask, jsonify, request, send_from_directory, session, redirect,
                    url_for, render_template, send_file)
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -38,6 +37,7 @@ import prices
 import stats
 import entry_logic
 import backups
+import trading_api
 
 # 하위 호환 및 기존 참조 유지를 위한 재노출
 from prices import KRX_HOLIDAYS
@@ -518,6 +518,11 @@ def init_db():
     except sqlite3.OperationalError:
         pass
     conn.commit()
+
+    # ⭐️ 시스템 트레이딩 API(v2) 스키마 — 확장 컬럼, api_keys 테이블,
+    #    brokerExecutionId UNIQUE 제약, 평문 API 키의 해시 이관
+    trading_api.migrate_schema(conn)
+
     conn.close()
 
 
@@ -706,37 +711,8 @@ def check_login():
             return redirect(url_for('login', timeout=1))
 
 
-def get_token_serializer():
-    if app.secret_key is None:
-        raise RuntimeError("Flask secret key is not set.")
-    return URLSafeTimedSerializer(app.secret_key)
-
-# ⭐️ 단기 토큰 인증 전용 데코레이터
-def require_token(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        auth_header = request.headers.get('Authorization')
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({"error": "토큰이 누락되었거나 형식이 잘못되었습니다 (Bearer <TOKEN>)."}), 401
-            
-        token = auth_header.split(' ')[1]
-        serializer = get_token_serializer()
-        
-        try:
-            # 86400 seconds = 24 hours
-            data = serializer.loads(token, max_age=86400)
-            username = data.get('username')
-        except SignatureExpired:
-            return jsonify({"error": "토큰이 만료되었습니다. API 키를 사용하여 새 토큰을 발급받으세요."}), 401
-        except BadSignature:
-            return jsonify({"error": "유효하지 않은 토큰입니다."}), 401
-            
-        if not username:
-            return jsonify({"error": "토큰 페이로드가 유효하지 않습니다."}), 401
-            
-        return f(username=username, *args, **kwargs)
-        
-    return decorated
+# ⭐️ 시스템 트레이딩 API(/api/v1/*)의 토큰 발급·검증은 trading_api 모듈이 담당한다.
+#    (키 해시 저장, 스코프 검사, 폐기 즉시 반영, 레이트 리밋이 함께 걸려 있다)
 
 # ⭐️ 관리자 권한 필요 라우트용 데코레이터
 def admin_required(f):
@@ -930,67 +906,60 @@ def ping():
 
 @app.route('/api/me/api-key', methods=['GET'])
 def get_api_key():
+    """발급된 API 키 목록을 반환합니다.
+
+    ⚠️ 키 원문은 해시로만 저장하므로 다시 조회할 수 없습니다. 발급 직후 1회만
+    노출되며, 이후에는 식별용 앞자리(key_prefix)만 볼 수 있습니다.
+    이렇게 해야 DB 가 유출돼도 키가 그대로 새어 나가지 않습니다.
+    """
     username = session.get('username')
     if not username:
         return jsonify({"error": "Unauthorized"}), 401
-    
-    with db_conn() as conn:
-        c = conn.cursor()
-        c.execute("SELECT api_key FROM users WHERE username = ?", (username,))
-        row = c.fetchone()
-        
+
+    keys = trading_api.list_api_keys(username)
+    active = [k for k in keys if not k['revoked_at']]
     return jsonify({
-        "api_key": row['api_key'] if row else None
+        "keys": keys,
+        "has_active_key": bool(active),
+        # 하위 호환: 예전 프런트가 api_key 필드를 읽으므로 남겨두되 원문은 줄 수 없다.
+        "api_key": None,
     })
+
 
 @app.route('/api/me/api-key', methods=['POST'])
 def generate_api_key():
+    """새 API 키를 발급합니다. 응답의 api_key 는 이때 단 한 번만 볼 수 있습니다."""
     username = session.get('username')
     if not username:
         return jsonify({"error": "Unauthorized"}), 401
-        
-    new_key = str(uuid.uuid4())
-    
-    with db_conn() as conn:
-        c = conn.cursor()
-        c.execute("UPDATE users SET api_key = ? WHERE username = ?", (new_key, username))
-        conn.commit()
-        
+
+    body = request.get_json(silent=True) or {}
+    label = (body.get('label') or 'HTS 연동 키')[:100]
+    # 기본 동작은 '기존 키 전부 폐기 후 재발급' — 예전 UI 의 재발급 버튼과 의미가 같다.
+    if body.get('keep_existing') is not True:
+        trading_api.revoke_all_api_keys(username)
+
+    created = trading_api.create_api_key(username, label=label)
     return jsonify({
-        "status": "success", 
-        "api_key": new_key
+        "status": "success",
+        "api_key": created['api_key'],   # 원문 노출은 이 응답이 유일하다
+        "id": created['id'],
+        "key_prefix": created['key_prefix'],
+        "scopes": created['scopes'],
+        "label": created['label'],
     })
 
-# ======== HTS / System Trading REST API ========
-@app.route('/api/v1/auth/token', methods=['POST'])
-def api_v1_auth_token():
-    api_key = request.headers.get('X-API-KEY')
-    if not api_key and request.is_json:
-        api_key = request.json.get('api_key')
-        
-    if not api_key:
-        return jsonify({"error": "API 키가 누락되었습니다."}), 400
-        
-    with db_conn() as conn:
-        c = conn.cursor()
-        c.execute("SELECT username FROM users WHERE api_key = ?", (api_key,))
-        row = c.fetchone()
-        
-    if not row:
-        return jsonify({"error": "유효하지 않은 API 키입니다."}), 401
-        
-    serializer = get_token_serializer()
-    token = serializer.dumps({'username': row['username']})
-    
-    return jsonify({
-        "access_token": token,
-        "token_type": "Bearer",
-        "expires_in": 86400
-    }), 200
 
-@app.route('/api/v1/health', methods=['GET'])
-def api_v1_health():
-    return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()}), 200
+@app.route('/api/me/api-key/<int:key_id>', methods=['DELETE'])
+def revoke_api_key_route(key_id):
+    """API 키를 폐기합니다. 그 키로 발급된 토큰도 즉시 무효화됩니다."""
+    username = session.get('username')
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    if not trading_api.revoke_api_key(username, key_id):
+        return jsonify({"error": "해당 키를 찾을 수 없거나 이미 폐기되었습니다."}), 404
+    return jsonify({"status": "success"})
 
 def get_user_mappings(username):
     file_path = os.path.join('json', username, 'account_info.json')
@@ -1027,233 +996,6 @@ def save_mappings_frontend():
         
     return jsonify({"status": "success"}), 200
 
-@app.route('/api/v1/trades', methods=['POST'])
-@require_token
-def api_v1_trades_post(username):
-    data = request.json
-    if not data or not all(k in data for k in ['symbol', 'side', 'price', 'volume', 'executedAt']):
-        return jsonify({"error": "잘못된 요청: 필수 파라미터가 누락되었습니다."}), 400
-        
-    side_map = {'BUY': '매수', 'SELL': '매도'}
-    trade_type = side_map.get(data['side'], data['side'])
-    
-    tags = data.get('tags', [])
-    trade_class_code = data.get('tradeClass', 3) # 기본값 3 (단기스윙)
-    class_map = {1: '장기투자', 2: '중기투자', 3: '단기스윙', 4: '단타(스캘핑)', 5: '배당투자', 6: '공모주', 7: '시스템', 8: '기타'}
-    if isinstance(trade_class_code, int):
-        class_tag = class_map.get(trade_class_code, '단기스윙')
-    else:
-        class_tag = str(trade_class_code)
-    if class_tag not in tags:
-        tags.append(class_tag)
-        
-    tags_str = ",".join(tags) if isinstance(tags, list) else str(tags)
-    
-    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    with db_conn() as conn:
-        c = conn.cursor()
-        
-        exec_id = data.get('brokerExecutionId')
-        if exec_id:
-            c.execute("SELECT id, createdAt FROM entries WHERE username = ? AND brokerExecutionId = ?", (username, exec_id))
-            row = c.fetchone()
-            if row:
-                data['id'] = str(row['id'])
-                data['createdAt'] = row['createdAt']
-                return jsonify(data), 200
-                
-        stock_name = data.get('name')
-        if not stock_name:
-            c.execute("SELECT stockName FROM entries WHERE stockCode = ? AND stockName != '' LIMIT 1", (data['symbol'],))
-            row = c.fetchone()
-            stock_name = row['stockName'] if row else data['symbol']
-            
-        mappings = get_user_mappings(username)
-        raw_broker = data.get('brokerAccount', '')
-        raw_sub = data.get('subAccount', '').replace('-', '')
-        
-        acc_info = mappings.get('accounts', {}).get(raw_sub)
-        if isinstance(acc_info, dict):
-            mapped_broker = acc_info.get('broker_name', raw_broker)
-            mapped_account_name = acc_info.get('alias', data.get('accountName', ''))
-        else:
-            mapped_broker = mappings.get('brokers', {}).get(raw_broker, raw_broker)
-            mapped_account_name = mappings.get('accounts', {}).get(raw_sub, data.get('accountName', ''))
-            
-        entry_dict = {
-            'type': 'trade',
-            'stockName': stock_name,
-            'stockCode': data['symbol'],
-            'title': '',
-            'thoughts': data.get('memo', ''),
-            'date': data['executedAt'].split('T')[0] if 'T' in data['executedAt'] else data['executedAt'][:10],
-            'rawDate': data['executedAt'],
-            'brokerAccount': mapped_broker,
-            'subAccount': raw_sub,
-            'accountName': mapped_account_name,
-            'tradeClass': class_tag,
-            'tradeType': trade_type,
-            'price': data['price'],
-            'quantity': data['volume'],
-            'tags': tags_str,
-            'createdAt': current_time,
-            'brokerExecutionId': exec_id,
-            'currency': data.get('currency', ''),
-            'exchange': data.get('exchange', ''),
-            'assetType': data.get('assetType', '')
-        }
-        
-        error_msg = validate_trade_entry(c, username, entry_dict)
-        if error_msg:
-            return jsonify({"error": error_msg}), 400
-            
-        entry_logic.insert_entry(c, username, entry_dict)
-        entry_id = c.lastrowid
-        conn.commit()
-        
-    data['id'] = str(entry_id)
-    data['createdAt'] = current_time
-    data['name'] = stock_name
-    return jsonify(data), 201
-
-@app.route('/api/v1/bot/status', methods=['POST'])
-@require_token
-def api_v1_bot_status(username):
-    data = request.json
-    if not data or 'status' not in data:
-        return jsonify({"error": "잘못된 요청"}), 400
-        
-    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    with db_conn() as conn:
-        c = conn.cursor()
-        c.execute('''
-            UPDATE users 
-            SET bot_status = ?, bot_last_seen = ? 
-            WHERE username = ?
-        ''', (data['status'], current_time, username))
-        conn.commit()
-        
-    return jsonify({"status": "success", "updatedAt": current_time}), 200
-
-@app.route('/api/v1/trades/last-sync', methods=['GET'])
-@require_token
-def api_v1_trades_last_sync(username):
-    with db_conn() as conn:
-        c = conn.cursor()
-        c.execute('''
-            SELECT MAX(rawDate) as lastExecutedAt 
-            FROM entries 
-            WHERE username = ? AND type = 'trade'
-        ''', (username,))
-        row = c.fetchone()
-        
-    last_executed = row['lastExecutedAt'] if row and row['lastExecutedAt'] else None
-    
-    return jsonify({
-        "lastExecutedAt": last_executed
-    }), 200
-
-@app.route('/api/v1/trades/batch', methods=['POST'])
-@require_token
-def api_v1_trades_batch(username):
-    trades = request.json
-    if not isinstance(trades, list):
-        return jsonify({"error": "잘못된 요청: 배열 형태여야 합니다."}), 400
-        
-    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    side_map = {'BUY': '매수', 'SELL': '매도'}
-    inserted = 0
-    skipped = 0
-    errors = []
-    
-    with db_conn() as conn:
-        c = conn.cursor()
-        for data in trades:
-            if not all(k in data for k in ['symbol', 'side', 'price', 'volume', 'executedAt']):
-                errors.append(f"누락된 필드: {data.get('symbol', 'unknown')}")
-                continue
-                
-            exec_id = data.get('brokerExecutionId')
-            if exec_id:
-                c.execute("SELECT id FROM entries WHERE username = ? AND brokerExecutionId = ?", (username, exec_id))
-                if c.fetchone():
-                    skipped += 1
-                    continue
-                    
-            stock_name = data.get('name')
-            if not stock_name:
-                c.execute("SELECT stockName FROM entries WHERE stockCode = ? AND stockName != '' LIMIT 1", (data['symbol'],))
-                row = c.fetchone()
-                stock_name = row['stockName'] if row else data['symbol']
-                
-            mappings = get_user_mappings(username)
-            raw_broker = data.get('brokerAccount', '')
-            raw_sub = data.get('subAccount', '').replace('-', '')
-            
-            acc_info = mappings.get('accounts', {}).get(raw_sub)
-            if isinstance(acc_info, dict):
-                mapped_broker = acc_info.get('broker_name', raw_broker)
-                mapped_account_name = acc_info.get('alias', data.get('accountName', ''))
-            else:
-                mapped_broker = mappings.get('brokers', {}).get(raw_broker, raw_broker)
-                mapped_account_name = mappings.get('accounts', {}).get(raw_sub, data.get('accountName', ''))
-                
-            trade_type = side_map.get(data['side'], data['side'])
-            
-            tags = data.get('tags', [])
-            trade_class_code = data.get('tradeClass', 3) # 기본값 3 (단기스윙)
-            class_map = {1: '장기투자', 2: '중기투자', 3: '단기스윙', 4: '단타(스캘핑)', 5: '배당투자', 6: '공모주', 7: '시스템', 8: '기타'}
-            if isinstance(trade_class_code, int):
-                class_tag = class_map.get(trade_class_code, '단기스윙')
-            else:
-                class_tag = str(trade_class_code)
-                
-            if class_tag not in tags:
-                tags.append(class_tag)
-                
-            tags_str = ",".join(tags) if isinstance(tags, list) else str(tags)
-            
-            entry_dict = {
-                'type': 'trade',
-                'stockName': stock_name,
-                'stockCode': data['symbol'],
-                'title': '',
-                'thoughts': data.get('memo', ''),
-                'date': data['executedAt'].split('T')[0] if 'T' in data['executedAt'] else data['executedAt'][:10],
-                'rawDate': data['executedAt'],
-                'brokerAccount': mapped_broker,
-                'subAccount': raw_sub,
-                'accountName': mapped_account_name,
-                'tradeClass': class_tag,
-                'tradeType': trade_type,
-                'price': data['price'],
-                'quantity': data['volume'],
-                'tags': tags_str,
-                'createdAt': current_time,
-                'brokerExecutionId': exec_id,
-                'currency': data.get('currency', ''),
-                'exchange': data.get('exchange', ''),
-                'assetType': data.get('assetType', '')
-            }
-            
-            error_msg = validate_trade_entry(c, username, entry_dict)
-            if error_msg:
-                errors.append(f"{stock_name}: {error_msg}")
-                continue
-                
-            entry_logic.insert_entry(c, username, entry_dict)
-            inserted += 1
-            
-        conn.commit()
-        
-    return jsonify({
-        "status": "success", 
-        "inserted": inserted, 
-        "skipped": skipped,
-        "errors": errors if errors else None
-    }), 201
 
 @app.route('/api/me', methods=['GET'])
 def get_me():
@@ -1312,8 +1054,9 @@ def delete_account():
         if not user_record or not check_password_hash(user_record['password_hash'], password):
             return jsonify({"error": "비밀번호가 일치하지 않습니다."}), 400
 
-        # 사용자 데이터 및 계정 삭제
+        # 사용자 데이터 및 계정 삭제 (API 키도 함께 파기해야 탈퇴 후 접근이 막힌다)
         c.execute("DELETE FROM entries WHERE username = ?", (username,))
+        c.execute("DELETE FROM api_keys WHERE username = ?", (username,))
         c.execute("DELETE FROM users WHERE username = ?", (username,))
         conn.commit()
 
@@ -1356,6 +1099,7 @@ def admin_delete_user(target_username):
             return jsonify({"error": "최고 관리자는 삭제할 수 없습니다."}), 400
 
         c.execute("DELETE FROM entries WHERE username = ?", (target_username,))
+        c.execute("DELETE FROM api_keys WHERE username = ?", (target_username,))
         c.execute("DELETE FROM users WHERE username = ?", (target_username,))
         conn.commit()
 
@@ -1812,6 +1556,18 @@ def full_restore():
         return jsonify({'error': str(e)}), 500
     finally:
         shutil.rmtree(temp_dir)
+
+
+# ⭐️ 시스템 트레이딩 API(/api/v1/*) 블루프린트 등록.
+#    db_conn / get_user_mappings / invalidate_stats_cache 가 모두 정의된 뒤여야 하므로
+#    모듈 최하단에서 주입한다. (순환 임포트 없이 의존성만 넘긴다)
+trading_api.init_app(
+    app,
+    db_conn=db_conn,
+    get_user_mappings=get_user_mappings,
+    invalidate_cache=invalidate_stats_cache,
+    logger=app.logger,
+)
 
 
 if __name__ == '__main__':
