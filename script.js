@@ -5560,7 +5560,10 @@ function renderAccountMappings() {
         return `
             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 10px; border-bottom: 1px solid var(--border-light-color);">
                 <span style="flex: 1; word-break: break-word; margin-right: 10px;"><strong style="color:var(--text-strong-color);">[${info.broker_name}]</strong><br>${accCode} &rarr; ${info.alias}</span>
-                <button type="button" onclick="removeMapping('accounts', '${accCode}')" style="background:none; border:none; color:var(--danger-color); cursor:pointer; font-size:13px; font-weight:bold; width:auto; padding:0; margin:0; box-shadow:none; flex: 0 0 auto;">삭제</button>
+                <div style="display: flex; gap: 12px; flex: 0 0 auto;">
+                    <button type="button" onclick="editMapping('${accCode}')" style="background:none; border:none; color:var(--primary-color); cursor:pointer; font-size:13px; font-weight:bold; width:auto; padding:0; margin:0; box-shadow:none;">수정</button>
+                    <button type="button" onclick="removeMapping('accounts', '${accCode}')" style="background:none; border:none; color:var(--danger-color); cursor:pointer; font-size:13px; font-weight:bold; width:auto; padding:0; margin:0; box-shadow:none;">삭제</button>
+                </div>
             </div>
         `;
     }).join('') || '<div style="font-size:13px; color:var(--text-muted-color); padding: 10px;">등록된 계좌가 없습니다.</div>';
@@ -5570,6 +5573,22 @@ window.removeMapping = function(type, code) {
     if (currentAccountMappings[type] && currentAccountMappings[type][code]) {
         delete currentAccountMappings[type][code];
         renderAccountMappings();
+    }
+};
+
+window.editMapping = function(code) {
+    const info = currentAccountMappings.accounts[code];
+    if (info && typeof info === 'object') {
+        const select = document.getElementById('unifiedBrokerCode');
+        for (let i = 0; i < select.options.length; i++) {
+            if (select.options[i].dataset.name === info.broker_name || select.options[i].text === info.broker_name) {
+                select.selectedIndex = i;
+                break;
+            }
+        }
+        document.getElementById('unifiedAccountCode').value = code;
+        document.getElementById('unifiedAccountName').value = info.alias;
+        document.getElementById('unifiedAccountCode').focus();
     }
 };
 
