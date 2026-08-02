@@ -4741,7 +4741,18 @@ window.renderChartDetailList = function(periodLabel, sections) {
             hasData = true;
             stocks.sort((a, b) => breakdown[b] - breakdown[a]); // 금액(손익) 기준 내림차순 정렬
             
-            html += `<div style="font-size: 12px; font-weight: bold; color: var(--text-muted-color); margin-top: 15px; margin-bottom: 8px;">[ ${title} ]</div>`;
+            let sectionTotal = stocks.reduce((acc, s) => acc + breakdown[s], 0);
+            let totalColor = 'var(--text-strong-color)';
+            let totalPrefix = '';
+            if (isProfit) {
+                if (sectionTotal > 0) { totalColor = 'var(--danger-color)'; totalPrefix = '+'; }
+                else if (sectionTotal < 0) { totalColor = 'var(--primary-color)'; }
+            }
+            
+            html += `<div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 15px; margin-bottom: 8px;">
+                        <span style="font-size: 12px; font-weight: bold; color: var(--text-muted-color);">[ ${title} ]</span>
+                        <span style="font-size: 13px; font-weight: bold; color: ${totalColor};">${totalPrefix}${Math.round(sectionTotal).toLocaleString()}원</span>
+                     </div>`;
             html += `<div style="display: grid; gap: 6px;">`;
             stocks.forEach(s => {
                 const val = breakdown[s];
