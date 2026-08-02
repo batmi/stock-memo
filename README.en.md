@@ -218,6 +218,14 @@ next ping request body   ←  { "status": "running",
 *   A bot reporting `status=stopped` is given no work; it could not act on it anyway.
 *   A malformed ack still returns `200` for the ping itself. Returning `400` would break the heartbeat and flip the display to "disconnected".
 
+#### After restoring a backup, run a re-sync
+
+The backup ZIP contains `data.json` (trade records), attached images, and `account_info.json` (account mappings). **The `api_keys` and `users` tables are not included** — a backup restores data into an existing account; it does not stand up an empty server from scratch. If you restore onto a new server, issue a fresh API key on the web and update `JOURNAL_API_KEY` on the HTS side.
+
+Also, **records the bot sent after the backup point do not come back with the restore.** The bot only remembers *that it sent* them, so it never re-sends on its own, and backfill cannot catch this gap either (those rows are still marked as sent in the bot's queue). **Only a re-sync fills it in.** The restore flow now says so and offers to request one on the spot.
+
+Because re-sync reads the bot's local trade history as the source of truth, it also recovers records old enough to have been pruned from the bot's own queue.
+
 > ⚠️ **`pause`/`resume` are deliberately unimplemented.** They exist in the API spec enum but are excluded from `SUPPORTED_BOT_COMMANDS`, so the server refuses to even queue them. Re-sync means "re-send data that is already the bot's"; `pause` means **the web server can halt a trading bot**. A compromised or buggy web layer could stop the bot while it holds a position. If ever needed, it requires its own design with confirmation and auto-expiry safeguards — it must not be treated like re-sync.
 
 ### Error responses
