@@ -4712,8 +4712,8 @@ window.updateChartRangeNav = function(rangeText) {
     if (labelEl) labelEl.innerText = rangeText || '';
 };
 
-// ⭐️ 차트 막대 클릭 시 하단에 종목별 상세 내역을 그려주는 함수
-window.renderChartDetailList = function(title, breakdown, isProfit) {
+// ⭐️ 차트 막대 클릭 시 하단에 종목별 상세 내역을 그려주는 함수 (다중 섹션 지원)
+window.renderChartDetailList = function(periodLabel, sections) {
     const inlineStatsContainer = document.getElementById('inlineStatsContainer');
     if (inlineStatsContainer) {
         inlineStatsContainer.style.display = 'none';
@@ -4728,32 +4728,42 @@ window.renderChartDetailList = function(title, breakdown, isProfit) {
     if (!container) return;
     
     let html = `<div style="font-size: 13px; font-weight: bold; margin-bottom: 10px; color: var(--text-strong-color); display: flex; justify-content: space-between; align-items: center;">
-                    <span>📊 ${title}</span>
+                    <span>📊 ${periodLabel} 상세 내역</span>
                     <span style="font-size: 11px; color: var(--text-muted-color); font-weight: normal; cursor: pointer;" onclick="document.getElementById('chartDetailList').style.display='none';">닫기 &times;</span>
                 </div>`;
     
-    const stocks = Object.keys(breakdown).filter(s => breakdown[s] !== 0);
-    stocks.sort((a, b) => breakdown[b] - breakdown[a]); // 금액(손익) 기준 내림차순 정렬
+    let hasData = false;
+    sections.forEach(sec => {
+        const { title, breakdown, isProfit } = sec;
+        const stocks = Object.keys(breakdown).filter(s => breakdown[s] !== 0);
+        
+        if (stocks.length > 0) {
+            hasData = true;
+            stocks.sort((a, b) => breakdown[b] - breakdown[a]); // 금액(손익) 기준 내림차순 정렬
+            
+            html += `<div style="font-size: 12px; font-weight: bold; color: var(--text-muted-color); margin-top: 15px; margin-bottom: 8px;">[ ${title} ]</div>`;
+            html += `<div style="display: grid; gap: 6px;">`;
+            stocks.forEach(s => {
+                const val = breakdown[s];
+                let color = 'var(--text-strong-color)';
+                let prefix = '';
+                if (isProfit) {
+                    if (val > 0) { color = 'var(--danger-color)'; prefix = '+'; }
+                    else if (val < 0) { color = 'var(--primary-color)'; }
+                }
+                html += `<div style="display: flex; justify-content: space-between; font-size: 12px; padding: 6px 10px; background: var(--bg-color); border-radius: 6px; border: 1px solid var(--border-light-color);">
+                    <span style="font-weight: bold; color: var(--text-strong-color);">${s}</span>
+                    <span style="color: ${color};">${prefix}${Math.round(val).toLocaleString()}원</span>
+                </div>`;
+            });
+            html += `</div>`;
+        }
+    });
     
-    if (stocks.length === 0) {
-        html += `<div style="color: var(--text-muted-color); font-size: 12px; text-align: center; padding: 10px 0;">해당 내역이 없습니다.</div>`;
-    } else {
-        html += `<div style="display: grid; gap: 6px;">`;
-        stocks.forEach(s => {
-            const val = breakdown[s];
-            let color = 'var(--text-strong-color)';
-            let prefix = '';
-            if (isProfit) {
-                if (val > 0) { color = 'var(--danger-color)'; prefix = '+'; }
-                else if (val < 0) { color = 'var(--primary-color)'; }
-            }
-            html += `<div style="display: flex; justify-content: space-between; font-size: 12px; padding: 6px 10px; background: var(--bg-color); border-radius: 6px; border: 1px solid var(--border-light-color);">
-                <span style="font-weight: bold; color: var(--text-strong-color);">${s}</span>
-                <span style="color: ${color};">${prefix}${Math.round(val).toLocaleString()}원</span>
-            </div>`;
-        });
-        html += `</div>`;
+    if (!hasData) {
+        html += `<div style="color: var(--text-muted-color); font-size: 12px; text-align: center; padding: 10px 0; background: var(--bg-color); border-radius: 6px; border: 1px solid var(--border-light-color);">해당 내역이 없습니다.</div>`;
     }
+    
     container.innerHTML = html;
     container.style.display = 'block';
 };
@@ -5128,9 +5138,9 @@ window.renderMonthlyProfitChart = function() {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            // ⭐️ 정확히 점을 찌르지 않고 근처 영역(초록/노란색)만 터치해도 반응하도록 설정
+            // ⭐️ x축(해당 월) 기준으로 전체 데이터를 찾아주도록 설정하여 긴 막대 상하단에서도 오류 없이 작동하며 툴팁에 모든 정보를 표시
             interaction: {
-                mode: 'nearest',
+                mode: 'index',
                 intersect: false
             },
             plugins: {
@@ -5177,44 +5187,28 @@ window.renderMonthlyProfitChart = function() {
                 if (elements.length === 0) return;
                 
                 const index = elements[0].index;
-                const datasetIndex = elements[0].datasetIndex; // 매수(0)/매도(1) 구분용
                 const monthLabel = labels[index]; // 예: '2023-10' (월간) / '2023-10-16' (주간)
                 const dataObj = monthlyData[monthLabel];
                 // ⭐️ 주간은 'M/D 주', 월간은 원본 키를 상세 내역 제목에 사용
                 const periodLabel = isWeekly ? `${displayLabels[index]} 주간` : monthLabel;
 
-                let breakdown = {};
-                let title = `${periodLabel} 상세 내역`;
-                let isProfit = true;
+                let sections = [];
 
                 if (type === 'realized') {
-                    // ⭐️ 배열 순서를 바꿨으므로 인덱스 0이 배당수익금
-                    if (datasetIndex === 0) {
-                        breakdown = dataObj.dividend_breakdown;
-                        title = `${periodLabel} 배당 수익 상세`;
-                    } else {
-                        breakdown = dataObj.realized_breakdown;
-                        title = `${periodLabel} 매매 실현손익 상세`;
-                    }
+                    sections.push({ title: '배당 수익', breakdown: dataObj.dividend_breakdown || {}, isProfit: true });
+                    sections.push({ title: '매매 실현손익', breakdown: dataObj.realized_breakdown || {}, isProfit: true });
                 } else if (type === 'evaluated') {
-                    breakdown = dataObj.evaluated_breakdown;
-                    title = `${periodLabel} 매수분 평가 손익 상세`;
+                    sections.push({ title: '매수분 평가 손익', breakdown: dataObj.evaluated_breakdown || {}, isProfit: true });
                 } else if (type === 'volume') {
-                    isProfit = false;
-                    if (datasetIndex === 0) { breakdown = dataObj.buy_volume_breakdown; title = `${periodLabel} 매수 금액 상세`; }
-                    else { breakdown = dataObj.sell_volume_breakdown; title = `${periodLabel} 매도 금액 상세`; }
+                    sections.push({ title: '매수 금액', breakdown: dataObj.buy_volume_breakdown || {}, isProfit: false });
+                    sections.push({ title: '매도 금액', breakdown: dataObj.sell_volume_breakdown || {}, isProfit: false });
                 } else if (type === 'cumulative') {
-                    if (datasetIndex === 1) {
-                        breakdown = dataObj.cumulative_div_breakdown;
-                        title = `${periodLabel} 누적 배당 수익금 상세`;
-                    } else {
-                        breakdown = dataObj.cumulative_breakdown;
-                        title = `${periodLabel} 총 누적 수익금 상세`;
-                    }
+                    sections.push({ title: '누적 배당 수익금', breakdown: dataObj.cumulative_div_breakdown || {}, isProfit: true });
+                    sections.push({ title: '총 누적 수익금', breakdown: dataObj.cumulative_breakdown || {}, isProfit: true });
                 }
                 
                 // 계산된 내역을 하단 영역에 렌더링
-                window.renderChartDetailList(title, breakdown, isProfit);
+                window.renderChartDetailList(periodLabel, sections);
             }
         }
     });
