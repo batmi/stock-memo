@@ -560,3 +560,95 @@ def test_legacy_plaintext_key_is_migrated_and_erased(app):
     assert row['api_key'] is None                                  # 평문 삭제됨
     res = app.test_client().post('/api/v1/auth/token', headers={'X-API-KEY': legacy})
     assert res.status_code == 200                                  # 기존 키는 그대로 동작
+
+
+# ── 봇 명령 채널 (재동기화) ───────────────────────────────────────────
+#  봇은 가정용 네트워크 뒤에 있어 서버가 먼저 접속할 수 없다. 웹에서 누른 지시는
+#  Ping 응답에 실려야만 전달되므로, 그 경로가 끊기면 버튼이 통째로 죽는다.
+
+def _ping(api, **body):
+    payload = {'status': 'running'}
+    payload.update(body)
+    return api['client'].post('/api/v1/bot/status', json=payload,
+                              headers=api['headers']).get_json()
+
+
+def test_ping_carries_no_command_by_default(api):
+    body = _ping(api)
+    assert body['command'] == 'none'
+    assert 'commandId' not in body
+
+
+def test_requested_resync_reaches_the_bot_on_next_ping(api):
+    cmd_id = trading_api.request_bot_command(
+        'bot', 'resync', {'from': '2026-05-01', 'to': None})
+
+    body = _ping(api)
+
+    assert body['command'] == 'resync'
+    assert body['commandId'] == cmd_id
+    assert body['commandParams'] == {'from': '2026-05-01', 'to': None}
+
+
+def test_command_repeats_until_acked(api):
+    """ack 를 못 받았는데 명령을 지우면, 응답이 유실될 때 지시가 통째로 사라진다."""
+    trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'})
+
+    assert _ping(api)['command'] == 'resync'
+    assert _ping(api)['command'] == 'resync'      # 아직 ack 전 — 계속 내려온다
+
+    cmd_id = _ping(api)['commandId']
+    _ping(api, commandAck={'id': cmd_id, 'result': 'queued', 'count': 42})
+
+    assert _ping(api)['command'] == 'none'        # 처리됐으니 더는 내려오지 않는다
+
+
+def test_ack_is_recorded_for_the_web_view(api):
+    cmd_id = trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'})
+    _ping(api)
+    _ping(api, commandAck={'id': cmd_id, 'result': 'queued', 'count': 42,
+                           'message': '로컬 체결 1284건 확인'})
+
+    latest = trading_api.latest_bot_command('bot', 'resync')
+    assert latest['state'] == 'done'
+    assert latest['result'] == 'queued'
+    assert latest['result_count'] == 42
+    assert '1284건' in latest['result_message']
+
+
+def test_pressing_the_button_twice_does_not_queue_two_commands(api):
+    first = trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'})
+    second = trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'})
+    assert first == second
+
+
+def test_malformed_ack_never_breaks_the_heartbeat(api):
+    """ack 가 이상하다고 Ping 을 400 으로 되돌리면 웹이 '통신단절'로 바뀐다."""
+    res = api['client'].post('/api/v1/bot/status',
+                             json={'status': 'running', 'commandAck': 'nonsense'},
+                             headers=api['headers'])
+    assert res.status_code == 200
+    assert res.get_json()['status'] == 'success'
+
+
+def test_stopping_bot_is_not_given_new_work(api):
+    """멈추는 중인 봇에 일감을 줘도 처리하지 못한다."""
+    trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'})
+    assert _ping(api, status='stopped')['command'] == 'none'
+
+
+def test_expired_command_is_not_delivered(api, monkeypatch):
+    """봇이 오래 꺼져 있었다면, 뒤늦게 켜졌을 때 옛 지시가 튀어나오면 안 된다."""
+    trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'})
+    monkeypatch.setattr(trading_api, 'BOT_COMMAND_TTL_SECONDS', -1)
+
+    assert _ping(api)['command'] == 'none'
+    assert trading_api.latest_bot_command('bot', 'resync')['state'] == 'expired'
+
+
+def test_unsupported_command_is_refused_at_the_source(api):
+    """pause/resume 은 매매를 멈추는 지시다 — 서버가 큐에 넣는 것부터 막는다."""
+    import pytest
+    for command in ('pause', 'resume'):
+        with pytest.raises(ValueError):
+            trading_api.request_bot_command('bot', command)

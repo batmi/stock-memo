@@ -17,6 +17,7 @@ backend_app 에 직접 의존하지 않고 init_app() 으로 주입받은 공급
 """
 
 import hashlib
+import json
 import re
 import secrets
 import sqlite3
@@ -60,6 +61,20 @@ BOT_MISSED_PINGS_ALLOWED = 3
 BOT_PING_GRACE_SECONDS = 5
 BOT_OFFLINE_AFTER_SECONDS = (BOT_PING_INTERVAL_SECONDS * BOT_MISSED_PINGS_ALLOWED
                              + BOT_PING_GRACE_SECONDS)  # 35초
+
+# ── 봇 명령 (Ping 응답에 실어 보내는 유일한 하행 채널) ──────────────────
+# 봇은 대개 가정용 네트워크 뒤에 있어 서버가 먼저 접속할 수 없다. 웹에서 누른
+# 지시는 다음 Ping 응답에 실려 전달되므로 최대 BOT_PING_INTERVAL_SECONDS 만큼 늦는다.
+#
+# 봇이 ack 를 돌려줄 때까지 같은 명령을 반복해서 내려보낸다 — 재실행은 멱등하므로
+# 안전하고, 응답이 유실돼도 결국 전달된다. 다만 봇이 영영 응답하지 않는 경우까지
+# 무한히 붙들 수는 없어 만료를 둔다. 만료된 명령은 웹 화면에 '미처리'로 표시된다.
+BOT_COMMAND_TTL_SECONDS = 3600
+
+# 서버가 내려보낼 수 있는 명령. 스펙의 enum 에는 pause/resume 도 있지만 여기 없다 —
+# 웹서버가 매매봇을 멈추는 것은 재확인·자동만료 같은 안전장치를 갖춘 별도 설계가
+# 필요한 일이라, 재동기화와 같은 취급을 해서는 안 된다.
+SUPPORTED_BOT_COMMANDS = ('resync',)
 
 # ── 주입 의존성 ────────────────────────────────────────────────────────
 _deps = {
@@ -139,6 +154,26 @@ def migrate_schema(conn):
         )
     ''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(username)")
+
+    # 웹에서 누른 지시를 봇이 가져갈 때까지 보관하는 큐.
+    #  이벤트가 아니라 '행'으로 남겨야 한다 — 버튼을 누른 순간 봇이 꺼져 있어도
+    #  다시 켜졌을 때 전달되어야 하고, 처리 결과를 웹에 보여줘야 하기 때문이다.
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS bot_commands (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            command TEXT NOT NULL,
+            params_json TEXT,
+            requested_at TEXT NOT NULL,
+            delivered_at TEXT,
+            acked_at TEXT,
+            result TEXT,
+            result_count INTEGER,
+            result_message TEXT
+        )
+    ''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_bot_commands_pending "
+              "ON bot_commands(username, acked_at, id)")
     conn.commit()
 
     # ⭐️ 멱등키 UNIQUE 제약. 기존 idx_entries_exec_id 는 비유니크라 동시 요청이
@@ -920,6 +955,128 @@ def auth_token():
     }), 200
 
 
+# ══════════════════════════════════════════════════════════════════════
+# 봇 명령 큐
+# ══════════════════════════════════════════════════════════════════════
+
+def _command_expiry_cutoff():
+    return (_now_kst() - timedelta(seconds=BOT_COMMAND_TTL_SECONDS)).isoformat()
+
+
+def _take_pending_command(c, username):
+    """봇에 내려보낼 명령을 하나 집는다. 없으면 None.
+
+    ack 를 받을 때까지 같은 명령을 계속 돌려준다. 봇이 명령을 받은 직후 재시작해도
+    다시 받아 처리하게 하려는 것이고, 재실행은 멱등하므로 안전하다.
+    """
+    c.execute(
+        "SELECT id, command, params_json FROM bot_commands "
+        "WHERE username = ? AND acked_at IS NULL AND requested_at >= ? "
+        "ORDER BY id LIMIT 1",
+        (username, _command_expiry_cutoff()))
+    row = c.fetchone()
+    if row is None:
+        return None
+
+    c.execute("UPDATE bot_commands SET delivered_at = COALESCE(delivered_at, ?) "
+              "WHERE id = ?", (_now_iso(), row['id']))
+    try:
+        params = json.loads(row['params_json']) if row['params_json'] else None
+    except (TypeError, ValueError):
+        params = None
+    return {'id': row['id'], 'command': row['command'], 'params': params}
+
+
+def _apply_command_ack(c, username, ack):
+    """봇이 보고한 처리 결과를 반영한다. 형식이 어긋나면 조용히 무시한다.
+
+    ack 가 잘못됐다고 Ping 자체를 400 으로 되돌리면 안 된다 — 하트비트가 끊겨
+    웹 화면이 '통신단절'로 바뀐다. 상태 보고가 ack 보다 중요하다.
+    """
+    if not isinstance(ack, dict):
+        return
+    try:
+        command_id = int(ack.get('id'))
+    except (TypeError, ValueError):
+        return
+
+    result = str(ack.get('result') or 'queued')[:20]
+    try:
+        count = int(ack.get('count') or 0)
+    except (TypeError, ValueError):
+        count = 0
+    message = str(ack.get('message') or '')[:500]
+
+    c.execute(
+        "UPDATE bot_commands SET acked_at = ?, result = ?, result_count = ?, "
+        "result_message = ? WHERE id = ? AND username = ? AND acked_at IS NULL",
+        (_now_iso(), result, count, message, command_id, username))
+
+
+def request_bot_command(username, command, params=None):
+    """웹 세션에서 호출 — 봇에 내려보낼 명령을 큐에 넣는다. (명령 id)
+
+    같은 명령이 이미 대기 중이면 새로 만들지 않고 그것을 돌려준다. 버튼을 여러 번
+    눌렀다고 재동기화가 여러 번 돌 이유가 없다.
+    """
+    if command not in SUPPORTED_BOT_COMMANDS:
+        raise ValueError(f'지원하지 않는 명령입니다: {command}')
+
+    with _db() as conn:
+        c = conn.cursor()
+        c.execute(
+            "SELECT id FROM bot_commands WHERE username = ? AND command = ? "
+            "AND acked_at IS NULL AND requested_at >= ? ORDER BY id LIMIT 1",
+            (username, command, _command_expiry_cutoff()))
+        existing = c.fetchone()
+        if existing is not None:
+            return existing['id']
+
+        c.execute(
+            "INSERT INTO bot_commands (username, command, params_json, requested_at) "
+            "VALUES (?, ?, ?, ?)",
+            (username, command,
+             json.dumps(params, ensure_ascii=False) if params else None,
+             _now_iso()))
+        conn.commit()
+        return c.lastrowid
+
+
+def latest_bot_command(username, command=None):
+    """웹 화면 표시용 — 가장 최근 명령의 상태. 없으면 None."""
+    with _db() as conn:
+        c = conn.cursor()
+        sql = ("SELECT id, command, params_json, requested_at, delivered_at, "
+               "acked_at, result, result_count, result_message "
+               "FROM bot_commands WHERE username = ?")
+        params = [username]
+        if command:
+            sql += " AND command = ?"
+            params.append(command)
+        c.execute(sql + " ORDER BY id DESC LIMIT 1", params)
+        row = c.fetchone()
+
+    if row is None:
+        return None
+
+    item = dict(row)
+    try:
+        item['params'] = json.loads(item.pop('params_json') or 'null')
+    except (TypeError, ValueError):
+        item['params'] = None
+
+    if item['acked_at']:
+        item['state'] = 'done'
+    elif item['requested_at'] < _command_expiry_cutoff():
+        # 봇이 만료될 때까지 가져가지 않았다 — 대개 봇이 꺼져 있었던 것이다.
+        item['state'] = 'expired'
+    elif item['delivered_at']:
+        item['state'] = 'running'
+    else:
+        item['state'] = 'pending'
+    return item
+
+
 @bp.route('/bot/status', methods=['POST'])
 @require_token(SCOPE_BOT_WRITE)
 def bot_status(username, scopes):
@@ -939,14 +1096,24 @@ def bot_status(username, scopes):
         c = conn.cursor()
         c.execute("UPDATE users SET bot_status = ?, bot_last_seen = ? WHERE username = ?",
                   (status_value, now, username))
+
+        # ack 를 먼저 반영해야 방금 끝낸 명령을 같은 응답에서 또 내려보내지 않는다.
+        _apply_command_ack(c, username, data.get('commandAck'))
+
+        # 봇이 멈추는 중이면 새 일감을 주지 않는다 — 받아도 처리하지 못한다.
+        pending = _take_pending_command(c, username) if status_value == 'running' else None
         conn.commit()
 
-    return jsonify({
+    body = {
         'status': 'success',
         'updatedAt': now,
         'nextPingSeconds': BOT_PING_INTERVAL_SECONDS,
-        'command': 'none',
-    }), 200
+        'command': pending['command'] if pending else 'none',
+    }
+    if pending:
+        body['commandId'] = pending['id']
+        body['commandParams'] = pending['params']
+    return jsonify(body), 200
 
 
 @bp.route('/trades', methods=['POST'])

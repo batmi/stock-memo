@@ -961,6 +961,66 @@ def revoke_api_key_route(key_id):
         return jsonify({"error": "해당 키를 찾을 수 없거나 이미 폐기되었습니다."}), 404
     return jsonify({"status": "success"})
 
+
+# 재동기화 기간 프리셋. 달력 기준(예: '이번 분기')이 아니라 롤링 일수인 이유는,
+# 분기 초에 누르면 범위가 며칠뿐이라 정작 지워진 구간을 못 덮기 때문이다.
+RESYNC_PRESET_DAYS = {'quarter': 90, 'half': 180, 'year': 365}
+
+
+@app.route('/api/me/bot/resync', methods=['POST'])
+def request_bot_resync():
+    """봇에 재동기화를 요청합니다. 봇은 다음 Ping(최대 10초) 때 이 지시를 받습니다.
+
+    지운 기록을 되살리는 유일한 경로입니다. 봇은 로컬 거래기록을 원본으로 삼아
+    해당 기간의 체결을 다시 보내고, 서버는 멱등키로 이미 있는 기록을 걸러내므로
+    기간을 넉넉히 잡아도 중복이 생기지 않습니다.
+
+    웹 화면은 프리셋(분기/반기/1년)만 씁니다. from/to 직접 지정도 계속 받아 두는데,
+    봇은 임의 구간을 처리할 수 있고 API 스펙(commandParams)에도 그렇게 정의돼 있어서,
+    화면에 입력칸이 없다고 계약까지 좁힐 이유는 없기 때문입니다.
+    """
+    username = session.get('username')
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    body = request.get_json(silent=True) or {}
+    preset = body.get('preset')
+    date_from, date_to = body.get('from'), body.get('to')
+
+    if preset:
+        days = RESYNC_PRESET_DAYS.get(preset)
+        if days is None:
+            return jsonify({"error": f"알 수 없는 기간입니다: {preset}"}), 400
+        date_from = (datetime.now(trading_api.KST)
+                     - timedelta(days=days)).strftime('%Y-%m-%d')
+        date_to = None
+    elif not date_from:
+        return jsonify({"error": "기간(preset 또는 from)이 필요합니다."}), 400
+
+    try:
+        command_id = trading_api.request_bot_command(
+            username, 'resync', {'from': date_from, 'to': date_to})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    return jsonify({
+        "status": "success",
+        "commandId": command_id,
+        "from": date_from,
+        "to": date_to,
+        "command": trading_api.latest_bot_command(username, 'resync'),
+    })
+
+
+@app.route('/api/me/bot/resync', methods=['GET'])
+def get_bot_resync_status():
+    """최근 재동기화 요청의 진행 상태 (웹 위젯이 주기적으로 조회)."""
+    username = session.get('username')
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    return jsonify({"command": trading_api.latest_bot_command(username, 'resync')})
+
+
 def get_user_mappings(username):
     file_path = os.path.join('json', username, 'account_info.json')
     if os.path.exists(file_path):

@@ -535,8 +535,22 @@
                         <span style="color: var(--warning-color);">키 원문은 발급 직후 한 번만 표시됩니다.</span> 서버에는 해시만 저장되어 다시 볼 수 없습니다.
                     </div>
                     <div id="apiKeyList" style="font-size: 10px; color: var(--text-muted-color); margin-bottom: 5px; line-height: 1.6;"></div>
-                    <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 5px;">
+                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-bottom: 5px;">
+                        <button type="button" id="btnResync" title="웹에서 지운 기록을 봇의 거래기록에서 다시 받아옵니다" style="margin: 0; padding: 5px 10px; font-size: 11px; width: auto; background: transparent; border: 1px solid var(--success-color); color: var(--success-color); border-radius: 4px;">재동기화</button>
                         <button type="button" id="btnGenerateApiKey" style="margin: 0; padding: 5px 10px; font-size: 11px; width: auto; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color); border-radius: 4px;">새 API 키 발급</button>
+                    </div>
+                    <!-- 재동기화 패널 — 재동기화 버튼을 눌러야 펼쳐진다 -->
+                    <div id="resyncPanel" style="display: none; margin-top: 8px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                        <div style="font-size: 10px; color: var(--text-muted-color); line-height: 1.5; margin-bottom: 8px;">
+                            지운 기록을 봇의 거래기록에서 다시 받아옵니다.
+                            <span style="color: var(--success-color);">이미 있는 기록은 건너뛰므로 중복이 생기지 않습니다</span> — 기간을 넉넉히 잡아도 안전합니다.
+                        </div>
+                        <div style="display: flex; gap: 5px; margin-bottom: 8px;">
+                            <button type="button" class="resync-preset" data-preset="quarter" style="flex: 1; margin: 0; padding: 5px 0; font-size: 11px; width: auto; background: var(--neutral-color);">분기</button>
+                            <button type="button" class="resync-preset" data-preset="half" style="flex: 1; margin: 0; padding: 5px 0; font-size: 11px; width: auto; background: var(--neutral-color);">반기</button>
+                            <button type="button" class="resync-preset" data-preset="year" style="flex: 1; margin: 0; padding: 5px 0; font-size: 11px; width: auto; background: var(--neutral-color);">1년</button>
+                        </div>
+                        <div id="resyncResult" style="font-size: 10px; color: var(--text-muted-color); line-height: 1.5;"></div>
                     </div>
                     <div id="newApiKeyContainer" style="display: none; gap: 5px; margin-bottom: 5px; margin-top: 10px;">
                         <input type="text" id="apiKeyValue" readonly placeholder="발급된 키가 없습니다." style="flex: 1; font-size: 11px; padding: 6px; margin: 0; background: var(--bg-color); color: var(--text-strong-color); text-align: center;">

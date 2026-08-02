@@ -189,6 +189,35 @@ Keys carry scopes, and tokens inherit them.
 *   **Trading-day attribution**: `executedAt` is accepted as RFC3339 with an offset and, together with `exchange`, yields the **exchange-local trading day** (`tradeDate`). A US after-hours fill is no longer pushed onto the next Korean date.
 *   **Rate limiting**: Token issuance is 10 requests per 5 minutes per IP (brute-force protection); other API calls are 600 per minute per key. Exceeding either returns `429` with `Retry-After`.
 
+### Re-sync — restoring deleted records
+
+When you delete a record on the web, **the bot does not automatically send it again.** The bot only remembers *that it sent* a record, never whether it is still there — and that is the correct behaviour: if deliberate deletions kept coming back, there would be no way to delete anything.
+
+To restore them, use **Settings → Account Settings → 재동기화 (Re-Sync)** and pick a range: last quarter (90d), half-year (180d), or year (365d). All presets are **rolling**, not calendar-based — pressing "quarter" at the start of a calendar quarter would otherwise cover only a few days and miss the gap entirely.
+
+> The API (`POST /api/me/bot/resync`) also accepts an explicit `from`/`to`. The UI omits those inputs because the presets suffice, not because the bot cannot handle arbitrary ranges.
+
+**No duplicates are created.** Idempotency on `brokerExecutionId` makes existing records come back as `duplicate`. Re-syncing 90 days when only 10 days were actually deleted returns `inserted=10, skipped=80`. Those two numbers *are* the answer to "what was missing, and how much?", so the web shows them separately. Since duplicates are free, err on the side of a longer range.
+
+#### How commands reach the bot
+
+The bot usually sits behind a home network, so **the server can never initiate a connection.** Pressing the button queues a row in `bot_commands`, which rides along on the bot's next ping response (≤10s).
+
+```
+POST /api/v1/bot/status  →  { "command": "resync", "commandId": 17,
+                              "commandParams": { "from": "2026-05-04", "to": null } }
+next ping request body   ←  { "status": "running",
+                              "commandAck": { "id": 17, "result": "queued", "count": 42 } }
+```
+
+*   The **same command is re-sent until acked.** A lost response still gets through eventually, and re-execution is idempotent.
+*   If the bot never picks it up, the command expires after an hour and shows as "미처리" (unhandled) — usually because the bot was switched off.
+*   Pressing the button repeatedly does not queue duplicates while one is still pending.
+*   A bot reporting `status=stopped` is given no work; it could not act on it anyway.
+*   A malformed ack still returns `200` for the ping itself. Returning `400` would break the heartbeat and flip the display to "disconnected".
+
+> ⚠️ **`pause`/`resume` are deliberately unimplemented.** They exist in the API spec enum but are excluded from `SUPPORTED_BOT_COMMANDS`, so the server refuses to even queue them. Re-sync means "re-send data that is already the bot's"; `pause` means **the web server can halt a trading bot**. A compromised or buggy web layer could stop the bot while it holds a position. If ever needed, it requires its own design with confirmation and auto-expiry safeguards — it must not be treated like re-sync.
+
 ### Error responses
 
 ```json

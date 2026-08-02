@@ -5762,6 +5762,97 @@ if (btnChangePassword && passwordModalOverlay) {
         });
     }
     
+    // ── 재동기화 ───────────────────────────────────────────────────────
+    //  웹에서 지운 기록을 봇에서 다시 받아온다. 봇은 대개 가정용 네트워크 뒤에
+    //  있어 서버가 먼저 접속할 수 없으므로, 요청을 큐에 쌓아 두면 봇이 다음
+    //  Ping(최대 10초) 때 가져간다. 그래서 버튼을 눌러도 결과는 조금 뒤에 나온다.
+    let resyncPollTimer = null;
+
+    function renderResyncStatus(cmd) {
+        const box = document.getElementById('resyncResult');
+        if (!box) return;
+        if (!cmd) { box.innerHTML = ''; return; }
+
+        const period = (cmd.params && cmd.params.from)
+            ? `${cmd.params.from} ~ ${cmd.params.to || '현재'}` : '전체';
+        const pending = {
+            pending: `<span style="color: var(--warning-color);">⏳ 요청됨</span> — 봇이 받아가기를 기다리는 중 (${escapeHtml(period)})`,
+            running: `<span style="color: var(--info-color);">🔄 처리 중</span> — 봇이 재동기화하고 있습니다 (${escapeHtml(period)})`,
+            expired: `<span style="color: var(--danger-color);">⚠️ 미처리</span> — 봇이 가져가지 않았습니다. 봇이 꺼져 있지 않은지 확인 후 다시 시도하세요.`,
+        };
+        if (cmd.state !== 'done') {
+            box.innerHTML = pending[cmd.state] || '';
+            return;
+        }
+
+        // 완료 — 복구된 건수와 이미 있던 건수를 나눠 보여준다. 이 두 숫자가 곧
+        // '무엇이 얼마나 지워져 있었는지'에 대한 답이 된다.
+        const n = cmd.result_count || 0;
+        if (cmd.result === 'failed') {
+            box.innerHTML = `<span style="color: var(--danger-color);">❌ 실패</span> — ${escapeHtml(cmd.result_message || '사유 미상')}`;
+        } else if (n > 0) {
+            box.innerHTML = `<span style="color: var(--success-color);">✅ 완료</span> — ${n}건을 다시 전송했습니다. `
+                + `<span style="color: var(--text-muted-color);">${escapeHtml(cmd.result_message || '')}</span>`;
+        } else {
+            box.innerHTML = `<span style="color: var(--success-color);">✅ 완료</span> — 빠진 기록이 없었습니다.`;
+        }
+    }
+
+    async function pollResyncStatus() {
+        try {
+            const res = await fetch('/api/me/bot/resync');
+            if (!res.ok) return;
+            const cmd = (await res.json()).command;
+            renderResyncStatus(cmd);
+            // 끝났으면 폴링을 멈춘다 — 계정 설정 창은 오래 열어두는 화면이다.
+            if (!cmd || cmd.state === 'done' || cmd.state === 'expired') {
+                if (resyncPollTimer) { clearInterval(resyncPollTimer); resyncPollTimer = null; }
+                // 실제로 복구된 게 있을 때만 목록을 다시 읽는다 — 빠진 게 없었는데
+                // 전체 재조회를 걸면 느린 회선에서 화면이 괜히 한 번 멈춘다.
+                if (cmd && cmd.state === 'done' && (cmd.result_count || 0) > 0) loadDataFromLocal();
+            }
+        } catch (e) { /* 폴링 실패는 다음 주기에 다시 시도한다 */ }
+    }
+
+    async function requestResync(payload, label) {
+        if (!(await customConfirm(
+            `${label} 기간의 매매 기록을 봇에서 다시 받아옵니다.\n\n`
+            + '이미 있는 기록은 건너뛰므로 중복이 생기지 않습니다.\n계속하시겠습니까?'))) return;
+        try {
+            const res = await fetch('/api/me/bot/resync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                await customAlert(err.error || '재동기화 요청에 실패했습니다.');
+                return;
+            }
+            renderResyncStatus((await res.json()).command);
+            if (resyncPollTimer) clearInterval(resyncPollTimer);
+            resyncPollTimer = setInterval(pollResyncStatus, 3000);
+        } catch (e) {
+            await customAlert('오류가 발생했습니다.');
+        }
+    }
+
+    const btnResync = document.getElementById('btnResync');
+    if (btnResync) {
+        btnResync.addEventListener('click', () => {
+            const panel = document.getElementById('resyncPanel');
+            const opening = panel.style.display === 'none';
+            panel.style.display = opening ? 'block' : 'none';
+            if (opening) pollResyncStatus();
+        });
+    }
+
+    document.querySelectorAll('.resync-preset').forEach(btn => {
+        const labels = { quarter: '최근 분기(90일)', half: '최근 반기(180일)', year: '최근 1년(365일)' };
+        btn.addEventListener('click', () =>
+            requestResync({ preset: btn.dataset.preset }, labels[btn.dataset.preset]));
+    });
+
     const btnCopyApiKey = document.getElementById('btnCopyApiKey');
     if (btnCopyApiKey) {
         btnCopyApiKey.addEventListener('click', async () => {
