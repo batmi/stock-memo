@@ -5647,11 +5647,15 @@ if (btnChangePassword && passwordModalOverlay) {
 
         box.innerHTML = active.map(k => `
             <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; padding:3px 0;">
-                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                    <code>${escapeHtml(k.key_prefix)}…</code>
-                    ${escapeHtml(k.label || '')}
-                    <span style="opacity:0.6;">· 최근 사용 ${escapeHtml(k.last_used_at || '없음')}</span>
-                </span>
+                <div style="display:flex; flex-direction:column; overflow:hidden;">
+                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                        <code>${escapeHtml(k.key_prefix)}…</code>
+                        ${escapeHtml(k.label || '')}
+                    </span>
+                    <span style="opacity:0.6; font-size:9.5px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                        최근 사용: ${escapeHtml(k.last_used_at || '없음')}
+                    </span>
+                </div>
                 <button type="button" data-key-id="${k.id}" class="btnRevokeApiKey"
                         style="margin:0; padding:2px 6px; font-size:10px; width:auto; background:transparent;
                                border:1px solid var(--danger-color); color:var(--danger-color); border-radius:4px; flex-shrink:0; white-space:nowrap;">폐기</button>
