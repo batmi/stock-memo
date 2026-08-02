@@ -3491,12 +3491,19 @@ function updatePortfolioSummary() {
         const finalColors = isPortfolioEmpty ? [theme === 'dark' ? '#2c2c2c' : '#f0f0f0'] : chartColors;
         const finalHoverColors = isPortfolioEmpty ? [theme === 'dark' ? '#f0f0f0' : '#2c2c2c'] : hoverColors;
 
-        // ⭐️ 현재가 보기 활성화 시 도넛 차트 중앙에 총 평가금액 컨테이너 노출 및 조회 요청
+        // ⭐️ 도넛 중앙의 총 평가금액은 실거래 합계이므로 실거래가 없으면 감춘다.
         if (showCurrentPrice && !isPortfolioEmpty) {
             document.getElementById('centerTotalEvaluationContainer').style.display = 'block';
-            window.fetchCurrentPricesAndUpdateUI();
         } else {
             document.getElementById('centerTotalEvaluationContainer').style.display = 'none';
+        }
+
+        // ⭐️ 현재가 조회는 위 도넛 표시 여부와 분리한다.
+        //    isPortfolioEmpty 는 실거래 투자금액(totalInvestedAmount) 기준인데, 모의투자는
+        //    합계에 잡히지 않으므로 '모의투자계좌'로 필터하면 보유 종목이 있어도 참이 된다.
+        //    여기에 묶어 두면 그 화면의 카드가 영영 '조회 중...' 에서 멈춘다.
+        if (showCurrentPrice) {
+            window.fetchCurrentPricesAndUpdateUI();
         }
 
         const ctx = document.getElementById('portfolioChart').getContext('2d');
