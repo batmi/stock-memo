@@ -210,8 +210,10 @@ next ping request body   ←  { "status": "running",
                               "commandAck": { "id": 17, "result": "queued", "count": 42 } }
 ```
 
-*   The **same command is re-sent until acked.** A lost response still gets through eventually, and re-execution is idempotent.
-*   If the bot never picks it up, the command expires after an hour and shows as "미처리" (unhandled) — usually because the bot was switched off.
+*   **A command is delivered at most once.** It is not re-sent even if the ack never arrives.
+    Re-sending until acked would guarantee execution, but if the bot restarts after receiving the command and before acking, **the same re-sync runs a second time.** That is idempotent with respect to server data yet **not idempotent with respect to operator intent** — records deleted on purpose between the two runs would come back. Making the operator press the button again is by far the lesser evil.
+*   **A command shown as "완료" (done) is never sent again, under any circumstance.** The bot's duplicate-execution guard lives only in memory and is lost on restart, so this guarantee is the server's job.
+*   If the bot never picks it up, the command expires after an hour and shows as "미처리" (unhandled) — usually because the bot was switched off. If it was picked up but never reported back, it stays "처리 중" (running) until then.
 *   Pressing the button repeatedly does not queue duplicates while one is still pending.
 *   A bot reporting `status=stopped` is given no work; it could not act on it anyway.
 *   A malformed ack still returns `200` for the ping itself. Returning `400` would break the heartbeat and flip the display to "disconnected".

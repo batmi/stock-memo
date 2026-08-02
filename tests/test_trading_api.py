@@ -590,17 +590,37 @@ def test_requested_resync_reaches_the_bot_on_next_ping(api):
     assert body['commandParams'] == {'from': '2026-05-01', 'to': None}
 
 
-def test_command_repeats_until_acked(api):
-    """ack 를 못 받았는데 명령을 지우면, 응답이 유실될 때 지시가 통째로 사라진다."""
+def test_command_is_delivered_only_once(api):
+    """재동기화가 두 번 돌면 운용자가 일부러 지운 기록이 되살아난다.
+
+    ack 를 받을 때까지 반복 전달하면 '명령이 반드시 실행된다'는 보장은 얻지만,
+    봇이 명령을 받고 ack 를 보내기 전에 재시작하면 같은 재동기화가 또 돈다.
+    서버 데이터로는 멱등해도 **운용자의 의도로는 멱등하지 않다.**
+    """
     trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'})
 
     assert _ping(api)['command'] == 'resync'
-    assert _ping(api)['command'] == 'resync'      # 아직 ack 전 — 계속 내려온다
+    assert _ping(api)['command'] == 'none'        # ack 전이어도 다시 주지 않는다
+    assert _ping(api)['command'] == 'none'
 
-    cmd_id = _ping(api)['commandId']
+
+def test_delivered_but_unacked_command_shows_as_running(api):
+    """봇이 받아갔는데 결과 보고가 없으면 '처리 중'이다 — 다시 보내지는 않는다."""
+    trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'})
+    _ping(api)
+
+    latest = trading_api.latest_bot_command('bot', 'resync')
+    assert latest['state'] == 'running'
+    assert latest['delivered_at'] and not latest['acked_at']
+
+
+def test_result_is_still_recorded_after_single_delivery(api):
+    """한 번만 전달하더라도 결과 보고는 받아야 웹에 표시할 수 있다."""
+    cmd_id = trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'})
+    assert _ping(api)['commandId'] == cmd_id
+
     _ping(api, commandAck={'id': cmd_id, 'result': 'queued', 'count': 42})
-
-    assert _ping(api)['command'] == 'none'        # 처리됐으니 더는 내려오지 않는다
+    assert trading_api.latest_bot_command('bot', 'resync')['state'] == 'done'
 
 
 def test_ack_is_recorded_for_the_web_view(api):
@@ -652,3 +672,20 @@ def test_unsupported_command_is_refused_at_the_source(api):
     for command in ('pause', 'resume'):
         with pytest.raises(ValueError):
             trading_api.request_bot_command('bot', command)
+
+
+def test_completed_command_is_never_sent_again(api):
+    """화면에 '완료'로 표시된 재동기화는 어떤 경우에도 다시 나가면 안 된다.
+
+    봇의 중복 실행 방지는 메모리에만 있어 재시작하면 잊는다. 그래서 '두 번 실행되지
+    않는다'는 보장은 서버가 져야 한다 — 봇을 못 믿어서가 아니라, 라즈베리파이는
+    재부팅되는 물건이기 때문이다.
+    """
+    cmd_id = trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'})
+    assert _ping(api)['commandId'] == cmd_id
+    _ping(api, commandAck={'id': cmd_id, 'result': 'queued', 'count': 42})
+    assert trading_api.latest_bot_command('bot', 'resync')['state'] == 'done'
+
+    # 봇이 재시작해 처리 이력을 잊은 상태로 계속 Ping 해도 다시 받지 않는다.
+    for _ in range(30):
+        assert _ping(api)['command'] == 'none'

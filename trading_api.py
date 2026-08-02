@@ -966,20 +966,28 @@ def _command_expiry_cutoff():
 def _take_pending_command(c, username):
     """봇에 내려보낼 명령을 하나 집는다. 없으면 None.
 
-    ack 를 받을 때까지 같은 명령을 계속 돌려준다. 봇이 명령을 받은 직후 재시작해도
-    다시 받아 처리하게 하려는 것이고, 재실행은 멱등하므로 안전하다.
+    **한 번만 전달한다(at-most-once).** ack 를 받을 때까지 반복 전달하면 명령이
+    반드시 실행되는 대신, 봇이 명령을 받고 ack 를 보내기 전에 재시작할 때 같은
+    재동기화가 한 번 더 돈다. 서버 데이터로 보면 멱등하지만 **운용자의 의도로 보면
+    멱등하지 않다** — 두 실행 사이에 운용자가 일부러 지운 기록이 되살아난다.
+    지운 기록을 마음대로 되살리는 것보다, 전달이 유실됐을 때 버튼을 한 번 더 누르게
+    하는 편이 훨씬 낫다.
+
+    전달만 되고 ack 가 오지 않으면 만료될 때까지 '처리 중'으로 남았다가 '미처리'로
+    바뀐다. 운용자는 그것을 보고 다시 누르면 된다.
     """
     c.execute(
         "SELECT id, command, params_json FROM bot_commands "
-        "WHERE username = ? AND acked_at IS NULL AND requested_at >= ? "
+        "WHERE username = ? AND acked_at IS NULL AND delivered_at IS NULL "
+        "  AND requested_at >= ? "
         "ORDER BY id LIMIT 1",
         (username, _command_expiry_cutoff()))
     row = c.fetchone()
     if row is None:
         return None
 
-    c.execute("UPDATE bot_commands SET delivered_at = COALESCE(delivered_at, ?) "
-              "WHERE id = ?", (_now_iso(), row['id']))
+    c.execute("UPDATE bot_commands SET delivered_at = ? WHERE id = ?",
+              (_now_iso(), row['id']))
     try:
         params = json.loads(row['params_json']) if row['params_json'] else None
     except (TypeError, ValueError):
