@@ -477,7 +477,20 @@
                             <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-muted-color);">3. 계좌별칭</label>
                             <input type="text" id="unifiedAccountName" placeholder="예: 단기스윙계좌, ISA계좌" style="width: 100%; padding: 10px; font-size: 13px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;">
                         </div>
-                        
+
+                        <!-- ⭐️ 모의투자·연습용 계좌처럼 실제 돈이 아닌 계좌를 금액 집계에서 빼기 위한 옵션 -->
+                        <div>
+                            <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--text-strong-color); cursor: pointer;">
+                                <input type="checkbox" id="unifiedAccountExcludeStats" class="app-checkbox" style="margin-top: 1px;">
+                                <span>
+                                    금액 계산에서 제외
+                                    <span style="display: block; font-size: 11px; color: var(--text-muted-color); margin-top: 2px; line-height: 1.4;">
+                                        도넛 차트·총 투자금액·평가금액·실현손익·차트·통계에서 빠집니다. 기록과 종목 카드는 그대로 보입니다.
+                                    </span>
+                                </span>
+                            </label>
+                        </div>
+
                         <div style="margin-top: 5px; display: flex; justify-content: flex-end; gap: 8px;">
                             <button type="button" id="btnCancelNewAccountForm" style="width: auto; margin: 0; padding: 8px 16px; font-size: 13px; background: transparent; color: var(--text-muted-color); border: 1px solid var(--border-color); border-radius: 4px;">취소</button>
                             <button type="button" id="btnAddUnifiedMapping" style="width: auto; margin: 0; padding: 8px 16px; font-size: 13px; border-radius: 4px;">➕ 추가하기</button>

@@ -1,5 +1,6 @@
 import pytest
 import threading
+import datetime
 import os
 import tempfile
 from werkzeug.serving import make_server
@@ -164,3 +165,131 @@ def test_simulated_trade_does_not_pollute_real_average_price(page: Page):
     # 실거래 카드의 평균 단가는 모의 매수(9,900원)에 오염되지 않은 100원이어야 한다
     expect(real_card).to_contain_text('100')
     expect(sim_card).to_contain_text('9,900')
+
+
+def _chart_realized(page: Page, month_label):
+    """차트 뷰의 '실현손익' 데이터셋에서 특정 월(예: '9월') 값을 읽는다."""
+    return page.evaluate("""(monthLabel) => {
+        window.currentChartType = 'profit';
+        window.renderMonthlyProfitChart();
+        const chart = window.monthlyProfitChartInstance;
+        const idx = chart.data.labels.indexOf(monthLabel);
+        if (idx < 0) return null;
+        const ds = chart.data.datasets.find(d => d.label === '매매 실현손익');
+        return ds ? ds.data[idx] : null;
+    }""", month_label)
+
+
+@pytest.fixture
+def cleanup_admin_mappings():
+    """/api/mappings 는 json/<username>/ 에 실제 파일을 남기므로 테스트 후 지운다."""
+    yield
+    import shutil
+    shutil.rmtree(os.path.join('json', 'admin'), ignore_errors=True)
+
+
+def test_chart_excludes_simulated_and_flagged_accounts(page: Page, cleanup_admin_mappings):
+    """차트 뷰(실현손익)도 모의투자·'금액 계산 제외' 계좌를 빼고 그려야 한다."""
+    page.goto(BASE_URL + '/login')
+    page.fill('input[name="username"]', 'admin')
+    page.fill('input[name="password"]', 'admin123')
+    page.click('button[type="submit"]')
+    expect(page.locator('#btnFullBackup')).to_be_visible(timeout=5000)
+
+    # '연습계좌'(99998888-01)를 금액 계산 제외로 등록한다
+    assert page.evaluate("""async () => {
+        const res = await fetch('/api/mappings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({brokers: {}, accounts: {
+                "99998888-01": {broker_code: "243", broker_name: "한국투자증권",
+                                alias: "연습계좌", exclude_from_stats: true}
+            }})
+        });
+        return res.ok ? 'OK' : 'FAIL';
+    }""") == 'OK'
+
+    # ⭐️ 차트는 '최근 12개월'만 그리므로 실행 시점 기준 이번 달로 기록을 심는다.
+    today = datetime.date.today()
+    day = f"{today.year}-{today.month:02d}-{{:02d}}T09:00"
+
+    assert _seed_entries(page, [
+        # 실거래: 1,000 → 1,200 × 10주 = +2,000원
+        {"type": "trade", "tradeType": "매수", "stockName": "차트리얼",
+         "stockCode": "000011", "price": 1000, "quantity": 10,
+         "rawDate": day.format(1), "id": 900101},
+        {"type": "trade", "tradeType": "매도", "stockName": "차트리얼",
+         "stockCode": "000011", "price": 1200, "quantity": 10,
+         "rawDate": day.format(5), "id": 900102},
+        # 모의투자: 큰 손실 — 차트에 섞이면 즉시 티가 난다
+        {"type": "trade", "tradeType": "매수", "stockName": "차트모의",
+         "stockCode": "000012", "price": 10000, "quantity": 10,
+         "rawDate": day.format(2), "id": 900103, "isSimulated": 1},
+        {"type": "trade", "tradeType": "매도", "stockName": "차트모의",
+         "stockCode": "000012", "price": 1000, "quantity": 10,
+         "rawDate": day.format(6), "id": 900104, "isSimulated": 1},
+        # 제외 계좌(연습계좌): 역시 큰 손실
+        {"type": "trade", "tradeType": "매수", "stockName": "차트연습",
+         "stockCode": "000013", "price": 10000, "quantity": 10,
+         "rawDate": day.format(3), "id": 900105, "subAccount": "99998888-01"},
+        {"type": "trade", "tradeType": "매도", "stockName": "차트연습",
+         "stockCode": "000013", "price": 1000, "quantity": 10,
+         "rawDate": day.format(7), "id": 900106, "subAccount": "99998888-01"},
+    ]) == 'OK'
+
+    page.reload()
+    expect(page.locator('#portfolioGrid')).to_be_visible(timeout=10000)
+
+    # 이번 달 실현손익은 실거래 +2,000원뿐이어야 한다
+    assert _chart_realized(page, f'{today.month}월') == 2000
+
+    # 제외 계좌는 차트 계좌 필터 선택지에도 나오지 않는다
+    options = page.evaluate(
+        "() => [...document.querySelectorAll('#chartSubAccountFilter option')].map(o => o.value)")
+    assert '연습계좌' not in options
+
+
+def test_account_form_switches_to_edit_mode(page: Page, cleanup_admin_mappings):
+    """'수정'을 누르면 폼이 펼쳐지고 문구가 '계좌 수정 / 수정하기'로 바뀌어야 한다."""
+    page.goto(BASE_URL + '/login')
+    page.fill('input[name="username"]', 'admin')
+    page.fill('input[name="password"]', 'admin123')
+    page.click('button[type="submit"]')
+    expect(page.locator('#btnFullBackup')).to_be_visible(timeout=5000)
+
+    assert page.evaluate("""async () => {
+        const res = await fetch('/api/mappings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({brokers: {}, accounts: {
+                "77776666-01": {broker_code: "243", broker_name: "한국투자증권",
+                                alias: "수정테스트계좌", exclude_from_stats: true}
+            }})
+        });
+        return res.ok ? 'OK' : 'FAIL';
+    }""") == 'OK'
+
+    page.reload()
+    page.click('#loggedInUserDisplay')
+    form = page.locator('#newAccountFormContainer')
+    title = page.locator('#btnToggleNewAccountForm')
+    submit = page.locator('#btnAddUnifiedMapping')
+
+    # 모달을 열면 항상 접힌 '신규 계좌 등록' 상태
+    expect(form).to_be_hidden()
+    expect(title).to_have_text('➕ 신규 계좌 등록')
+
+    page.click('#unifiedMappingList button:has-text("수정")')
+    expect(form).to_be_visible()
+    expect(title).to_have_text('✏️ 계좌 수정')
+    expect(submit).to_have_text('수정하기')
+    expect(page.locator('#unifiedAccountCode')).to_have_value('77776666-01')
+    # 저장돼 있던 '금액 계산에서 제외' 체크 상태도 그대로 불러온다
+    expect(page.locator('#unifiedAccountExcludeStats')).to_be_checked()
+
+    # 취소하면 신규 등록 상태로 되돌아간다
+    page.click('#btnCancelNewAccountForm')
+    expect(form).to_be_hidden()
+    expect(title).to_have_text('➕ 신규 계좌 등록')
+    expect(submit).to_have_text('➕ 추가하기')
+    expect(page.locator('#unifiedAccountCode')).to_have_value('')

@@ -1081,6 +1081,71 @@ def test_simulated_entries_are_still_returned_to_dashboard(client):
     assert data[0]['isSimulated'] == 1
 
 
+@pytest.fixture
+def cleanup_user_json():
+    """/api/mappings 는 json/<username>/ 에 실제 파일을 남기므로 테스트 후 지운다."""
+    names = []
+    yield names
+    import shutil
+    for name in names:
+        shutil.rmtree(os.path.join('json', name), ignore_errors=True)
+
+
+def test_stats_exclude_flagged_account(client, cleanup_user_json):
+    """계좌 관리에서 '금액 계산 제외'로 체크한 계좌는 통계에서 빠져야 한다.
+
+    계좌 별칭은 언제든 바꿀 수 있으므로 이름이 아니라 계좌번호(exclude_from_stats)로 판정한다.
+    """
+    _login(client, 'excacct')
+    cleanup_user_json.append('excacct')
+    client.post('/api/mappings', json={
+        "brokers": {},
+        "accounts": {
+            "11112222-01": {"broker_code": "243", "broker_name": "한국투자증권",
+                            "alias": "실거래계좌"},
+            "33334444-01": {"broker_code": "243", "broker_name": "한국투자증권",
+                            "alias": "연습계좌", "exclude_from_stats": True},
+        }
+    })
+    # 실거래 계좌: 100원 10주 매수 → 120원 10주 매도 = +200
+    _insert_raw('excacct', id=1, stockName='A', tradeType='매수', price=100,
+                quantity=10, rawDate='2024-01-10T09:00', subAccount='11112222-01')
+    _insert_raw('excacct', id=2, stockName='A', tradeType='매도', price=120,
+                quantity=10, rawDate='2024-02-10T09:00', subAccount='11112222-01')
+    # 제외 계좌: 큰 손실 — 섞이면 총 실현손익이 음수가 된다. 하이픈 없는 표기로 들어와도 걸러야 한다.
+    _insert_raw('excacct', id=101, stockName='B', tradeType='매수', price=1000,
+                quantity=100, rawDate='2024-01-11T09:00', subAccount='3333444401')
+    _insert_raw('excacct', id=102, stockName='B', tradeType='매도', price=100,
+                quantity=100, rawDate='2024-02-11T09:00', subAccount='3333444401')
+
+    s = client.get('/api/stats').json
+    assert round(s['totalRealized']) == 200
+    assert [p['stock'] for p in s['perStock']] == ['A']
+
+    # 차트 필터 경로(entry_ids 직접 전달)도 동일하게 걸러진다
+    s2 = client.post('/api/stats', json={'entry_ids': [1, 2, 101, 102]}).json
+    assert round(s2['totalRealized']) == 200
+
+    # 계좌번호 없이 이름만 남은 수기 기록은 별칭으로 대조해 걸러낸다
+    _insert_raw('excacct', id=103, stockName='C', tradeType='매수', price=1000,
+                quantity=100, rawDate='2024-01-12T09:00', accountName='연습계좌')
+    _insert_raw('excacct', id=104, stockName='C', tradeType='매도', price=100,
+                quantity=100, rawDate='2024-02-12T09:00', accountName='연습계좌')
+    s3 = client.get('/api/stats').json
+    assert round(s3['totalRealized']) == 200
+
+    # 체크를 풀면 다시 통계에 잡힌다 (매핑 저장 시 캐시가 무효화돼야 한다)
+    client.post('/api/mappings', json={
+        "brokers": {},
+        "accounts": {
+            "33334444-01": {"broker_code": "243", "broker_name": "한국투자증권",
+                            "alias": "연습계좌"},
+        }
+    })
+    s4 = client.get('/api/stats').json
+    assert round(s4['totalRealized']) < 0
+
+
 def test_simulated_holdings_do_not_block_real_sell(client):
     """모의 보유가 실거래 매도 검증에 끼어들면 안 된다 (그 반대도 마찬가지)."""
     _login(client, 'simhold')

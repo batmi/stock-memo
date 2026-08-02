@@ -101,6 +101,34 @@ function isSimulatedEntry(entry) {
     return !!Number(entry && entry.isSimulated);
 }
 
+// ⭐️ 계좌 관리에서 '금액 계산 제외'로 체크한 계좌(exclude_from_stats)의 기록인지 판정한다.
+//    별칭(계좌 이름)은 언제든 바꿀 수 있으므로 이름을 하드코딩하지 않고 등록된 계좌번호로 본다.
+//    다만 HTS 없이 손으로 적은 기록은 계좌번호 없이 이름만 있을 수 있어, 별칭도 함께 대조한다.
+function isExcludedAccountEntry(entry) {
+    if (!entry) return false;
+    const accounts = (currentAccountMappings && currentAccountMappings.accounts) || {};
+    const info = findAccountMapping(entry.subAccount);
+    if (info && typeof info === 'object' && info.exclude_from_stats) return true;
+
+    // 계좌번호로 못 찾은 기록은 화면에 보이는 계좌 이름으로 한 번 더 대조한다.
+    const label = getMappedSubAccount(entry.subAccount, entry.accountName);
+    if (!label) return false;
+    return Object.values(accounts).some(acc =>
+        acc && typeof acc === 'object' && acc.exclude_from_stats && acc.alias === label
+    );
+}
+
+// ⭐️ 금액을 합산하는 모든 지표(도넛·총액·실현손익·차트·통계)에서 빼야 하는 기록인지.
+//    모의투자(isSimulated) 체결 + 사용자가 '제외'로 체크한 계좌의 기록이 모두 해당된다.
+function isExcludedFromTotals(entry) {
+    return isSimulatedEntry(entry) || isExcludedAccountEntry(entry);
+}
+
+// 제외 사유에 따라 카드·목록에 붙일 배지 문구
+function exclusionBadgeLabel(entry) {
+    return isSimulatedEntry(entry) ? '모의' : '제외';
+}
+
 function portfolioKey(stockName, isSim) {
     return isSim ? stockName + SIM_KEY_SUFFIX : stockName;
 }
@@ -2016,8 +2044,9 @@ window.loadTradeStats = async function() {
         let entryIds = [];
         cloudEntries.forEach(entry => {
             if (entry.type !== 'trade' || !entry.stockName) return;
-            // ⭐️ 모의투자는 실제 성과가 아니므로 통계·차트에서 제외한다. (백엔드에서도 한 번 더 거른다)
-            if (isSimulatedEntry(entry)) return;
+            // ⭐️ 모의투자·'금액 계산 제외' 계좌는 실제 성과가 아니므로 통계에서 제외한다.
+            //    (모의투자는 백엔드에서도 한 번 더 거른다)
+            if (isExcludedFromTotals(entry)) return;
             if (currentChartStock !== 'all' && entry.stockName !== currentChartStock) return;
             if (currentChartAccount !== 'all' && (entry.tradeClass || '') !== currentChartAccount) return;
             if (currentChartBroker !== 'all' && getMappedBroker(entry.brokerAccount) !== currentChartBroker) return;
@@ -3135,12 +3164,14 @@ function updatePortfolioSummary() {
         const qty = Number(entry.quantity) || 0;
         const price = Number(entry.price) || 0;
 
-        // ⭐️ 모의투자는 실거래와 다른 칸에 쌓는다. 같은 종목이라도 합치면
-        //    모의 매수가 실거래 평균단가·실현손익을 오염시킨다.
-        const isSim = isSimulatedEntry(entry);
+        // ⭐️ 모의투자·'금액 계산 제외' 계좌는 실거래와 다른 칸에 쌓는다. 같은 종목이라도 합치면
+        //    제외 대상 매수가 실거래 평균단가·실현손익을 오염시킨다.
+        const isSim = isExcludedFromTotals(entry);
+        const excludeLabel = isSim ? exclusionBadgeLabel(entry) : '';
+
         const key = portfolioKey(stock, isSim);
 
-        if (!portfolio[key]) portfolio[key] = { stock, isSim, qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, realizedCost: 0, accountName: '', tradeClass: '', traded: false, stockCode: '' };
+        if (!portfolio[key]) portfolio[key] = { stock, isSim, excludeLabel, qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, realizedCost: 0, accountName: '', tradeClass: '', traded: false, stockCode: '' };
         if (entry.tradeClass) portfolio[key].tradeClass = entry.tradeClass; // 가장 최근 거래의 투자 분류 기록
         if (entry.stockCode) portfolio[key].stockCode = entry.stockCode; // 종목코드 기록
 
@@ -3157,7 +3188,7 @@ function updatePortfolioSummary() {
         const tt = entry.tradeType;
         if (tt === '매수' || tt === '매도' || tt === '배당') {
             portfolio[key].traded = true;
-            // ⭐️ 월간 매매 건수는 실거래만 센다.
+            // ⭐️ 월간 매매 건수는 실거래(합계 반영 대상)만 센다.
             if (isCurrentMonth && !isSim) {
                 if (tt === '매수') monthlyBuyCount++;
                 else if (tt === '매도') monthlySellCount++;
@@ -3286,15 +3317,15 @@ function updatePortfolioSummary() {
             card.style.opacity = '0.6'; // 청산 종목은 반투명하게 표시
             card.style.borderLeftColor = 'var(--text-muted-color)';
         }
-        // ⭐️ 모의투자 카드는 합계에 잡히지 않는다는 사실이 한눈에 보여야 오해가 없다.
+        // ⭐️ 합계에 잡히지 않는 카드(모의투자·제외 계좌)는 그 사실이 한눈에 보여야 오해가 없다.
         //    다만 테두리는 실거래 카드와 동일한 실선·분류색을 그대로 쓴다. 점선/주황 고정색은
-        //    '시스템' 같은 분류색을 가려 버려서, 구분은 아래 '모의' 배지와 농도로만 준다.
+        //    '시스템' 같은 분류색을 가려 버려서, 구분은 아래 배지와 농도로만 준다.
         if (isSim) {
             card.style.opacity = isClosed ? '0.5' : '0.75';
         }
         const closedBadge = isClosed ? `<span style="font-size: 10px; background: var(--border-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px;">청산완료</span>` : '';
         const hiddenBadge = data.isHiddenStock ? `<span style="font-size: 10px; background: var(--text-muted-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px; margin-left: 2px;">숨김</span>` : '';
-        const simBadge = isSim ? `<span style="font-size: 10px; background: var(--warning-color); color: #fff; padding: 1px 4px; border-radius: 3px; margin-left: 2px;" title="모의투자 기록입니다. 총 투자금액·평가금액·실현손익·도넛 차트·통계에는 반영되지 않습니다.">모의</span>` : '';
+        const simBadge = isSim ? `<span style="font-size: 10px; background: var(--warning-color); color: #fff; padding: 1px 4px; border-radius: 3px; margin-left: 2px;" title="총 투자금액·평가금액·실현손익·도넛 차트·통계에는 반영되지 않는 기록입니다.">${data.excludeLabel || '모의'}</span>` : '';
         const statusBadge = `${closedBadge}${hiddenBadge}${simBadge}`;
         const accountBadgeHtml = shortAccountName ? `<span class="account-badge ${badgeClass}">${shortAccountName}</span>` : '';
         card.innerHTML = `
@@ -3920,8 +3951,13 @@ function updateFilterDropdown() {
     if (chartSubAccountFilter) {
         const currentSubAccountVal = currentChartSubAccount || 'all';
         let subAccountHtml = `<option value="all">모든 계좌</option>`;
-        if (subAccounts.length > 0) {
-            subAccounts.forEach(sa => {
+        // ⭐️ 금액 계산에서 빠지는 기록(모의투자·제외 계좌)만 들어있는 계좌는 차트가 항상 비므로
+        //    아예 선택지에서 뺀다. (대시보드 카드 필터는 카드 확인용이라 그대로 유지)
+        const chartSubAccounts = subAccounts.filter(sa => cloudEntries.some(e =>
+            getMappedSubAccount(e.subAccount, e.accountName) === sa && !isExcludedFromTotals(e)
+        ));
+        if (chartSubAccounts.length > 0) {
+            chartSubAccounts.forEach(sa => {
                 subAccountHtml += `<option value="${sa.replace(/"/g, '&quot;')}">${sa}</option>`;
             });
         }
@@ -4011,9 +4047,9 @@ function displayEntries(isFilterUpdate = false) {
         if (entryType !== 'trade' || !entry.stockName) return;
         const stockName = entry.stockName;
 
-        // ⭐️ 청산 판정 수량은 실거래만 누적한다. 모의 물량이 섞이면 이미 청산한 실거래 종목이
-        //    잔량이 남은 것처럼 보이거나 그 반대가 된다.
-        if (!isSimulatedEntry(entry) && (entry.tradeType === '매수' || entry.tradeType === '매도')) {
+        // ⭐️ 청산 판정 수량은 실거래만 누적한다. 모의·제외 계좌 물량이 섞이면 이미 청산한
+        //    실거래 종목이 잔량이 남은 것처럼 보이거나 그 반대가 된다.
+        if (!isExcludedFromTotals(entry) && (entry.tradeType === '매수' || entry.tradeType === '매도')) {
             if (stockQtys[stockName] === undefined) stockQtys[stockName] = 0;
             if (entry.tradeType === '매수') stockQtys[stockName] += (Number(entry.quantity) || 0);
             else stockQtys[stockName] -= (Number(entry.quantity) || 0);
@@ -4319,9 +4355,9 @@ function renderPage() {
                 `;
             }
             const tradeBadge = `<span style="background-color: ${typeColor}; color: white; padding:4px 8px; border-radius:12px; font-size:0.85em; font-weight:bold; margin:0;">${entry.tradeType}</span>`;
-            // ⭐️ 모의투자 체결은 기록으로는 남기되, 합계·통계에 안 잡힌다는 걸 목록에서도 알 수 있게 한다.
-            const simBadge = isSimulatedEntry(entry)
-                ? `<span style="background-color: var(--warning-color); color: white; padding:4px 8px; border-radius:12px; font-size:0.85em; font-weight:bold; margin:0;" title="모의투자 기록입니다. 총 투자금액·평가금액·실현손익·도넛 차트·통계에는 반영되지 않습니다.">모의</span>`
+            // ⭐️ 모의투자·제외 계좌 체결은 기록으로는 남기되, 합계·통계에 안 잡힌다는 걸 목록에서도 알 수 있게 한다.
+            const simBadge = isExcludedFromTotals(entry)
+                ? `<span style="background-color: var(--warning-color); color: white; padding:4px 8px; border-radius:12px; font-size:0.85em; font-weight:bold; margin:0;" title="총 투자금액·평가금액·실현손익·도넛 차트·통계에는 반영되지 않는 기록입니다.">${exclusionBadgeLabel(entry)}</span>`
                 : '';
             const DEFAULT_BROKERS = {'264': '키움증권', '1': '키움증권', '238': '미래에셋증권', '2': '미래에셋증권', '247': 'NH투자증권', '3': 'NH투자증권', '243': '한국투자증권', '4': '한국투자증권', '240': '삼성증권', '5': '삼성증권', '271': '토스증권', '6': '토스증권', '218': 'KB증권', '278': '신한투자증권'};
             const actualBroker = DEFAULT_BROKERS[entry.brokerAccount] || entry.brokerAccount;
@@ -4557,9 +4593,9 @@ function renderCalendar() {
             else if (entry.tradeType === '주시' || entry.tradeType === '관망') dailyStats[dateKey].details[stockKey].watchCount++;
             else if (entry.tradeType === '배당') dailyStats[dateKey].details[stockKey].dividendCount++;
 
-            // ⭐️ 일별 실현손익은 실거래만 계산한다. 모의투자 체결을 같은 종목 칸에 섞으면
+            // ⭐️ 일별 실현손익은 실거래만 계산한다. 모의투자·제외 계좌 체결을 같은 종목 칸에 섞으면
             //    평균단가가 오염되어 실제 손익까지 틀어진다. (기록 자체는 달력에 그대로 표시)
-            if (entry.stockName && !isSimulatedEntry(entry)) {
+            if (entry.stockName && !isExcludedFromTotals(entry)) {
                 const stock = entry.stockName, qty = Number(entry.quantity) || 0, price = Number(entry.price) || 0;
                 if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0 };
 
@@ -4960,7 +4996,12 @@ window.renderMonthlyProfitChart = function() {
     
     chronological.forEach(entry => {
         if (entry.type !== 'trade' || !entry.stockName) return;
-        
+
+        // ⭐️ 모의투자·'금액 계산 제외' 계좌 체결은 실제 돈이 오간 기록이 아니다.
+        //    실현손익·평가손익·매매금액·누적수익 어느 집계에도 들어가면 안 된다.
+        //    (분석 탭 loadTradeStats / 캘린더 일별 손익과 동일한 규칙)
+        if (isExcludedFromTotals(entry)) return;
+
         // ⭐️ 차트 전용 필터 적용
         if (currentChartStock !== 'all' && entry.stockName !== currentChartStock) return;
         if (currentChartAccount !== 'all' && (entry.tradeClass || '') !== currentChartAccount) return;
@@ -5969,6 +6010,10 @@ if (loggedInUserDisplayModalTarget && accountMappingModalOverlay) {
             if (res.ok) {
                 currentAccountMappings = await res.json();
                 renderAccountMappings();
+                // ⭐️ 지난번에 '계좌 수정' 상태로 닫았을 수 있으므로 항상 접힌 신규 등록 폼으로 연다.
+                const container = document.getElementById('newAccountFormContainer');
+                if (container) container.style.display = 'none';
+                resetAccountForm();
                 accountMappingModalOverlay.style.display = 'flex';
                 document.body.style.overflow = 'hidden';
             }
@@ -5979,9 +6024,11 @@ if (loggedInUserDisplayModalTarget && accountMappingModalOverlay) {
 }
 
 if (btnCloseAccountMappingModal) {
-    btnCloseAccountMappingModal.addEventListener('click', () => {
+    btnCloseAccountMappingModal.addEventListener('click', async () => {
         accountMappingModalOverlay.style.display = 'none';
         document.body.style.overflow = '';
+        // ⭐️ 저장하지 않고 닫은 변경은 화면에 반영되면 안 된다. (취소 버튼과 동일)
+        await revertAccountMappings();
     });
 }
 
@@ -5999,9 +6046,13 @@ function renderAccountMappings() {
                 </div>
             `;
         }
+        // ⭐️ '금액 계산 제외' 계좌는 목록에서도 한눈에 구분돼야 한다.
+        const excludeBadge = info.exclude_from_stats
+            ? `<span style="font-size: 11px; background: var(--warning-color); color: #fff; padding: 1px 5px; border-radius: 3px; margin-left: 4px;" title="도넛 차트·총액·실현손익·차트·통계에서 제외됩니다.">금액 제외</span>`
+            : '';
         return `
             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 10px; border-bottom: 1px solid var(--border-light-color);">
-                <span style="flex: 1; word-break: break-word; margin-right: 10px;"><strong style="color:var(--text-strong-color);">[${info.broker_name}]</strong><br>${accCode} &rarr; ${info.alias}</span>
+                <span style="flex: 1; word-break: break-word; margin-right: 10px;"><strong style="color:var(--text-strong-color);">[${info.broker_name}]</strong><br>${accCode} &rarr; ${info.alias}${excludeBadge}</span>
                 <div style="display: flex; gap: 12px; flex: 0 0 auto;">
                     <button type="button" onclick="editMapping('${accCode}')" style="background:none; border:none; color:var(--primary-color); cursor:pointer; font-size:13px; font-weight:bold; width:auto; padding:0; margin:0; box-shadow:none;">수정</button>
                     <button type="button" onclick="removeMapping('accounts', '${accCode}')" style="background:none; border:none; color:var(--danger-color); cursor:pointer; font-size:13px; font-weight:bold; width:auto; padding:0; margin:0; box-shadow:none;">삭제</button>
@@ -6009,6 +6060,27 @@ function renderAccountMappings() {
             </div>
         `;
     }).join('') || '<div style="font-size:13px; color:var(--text-muted-color); padding: 10px;">등록된 계좌가 없습니다.</div>';
+}
+
+// ⭐️ 같은 폼을 '신규 등록'과 '수정'에 함께 쓰므로, 지금 무엇을 하는 중인지 문구로 알려준다.
+function setAccountFormMode(mode) {
+    const title = document.getElementById('btnToggleNewAccountForm');
+    const submit = document.getElementById('btnAddUnifiedMapping');
+    const isEdit = mode === 'edit';
+    if (title) title.innerText = isEdit ? '✏️ 계좌 수정' : '➕ 신규 계좌 등록';
+    if (submit) submit.innerText = isEdit ? '수정하기' : '➕ 추가하기';
+    if (title) title.dataset.mode = isEdit ? 'edit' : 'new';
+}
+
+// 입력칸을 비우고 '신규 계좌 등록' 상태로 되돌린다.
+function resetAccountForm() {
+    const select = document.getElementById('unifiedBrokerCode');
+    if (select) select.value = '';
+    document.getElementById('unifiedAccountCode').value = '';
+    document.getElementById('unifiedAccountName').value = '';
+    const excludeCheckbox = document.getElementById('unifiedAccountExcludeStats');
+    if (excludeCheckbox) excludeCheckbox.checked = false;
+    setAccountFormMode('new');
 }
 
 window.removeMapping = function(type, code) {
@@ -6030,6 +6102,19 @@ window.editMapping = function(code) {
         }
         document.getElementById('unifiedAccountCode').value = code;
         document.getElementById('unifiedAccountName').value = info.alias;
+        const excludeCheckbox = document.getElementById('unifiedAccountExcludeStats');
+        if (excludeCheckbox) excludeCheckbox.checked = !!info.exclude_from_stats;
+
+        // ⭐️ 입력 폼이 접혀 있으면 값만 채워지고 화면에는 아무 변화가 없어 '수정이 안 된다'고 느낀다.
+        //    반드시 펼치고, 폼이 보이는 위치까지 스크롤한다.
+        setAccountFormMode('edit');
+        const container = document.getElementById('newAccountFormContainer');
+        if (container) {
+            container.style.display = 'flex';
+            if (typeof container.scrollIntoView === 'function') {
+                container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
         document.getElementById('unifiedAccountCode').focus();
     }
 };
@@ -6039,6 +6124,9 @@ if (btnToggleNewAccountForm) {
     btnToggleNewAccountForm.addEventListener('click', () => {
         const container = document.getElementById('newAccountFormContainer');
         if (container.style.display === 'none') {
+            // ⭐️ 수정 중이던 값이 남은 채로 '신규 계좌 등록'이 열리면 다른 계좌를 덮어쓰게 된다.
+            //    (신규 입력 중 접었다 편 경우에는 적던 값을 그대로 살린다)
+            if (btnToggleNewAccountForm.dataset.mode === 'edit') resetAccountForm();
             container.style.display = 'flex';
         } else {
             container.style.display = 'none';
@@ -6050,9 +6138,7 @@ const btnCancelNewAccountForm = document.getElementById('btnCancelNewAccountForm
 if (btnCancelNewAccountForm) {
     btnCancelNewAccountForm.addEventListener('click', () => {
         document.getElementById('newAccountFormContainer').style.display = 'none';
-        document.getElementById('unifiedBrokerCode').value = '';
-        document.getElementById('unifiedAccountCode').value = '';
-        document.getElementById('unifiedAccountName').value = '';
+        resetAccountForm();
     });
 }
 
@@ -6064,19 +6150,21 @@ if (btnAddUnifiedMapping) {
         const broker_name = select.options[select.selectedIndex]?.getAttribute('data-name');
         const acc_code = document.getElementById('unifiedAccountCode').value.trim();
         const alias = document.getElementById('unifiedAccountName').value.trim();
-        
+        const excludeCheckbox = document.getElementById('unifiedAccountExcludeStats');
+        const excludeFromStats = !!(excludeCheckbox && excludeCheckbox.checked);
+
         if (broker_code && acc_code && alias) {
             if (!currentAccountMappings.accounts) currentAccountMappings.accounts = {};
             currentAccountMappings.accounts[acc_code] = {
                 broker_code: broker_code,
                 broker_name: broker_name,
-                alias: alias
+                alias: alias,
+                // ⭐️ 도넛·총액·실현손익·차트·통계 등 금액을 합산하는 모든 곳에서 뺄 계좌인지
+                exclude_from_stats: excludeFromStats
             };
-            
-            // UI 초기화
-            select.value = '';
-            document.getElementById('unifiedAccountCode').value = '';
-            document.getElementById('unifiedAccountName').value = '';
+
+            // UI 초기화 ('계좌 수정' 상태였다면 문구도 신규 등록으로 되돌린다)
+            resetAccountForm();
             document.getElementById('newAccountFormContainer').style.display = 'none';
             renderAccountMappings();
         } else {
@@ -6123,8 +6211,24 @@ if (btnSaveAccountMappings) {
 
 const btnCancelAccountMappings = document.getElementById('btnCancelAccountMappings');
 if (btnCancelAccountMappings) {
-    btnCancelAccountMappings.addEventListener('click', () => {
+    btnCancelAccountMappings.addEventListener('click', async () => {
         accountMappingModalOverlay.style.display = 'none';
         document.body.style.overflow = '';
+        // ⭐️ 취소는 '저장하지 않겠다'는 뜻이다. 메모리에만 남은 수정(특히 '금액 계산 제외' 체크)이
+        //    다음 렌더링에 반영되지 않도록 서버 값으로 되돌린다.
+        await revertAccountMappings();
     });
+}
+
+// 저장하지 않은 계좌 정보 변경을 서버 값으로 되돌린다.
+async function revertAccountMappings() {
+    try {
+        const res = await fetch('/api/mappings');
+        if (res.ok) {
+            currentAccountMappings = await res.json();
+            renderAccountMappings();
+        }
+    } catch (e) {
+        console.error('계좌 정보 되돌리기 실패', e);
+    }
 }

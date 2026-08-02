@@ -1053,7 +1053,11 @@ def save_mappings_frontend():
     
     with open(file_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-        
+
+    # ⭐️ '금액 계산 제외' 체크가 바뀌면 통계 결과 자체가 달라진다. 캐시를 그대로 두면
+    #    체크를 해도 예전 수치가 그대로 보인다.
+    invalidate_stats_cache(username)
+
     return jsonify({"status": "success"}), 200
 
 
@@ -1333,6 +1337,32 @@ def invalidate_stats_cache(username):
         _data_versions[username] = _data_versions.get(username, 0) + 1
 
 
+def _excluded_accounts(username):
+    """'금액 계산 제외'로 체크한 계좌의 (정규화된 계좌번호 집합, 별칭 집합).
+
+    계좌 별칭은 언제든 바꿀 수 있으므로 이름이 아니라 등록된 계좌번호로 판정하는 것이 기본이다.
+    다만 계좌번호 없이 이름만 적힌 수기 기록도 있어 별칭도 함께 대조한다.
+    """
+    accounts = (get_user_mappings(username) or {}).get('accounts') or {}
+    codes, aliases = set(), set()
+    for code, info in accounts.items():
+        if isinstance(info, dict) and info.get('exclude_from_stats'):
+            key = trading_api._account_key(code)
+            if key:
+                codes.add(key)
+            if info.get('alias'):
+                aliases.add(info['alias'])
+    return codes, aliases
+
+
+def _is_excluded_account_row(row, codes, aliases):
+    sub = trading_api._account_key(row.get('subAccount'))
+    if sub and sub in codes:
+        return True
+    name = (row.get('accountName') or '').strip()
+    return bool(name and name in aliases)
+
+
 @app.route('/api/stats', methods=['GET', 'POST'])
 def get_stats():
     """로그인한 사용자의 매매 성과 분석 지표를 반환합니다.
@@ -1355,7 +1385,7 @@ def get_stats():
 
     # ⭐️ 통계 계산에 필요한 컬럼만 조회 — SELECT * 는 본문 HTML(thoughts)까지
     #    전부 읽어와, 본문이 커질수록 통계 응답이 느려진다. (특히 캐시가 없는 POST 필터 요청)
-    stats_cols = "id, type, stockName, tradeType, price, quantity, rawDate"
+    stats_cols = "id, type, stockName, tradeType, price, quantity, rawDate, subAccount, accountName"
     # ⭐️ 모의투자(isSimulated=1) 체결은 실제 돈이 오간 기록이 아니므로 성과 분석에서 제외한다.
     #    프론트에서도 걸러 보내지만, 통계는 '실제 성과'를 말하는 화면이라 여기서도 막는다.
     real_only = "COALESCE(isSimulated, 0) = 0"
@@ -1376,6 +1406,13 @@ def get_stats():
         else:
             c.execute(f"SELECT {stats_cols} FROM entries WHERE username = ? AND {real_only}", (username,))
             rows = [dict(row) for row in c.fetchall()]
+
+    # ⭐️ 계좌 관리에서 '금액 계산 제외'로 지정한 계좌의 기록도 성과 분석에서 뺀다.
+    #    프론트에서도 걸러 보내지만, 통계는 '실제 성과'를 말하는 화면이라 여기서도 막는다.
+    excluded_codes, excluded_aliases = _excluded_accounts(username)
+    if excluded_codes or excluded_aliases:
+        rows = [row for row in rows
+                if not _is_excluded_account_row(row, excluded_codes, excluded_aliases)]
 
     result = stats.compute_trade_stats(rows, granularity=granularity)
 
