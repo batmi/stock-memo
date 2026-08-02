@@ -21,7 +21,8 @@
         window.__initialFetches = {
             me: fetch('/api/me').catch(function () { return null; }),
             pref: fetch('/api/preferences').catch(function () { return null; }),
-            data: fetch('/api/data').catch(function () { return null; })
+            data: fetch('/api/data').catch(function () { return null; }),
+            mappings: fetch('/api/mappings').catch(function () { return null; })
         };
     </script>
     <!-- ⭐️ CDN 접속 사전 연결(DNS/TLS 핸드셰이크 선행)로 첫 로딩 단축 -->

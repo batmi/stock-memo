@@ -285,6 +285,34 @@ def test_memo_length_is_capped(api):
     assert res.status_code == 400
 
 
+# ── 계좌 매핑 ─────────────────────────────────────────────────────────
+
+_ACCOUNT_MAPPINGS = {
+    'accounts': {
+        '44048158-01': {'alias': '시스템계좌', 'broker_code': '243', 'broker_name': '한국투자증권'},
+    },
+    'brokers': {},
+}
+
+
+@pytest.mark.parametrize('received', ['44048158-01', '4404815801', ' 44048158 01 '])
+def test_account_matches_regardless_of_hyphens(received):
+    """등록은 '-' 로 했는데 HTS 는 '-' 없이 보낸다. 어느 쪽이든 같은 계좌로 붙어야 한다."""
+    broker, sub, name = trading_api._resolve_account(
+        'bot', {'subAccount': received, 'brokerAccount': '243'}, _ACCOUNT_MAPPINGS)
+    assert (broker, name) == ('한국투자증권', '시스템계좌')
+    # 저장 표기는 사용자가 등록한 형태로 통일한다 (같은 계좌가 두 번호로 쌓이지 않도록)
+    assert sub == '44048158-01'
+
+
+def test_unregistered_account_keeps_hyphen_stripped_form():
+    """매핑에 없는 계좌는 기존과 동일하게 하이픈을 뗀 형태로 남는다."""
+    _, sub, name = trading_api._resolve_account(
+        'bot', {'subAccount': '99999999-01', 'brokerAccount': '243'}, _ACCOUNT_MAPPINGS)
+    assert sub == '9999999901'
+    assert name == ''
+
+
 # ── 배치 ──────────────────────────────────────────────────────────────
 
 def test_batch_reports_per_item_results(api):

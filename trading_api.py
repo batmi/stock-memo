@@ -17,6 +17,7 @@ backend_app 에 직접 의존하지 않고 init_app() 으로 주입받은 공급
 """
 
 import hashlib
+import re
 import secrets
 import sqlite3
 import threading
@@ -578,21 +579,54 @@ def _normalize_enum(value, valid, default, field):
     return text
 
 
+def _account_key(value):
+    """계좌번호 비교용 정규화 키. 하이픈·공백은 표기 차이일 뿐이므로 모두 지운다.
+
+    등록은 '44048158-01' 로 해 두고 HTS 는 '4404815801' 로 보내는(또는 그 반대의)
+    경우가 흔하다. 양쪽을 같은 규칙으로 접어서 비교해야 매핑이 어긋나지 않는다.
+    """
+    return re.sub(r'[\s-]', '', str(value or ''))
+
+
+def _find_account_mapping(accounts, raw_sub):
+    """등록된 계좌 매핑에서 계좌번호를 찾아 (등록키, 매핑값) 을 돌려줍니다.
+
+    정확히 일치하는 키를 먼저 보고, 없으면 하이픈을 무시한 키로 다시 찾는다.
+    """
+    if not isinstance(accounts, dict) or not raw_sub:
+        return None, None
+    if raw_sub in accounts:
+        return raw_sub, accounts[raw_sub]
+    target = _account_key(raw_sub)
+    if not target:
+        return None, None
+    for key, info in accounts.items():
+        if _account_key(key) == target:
+            return key, info
+    return None, None
+
+
 def _resolve_account(username, data, mappings):
     """계좌 코드/번호를 등록된 매핑 정보로 치환합니다."""
     raw_broker = _text(data.get('brokerAccount'), 'brokerAccount', 50)
-    raw_sub = _text(data.get('subAccount'), 'subAccount', 50).replace('-', '')
+    raw_sub = _text(data.get('subAccount'), 'subAccount', 50)
 
-    acc_info = (mappings.get('accounts') or {}).get(raw_sub)
+    accounts = mappings.get('accounts') or {}
+    matched_key, acc_info = _find_account_mapping(accounts, raw_sub)
+
+    # ⭐️ 매핑이 잡히면 사용자가 등록한 표기(하이픈 포함)를 그대로 저장한다.
+    #    HTS 가 보낸 표기를 그대로 두면 같은 계좌가 두 가지 번호로 쌓인다.
+    #    매핑이 없을 때만 기존과 동일하게 하이픈을 제거한 형태로 남긴다.
+    sub_account = matched_key if matched_key else raw_sub.replace('-', '')
+
     if isinstance(acc_info, dict):
         broker = acc_info.get('broker_name') or raw_broker
         account_name = acc_info.get('alias') or _text(data.get('accountName'), 'accountName', 100)
     else:
         broker = (mappings.get('brokers') or {}).get(raw_broker, raw_broker)
-        mapped = (mappings.get('accounts') or {}).get(raw_sub)
-        account_name = mapped if isinstance(mapped, str) and mapped else \
+        account_name = acc_info if isinstance(acc_info, str) and acc_info else \
             _text(data.get('accountName'), 'accountName', 100)
-    return broker, raw_sub, account_name
+    return broker, sub_account, account_name
 
 
 def _lookup_stock_name(c, username, symbol):

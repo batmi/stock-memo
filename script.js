@@ -29,6 +29,10 @@ function initialFetchOrFresh(key, url) {
 
 let cloudEntries = [];
 
+// ⭐️ 등록된 계좌 매핑(별칭·증권사). 페이지 로드 시 /api/mappings 로 채운다.
+//    아래 매핑 헬퍼들이 참조하므로 헬퍼보다 먼저 선언해 둔다.
+let currentAccountMappings = { brokers: {}, accounts: {} };
+
 // ⭐️ 글로벌 매핑 헬퍼 함수
 function getMappedBroker(rawBroker) {
     if (!rawBroker) return '';
@@ -36,13 +40,30 @@ function getMappedBroker(rawBroker) {
     return DEFAULT_BROKERS[rawBroker] || rawBroker;
 }
 
+// ⭐️ 계좌번호 비교용 정규화 키. 하이픈·공백은 표기 차이일 뿐이다.
+//    등록은 '44048158-01' 로 해 두고 HTS 는 '4404815801' 로 보내는 경우가 흔해서,
+//    양쪽을 같은 규칙으로 접어야 매핑이 어긋나지 않는다. (백엔드 _account_key 와 동일 규칙)
+function accountKey(value) {
+    return String(value || '').replace(/[\s-]/g, '');
+}
+
+// ⭐️ 등록된 계좌 매핑에서 계좌번호로 매핑 정보를 찾는다.
+//    정확히 일치하는 키를 먼저 보고, 없으면 하이픈을 무시하고 다시 찾는다.
+function findAccountMapping(rawSubAccount) {
+    const accounts = (currentAccountMappings && currentAccountMappings.accounts) || {};
+    if (!rawSubAccount) return null;
+    if (accounts[rawSubAccount]) return accounts[rawSubAccount];
+    const target = accountKey(rawSubAccount);
+    if (!target) return null;
+    const hit = Object.keys(accounts).find(key => accountKey(key) === target);
+    return hit ? accounts[hit] : null;
+}
+
 function getMappedSubAccount(rawSubAccount, accountName) {
     if (accountName) return accountName;
     if (!rawSubAccount) return '';
-    if (typeof currentAccountMappings !== 'undefined' && currentAccountMappings.accounts) {
-        const accInfo = currentAccountMappings.accounts[rawSubAccount.replace(/-/g, '')];
-        if (accInfo && accInfo.alias) return accInfo.alias;
-    }
+    const accInfo = findAccountMapping(rawSubAccount);
+    if (accInfo && accInfo.alias) return accInfo.alias;
     return rawSubAccount;
 }
 
@@ -1108,14 +1129,31 @@ async function loadDataFromLocal() {
 
         // ⭐️ 초기 필수 데이터(사용자 정보, 환경설정, 매매기록)를 병렬로 호출하여 로딩 속도 최적화
         //    (HTML head 에서 미리 발사한 프리페치가 있으면 이어받아 대기 시간 단축)
-        const [mePromise, prefPromise, dataPromise] = [
+        // ⭐️ 계좌 매핑도 이 단계에서 함께 받아야 한다. 예전에는 '계좌 관리' 모달을 열거나
+        //    매매 기록을 쓸 때만 채워져서, 첫 렌더링 때는 매핑이 비어 있었다. 그 탓에
+        //    accountName 이 없는 기록(HTS/봇 수신분)은 별칭 대신 계좌번호가 그대로 노출됐다.
+        const [mePromise, prefPromise, dataPromise, mappingPromise] = [
             initialFetchOrFresh('me', '/api/me').catch(e => { console.warn("사용자 정보 로드 실패", e); return null; }),
             initialFetchOrFresh('pref', '/api/preferences').catch(e => { console.warn("환경설정 로드 실패", e); return null; }),
-            initialFetchOrFresh('data', '/api/data')
+            initialFetchOrFresh('data', '/api/data'),
+            initialFetchOrFresh('mappings', '/api/mappings').catch(e => { console.warn("계좌 매핑 로드 실패", e); return null; })
         ];
 
-        console.log("[Data Load] 사용자 정보, 환경설정, 매매 기록 병렬 호출 시작...");
-        const [meRes, prefRes, response] = await Promise.all([mePromise, prefPromise, dataPromise]);
+        console.log("[Data Load] 사용자 정보, 환경설정, 매매 기록, 계좌 매핑 병렬 호출 시작...");
+        const [meRes, prefRes, response, mappingRes] = await Promise.all([mePromise, prefPromise, dataPromise, mappingPromise]);
+
+        // 0. 계좌 매핑 처리 — 아래 렌더링이 별칭을 쓰므로 가장 먼저 반영한다.
+        if (mappingRes && mappingRes.ok) {
+            try {
+                const mappingData = await mappingRes.json();
+                if (mappingData && typeof mappingData === 'object') {
+                    currentAccountMappings = {
+                        brokers: mappingData.brokers || {},
+                        accounts: mappingData.accounts || {}
+                    };
+                }
+            } catch (e) { console.warn("계좌 매핑 파싱 실패", e); }
+        }
 
         // 1. 사용자 정보 처리
         if (meRes && meRes.ok) {
@@ -3224,10 +3262,10 @@ function updatePortfolioSummary() {
             card.style.borderLeftColor = 'var(--text-muted-color)';
         }
         // ⭐️ 모의투자 카드는 합계에 잡히지 않는다는 사실이 한눈에 보여야 오해가 없다.
+        //    다만 테두리는 실거래 카드와 동일한 실선·분류색을 그대로 쓴다. 점선/주황 고정색은
+        //    '시스템' 같은 분류색을 가려 버려서, 구분은 아래 '모의' 배지와 농도로만 준다.
         if (isSim) {
             card.style.opacity = isClosed ? '0.5' : '0.75';
-            card.style.borderLeftColor = 'var(--warning-color)';
-            card.style.borderStyle = 'dashed';
         }
         const closedBadge = isClosed ? `<span style="font-size: 10px; background: var(--border-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px;">청산완료</span>` : '';
         const hiddenBadge = data.isHiddenStock ? `<span style="font-size: 10px; background: var(--text-muted-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px; margin-left: 2px;">숨김</span>` : '';
@@ -4182,8 +4220,8 @@ function renderPage() {
             const actualBroker = DEFAULT_BROKERS[entry.brokerAccount] || entry.brokerAccount;
             const displayBroker = highlight(actualBroker);
             let actualSub = entry.accountName || entry.subAccount;
-            if (entry.subAccount && !entry.accountName && typeof currentAccountMappings !== 'undefined' && currentAccountMappings.accounts) {
-                const accInfo = currentAccountMappings.accounts[entry.subAccount.replace(/-/g, '')];
+            if (entry.subAccount && !entry.accountName) {
+                const accInfo = findAccountMapping(entry.subAccount);
                 if (accInfo && accInfo.alias) actualSub = accInfo.alias;
             }
             const displaySubAccount = highlight(actualSub);
@@ -4257,8 +4295,8 @@ function renderPage() {
             const actualBroker = DEFAULT_BROKERS[entry.brokerAccount] || entry.brokerAccount;
             const displayBroker = highlight(actualBroker);
             let actualSub = entry.accountName || entry.subAccount;
-            if (entry.subAccount && !entry.accountName && typeof currentAccountMappings !== 'undefined' && currentAccountMappings.accounts) {
-                const accInfo = currentAccountMappings.accounts[entry.subAccount.replace(/-/g, '')];
+            if (entry.subAccount && !entry.accountName) {
+                const accInfo = findAccountMapping(entry.subAccount);
                 if (accInfo && accInfo.alias) actualSub = accInfo.alias;
             }
             const displaySubAccount = highlight(actualSub);
@@ -5800,7 +5838,6 @@ if (btnChangePassword && passwordModalOverlay) {
 const accountMappingModalOverlay = document.getElementById('accountMappingModalOverlay');
 const btnCloseAccountMappingModal = document.getElementById('btnCloseAccountMappingModal');
 const loggedInUserDisplayModalTarget = document.getElementById('loggedInUserDisplay');
-let currentAccountMappings = { brokers: {}, accounts: {} };
 
 if (loggedInUserDisplayModalTarget && accountMappingModalOverlay) {
     loggedInUserDisplayModalTarget.addEventListener('click', async () => {
@@ -5948,6 +5985,8 @@ if (btnSaveAccountMappings) {
                 await customAlert('계좌정보가 저장되었습니다.');
                 accountMappingModalOverlay.style.display = 'none';
                 document.body.style.overflow = '';
+                // ⭐️ 새로 등록·수정한 별칭이 새로고침 없이 카드·필터에 바로 반영되도록 다시 그린다.
+                if (typeof renderPage === 'function') renderPage();
             } else {
                 await customAlert('저장 실패');
             }
