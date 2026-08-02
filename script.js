@@ -5136,9 +5136,13 @@ window.renderMonthlyProfitChart = function() {
             plugins: {
                 legend: { display: false },
                 tooltip: {
+                    filter: function(tooltipItem) {
+                        return tooltipItem.raw !== null;
+                    },
                     callbacks: {
                         label: function(context) {
                             let value = context.parsed.y;
+                            if (context.raw === null) return null;
                             if (type === 'volume') {
                                 let prefix = context.datasetIndex === 0 ? '매수: ' : '매도: ';
                                 return prefix + Math.round(value).toLocaleString() + '원';
