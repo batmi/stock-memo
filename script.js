@@ -4012,7 +4012,7 @@ function displayEntries(isFilterUpdate = false) {
     
     // ⭐️ 청산 종목 수량 계산 + 필터 연관 종목 추출을 단일 순회로 통합
     //   (기존: cloudEntries 를 최대 4회 반복 → 1회로 축소)
-    const stockQtys = {};                              // 청산 종목 필터용 보유 수량
+    const stockQtys = {};                              // 청산 종목 필터용 보유 수량 (portfolioKey 기준)
     const relatedStocksForAccountFilter = new Set();    // 분류별 모아보기 연관 종목
     const relatedStocksForBrokerFilter = new Set();     // 증권사별 모아보기 연관 종목
     const relatedStocksForSubAccountFilter = new Set(); // 증권계좌별 모아보기 연관 종목
@@ -4025,12 +4025,14 @@ function displayEntries(isFilterUpdate = false) {
         if (entryType !== 'trade' || !entry.stockName) return;
         const stockName = entry.stockName;
 
-        // ⭐️ 청산 판정 수량은 실거래만 누적한다. 모의·제외 계좌 물량이 섞이면 이미 청산한
-        //    실거래 종목이 잔량이 남은 것처럼 보이거나 그 반대가 된다.
-        if (!isExcludedFromTotals(entry) && (entry.tradeType === '매수' || entry.tradeType === '매도')) {
-            if (stockQtys[stockName] === undefined) stockQtys[stockName] = 0;
-            if (entry.tradeType === '매수') stockQtys[stockName] += (Number(entry.quantity) || 0);
-            else stockQtys[stockName] -= (Number(entry.quantity) || 0);
+        // ⭐️ 청산 판정 수량은 포트폴리오와 똑같이 (종목 + 모의/제외 여부)별로 나눠 쌓는다.
+        //    한 칸에 합치면 모의·제외 계좌 물량이 실거래 잔량을 오염시키고,
+        //    반대로 실거래만 세면 모의 전용 종목은 수량이 아예 안 잡혀 청산 판정에서 빠진다.
+        if (entry.tradeType === '매수' || entry.tradeType === '매도') {
+            const qtyKey = portfolioKey(stockName, isExcludedFromTotals(entry));
+            if (stockQtys[qtyKey] === undefined) stockQtys[qtyKey] = 0;
+            if (entry.tradeType === '매수') stockQtys[qtyKey] += (Number(entry.quantity) || 0);
+            else stockQtys[qtyKey] -= (Number(entry.quantity) || 0);
         }
 
         // ⭐️ 분류별/증권사별 모아보기 시 연관된 일반 메모를 함께 보여주기 위해 종목명 추출
@@ -4102,8 +4104,18 @@ function displayEntries(isFilterUpdate = false) {
         
         // ⭐️ 청산 종목 숨기기 상태일 때 (보유 수량이 0인 종목과 숨김 종목을 검색 및 필터에서 제외)
         if (!showHistoryClosedPositions && entry.stockName) {
-            const qty = stockQtys[entry.stockName];
-            if (hiddenStocks.has(entry.stockName) || (qty !== undefined && qty <= 0)) {
+            if (hiddenStocks.has(entry.stockName)) return false;
+
+            // 매매 기록은 자기 칸(실거래/모의·제외)의 잔량으로만 판정한다.
+            // 일반 메모는 어느 칸에 속하는지 알 수 없으므로, 그 종목의 칸이 모두 청산됐을 때만 숨긴다.
+            const entryType = entry.type || 'trade';
+            const qtyKeys = entryType === 'trade'
+                ? [portfolioKey(entry.stockName, isExcludedFromTotals(entry))]
+                : [entry.stockName, portfolioKey(entry.stockName, true)];
+            const knownQtys = qtyKeys
+                .map(k => stockQtys[k])
+                .filter(q => q !== undefined);
+            if (knownQtys.length > 0 && knownQtys.every(q => q <= 0)) {
                 return false;
             }
         }
