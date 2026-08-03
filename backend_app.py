@@ -131,6 +131,11 @@ class ConsoleFilter(logging.Filter):
     def filter(self, record):
         if record.funcName == 'auto_fetch_nxt_close_job':
             return False
+        # ⭐️ 봇 하트비트처럼 몇 초마다 반복되는 '정상' 요청은 콘솔에서 걷어낸다.
+        #    한 화면을 통째로 채워 정작 봐야 할 로그를 밀어내기 때문이다.
+        #    파일에는 그대로 남으므로 나중에 추적하는 데는 지장이 없다.
+        if getattr(record, 'quiet_console', False):
+            return False
         return True
 
 
@@ -150,11 +155,20 @@ werkzeug_logger = logging.getLogger('werkzeug')
 werkzeug_logger.setLevel(logging.ERROR)
 
 
+# ⭐️ 몇 초마다 반복돼 콘솔을 덮어버리는 경로. 성공했을 때만 조용히 넘긴다.
+#    (봇 하트비트는 인스턴스마다 10초 주기라 여러 대가 붙으면 3~4초에 한 줄씩 찍힌다)
+_QUIET_CONSOLE_PATHS = {'/api/v1/bot/status'}
+
+
 # ⭐️ Flask 요청/응답 라이프사이클 내에서 직접 Access 로그를 기록
 @app.after_request
 def log_request_info(response):
     username = session.get('username') or "Guest"
-    app.logger.info(f"[{username}] {request.method} {request.path} {response.status_code}")
+    # ⭐️ 실패는 절대 숨기지 않는다. 하트비트가 401/500 으로 돌아서는 순간이
+    #    바로 '봇 연동이 끊겼다'는 신호라, 그때는 콘솔에 보여야 한다.
+    quiet = request.path in _QUIET_CONSOLE_PATHS and response.status_code < 400
+    app.logger.info(f"[{username}] {request.method} {request.path} {response.status_code}",
+                    extra={'quiet_console': quiet})
     return response
 
 

@@ -135,6 +135,24 @@ def net_holding_for_stock(c, username, stock_name, exclude_id=None, stock_code=N
     return held
 
 
+def _effective_is_simulated(c, username, entry, exclude_id):
+    """이 기록이 '저장된 뒤' 갖게 될 모의투자 플래그(0/1)를 돌려줍니다.
+
+    웹 UI 수정 폼은 봇 전용 컬럼(isSimulated 등)을 담아 보내지 않습니다. 그런데
+    UPDATE 도 그 컬럼을 건드리지 않으므로(_UPDATE_COLUMNS 에서 제외), 저장돼 있는
+    값이 곧 수정 후의 값입니다. 페이로드가 비었다고 실거래(0)로 넘겨짚으면 모의
+    종목의 잔고를 실거래 쪽에서 찾다가 '매수 보유 기록이 없다'며 수정이 막힙니다.
+    """
+    if 'isSimulated' in entry:
+        return 1 if entry.get('isSimulated') else 0
+    if exclude_id is None:  # 신규 작성 — 대조할 저장본이 없다.
+        return 0
+    c.execute("SELECT isSimulated FROM entries WHERE id = ? AND username = ?",
+              (exclude_id, username))
+    row = c.fetchone()
+    return 1 if (row and row['isSimulated']) else 0
+
+
 def check_sell_integrity(c, username, entry, exclude_id=None):
     """매도 거래의 무결성을 점검하고 (오류코드, 메시지) 또는 None 을 반환합니다.
 
@@ -166,7 +184,7 @@ def check_sell_integrity(c, username, entry, exclude_id=None):
 
     held = net_holding_for_stock(
         c, username, stock_name, exclude_id=exclude_id, stock_code=stock_code,
-        is_simulated=1 if entry.get('isSimulated') else 0,
+        is_simulated=_effective_is_simulated(c, username, entry, exclude_id),
     )
     label = stock_name or stock_code
 
