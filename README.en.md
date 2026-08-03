@@ -219,6 +219,9 @@ Heartbeats and commands are scoped **by user, not by API key** — the key is ex
 *   **Status**: recorded per instance in the `bots` table. The headline indicator follows the **worst** bot — "green if any bot is alive" would let a mock bot's ping mask a dead live bot. Which bot it is shows in the list underneath the indicator.
 *   **Commands**: a re-sync is queued against a specific bot. If two or more bots are connected and no target is given, the server rejects the request with `400` — commands are delivered at-most-once, so whichever bot pings first would take it, ack it, and the screen would read "done" while nothing was recovered (a **silent failure**).
 *   **Backward compatibility**: bots that send no `botId` are grouped under `default`. An untargeted command is delivered only when exactly one bot is registered.
+*   **Clearing ghost rows**: if the identifier scheme changes or a machine is retired, a stale row lingers. Because the indicator follows the worst bot, that single row pins the status to "offline" forever and **kills the signal for real outages.** Remove it with the `✕` on its row — trade records are untouched, and a running bot re-registers on its next ping.
+
+> How a bot builds its `botId` is up to the bot. my-stock-hts uses `{installation}:{mode}:{account}`, because its trading mode is a CLI flag and environment variables alone cannot separate mock, live, and Toss on one machine.
 
 ### Re-sync — restoring deleted records
 

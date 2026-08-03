@@ -5709,14 +5709,47 @@ if (btnChangePassword && passwordModalOverlay) {
         box.style.display = 'block';
         box.innerHTML = bots.map(b => {
             const [dot, color] = DOT[b.state] || DOT.never;
-            const sim = b.isSimulated ? ' <span style="opacity: .6;">모의</span>' : '';
+            const name = b.label || b.botId;
+            // 라벨이 이미 '모의'를 말하고 있으면 배지를 겹쳐 붙이지 않는다.
+            const sim = (b.isSimulated && !name.includes('모의'))
+                ? ' <span style="opacity: .6;">모의</span>' : '';
             const ago = formatElapsed(b.elapsedSeconds).trim() || '-';
-            return '<div style="display: flex; justify-content: space-between; gap: 8px;">'
+            // 죽은 봇만 지울 수 있게 한다 — 살아 있는 봇은 지워도 10초 뒤 되살아나
+            // 버튼이 아무 일도 안 한 것처럼 보인다.
+            const removable = b.state !== 'running'
+                ? `<button type="button" class="bot-forget" data-bot-id="${escapeHtml(b.botId)}"`
+                  + ` title="목록에서 지우기 (가동 중이면 다시 등록됩니다)"`
+                  + ` style="margin: 0; padding: 0 4px; width: auto; background: none; border: none;`
+                  + ` box-shadow: none; color: var(--text-muted-color); font-size: 11px; cursor: pointer;">✕</button>`
+                : '';
+            return '<div style="display: flex; justify-content: space-between; gap: 8px; align-items: center;">'
                  + `<span style="color: ${color}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">`
-                 + `${dot} ${escapeHtml(b.label || b.botId)}${sim}</span>`
+                 + `${dot} ${escapeHtml(name)}${sim}</span>`
                  + '<span style="color: var(--text-muted-color); white-space: nowrap;">'
-                 + `${escapeHtml(ago)}</span></div>`;
+                 + `${escapeHtml(ago)}${removable}</span></div>`;
         }).join('');
+
+        box.querySelectorAll('.bot-forget').forEach(btn => {
+            btn.addEventListener('click', () => forgetBot(btn.dataset.botId));
+        });
+    }
+
+    async function forgetBot(botId) {
+        if (!(await customConfirm(
+            `'${botId}' 봇을 목록에서 지웁니다.\n\n`
+            + '매매 기록은 지워지지 않습니다. 봇이 아직 돌고 있다면 다음 연결에 다시 나타납니다.\n계속하시겠습니까?'))) return;
+        try {
+            const res = await fetch(`/api/me/bot/registration/${encodeURIComponent(botId)}`,
+                                    { method: 'DELETE' });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                await customAlert(err.error || '봇을 지우지 못했습니다.');
+                return;
+            }
+            await fetchBotStatusOnly();
+        } catch (e) {
+            await customAlert('오류가 발생했습니다.');
+        }
     }
 
     // 봇이 둘 이상이면 재동기화 대상을 반드시 골라야 한다 — 서버가 대상 없는 요청을

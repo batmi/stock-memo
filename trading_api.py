@@ -424,6 +424,28 @@ def list_bots(username, now=None):
     return items
 
 
+def delete_bot(username, bot_id):
+    """봇 등록을 지운다. 지워졌으면 True.
+
+    필요한 이유: 봇 식별자가 바뀌거나(모드별 구분자 도입 등) 기기를 폐기하면 옛 행이
+    남는데, 대표 상태는 **가장 나쁜 봇**을 따르므로 그 유령 행 하나가 표시등을 영구히
+    '통신단절'로 굳혀 버린다. 그러면 진짜 장애를 알리는 신호가 죽는다.
+
+    살아 있는 봇을 지워도 다음 Ping 에 다시 등록되므로 파괴적인 동작은 아니다.
+    받을 봇이 없어진 대기 명령은 함께 지운다.
+    """
+    with _db() as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM bots WHERE username = ? AND bot_id = ?", (username, bot_id))
+        removed = c.rowcount > 0
+        if removed:
+            c.execute("DELETE FROM bot_commands "
+                      "WHERE username = ? AND bot_id = ? AND acked_at IS NULL",
+                      (username, bot_id))
+        conn.commit()
+    return removed
+
+
 def summarize_bot_states(bots):
     """봇 목록에서 화면 대표 상태 하나를 고른다. (state, elapsed, botId)
 

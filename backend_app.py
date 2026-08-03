@@ -1033,6 +1033,22 @@ def request_bot_resync():
     })
 
 
+@app.route('/api/me/bot/registration/<path:bot_id>', methods=['DELETE'])
+def delete_bot_registration(bot_id):
+    """봇 등록을 목록에서 지웁니다.
+
+    식별자가 바뀌거나 기기를 폐기하면 옛 행이 남는데, 표시등은 **가장 나쁜 봇**을
+    따르므로 그 유령 행 하나가 상태를 영구히 '통신단절'로 굳혀 진짜 장애 신호를
+    죽입니다. 살아 있는 봇을 지워도 다음 Ping(≤10초)에 다시 등록됩니다.
+    """
+    username = session.get('username')
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    if not trading_api.delete_bot(username, bot_id):
+        return jsonify({"error": "등록되지 않은 봇입니다."}), 404
+    return jsonify({"status": "success", "bots": trading_api.list_bots(username)})
+
+
 @app.route('/api/me/bot/resync', methods=['GET'])
 def get_bot_resync_status():
     """최근 재동기화 요청의 진행 상태 (웹 위젯이 주기적으로 조회)."""

@@ -889,3 +889,40 @@ def test_me_reports_the_worst_bot_and_lists_all(api, monkeypatch):
     assert body['bot_state'] == 'offline'
     assert {b['botId']: b['state'] for b in body['bots']} == {
         'real': 'offline', 'sim': 'running'}
+
+
+def test_forgetting_a_bot_clears_a_stale_row(api):
+    """식별자가 바뀌거나 기기를 폐기하면 옛 행이 남는다.
+
+    대표 상태는 가장 나쁜 봇을 따르므로, 유령 행 하나가 표시등을 영구히 '통신단절'로
+    굳혀 진짜 장애 신호를 죽인다. 지울 수 있어야 한다.
+    """
+    _ping(api, botId='old-id')
+    _ping(api, botId='raspi:real:68029263')
+
+    res = _as_web_user(api).delete('/api/me/bot/registration/old-id')
+    assert res.status_code == 200
+    assert [b['botId'] for b in res.get_json()['bots']] == ['raspi:real:68029263']
+
+
+def test_forgetting_a_bot_drops_its_undelivered_commands(api):
+    """받을 봇이 없어진 명령을 남겨 두면 영영 '미처리'로 떠 있는다."""
+    _ping(api, botId='old-id')
+    trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'}, bot_id='old-id')
+
+    _as_web_user(api).delete('/api/me/bot/registration/old-id')
+    assert trading_api.latest_bot_command('bot', 'resync', bot_id='old-id') is None
+
+
+def test_forgetting_an_unknown_bot_is_a_404(api):
+    assert _as_web_user(api).delete('/api/me/bot/registration/nope').status_code == 404
+
+
+def test_a_live_bot_reappears_after_being_forgotten(api):
+    """지우기는 파괴적인 동작이 아니다 — 가동 중이면 다음 Ping 에 되살아난다."""
+    _ping(api, botId='raspi:real:68029263')
+    _as_web_user(api).delete('/api/me/bot/registration/raspi:real:68029263')
+    assert trading_api.list_bots('bot') == []
+
+    _ping(api, botId='raspi:real:68029263')
+    assert [b['botId'] for b in trading_api.list_bots('bot')] == ['raspi:real:68029263']
