@@ -883,6 +883,8 @@ def build_entry(c, username, data, mappings, *, default_source=None):
     if not trade_class and not is_system:
         trade_class = _inherit_trade_class(c, username, symbol)
 
+    is_simulated = 1 if data.get('isSimulated') else 0
+
     tags = data.get('tags') or []
     if not isinstance(tags, list):
         raise ValidationError('INVALID_FIELD', 'tags 는 문자열 배열이어야 합니다.', 'tags')
@@ -893,6 +895,10 @@ def build_entry(c, username, data, mappings, *, default_source=None):
         tags.append(trade_class)
     if confidence == 'ESTIMATED' and '추정체결' not in tags:
         tags.append('추정체결')
+    # ⭐️ 모의투자 체결은 배지뿐 아니라 태그로도 남긴다. 배지는 눈으로만 구분되지만
+    #    태그는 검색·필터에 걸리므로 '모의' 기록만 따로 모아 볼 수 있다.
+    if is_simulated and '모의' not in tags:
+        tags.append('모의')
 
     stock_name = _text(data.get('name'), 'name', 100)
     if not stock_name:
@@ -900,7 +906,6 @@ def build_entry(c, username, data, mappings, *, default_source=None):
 
     broker, sub_account, account_name = _resolve_account(username, data, mappings)
 
-    is_simulated = 1 if data.get('isSimulated') else 0
     source = _text(data.get('source'), 'source', 100) or _text(default_source, 'source', 100)
 
     now = _now_kst_str()
