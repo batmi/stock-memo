@@ -152,128 +152,78 @@ The full contract is defined in [`UniversalTradingHistoryAPI.json`](UniversalTra
 2. Exchange it for a 24-hour Access Token by calling `POST /api/v1/auth/token` with the key in the `X-API-KEY` header.
 3. Send `Authorization: Bearer <token>` on every subsequent request.
 
-> ⚠️ **The key is shown exactly once, right after it is issued.** Only its SHA-256 hash is stored, so it can never be retrieved again — copy it at that moment.
-> Revoking a key invalidates tokens issued from it **immediately**.
+> ⚠️ **The raw key is shown exactly once, at issue time.** Only a SHA-256 hash is stored, so it cannot be retrieved again. Revoking a key immediately invalidates every token minted from it.
 
-### Scopes
-
-Keys carry scopes, and tokens inherit them.
-
-| Scope | Allows |
-|---|---|
-| `trades:write` | Create, amend, and delete trade records; register opening balances |
-| `trades:read` | Read trade records and the sync checkpoint |
-| `bot:write` | Send bot status pings |
+Keys carry scopes and tokens inherit them — `trades:write` (create/update/delete records), `trades:read` (query and sync point), `bot:write` (bot ping).
 
 ### Main endpoints
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/v1/health` | Health check (no auth) |
-| `POST` | `/api/v1/auth/token` | Exchange API key for an Access Token |
-| `POST` | `/api/v1/trades` | Submit a single trade record |
+| `GET` | `/api/v1/health` | Health check (unauthenticated) |
+| `POST` | `/api/v1/auth/token` | Exchange API key for an access token |
+| `POST` | `/api/v1/trades` | Submit a single trade |
 | `POST` | `/api/v1/trades/batch` | Bulk submit (up to 500, per-item results) |
-| `GET` | `/api/v1/trades` | List records for reconciliation (cursor pagination) |
-| `GET` | `/api/v1/trades/last-sync` | Last sync checkpoint (for computing the backfill window) |
-| `GET` | `/api/v1/trades/by-exec-id/{id}` | Check whether an idempotency key was stored |
+| `GET` | `/api/v1/trades` | Query records (reconciliation, cursor pagination) |
+| `GET` | `/api/v1/trades/last-sync` | Last sync point (used to compute the backfill window) |
+| `GET` | `/api/v1/trades/by-exec-id/{id}` | Check existence by idempotency key |
 | `PATCH` / `DELETE` | `/api/v1/trades/{id}` | Amend / delete a record |
-| `POST` | `/api/v1/positions/opening` | Register holdings held before the integration started |
-| `POST` | `/api/v1/bot/status` | Bot liveness ping |
+| `POST` | `/api/v1/positions/opening` | Register opening balances at integration start |
+| `POST` | `/api/v1/bot/status` | Bot heartbeat ping |
 
 ### Design principles
 
-*   **Idempotency**: `brokerExecutionId` carries a UNIQUE constraint, so a duplicate resend creates nothing new and returns the existing record with `200`. A bot that never received a response can therefore **always resend safely**.
-    The recommended key format is `{env}:{account}:{fill date}:{order no}` — broker order numbers are reused every business day, so the order number alone must never be used.
-*   **No silent loss**: A fill sent by a bot is **stored and flagged `needsReview`** even when it violates integrity checks (e.g. selling more than the recorded holding). Returning `400` would make every retry fail identically and the fill would vanish for good. (Records typed by a human in the web UI are still blocked, since the user can fix them on the spot.)
-*   **Mock vs. real separation**: The `isSimulated` flag stores them separately and excludes them from default queries and statistics.
-*   **System vs. discretionary separation**: The `isSystem` flag classifies only automated orders as `시스템` (system). A bot reports **every** fill on its accounts — including orders placed by hand in a mobile app or broker HTS — so without this distinction automated performance and discretionary trading end up in one bucket. → [Trade class](#trade-class--what-counts-as-system)
-*   **Trading-day attribution**: `executedAt` is accepted as RFC3339 with an offset and, together with `exchange`, yields the **exchange-local trading day** (`tradeDate`). A US after-hours fill is no longer pushed onto the next Korean date.
-*   **Rate limiting**: Token issuance is 10 requests per 5 minutes per IP (brute-force protection); other API calls are 600 per minute per key. Exceeding either returns `429` with `Retry-After`.
+*   **Idempotency**: `brokerExecutionId` carries a UNIQUE constraint, so a duplicate resend returns the existing record with `200`. A bot that never saw a response can **always retry safely.** The recommended key is `{env}:{account}:{fillDate}:{orderNo}` — broker order numbers are reused every business day, so the order number alone is not allowed.
+*   **Never lose a fill**: integrity violations such as overselling are **stored and flagged `needsReview`.** Returning `400` would make the bot retry forever and lose that fill permanently. (Manual entry through the web UI is still blocked, since a human can fix it on the spot.)
+*   **Simulated vs. real**: separated by `isSimulated` and excluded from default queries and statistics.
+*   **System vs. manual**: `isSystem` marks only orders the automated strategy placed. Bots report **every** fill in the account — including orders a human placed in a broker app — so without this split, manual trading merges into automated performance.
+*   **Trade-date attribution**: `executedAt` (RFC3339 with offset) plus `exchange` yield the **exchange-local trade date**, so US after-hours fills do not slip into the next Korean date.
+*   **Rate limits**: token issuance 10 per 5 min per IP; general API 600 per min per key. Exceeding either returns `429` + `Retry-After`.
 
-### Trade class — what counts as "system"
+### Trade classification
 
-A bot reports **every** fill on its accounts. Orders placed by hand in the Toss app or a broker's own HTS are detected by balance reconciliation and uploaded too. The server used to fill an empty `tradeClass` with `시스템` (system), which lumped all of them into automated performance.
+`isSystem=true` is recorded as `system`. When it is `false` or absent, the server **inherits the previous classification for that symbol**, falling back to empty. If the bot sets `tradeClass` explicitly, that value wins. Opening balances (`positions/opening`) are also `isSystem=false`.
 
-The bot now sends `isSystem` to tell them apart.
+**`system` is never inherited** — an older version stored every bot record that way, so inheriting would make the very contamination we are fixing permanent. Inheritance applies only to classifications a human deliberately chose (`long-term`, `dividend`, …).
 
-| `isSystem` | Class assigned by the server |
-|---|---|
-| `true` | Pinned to `시스템` (system) |
-| `false` | Inherited from the latest record for the same symbol → empty if there is none |
-| *(field absent)* | Same as above (the bot does not know the origin) |
+> Past records already stored as `system` stay that way; idempotency means even a resync will not overwrite them. Fix them on the web.
 
-If the bot sends an explicit `tradeClass`, that value is used as-is.
+### Multiple bots (botId)
 
-**Inheritance rule**: the class is taken from the most recent record for the same user and symbol, but **`시스템` is never inherited.** An earlier version stored every bot record as `시스템`, so inheriting it would make the very contamination this fixes permanent. Inheritance only picks up classes a human actually chose (`장기투자` / long-term, `배당투자` / dividend, …).
+Heartbeats and commands are scoped to the **user, not the API key** (the key becomes a username right after authentication). Issuing separate keys therefore does not separate instances — `botId` in the ping body does.
 
-Opening balances (`POST /api/v1/positions/opening`) are `isSystem=false` as well — they were held before the integration started and were not filled by the bot.
+*   **Status**: the dashboard indicator follows the **worst bot.** "Green if any is alive" would let a simulated bot's ping mask a dead live bot.
+*   **Commands**: a resync is queued against a specific bot. With more than one bot and no target, the server returns `400` — otherwise whichever bot pings first claims it and acks, showing "done" on screen: a **silent failure.**
+*   **Ghost rows**: decommissioned machines leave stale rows. Since the indicator follows the worst bot, one such row pins the status to "disconnected" forever and **kills the real alarm signal.** Delete it with `✕` in the list (trade records are untouched; a running bot re-registers on its next ping).
 
-> Records already stored as `시스템` stay as they are. Idempotency means even a re-sync will not overwrite them, so fix those on the web.
+### Resync — restoring deleted records
 
-### Running several bots (botId)
+Deleting a record on the web does not make the bot resend it, because the bot only remembers that it *sent* the record. That is the correct behavior — otherwise a deliberately deleted record could never stay deleted.
 
-Heartbeats and commands are scoped **by user, not by API key** — the key is exchanged for a username right after authentication and which key it was is then forgotten. Issuing separate keys therefore does not separate several HTS instances.
+Use **Settings → Account Settings → Resync** and pick quarter (90d) / half-year (180d) / year (365d), all **rolling** rather than calendar-based. Idempotency skips existing records as `duplicate`, so a result like `inserted=10, skipped=80` is itself **the answer to how much had been deleted.** Duplicates are free, so err on the side of a longer window. The API (`POST /api/me/bot/resync`) also accepts explicit `from`/`to`.
 
-`botId` (in the ping body) is that separator. On the HTS side it comes from the `JOURNAL_BOT_ID` environment variable.
+**Command delivery**: bots usually sit behind a home network, so the server cannot reach them first. Pressing the button queues a row in `bot_commands`, delivered on the bot's next ping (≤10s).
 
-*   **Status**: recorded per instance in the `bots` table. The headline indicator follows the **worst** bot — "green if any bot is alive" would let a mock bot's ping mask a dead live bot. Which bot it is shows in the list underneath the indicator.
-*   **Commands**: a re-sync is queued against a specific bot. If two or more bots are connected and no target is given, the server rejects the request with `400` — commands are delivered at-most-once, so whichever bot pings first would take it, ack it, and the screen would read "done" while nothing was recovered (a **silent failure**).
-*   **Backward compatibility**: bots that send no `botId` are grouped under `default`. An untargeted command is delivered only when exactly one bot is registered.
-*   **Clearing ghost rows**: if the identifier scheme changes or a machine is retired, a stale row lingers. Because the indicator follows the worst bot, that single row pins the status to "offline" forever and **kills the signal for real outages.** Remove it with the `✕` on its row — trade records are untouched, and a running bot re-registers on its next ping.
+*   **At-most-once** — a missing ack is never retried. Redelivering would rerun the same resync if the bot restarts just before acking, resurrecting records deliberately deleted in between. Pressing the button again is far better.
+*   A command shown as "done" never goes out again — the bot's duplicate guard lives only in memory, so the server owns this guarantee.
+*   Unclaimed commands expire after an hour and show as "unprocessed". Bots reporting `status=stopped` are not given work.
+*   A malformed ack still returns `200` for the ping itself; a `400` would break the heartbeat and flip the display to "disconnected".
 
-> How a bot builds its `botId` is up to the bot. my-stock-hts uses `{installation}:{mode}:{account}`, because its trading mode is a CLI flag and environment variables alone cannot separate mock, live, and Toss on one machine.
+**A resync is mandatory after restoring from backup.** The backup ZIP excludes `api_keys` and `users`, so on a new server you must reissue the API key and update the bot's `JOURNAL_API_KEY`. Records the bot sent after the backup are marked delivered in its queue, so backfill cannot recover them either. Resync treats the bot's local trade log as the source of truth and restores even records its queue has already pruned.
 
-### Re-sync — restoring deleted records
+> ⚠️ **`pause`/`resume` are deliberately not implemented.** They exist in the spec enum but are excluded from `SUPPORTED_BOT_COMMANDS`, so queuing is refused outright. Resync means "resend data that is already the bot's", whereas `pause` grants **the web server authority to halt a trading bot** — a compromised web app could freeze the bot while it holds positions.
 
-When you delete a record on the web, **the bot does not automatically send it again.** The bot only remembers *that it sent* a record, never whether it is still there — and that is the correct behaviour: if deliberate deletions kept coming back, there would be no way to delete anything.
-
-To restore them, use **Settings → Account Settings → 재동기화 (Re-Sync)** and pick a range: last quarter (90d), half-year (180d), or year (365d). All presets are **rolling**, not calendar-based — pressing "quarter" at the start of a calendar quarter would otherwise cover only a few days and miss the gap entirely.
-
-> The API (`POST /api/me/bot/resync`) also accepts an explicit `from`/`to`. The UI omits those inputs because the presets suffice, not because the bot cannot handle arbitrary ranges.
-
-**No duplicates are created.** Idempotency on `brokerExecutionId` makes existing records come back as `duplicate`. Re-syncing 90 days when only 10 days were actually deleted returns `inserted=10, skipped=80`. Those two numbers *are* the answer to "what was missing, and how much?", so the web shows them separately. Since duplicates are free, err on the side of a longer range.
-
-#### How commands reach the bot
-
-The bot usually sits behind a home network, so **the server can never initiate a connection.** Pressing the button queues a row in `bot_commands`, which rides along on the bot's next ping response (≤10s).
-
-```
-POST /api/v1/bot/status  →  { "command": "resync", "commandId": 17,
-                              "commandParams": { "from": "2026-05-04", "to": null } }
-next ping request body   ←  { "status": "running",
-                              "commandAck": { "id": 17, "result": "queued", "count": 42 } }
-```
-
-*   **A command is delivered at most once.** It is not re-sent even if the ack never arrives.
-    Re-sending until acked would guarantee execution, but if the bot restarts after receiving the command and before acking, **the same re-sync runs a second time.** That is idempotent with respect to server data yet **not idempotent with respect to operator intent** — records deleted on purpose between the two runs would come back. Making the operator press the button again is by far the lesser evil.
-*   **A command shown as "완료" (done) is never sent again, under any circumstance.** The bot's duplicate-execution guard lives only in memory and is lost on restart, so this guarantee is the server's job.
-*   If the bot never picks it up, the command expires after an hour and shows as "미처리" (unhandled) — usually because the bot was switched off. If it was picked up but never reported back, it stays "처리 중" (running) until then.
-*   Pressing the button repeatedly does not queue duplicates while one is still pending.
-*   A bot reporting `status=stopped` is given no work; it could not act on it anyway.
-*   A malformed ack still returns `200` for the ping itself. Returning `400` would break the heartbeat and flip the display to "disconnected".
-
-#### After restoring a backup, run a re-sync
-
-The backup ZIP contains `data.json` (trade records), attached images, and `account_info.json` (account mappings). **The `api_keys` and `users` tables are not included** — a backup restores data into an existing account; it does not stand up an empty server from scratch. If you restore onto a new server, issue a fresh API key on the web and update `JOURNAL_API_KEY` on the HTS side.
-
-Also, **records the bot sent after the backup point do not come back with the restore.** The bot only remembers *that it sent* them, so it never re-sends on its own, and backfill cannot catch this gap either (those rows are still marked as sent in the bot's queue). **Only a re-sync fills it in.** There is exactly one place to request it — the **Re-sync** button under Settings → Account settings — so that picking a period and watching progress stays a single flow; the restore screen does not offer it.
-
-Because re-sync reads the bot's local trade history as the source of truth, it also recovers records old enough to have been pruned from the bot's own queue.
-
-> ⚠️ **`pause`/`resume` are deliberately unimplemented.** They exist in the API spec enum but are excluded from `SUPPORTED_BOT_COMMANDS`, so the server refuses to even queue them. Re-sync means "re-send data that is already the bot's"; `pause` means **the web server can halt a trading bot**. A compromised or buggy web layer could stop the bot while it holds a position. If ever needed, it requires its own design with confirmation and auto-expiry safeguards — it must not be treated like re-sync.
-
-### Error responses
+### Errors and operations
 
 ```json
 { "error": "human-readable message", "errorCode": "OVERSELL", "details": {} }
 ```
 
-Always branch on `errorCode`. The `error` wording may change without notice.
-
-### Operational notes
+Always branch on `errorCode`. The `error` text may change without notice.
 
 *   **Serve over HTTPS** so the API key is never transmitted in the clear (reverse proxy such as Nginx + SSL).
 *   Rate limiting is in-process memory. Scaling to multiple processes requires swapping it for a shared store such as Redis.
+
 
 ---
 
