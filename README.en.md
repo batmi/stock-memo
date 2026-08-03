@@ -222,7 +222,7 @@ next ping request body   ←  { "status": "running",
 
 The backup ZIP contains `data.json` (trade records), attached images, and `account_info.json` (account mappings). **The `api_keys` and `users` tables are not included** — a backup restores data into an existing account; it does not stand up an empty server from scratch. If you restore onto a new server, issue a fresh API key on the web and update `JOURNAL_API_KEY` on the HTS side.
 
-Also, **records the bot sent after the backup point do not come back with the restore.** The bot only remembers *that it sent* them, so it never re-sends on its own, and backfill cannot catch this gap either (those rows are still marked as sent in the bot's queue). **Only a re-sync fills it in.** The restore flow now says so and offers to request one on the spot.
+Also, **records the bot sent after the backup point do not come back with the restore.** The bot only remembers *that it sent* them, so it never re-sends on its own, and backfill cannot catch this gap either (those rows are still marked as sent in the bot's queue). **Only a re-sync fills it in.** There is exactly one place to request it — the **Re-sync** button under Settings → Account settings — so that picking a period and watching progress stays a single flow; the restore screen does not offer it.
 
 Because re-sync reads the bot's local trade history as the source of truth, it also recovers records old enough to have been pruned from the bot's own queue.
 

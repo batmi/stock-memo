@@ -2844,32 +2844,10 @@ if (btnFullRestore && restoreFileInput) {
             await window.hideLoadingOverlay(); // ⭐️ 로딩 애니메이션(최소 1초)이 완전히 끝날 때까지 대기
             
             if (response.ok && result.status === 'success') {
-                // ⭐️ 백업 시점 이후 봇이 보낸 체결은 이 복원으로 되살아나지 않는다.
-                //    봇은 '이미 보냈다'는 사실만 기억해 자동 재전송을 하지 않으므로,
-                //    복원 직후 재동기화를 걸지 않으면 그 구간이 조용히 비어 있게 된다.
-                //    자동으로 걸지 않고 물어보는 이유 — 재동기화는 그 기간에 일부러
-                //    지웠던 기록까지 되살리므로 운용자가 판단할 일이다.
-                const wantResync = await customConfirm(
-                    '데이터가 성공적으로 원복되었습니다.\n\n'
-                    + '⚠️ 백업 시점 이후 봇이 보낸 매매 기록은 복원되지 않습니다.\n'
-                    + '봇은 이미 보낸 기록을 다시 보내지 않기 때문입니다.\n\n'
-                    + '지금 재동기화(최근 1년)를 요청할까요?\n'
-                    + '이미 있는 기록은 건너뛰므로 중복은 생기지 않습니다.');
-                if (wantResync) {
-                    try {
-                        await fetch('/api/me/bot/resync', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ preset: 'year' })
-                        });
-                        await customAlert('재동기화를 요청했습니다.\n'
-                            + '봇이 다음 연결(최대 10초) 때 받아 처리합니다.\n'
-                            + '진행 상황은 설정 → 계정 설정에서 확인할 수 있습니다.');
-                    } catch (e) {
-                        await customAlert('재동기화 요청에 실패했습니다.\n'
-                            + '설정 → 계정 설정에서 직접 눌러 주세요.');
-                    }
-                }
+                // ⭐️ 재동기화는 여기서 걸지 않는다. 요청 창구는 계정 설정의
+                //    재동기화 버튼 한 곳뿐이어야, 기간을 정하고 진행 상태를
+                //    확인하는 흐름이 갈라지지 않는다.
+                await customAlert('데이터가 성공적으로 원복되었습니다.\n화면을 새로고침 합니다.');
                 // ⭐️ 모달 닫힘 애니메이션(180ms)이 끝난 후 안전하게 페이지 새로고침
                 setTimeout(() => {
                     window.location.reload();
