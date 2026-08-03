@@ -558,6 +558,12 @@
                             지운 기록을 봇의 거래기록에서 다시 받아옵니다.
                             <span style="color: var(--success-color);">이미 있는 기록은 건너뛰므로 중복이 생기지 않습니다</span> — 기간을 넉넉히 잡아도 안전합니다.
                         </div>
+                        <!-- 봇이 두 대 이상이면 대상을 반드시 골라야 한다. 명령은 한 번만
+                             전달되므로 대상을 비우면 엉뚱한 봇이 채간다(서버가 400 으로 막는다). -->
+                        <div id="resyncBotPicker" style="display: none; margin-bottom: 8px;">
+                            <label for="resyncBotSelect" style="display: block; font-size: 10px; color: var(--text-muted-color); margin-bottom: 4px;">재동기화할 봇</label>
+                            <select id="resyncBotSelect" style="width: 100%; font-size: 11px; padding: 5px; margin: 0; background: var(--bg-color); color: var(--text-strong-color);"></select>
+                        </div>
                         <div style="display: flex; gap: 5px; margin-bottom: 8px;">
                             <button type="button" class="resync-preset" data-preset="quarter" style="flex: 1; margin: 0; padding: 5px 0; font-size: 11px; width: auto; background: var(--neutral-color);">분기</button>
                             <button type="button" class="resync-preset" data-preset="half" style="flex: 1; margin: 0; padding: 5px 0; font-size: 11px; width: auto; background: var(--neutral-color);">반기</button>
@@ -577,6 +583,9 @@
                         <div style="font-size: 10px; color: var(--text-muted-color); text-align: right; white-space: nowrap;">
                             최근 연결: <span id="botLastSeenText">-</span>
                         </div>
+                        <!-- 봇이 두 대 이상일 때만 채워진다. 위의 대표 상태는 '가장 나쁜 봇'이라,
+                             어느 봇이 문제인지는 이 목록에서 확인한다. -->
+                        <div id="botInstanceList" style="display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 10px; line-height: 1.8;"></div>
                     </div>
                 </div>
             </div>

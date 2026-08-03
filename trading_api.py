@@ -76,6 +76,22 @@ BOT_COMMAND_TTL_SECONDS = 3600
 # 필요한 일이라, 재동기화와 같은 취급을 해서는 안 된다.
 SUPPORTED_BOT_COMMANDS = ('resync',)
 
+# ── 봇 식별 ────────────────────────────────────────────────────────────
+# 하트비트·명령의 스코프는 API 키가 아니라 **사용자**다(키는 인증만 하고 곧바로
+# username 으로 바뀐다). 그래서 HTS 를 여러 대 돌리면 키를 따로 발급해도 상태가
+# 한 칸에 겹쳐 쓰이고, 실전봇이 죽어도 모의봇 Ping 이 화면을 '정상'으로 유지한다.
+# botId 는 그 겹침을 푸는 봇 인스턴스 식별자다 — HTS 가 스스로 정해서 보낸다.
+#
+# botId 를 보내지 않는 구버전 HTS 는 이 값으로 묶는다. 한 대만 쓰던 기존 사용자는
+# 그대로 동작하고, 두 대째가 붙는 순간부터 각자의 botId 로 갈라진다.
+LEGACY_BOT_ID = 'default'
+BOT_ID_MAX_LEN = 64
+
+# 화면 대표 상태를 고를 때의 우선순위 — **나쁜 쪽이 이긴다.**
+# 여러 봇 중 하나라도 죽었으면 그것이 보여야 한다. '하나라도 살아 있으면 초록'은
+# 정확히 이 기능이 막으려는 오표시(실전봇 사망을 모의봇 Ping 이 가리는 것)다.
+_BOT_STATE_SEVERITY = {'never': 0, 'running': 1, 'stopped': 2, 'offline': 3, 'error': 4}
+
 # ── 주입 의존성 ────────────────────────────────────────────────────────
 _deps = {
     'db_conn': None,          # contextmanager -> sqlite3.Connection
@@ -124,6 +140,10 @@ ENTRY_COLUMN_DDL = [
     ('executedAtUtc', 'TEXT'),
     ('tradeDate', 'TEXT'),
     ('needsReview', 'INTEGER DEFAULT 0'),
+    # ⭐️ 시스템 트레이딩이 낸 주문인가. **DEFAULT 를 두지 않는다** — 0/1 만으로는
+    #    '시스템이 아니다'와 '봇이 알려주지 않았다'가 구분되지 않는데, 분류 폴백이
+    #    바로 그 구분에 걸려 있다. 모르면 NULL 로 남아야 한다.
+    ('isSystem', 'INTEGER'),
 ]
 
 
@@ -172,6 +192,32 @@ def migrate_schema(conn):
             result_message TEXT
         )
     ''')
+    # ⭐️ 명령을 받을 봇. NULL 은 '봇을 지정하지 않은 구버전 요청'이라 봇이 한 대일
+    #    때만 전달한다 (_take_pending_command 참고). 여러 대가 붙어 있는데 대상을
+    #    모르는 명령을 아무 봇에게나 주면, 엉뚱한 계좌가 재동기화되고 그 봇이 ack 까지
+    #    보내 웹에는 '완료'로 뜬다 — 운용자가 알아챌 수 없는 실패다.
+    try:
+        c.execute("ALTER TABLE bot_commands ADD COLUMN bot_id TEXT")
+    except sqlite3.OperationalError:
+        pass  # 이미 존재
+
+    # 봇 인스턴스별 하트비트. users.bot_status 는 사용자당 한 칸뿐이라 봇이 여러
+    # 대면 마지막에 Ping 한 놈이 앞의 상태를 덮어썼다.
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS bots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            bot_id TEXT NOT NULL,
+            label TEXT,
+            status TEXT,
+            last_seen TEXT,
+            is_simulated INTEGER DEFAULT 0,
+            message TEXT,
+            first_seen TEXT,
+            UNIQUE(username, bot_id)
+        )
+    ''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_bots_user ON bots(username)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_bot_commands_pending "
               "ON bot_commands(username, acked_at, id)")
     conn.commit()
@@ -327,6 +373,67 @@ def evaluate_bot_state(bot_status, bot_last_seen, now=None):
     if elapsed > BOT_OFFLINE_AFTER_SECONDS:
         return 'offline', elapsed
     return 'running', elapsed
+
+
+def _normalize_bot_id(value):
+    """봇 식별자 정규화. 비었으면 구버전 취급(LEGACY_BOT_ID)."""
+    text = str(value or '').strip()[:BOT_ID_MAX_LEN]
+    return text or LEGACY_BOT_ID
+
+
+def _upsert_bot(c, username, bot_id, status, now, *, label=None,
+                is_simulated=False, message=None):
+    """봇 하트비트를 인스턴스 단위로 기록한다.
+
+    label 은 봇이 보낼 때만 갱신한다 — 매 Ping 마다 덮으면, 라벨을 안 보내는
+    구버전으로 잠깐 되돌렸을 때 화면에서 이름이 사라진다.
+    """
+    c.execute(
+        "INSERT INTO bots (username, bot_id, label, status, last_seen, "
+        "                  is_simulated, message, first_seen) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(username, bot_id) DO UPDATE SET "
+        "  status = excluded.status, last_seen = excluded.last_seen, "
+        "  is_simulated = excluded.is_simulated, message = excluded.message, "
+        "  label = COALESCE(excluded.label, bots.label)",
+        (username, bot_id, label, status, now, 1 if is_simulated else 0, message, now))
+
+
+def list_bots(username, now=None):
+    """이 사용자의 봇 인스턴스 목록. 각 행에 서버가 확정한 state 를 붙여 돌려준다."""
+    with _db() as conn:
+        c = conn.cursor()
+        c.execute(
+            "SELECT bot_id, label, status, last_seen, is_simulated, message, first_seen "
+            "FROM bots WHERE username = ? ORDER BY bot_id", (username,))
+        rows = [dict(r) for r in c.fetchall()]
+
+    items = []
+    for row in rows:
+        state, elapsed = evaluate_bot_state(row['status'], row['last_seen'], now=now)
+        items.append({
+            'botId': row['bot_id'],
+            'label': row['label'] or row['bot_id'],
+            'status': row['status'],
+            'state': state,
+            'lastSeen': row['last_seen'],
+            'elapsedSeconds': round(elapsed, 1) if elapsed is not None else None,
+            'isSimulated': bool(row['is_simulated']),
+            'message': row['message'] or None,
+        })
+    return items
+
+
+def summarize_bot_states(bots):
+    """봇 목록에서 화면 대표 상태 하나를 고른다. (state, elapsed, botId)
+
+    **가장 나쁜 상태가 이긴다.** 하나라도 살아 있으면 초록으로 칠하는 방식은
+    실전봇이 죽은 것을 모의봇 Ping 이 가려 버린다 — 이 기능이 막으려는 그 오표시다.
+    """
+    if not bots:
+        return 'never', None, None
+    worst = max(bots, key=lambda b: _BOT_STATE_SEVERITY.get(b['state'], 0))
+    return worst['state'], worst['elapsedSeconds'], worst['botId']
 
 
 def _err(status, code, message, **details):
@@ -588,11 +695,22 @@ def _text(value, field, max_length, default=''):
     return value
 
 
-def _normalize_trade_class(value):
-    if value is None or value == '':
+def _normalize_trade_class(value, *, is_system=None, fallback=''):
+    """매매 분류를 확정한다.
+
+    **비어 있다고 '시스템'으로 채우지 않는다.** 예전에는 그렇게 했는데, HTS 는
+    자기 계좌에서 일어난 체결을 전부 보고한다 — 토스 앱이나 증권사 HTS 에서 사람이
+    직접 낸 주문까지 포함해서다. 그것들이 전부 '시스템'으로 찍혀 실제 자동매매 성과와
+    수동 매매가 한 덩어리가 됐다.
+
+    is_system: 봇이 알려준 '시스템 트레이딩이 낸 주문인가'. True 면 분류를 '시스템'으로
+      확정한다. False/None 이면 아래 폴백으로 내려간다.
+    fallback: 분류를 못 정했을 때 쓸 값 (보통 같은 종목의 직전 기록에서 상속한 분류).
+    """
+    if is_system:
         return '시스템'
-    if isinstance(value, bool):
-        return '시스템'
+    if value is None or value == '' or isinstance(value, bool):
+        return fallback
     # 숫자 코드 또는 숫자 문자열 → 이름으로 치환 (v1 하위 호환)
     try:
         code = int(value)
@@ -600,7 +718,27 @@ def _normalize_trade_class(value):
     except (TypeError, ValueError):
         pass
     text = str(value).strip()
-    return text if text in _VALID_TRADE_CLASSES else text or '시스템'
+    return text if text in _VALID_TRADE_CLASSES else text or fallback
+
+
+def _inherit_trade_class(c, username, symbol):
+    """같은 사용자·종목의 직전 기록에서 분류를 물려받는다. 없으면 빈 문자열.
+
+    **'시스템'은 물려받지 않는다.** 예전 버전이 HTS 발 기록을 전부 '시스템'으로
+    저장해 둬서, 그대로 상속하면 새로 들어오는 외부 체결까지 계속 '시스템'이 된다
+    — 고치려던 오염을 상속으로 영구화하는 셈이다. 상속은 사람이 실제로 뜻을 담아
+    골랐을 법한 분류(장기투자·배당투자 등)에만 걸린다.
+    """
+    if not symbol:
+        return ''
+    c.execute(
+        "SELECT tradeClass FROM entries "
+        "WHERE username = ? AND stockCode = ? "
+        "  AND tradeClass IS NOT NULL AND tradeClass != '' AND tradeClass != '시스템' "
+        "ORDER BY id DESC LIMIT 1",
+        (username, symbol))
+    row = c.fetchone()
+    return (row['tradeClass'] or '') if row else ''
 
 
 def _normalize_enum(value, valid, default, field):
@@ -714,7 +852,14 @@ def build_entry(c, username, data, mappings, *, default_source=None):
     order_origin = _normalize_enum(data.get('orderOrigin'), _VALID_ORIGIN, '', 'orderOrigin') \
         if data.get('orderOrigin') else ''
 
-    trade_class = _normalize_trade_class(data.get('tradeClass'))
+    # ⭐️ isSystem 은 3상태다 — True(자동매매), False(사람이 낸 주문), None(봇이 모름).
+    #    None 과 False 를 뭉개면 분류 폴백이 무너지므로 여기서 구분해 둔다.
+    is_system = data.get('isSystem')
+    is_system = None if is_system is None else bool(is_system)
+
+    trade_class = _normalize_trade_class(data.get('tradeClass'), is_system=is_system)
+    if not trade_class and not is_system:
+        trade_class = _inherit_trade_class(c, username, symbol)
 
     tags = data.get('tags') or []
     if not isinstance(tags, list):
@@ -776,6 +921,8 @@ def build_entry(c, username, data, mappings, *, default_source=None):
         'executedAtUtc': executed_dt.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         'tradeDate': _trade_date_for(executed_dt, exchange),
         'needsReview': 0,
+        # None 을 그대로 저장해 '모른다'를 남긴다 (0 으로 눕히면 False 와 섞인다).
+        'isSystem': None if is_system is None else (1 if is_system else 0),
     }
 
 
@@ -794,6 +941,7 @@ def entry_to_response(row):
         'tradeDate': row.get('tradeDate'),
         'brokerExecutionId': row.get('brokerExecutionId') or None,
         'isSimulated': bool(row.get('isSimulated')),
+        'isSystem': None if row.get('isSystem') is None else bool(row.get('isSystem')),
         'status': row.get('tradeStatus') or 'FILLED',
         'confidence': row.get('confidence') or 'CONFIRMED',
         'orderOrigin': row.get('orderOrigin') or None,
@@ -963,8 +1111,8 @@ def _command_expiry_cutoff():
     return (_now_kst() - timedelta(seconds=BOT_COMMAND_TTL_SECONDS)).isoformat()
 
 
-def _take_pending_command(c, username):
-    """봇에 내려보낼 명령을 하나 집는다. 없으면 None.
+def _take_pending_command(c, username, bot_id=None):
+    """이 봇에 내려보낼 명령을 하나 집는다. 없으면 None.
 
     **한 번만 전달한다(at-most-once).** ack 를 받을 때까지 반복 전달하면 명령이
     반드시 실행되는 대신, 봇이 명령을 받고 ack 를 보내기 전에 재시작할 때 같은
@@ -975,13 +1123,24 @@ def _take_pending_command(c, username):
 
     전달만 되고 ack 가 오지 않으면 만료될 때까지 '처리 중'으로 남았다가 '미처리'로
     바뀐다. 운용자는 그것을 보고 다시 누르면 된다.
+
+    **대상이 지정되지 않은 명령(bot_id IS NULL)은 봇이 한 대일 때만 전달한다.**
+    at-most-once 라서 여러 대가 붙어 있으면 먼저 Ping 한 아무 봇이나 채가는데,
+    그 봇은 자기 로컬 DB 만 재전송하고 ack 까지 보낸다 — 정작 복구하려던 계좌는
+    아무 일도 일어나지 않았는데 웹에는 '완료'로 뜨는 조용한 실패가 된다.
+    전달되지 않은 명령은 '미처리'로 남아 운용자가 다시 누를 수 있다.
     """
+    bot_id = _normalize_bot_id(bot_id)
+    c.execute("SELECT COUNT(*) AS cnt FROM bots WHERE username = ?", (username,))
+    solo = (c.fetchone()['cnt'] or 0) <= 1
+
+    scope = "(bot_id = ? OR bot_id IS NULL)" if solo else "bot_id = ?"
     c.execute(
         "SELECT id, command, params_json FROM bot_commands "
-        "WHERE username = ? AND acked_at IS NULL AND delivered_at IS NULL "
-        "  AND requested_at >= ? "
+        f"WHERE username = ? AND {scope} "
+        "  AND acked_at IS NULL AND delivered_at IS NULL AND requested_at >= ? "
         "ORDER BY id LIMIT 1",
-        (username, _command_expiry_cutoff()))
+        (username, bot_id, _command_expiry_cutoff()))
     row = c.fetchone()
     if row is None:
         return None
@@ -995,11 +1154,14 @@ def _take_pending_command(c, username):
     return {'id': row['id'], 'command': row['command'], 'params': params}
 
 
-def _apply_command_ack(c, username, ack):
+def _apply_command_ack(c, username, ack, bot_id=None):
     """봇이 보고한 처리 결과를 반영한다. 형식이 어긋나면 조용히 무시한다.
 
     ack 가 잘못됐다고 Ping 자체를 400 으로 되돌리면 안 된다 — 하트비트가 끊겨
     웹 화면이 '통신단절'로 바뀐다. 상태 보고가 ack 보다 중요하다.
+
+    bot_id 를 주면 그 봇이 실제로 받아 간 명령만 마감한다. 봇이 여러 대일 때
+    엉뚱한 봇의 ack 가 남의 명령을 '완료'로 덮는 것을 막는다.
     """
     if not isinstance(ack, dict):
         return
@@ -1015,52 +1177,68 @@ def _apply_command_ack(c, username, ack):
         count = 0
     message = str(ack.get('message') or '')[:500]
 
+    scope = "AND (bot_id = ? OR bot_id IS NULL)" if bot_id else ""
+    args = [_now_iso(), result, count, message, command_id, username]
+    if bot_id:
+        args.append(bot_id)
     c.execute(
         "UPDATE bot_commands SET acked_at = ?, result = ?, result_count = ?, "
-        "result_message = ? WHERE id = ? AND username = ? AND acked_at IS NULL",
-        (_now_iso(), result, count, message, command_id, username))
+        f"result_message = ? WHERE id = ? AND username = ? AND acked_at IS NULL {scope}",
+        args)
 
 
-def request_bot_command(username, command, params=None):
+def request_bot_command(username, command, params=None, bot_id=None):
     """웹 세션에서 호출 — 봇에 내려보낼 명령을 큐에 넣는다. (명령 id)
 
     같은 명령이 이미 대기 중이면 새로 만들지 않고 그것을 돌려준다. 버튼을 여러 번
-    눌렀다고 재동기화가 여러 번 돌 이유가 없다.
+    눌렀다고 재동기화가 여러 번 돌 이유가 없다. **봇이 여럿이면 대상별로 따로 센다**
+    — 실전봇 재동기화가 대기 중이라고 모의봇 요청까지 삼키면 안 된다.
+
+    bot_id=None 은 '대상 미지정'이다. 봇이 한 대뿐일 때만 전달된다.
     """
     if command not in SUPPORTED_BOT_COMMANDS:
         raise ValueError(f'지원하지 않는 명령입니다: {command}')
 
+    bot_id = str(bot_id).strip()[:BOT_ID_MAX_LEN] if bot_id else None
+
     with _db() as conn:
         c = conn.cursor()
+        scope = "bot_id = ?" if bot_id else "bot_id IS NULL"
+        args = [username, command]
+        if bot_id:
+            args.append(bot_id)
         c.execute(
-            "SELECT id FROM bot_commands WHERE username = ? AND command = ? "
+            f"SELECT id FROM bot_commands WHERE username = ? AND command = ? AND {scope} "
             "AND acked_at IS NULL AND requested_at >= ? ORDER BY id LIMIT 1",
-            (username, command, _command_expiry_cutoff()))
+            (*args, _command_expiry_cutoff()))
         existing = c.fetchone()
         if existing is not None:
             return existing['id']
 
         c.execute(
-            "INSERT INTO bot_commands (username, command, params_json, requested_at) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO bot_commands (username, command, params_json, requested_at, bot_id) "
+            "VALUES (?, ?, ?, ?, ?)",
             (username, command,
              json.dumps(params, ensure_ascii=False) if params else None,
-             _now_iso()))
+             _now_iso(), bot_id))
         conn.commit()
         return c.lastrowid
 
 
-def latest_bot_command(username, command=None):
+def latest_bot_command(username, command=None, bot_id=None):
     """웹 화면 표시용 — 가장 최근 명령의 상태. 없으면 None."""
     with _db() as conn:
         c = conn.cursor()
         sql = ("SELECT id, command, params_json, requested_at, delivered_at, "
-               "acked_at, result, result_count, result_message "
+               "acked_at, result, result_count, result_message, bot_id "
                "FROM bot_commands WHERE username = ?")
         params = [username]
         if command:
             sql += " AND command = ?"
             params.append(command)
+        if bot_id:
+            sql += " AND bot_id = ?"
+            params.append(bot_id)
         c.execute(sql + " ORDER BY id DESC LIMIT 1", params)
         row = c.fetchone()
 
@@ -1068,6 +1246,7 @@ def latest_bot_command(username, command=None):
         return None
 
     item = dict(row)
+    item['botId'] = item.pop('bot_id', None)
     try:
         item['params'] = json.loads(item.pop('params_json') or 'null')
     except (TypeError, ValueError):
@@ -1097,24 +1276,38 @@ def bot_status(username, scopes):
         return _err(400, 'INVALID_FIELD',
                     'status 는 running/stopped/error 중 하나여야 합니다.', field='status')
 
+    # ⭐️ 부가 필드는 검증하지 않고 잘라서 받는다. 라벨이 길다고 하트비트를 400 으로
+    #    되돌리면 화면이 '통신단절'로 바뀐다 — 상태 보고가 라벨보다 중요하다.
+    bot_id = _normalize_bot_id(data.get('botId'))
+    label = str(data.get('label') or '').strip()[:60] or None
+    message = str(data.get('message') or '').strip()[:500] or None
+    is_simulated = bool(data.get('isSimulated'))
+
     # ⭐️ 오프셋 포함 ISO 8601 로 저장한다. 만료 판정(마지막 Ping 이후 경과 시간)에
     #    쓰이는 값이라 타임존이 빠지면 읽는 쪽에서 몇 시간씩 어긋난다.
     now = _now_iso()
     with _db() as conn:
         c = conn.cursor()
+        _upsert_bot(c, username, bot_id, status_value, now,
+                    label=label, is_simulated=is_simulated, message=message)
+
+        # ⭐️ users 의 단일 칸은 하위호환으로만 유지한다. 봇이 여러 대면 마지막에
+        #    Ping 한 놈으로 덮이므로 **화면 판정에는 쓰지 않는다** (bots 테이블이 원본).
         c.execute("UPDATE users SET bot_status = ?, bot_last_seen = ? WHERE username = ?",
                   (status_value, now, username))
 
         # ack 를 먼저 반영해야 방금 끝낸 명령을 같은 응답에서 또 내려보내지 않는다.
-        _apply_command_ack(c, username, data.get('commandAck'))
+        _apply_command_ack(c, username, data.get('commandAck'), bot_id)
 
         # 봇이 멈추는 중이면 새 일감을 주지 않는다 — 받아도 처리하지 못한다.
-        pending = _take_pending_command(c, username) if status_value == 'running' else None
+        pending = (_take_pending_command(c, username, bot_id)
+                   if status_value == 'running' else None)
         conn.commit()
 
     body = {
         'status': 'success',
         'updatedAt': now,
+        'botId': bot_id,
         'nextPingSeconds': BOT_PING_INTERVAL_SECONDS,
         'command': pending['command'] if pending else 'none',
     }
@@ -1516,6 +1709,10 @@ def create_opening_positions(username, scopes):
                 'executedAt': f'{as_of}T00:00:00+09:00',
                 'brokerExecutionId': f'OPENING:{env}:{as_of}:{symbol}',
                 'isSimulated': is_simulated,
+                # 기초잔고는 시스템 트레이딩이 낸 체결이 아니라 '연동 이전부터 들고
+                # 있던 것'이다. 예전에는 분류가 비면 '시스템'으로 채워져 자동매매
+                # 성과에 섞여 들어갔다.
+                'isSystem': False,
                 'orderOrigin': 'BACKFILL',
                 'source': source,
                 'name': pos.get('name'),

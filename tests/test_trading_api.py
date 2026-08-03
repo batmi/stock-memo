@@ -689,3 +689,203 @@ def test_completed_command_is_never_sent_again(api):
     # 봇이 재시작해 처리 이력을 잊은 상태로 계속 Ping 해도 다시 받지 않는다.
     for _ in range(30):
         assert _ping(api)['command'] == 'none'
+
+
+# ── 봇 인스턴스 분리 (botId) ──────────────────────────────────────────
+#  하트비트·명령의 스코프는 API 키가 아니라 **사용자**다(키는 인증 직후 username 으로
+#  바뀐다). 그래서 HTS 를 여러 대 돌리면 키를 따로 발급해도 상태가 한 칸에 겹쳐 쓰였다.
+
+def test_pings_from_different_bots_do_not_overwrite_each_other(api):
+    """실전봇이 죽어도 모의봇 Ping 이 화면을 '정상'으로 유지하던 문제."""
+    _ping(api, botId='real', label='실전 68029263')
+    _ping(api, botId='sim', label='모의 50196591', isSimulated=True)
+
+    bots = {b['botId']: b for b in trading_api.list_bots('bot')}
+    assert set(bots) == {'real', 'sim'}
+    assert bots['real']['label'] == '실전 68029263'
+    assert bots['sim']['isSimulated'] is True
+
+
+def test_missing_bot_id_is_grouped_as_legacy(api):
+    """botId 를 안 보내는 구버전 HTS 도 그대로 동작해야 한다."""
+    body = _ping(api)
+    assert body['botId'] == trading_api.LEGACY_BOT_ID
+    assert [b['botId'] for b in trading_api.list_bots('bot')] == [trading_api.LEGACY_BOT_ID]
+
+
+def test_summary_reports_the_worst_bot_not_the_healthiest(api):
+    """'하나라도 살아 있으면 초록'은 정확히 이 기능이 막으려는 오표시다."""
+    bots = [
+        {'botId': 'sim', 'state': 'running', 'elapsedSeconds': 3.0},
+        {'botId': 'real', 'state': 'offline', 'elapsedSeconds': 900.0},
+    ]
+    state, elapsed, worst = trading_api.summarize_bot_states(bots)
+    assert (state, worst) == ('offline', 'real')
+    assert elapsed == 900.0
+
+
+def test_command_targeted_at_one_bot_is_not_taken_by_another(api):
+    """엉뚱한 봇이 채가면 그 봇이 ack 까지 보내 웹에는 '완료'로 뜬다 — 조용한 실패다."""
+    _ping(api, botId='real')
+    _ping(api, botId='sim')
+    cmd_id = trading_api.request_bot_command(
+        'bot', 'resync', {'from': '2026-05-01'}, bot_id='real')
+
+    assert _ping(api, botId='sim')['command'] == 'none'
+    assert _ping(api, botId='real')['commandId'] == cmd_id
+
+
+def test_untargeted_command_is_withheld_while_several_bots_are_connected(api):
+    """대상을 모르는 명령은 배달하지 않는다 — 오배달보다 미배달이 낫다.
+
+    전달되지 않은 명령은 '미처리'로 남아 운용자가 대상을 골라 다시 누를 수 있다.
+    """
+    _ping(api, botId='real')
+    _ping(api, botId='sim')
+    trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'})
+
+    assert _ping(api, botId='real')['command'] == 'none'
+    assert _ping(api, botId='sim')['command'] == 'none'
+
+
+def test_untargeted_command_still_reaches_a_solo_bot(api):
+    """봇이 한 대뿐이면 예전처럼 그냥 전달된다 (하위호환)."""
+    _ping(api, botId='real')
+    cmd_id = trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'})
+    assert _ping(api, botId='real')['commandId'] == cmd_id
+
+
+def test_pending_command_is_counted_per_bot(api):
+    """실전봇 재동기화가 대기 중이라고 모의봇 요청까지 삼키면 안 된다."""
+    _ping(api, botId='real')
+    _ping(api, botId='sim')
+    first = trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'}, bot_id='real')
+    second = trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'}, bot_id='sim')
+    assert first != second
+
+
+# ── 매매 분류 (tradeClass / isSystem) ─────────────────────────────────
+#  봇은 자기 계좌에서 일어난 체결을 전부 보고한다 — 증권사 앱·HTS 에서 사람이 낸
+#  주문까지 포함해서다. 예전엔 분류가 비면 '시스템'으로 채워 그 전부가 자동매매
+#  성과로 뭉쳐졌다.
+
+def _post(api, **overrides):
+    return api['client'].post('/api/v1/trades', json=_trade(**overrides),
+                              headers=api['headers'])
+
+
+def test_system_flag_pins_the_class(api):
+    res = _post(api, isSystem=True)
+    assert res.status_code == 201
+    assert res.get_json()['tradeClass'] == '시스템'
+
+
+def test_missing_class_is_no_longer_defaulted_to_system(api):
+    """분류를 안 보냈다고 '시스템'으로 채우면 외부 주문이 자동매매 성과에 섞인다."""
+    res = _post(api, isSystem=False)
+    assert res.status_code == 201
+    assert res.get_json()['tradeClass'] == ''
+
+
+def test_unknown_origin_also_avoids_system(api):
+    """isSystem 자체가 없어도 '시스템'으로 단정하지 않는다."""
+    assert _post(api).get_json()['tradeClass'] == ''
+
+
+def test_non_system_trade_inherits_class_from_same_symbol(api):
+    """토스 앱에서 산 종목을 이미 '장기투자'로 분류해 뒀다면 그것을 따른다."""
+    _post(api, brokerExecutionId='SEED', tradeClass='장기투자', isSystem=False)
+    res = _post(api, brokerExecutionId='REAL:1234:20260802:0002', isSystem=False)
+    assert res.get_json()['tradeClass'] == '장기투자'
+
+
+def test_inheritance_never_picks_up_system(api):
+    """예전 버전이 남긴 '시스템' 기록을 물려받으면 그 오염이 영구화된다."""
+    _post(api, brokerExecutionId='OLD', isSystem=True)
+    res = _post(api, brokerExecutionId='REAL:1234:20260802:0003', isSystem=False)
+    assert res.get_json()['tradeClass'] == ''
+
+
+def test_explicit_class_survives_the_system_flag_being_absent(api):
+    """봇이 분류를 직접 지정하면 그대로 쓴다."""
+    assert _post(api, tradeClass='배당투자').get_json()['tradeClass'] == '배당투자'
+
+
+def test_is_system_is_three_state_in_storage(api):
+    """'사람이 냈다(False)'와 '모른다(None)'는 다른 사실이다 — 분류 폴백이 거기 걸려 있다."""
+    _post(api, brokerExecutionId='A', isSystem=False)
+    _post(api, brokerExecutionId='B')
+    with backend_app.db_conn() as conn:
+        rows = dict(conn.cursor().execute(
+            "SELECT brokerExecutionId, isSystem FROM entries "
+            "WHERE brokerExecutionId IN ('A', 'B')").fetchall())
+    assert rows['A'] == 0
+    assert rows['B'] is None
+
+
+def test_opening_balance_is_not_system(api):
+    """연동 이전부터 들고 있던 잔고는 자동매매가 낸 체결이 아니다."""
+    res = api['client'].post('/api/v1/positions/opening', json={
+        'asOf': '2026-08-01',
+        'positions': [{'symbol': '005930', 'avgPrice': 70000, 'volume': 5}],
+    }, headers=api['headers'])
+    assert res.status_code in (200, 201)
+    with backend_app.db_conn() as conn:
+        row = conn.cursor().execute(
+            "SELECT tradeClass, isSystem FROM entries WHERE stockCode = '005930'").fetchone()
+    assert row['isSystem'] == 0
+    assert row['tradeClass'] != '시스템'
+
+
+# ── 웹 화면 경로 (세션) ───────────────────────────────────────────────
+
+def _as_web_user(api):
+    # check_login 은 username 만으로는 통과하지 않는다 — logged_in 과 절대 만료 시각까지
+    # 있어야 세션으로 인정한다(backend_app.check_login).
+    with api['client'].session_transaction() as sess:
+        sess['username'] = 'bot'
+        sess['logged_in'] = True
+        sess['expires_at'] = time.time() + 3600
+    return api['client']
+
+
+def test_resync_refuses_to_guess_when_several_bots_are_connected(api):
+    """대상을 안 고르면 아무 봇이나 채가 엉뚱한 계좌가 재동기화된다 — 여기서 막는다."""
+    _ping(api, botId='real', label='실전')
+    _ping(api, botId='sim', label='모의')
+
+    res = _as_web_user(api).post('/api/me/bot/resync', json={'preset': 'quarter'})
+    assert res.status_code == 400
+    assert {b['botId'] for b in res.get_json()['bots']} == {'real', 'sim'}
+
+
+def test_resync_pins_the_solo_bot_explicitly(api):
+    """한 대뿐이면 그 봇을 명시 지정한다 — 두 대째가 붙어도 수신자가 바뀌지 않는다."""
+    _ping(api, botId='real')
+    res = _as_web_user(api).post('/api/me/bot/resync', json={'preset': 'quarter'})
+    assert res.status_code == 200
+    assert res.get_json()['botId'] == 'real'
+
+
+def test_resync_rejects_unknown_bot(api):
+    _ping(api, botId='real')
+    res = _as_web_user(api).post('/api/me/bot/resync',
+                                 json={'preset': 'quarter', 'botId': 'nope'})
+    assert res.status_code == 400
+
+
+def test_me_reports_the_worst_bot_and_lists_all(api, monkeypatch):
+    """실전봇이 죽어도 모의봇 Ping 이 초록불을 유지하던 것이 이 기능의 출발점이다."""
+    _ping(api, botId='real', label='실전')
+    _ping(api, botId='sim', label='모의')
+    # 실전봇만 오래 굶긴다 — Ping 시각을 과거로 밀어 통신단절 상태를 만든다.
+    with backend_app.db_conn() as conn:
+        conn.cursor().execute(
+            "UPDATE bots SET last_seen = ? WHERE username = 'bot' AND bot_id = 'real'",
+            ((datetime.now(trading_api.KST) - timedelta(hours=2)).isoformat(),))
+        conn.commit()
+
+    body = _as_web_user(api).get('/api/me').get_json()
+    assert body['bot_state'] == 'offline'
+    assert {b['botId']: b['state'] for b in body['bots']} == {
+        'real': 'offline', 'sim': 'running'}

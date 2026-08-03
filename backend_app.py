@@ -978,6 +978,11 @@ def request_bot_resync():
     웹 화면은 프리셋(분기/반기/1년)만 씁니다. from/to 직접 지정도 계속 받아 두는데,
     봇은 임의 구간을 처리할 수 있고 API 스펙(commandParams)에도 그렇게 정의돼 있어서,
     화면에 입력칸이 없다고 계약까지 좁힐 이유는 없기 때문입니다.
+
+    ⭐️ 봇이 둘 이상이면 botId 를 반드시 지정해야 합니다. 명령은 한 번만 전달되므로
+    (at-most-once) 대상을 비워 두면 먼저 Ping 한 아무 봇이나 채가는데, 그 봇은 자기
+    계좌만 재전송하고 ack 까지 보내 화면에는 '완료'로 뜹니다 — 정작 복구하려던 계좌는
+    아무 일도 없었는데 운용자는 알 방법이 없는 실패입니다. 그래서 요청을 거절합니다.
     """
     username = session.get('username')
     if not username:
@@ -986,6 +991,21 @@ def request_bot_resync():
     body = request.get_json(silent=True) or {}
     preset = body.get('preset')
     date_from, date_to = body.get('from'), body.get('to')
+    bot_id = (body.get('botId') or '').strip() or None
+
+    bots = trading_api.list_bots(username)
+    known = {b['botId'] for b in bots}
+    if bot_id and bot_id not in known:
+        return jsonify({"error": f"등록되지 않은 봇입니다: {bot_id}"}), 400
+    if not bot_id:
+        if len(bots) > 1:
+            return jsonify({
+                "error": "봇이 여러 대 연결되어 있습니다. 재동기화할 봇을 선택하세요.",
+                "bots": bots,
+            }), 400
+        # 한 대뿐이면 그 봇을 명시적으로 지정한다 — 두 대째가 붙어도 이 명령의
+        # 수신자는 바뀌지 않는다.
+        bot_id = bots[0]['botId'] if bots else None
 
     if preset:
         days = RESYNC_PRESET_DAYS.get(preset)
@@ -999,16 +1019,17 @@ def request_bot_resync():
 
     try:
         command_id = trading_api.request_bot_command(
-            username, 'resync', {'from': date_from, 'to': date_to})
+            username, 'resync', {'from': date_from, 'to': date_to}, bot_id=bot_id)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
     return jsonify({
         "status": "success",
         "commandId": command_id,
+        "botId": bot_id,
         "from": date_from,
         "to": date_to,
-        "command": trading_api.latest_bot_command(username, 'resync'),
+        "command": trading_api.latest_bot_command(username, 'resync', bot_id=bot_id),
     })
 
 
@@ -1018,7 +1039,9 @@ def get_bot_resync_status():
     username = session.get('username')
     if not username:
         return jsonify({"error": "Unauthorized"}), 401
-    return jsonify({"command": trading_api.latest_bot_command(username, 'resync')})
+    bot_id = (request.args.get('botId') or '').strip() or None
+    return jsonify({"command": trading_api.latest_bot_command(username, 'resync',
+                                                              bot_id=bot_id)})
 
 
 def get_user_mappings(username):
@@ -1088,7 +1111,18 @@ def get_me():
 
     # ⭐️ 봇 만료 판정은 서버가 확정해서 내려준다. 브라우저 시계가 틀어져 있거나
     #    타임존이 다르면 클라이언트 계산은 그대로 오판이 되기 때문이다.
-    bot_state, bot_elapsed = trading_api.evaluate_bot_state(bot_status, bot_last_seen)
+    #
+    # ⭐️ 판정의 원본은 bots 테이블이다. users 의 단일 칸은 봇이 여러 대면 마지막에
+    #    Ping 한 놈으로 덮여, 실전봇이 죽어도 모의봇 Ping 이 화면을 '정상 가동중'으로
+    #    유지한다. bots 가 비어 있을 때(botId 도입 전 기록)만 옛 칸으로 폴백한다.
+    bots = trading_api.list_bots(username) if username else []
+    if bots:
+        bot_state, bot_elapsed, worst_id = trading_api.summarize_bot_states(bots)
+        worst = next((b for b in bots if b['botId'] == worst_id), None)
+        bot_status = worst['status'] if worst else bot_status
+        bot_last_seen = worst['lastSeen'] if worst else bot_last_seen
+    else:
+        bot_state, bot_elapsed = trading_api.evaluate_bot_state(bot_status, bot_last_seen)
 
     return jsonify({
         "username": username,
@@ -1098,6 +1132,8 @@ def get_me():
         "bot_last_seen": bot_last_seen,
         "bot_state": bot_state,
         "bot_elapsed_seconds": round(bot_elapsed, 1) if bot_elapsed is not None else None,
+        # 대표 상태는 '가장 나쁜 봇'이다. 어느 봇이 그런지는 이 목록에서 본다.
+        "bots": bots,
         "bot_ping_interval_seconds": trading_api.BOT_PING_INTERVAL_SECONDS,
         "bot_offline_after_seconds": trading_api.BOT_OFFLINE_AFTER_SECONDS
     })

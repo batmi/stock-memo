@@ -10,10 +10,15 @@ INSERT 컬럼 목록을 단일 소스로 관리하여 create_entry / 복원 / �
 #    웹 UI 의 수정(PUT /api/entry/<id>)은 화면 입력값으로 entry 를 새로 조립하므로
 #    UPDATE 대상에 넣으면 봇이 기록한 손익·모의여부 등이 NULL 로 덮여 사라진다.
 #    API 경유 정정(PATCH)은 trading_api 가 대상 컬럼만 지정해 직접 UPDATE 한다.
+#
+# ⚠️ isSystem 은 isSimulated 와 달리 0/1 로 눕히지 않는다(_value_for 참고).
+#    '시스템 트레이딩이 낸 주문이 아니다(0)'와 '봇이 알려주지 않았다(NULL)'는 서로
+#    다른 사실이고, 분류(tradeClass) 폴백이 정확히 그 구분에 걸려 있다.
 BOT_COLUMNS = [
     'isSimulated', 'tradeStatus', 'confidence', 'orderOrigin', 'source',
     'orderId', 'originalOrderId', 'realizedPnl', 'realizedPnlRate', 'fee', 'tax',
     'strategyScore', 'stopLossRate', 'executedAtUtc', 'tradeDate', 'needsReview',
+    'isSystem',
 ]
 
 # entries 테이블 INSERT 시 사용하는 컬럼 순서 (단일 소스)

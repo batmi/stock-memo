@@ -186,8 +186,39 @@ Keys carry scopes, and tokens inherit them.
     The recommended key format is `{env}:{account}:{fill date}:{order no}` — broker order numbers are reused every business day, so the order number alone must never be used.
 *   **No silent loss**: A fill sent by a bot is **stored and flagged `needsReview`** even when it violates integrity checks (e.g. selling more than the recorded holding). Returning `400` would make every retry fail identically and the fill would vanish for good. (Records typed by a human in the web UI are still blocked, since the user can fix them on the spot.)
 *   **Mock vs. real separation**: The `isSimulated` flag stores them separately and excludes them from default queries and statistics.
+*   **System vs. discretionary separation**: The `isSystem` flag classifies only automated orders as `시스템` (system). A bot reports **every** fill on its accounts — including orders placed by hand in a mobile app or broker HTS — so without this distinction automated performance and discretionary trading end up in one bucket. → [Trade class](#trade-class--what-counts-as-system)
 *   **Trading-day attribution**: `executedAt` is accepted as RFC3339 with an offset and, together with `exchange`, yields the **exchange-local trading day** (`tradeDate`). A US after-hours fill is no longer pushed onto the next Korean date.
 *   **Rate limiting**: Token issuance is 10 requests per 5 minutes per IP (brute-force protection); other API calls are 600 per minute per key. Exceeding either returns `429` with `Retry-After`.
+
+### Trade class — what counts as "system"
+
+A bot reports **every** fill on its accounts. Orders placed by hand in the Toss app or a broker's own HTS are detected by balance reconciliation and uploaded too. The server used to fill an empty `tradeClass` with `시스템` (system), which lumped all of them into automated performance.
+
+The bot now sends `isSystem` to tell them apart.
+
+| `isSystem` | Class assigned by the server |
+|---|---|
+| `true` | Pinned to `시스템` (system) |
+| `false` | Inherited from the latest record for the same symbol → empty if there is none |
+| *(field absent)* | Same as above (the bot does not know the origin) |
+
+If the bot sends an explicit `tradeClass`, that value is used as-is.
+
+**Inheritance rule**: the class is taken from the most recent record for the same user and symbol, but **`시스템` is never inherited.** An earlier version stored every bot record as `시스템`, so inheriting it would make the very contamination this fixes permanent. Inheritance only picks up classes a human actually chose (`장기투자` / long-term, `배당투자` / dividend, …).
+
+Opening balances (`POST /api/v1/positions/opening`) are `isSystem=false` as well — they were held before the integration started and were not filled by the bot.
+
+> Records already stored as `시스템` stay as they are. Idempotency means even a re-sync will not overwrite them, so fix those on the web.
+
+### Running several bots (botId)
+
+Heartbeats and commands are scoped **by user, not by API key** — the key is exchanged for a username right after authentication and which key it was is then forgotten. Issuing separate keys therefore does not separate several HTS instances.
+
+`botId` (in the ping body) is that separator. On the HTS side it comes from the `JOURNAL_BOT_ID` environment variable.
+
+*   **Status**: recorded per instance in the `bots` table. The headline indicator follows the **worst** bot — "green if any bot is alive" would let a mock bot's ping mask a dead live bot. Which bot it is shows in the list underneath the indicator.
+*   **Commands**: a re-sync is queued against a specific bot. If two or more bots are connected and no target is given, the server rejects the request with `400` — commands are delivered at-most-once, so whichever bot pings first would take it, ack it, and the screen would read "done" while nothing was recovered (a **silent failure**).
+*   **Backward compatibility**: bots that send no `botId` are grouped under `default`. An untargeted command is delivered only when exactly one bot is registered.
 
 ### Re-sync — restoring deleted records
 

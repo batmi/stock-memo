@@ -5667,17 +5667,78 @@ if (btnChangePassword && passwordModalOverlay) {
         indicator.innerText = ui.text;
         indicator.style.color = ui.color;
 
+        // 봇 목록은 대표 상태가 'never' 여도 그린다 — 연결 기록 없는 봇도 목록에는 남는다.
+        knownBots = Array.isArray(meData.bots) ? meData.bots : [];
+        renderBotInstances(knownBots);
+        syncResyncBotPicker(knownBots);
+
         if (meData.bot_state === 'never' || !meData.bot_last_seen) {
             lastSeenText.innerText = '-';
             return;
         }
 
-        const elapsed = meData.bot_elapsed_seconds;
-        const ago = (elapsed === null || elapsed === undefined) ? ''
-            : elapsed < 60 ? ` (${Math.max(0, Math.round(elapsed))}초 전)`
-            : elapsed < 3600 ? ` (${Math.floor(elapsed / 60)}분 전)`
-            : ` (${Math.floor(elapsed / 3600)}시간 전)`;
-        lastSeenText.innerText = formatBotTimestamp(meData.bot_last_seen) + ago;
+        lastSeenText.innerText = formatBotTimestamp(meData.bot_last_seen)
+            + formatElapsed(meData.bot_elapsed_seconds);
+    }
+
+    function formatElapsed(elapsed) {
+        if (elapsed === null || elapsed === undefined) return '';
+        if (elapsed < 60) return ` (${Math.max(0, Math.round(elapsed))}초 전)`;
+        if (elapsed < 3600) return ` (${Math.floor(elapsed / 60)}분 전)`;
+        return ` (${Math.floor(elapsed / 3600)}시간 전)`;
+    }
+
+    // ⭐️ HTS 를 여러 대 돌리면 위의 대표 표시등은 '가장 나쁜 봇'을 가리킨다.
+    //    어느 봇이 그런지 알 수 없으면 그 표시는 쓸모가 없으므로 목록을 함께 그린다.
+    //    한 대뿐이면 대표 표시등이 곧 그 봇이라 목록을 감춘다.
+    let knownBots = [];
+
+    function renderBotInstances(bots) {
+        const box = document.getElementById('botInstanceList');
+        if (!box) return;
+        if (!Array.isArray(bots) || bots.length < 2) {
+            box.style.display = 'none';
+            box.innerHTML = '';
+            return;
+        }
+        const DOT = {
+            running: ['🟢', 'var(--success-color)'], stopped: ['🟡', 'var(--warning-color)'],
+            error:   ['🔴', 'var(--danger-color)'],  offline: ['🔴', 'var(--danger-color)'],
+            never:   ['⚪', 'var(--text-muted-color)']
+        };
+        box.style.display = 'block';
+        box.innerHTML = bots.map(b => {
+            const [dot, color] = DOT[b.state] || DOT.never;
+            const sim = b.isSimulated ? ' <span style="opacity: .6;">모의</span>' : '';
+            const ago = formatElapsed(b.elapsedSeconds).trim() || '-';
+            return '<div style="display: flex; justify-content: space-between; gap: 8px;">'
+                 + `<span style="color: ${color}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">`
+                 + `${dot} ${escapeHtml(b.label || b.botId)}${sim}</span>`
+                 + '<span style="color: var(--text-muted-color); white-space: nowrap;">'
+                 + `${escapeHtml(ago)}</span></div>`;
+        }).join('');
+    }
+
+    // 봇이 둘 이상이면 재동기화 대상을 반드시 골라야 한다 — 서버가 대상 없는 요청을
+    // 400 으로 막는다(아무 봇이나 채가면 엉뚱한 계좌가 재동기화되고 화면엔 '완료'로 뜬다).
+    function syncResyncBotPicker(bots) {
+        const picker = document.getElementById('resyncBotPicker');
+        const select = document.getElementById('resyncBotSelect');
+        if (!picker || !select) return;
+        if (!Array.isArray(bots) || bots.length < 2) {
+            picker.style.display = 'none';
+            return;
+        }
+        const previous = select.value;
+        const options = bots.map(b =>
+            `<option value="${escapeHtml(b.botId)}">${escapeHtml(b.label || b.botId)}</option>`).join('');
+        // 갱신 때마다 통째로 다시 그리면 사용자가 고르던 항목이 풀린다 — 목록이
+        // 실제로 바뀌었을 때만 교체하고, 선택은 살려 둔다.
+        if (select.innerHTML !== options) {
+            select.innerHTML = options;
+            if (bots.some(b => b.botId === previous)) select.value = previous;
+        }
+        picker.style.display = 'block';
     }
 
     // 서버는 오프셋 포함 ISO 8601 로 내려주지만, 이전 버전이 남긴 오프셋 없는
@@ -5842,9 +5903,21 @@ if (btnChangePassword && passwordModalOverlay) {
         }
     }
 
+    // 대상 봇이 선택돼 있으면 그 봇의 명령만 본다 — 다른 봇의 재동기화 결과를
+    // 이 패널에 그리면 방금 누른 요청이 이미 끝난 것처럼 보인다.
+    function selectedResyncBotId() {
+        const picker = document.getElementById('resyncBotPicker');
+        const select = document.getElementById('resyncBotSelect');
+        if (!picker || picker.style.display === 'none' || !select) return null;
+        return select.value || null;
+    }
+
     async function pollResyncStatus() {
         try {
-            const res = await fetch('/api/me/bot/resync');
+            const botId = selectedResyncBotId();
+            const url = botId ? `/api/me/bot/resync?botId=${encodeURIComponent(botId)}`
+                              : '/api/me/bot/resync';
+            const res = await fetch(url);
             if (!res.ok) return;
             const cmd = (await res.json()).command;
             renderResyncStatus(cmd);
@@ -5893,8 +5966,15 @@ if (btnChangePassword && passwordModalOverlay) {
 
     document.querySelectorAll('.resync-preset').forEach(btn => {
         const labels = { quarter: '최근 분기(90일)', half: '최근 반기(180일)', year: '최근 1년(365일)' };
-        btn.addEventListener('click', () =>
-            requestResync({ preset: btn.dataset.preset }, labels[btn.dataset.preset]));
+        btn.addEventListener('click', () => {
+            const botId = selectedResyncBotId();
+            const bot = knownBots.find(b => b.botId === botId);
+            // 봇을 고른 경우엔 확인 문구에 그 이름을 넣는다 — 어느 계좌를 되돌리는지
+            // 모른 채 누르면 엉뚱한 계좌의 기록이 되살아난다.
+            const label = labels[btn.dataset.preset]
+                + (bot ? ` · ${bot.label || bot.botId}` : '');
+            requestResync({ preset: btn.dataset.preset, botId }, label);
+        });
     });
 
     const btnCopyApiKey = document.getElementById('btnCopyApiKey');
