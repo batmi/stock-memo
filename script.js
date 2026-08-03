@@ -5722,13 +5722,22 @@ if (btnChangePassword && passwordModalOverlay) {
                   + ` style="margin: 0; padding: 0 4px; width: auto; background: none; border: none;`
                   + ` box-shadow: none; color: var(--text-muted-color); font-size: 11px; cursor: pointer;">✕</button>`
                 : '';
+            // 계좌가 둘인 봇(한투 실전 = 거래계좌 + 자동매매계좌)은 라벨이 '·'로 이어져
+            // 온다. 한 줄에 밀어 넣으면 뒤쪽 계좌가 말줄임으로 잘려 정작 자동매매가 도는
+            // 계좌를 못 읽는다. 줄을 나누되 표시등은 첫 줄에만 둔다 — 봇은 하나다.
+            const [head, ...rest] = name.split('·').map(part => part.trim()).filter(Boolean);
             // ⭐️ 라벨만 띄우면 식별자가 겹쳐 두 봇이 한 줄에 포개진 것을 알아챌 수 없다
             //    (겹치면 라벨이 Ping 마다 뒤집힌다). botId 를 툴팁으로 노출해 확인 가능하게 한다.
-            return '<div style="display: flex; justify-content: space-between; gap: 8px; align-items: center;">'
-                 + `<span title="${escapeHtml(b.botId)}" style="color: ${color}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">`
-                 + `${dot} ${escapeHtml(name)}${sim}</span>`
+            const extra = rest.map(part =>
+                `<div style="color: ${color}; padding-left: 1.4em; overflow: hidden;`
+                + ` text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(part)}</div>`).join('');
+            return `<div title="${escapeHtml(b.botId)}">`
+                 + '<div style="display: flex; justify-content: space-between; gap: 8px; align-items: center;">'
+                 + `<span style="color: ${color}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">`
+                 + `${dot} ${escapeHtml(head || name)}${sim}</span>`
                  + '<span style="color: var(--text-muted-color); white-space: nowrap;">'
-                 + `${escapeHtml(ago)}${removable}</span></div>`;
+                 + `${escapeHtml(ago)}${removable}</span></div>`
+                 + `${extra}</div>`;
         }).join('');
 
         box.querySelectorAll('.bot-forget').forEach(btn => {
