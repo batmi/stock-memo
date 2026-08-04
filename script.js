@@ -5702,13 +5702,13 @@ if (btnChangePassword && passwordModalOverlay) {
 
     // ⭐️ HTS 를 여러 대 돌리면 위의 대표 표시등은 '가장 나쁜 봇'을 가리킨다.
     //    어느 봇이 그런지 알 수 없으면 그 표시는 쓸모가 없으므로 목록을 함께 그린다.
-    //    한 대뿐이면 대표 표시등이 곧 그 봇이라 목록을 감춘다.
+    //    한 대뿐이어도 그린다 — '정상 가동중'만으로는 어느 HTS 가 붙어 있는지 알 수 없다.
     let knownBots = [];
 
     function renderBotInstances(bots) {
         const box = document.getElementById('botInstanceList');
         if (!box) return;
-        if (!Array.isArray(bots) || bots.length < 2) {
+        if (!Array.isArray(bots) || bots.length === 0) {
             box.style.display = 'none';
             box.innerHTML = '';
             return;
