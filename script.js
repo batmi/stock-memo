@@ -1754,6 +1754,8 @@ document.addEventListener('keydown', (e) => {
             resetAndCloseForm();
         } else if (typeof passwordModalOverlay !== 'undefined' && passwordModalOverlay && passwordModalOverlay.style.display === 'flex') {
             document.getElementById('btnClosePasswordModal').click();
+        } else if (typeof htsIntegrationModalOverlay !== 'undefined' && htsIntegrationModalOverlay && htsIntegrationModalOverlay.style.display === 'flex') {
+            document.getElementById('btnCloseHtsIntegrationModal').click();
         } else if (typeof adminModalOverlay !== 'undefined' && adminModalOverlay && adminModalOverlay.style.display === 'flex') {
             document.getElementById('btnCloseAdminModal').click();
         } else if (typeof statsModalOverlay !== 'undefined' && statsModalOverlay && statsModalOverlay.style.display === 'flex') {
@@ -2769,7 +2771,7 @@ journalForm.addEventListener('submit', async function(e) {
 });
 
 // ⭐️ 전체 데이터 백업 및 원복 이벤트 연결
-const btnFullBackup = document.getElementById('btnFullBackup');
+const btnFullBackup = document.getElementById('btnModalFullBackup');
 if (btnFullBackup) {
     btnFullBackup.addEventListener('click', async () => {
         if (await customConfirm('에디터 서식(폰트 등) 및 첨부 이미지를 포함한 \n모든 데이터를 완벽하게 백업합니다.\n\n다운로드를 진행하시겠습니까?')) {
@@ -2813,7 +2815,7 @@ if (btnFullBackup) {
     });
 }
 
-const btnFullRestore = document.getElementById('btnFullRestore');
+const btnFullRestore = document.getElementById('btnModalFullRestore');
 const restoreFileInput = document.getElementById('restoreFileInput');
 if (btnFullRestore && restoreFileInput) {
     btnFullRestore.addEventListener('click', () => restoreFileInput.click());
@@ -2867,6 +2869,30 @@ if (btnFullRestore && restoreFileInput) {
         }
     });
 }
+// ⭐️ 데이터 관리 모달 관련 로직
+const btnDataManagement = document.getElementById('btnDataManagement');
+const dataManagementModalOverlay = document.getElementById('dataManagementModalOverlay');
+const btnDataManagementClose = document.getElementById('btnDataManagementClose');
+
+if (btnDataManagement && dataManagementModalOverlay && btnDataManagementClose) {
+    btnDataManagement.addEventListener('click', () => {
+        dataManagementModalOverlay.style.display = 'flex';
+    });
+    btnDataManagementClose.addEventListener('click', () => {
+        dataManagementModalOverlay.style.display = 'none';
+    });
+    
+    // 모달 내 각 버튼 클릭 시 팝업 닫기
+    const modalButtons = ['btnModalFullBackup', 'btnModalFullRestore', 'btnModalExportExcel'];
+    modalButtons.forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.addEventListener('click', () => {
+                dataManagementModalOverlay.style.display = 'none';
+            });
+        }
+    });
+}
 
 // ⭐️ ExcelJS(약 800KB)는 초기 로딩에서 제외하고 엑셀 내보내기 시점에만 동적 로드
 function ensureExcelLoaded() {
@@ -2880,7 +2906,7 @@ function ensureExcelLoaded() {
     });
 }
 
-document.getElementById('btnExportExcel').addEventListener('click', async () => {
+document.getElementById('btnModalExportExcel').addEventListener('click', async () => {
     if (await customConfirm('모든 매매 기록을 엑셀 파일(.xlsx)로 \n다운로드하시겠습니까?')) {
         window.showLoadingOverlay('엑셀 파일을 생성 중입니다...\n잠시만 기다려주세요.');
 
@@ -5648,6 +5674,9 @@ const passwordModalOverlay = document.getElementById('passwordModalOverlay');
 const btnChangePassword = document.getElementById('btnChangePassword');
 const btnClosePasswordModal = document.getElementById('btnClosePasswordModal');
 const passwordForm = document.getElementById('passwordForm');
+const htsIntegrationModalOverlay = document.getElementById('htsIntegrationModalOverlay');
+const btnHtsIntegration = document.getElementById('btnHtsIntegration');
+const btnCloseHtsIntegrationModal = document.getElementById('btnCloseHtsIntegrationModal');
 
 if (btnChangePassword && passwordModalOverlay) {
     // ⭐️ 상태 표시등은 모달이 열려 있는 동안만 주기적으로 갱신한다.
@@ -5672,7 +5701,7 @@ if (btnChangePassword && passwordModalOverlay) {
     // 방금 발급해 화면에 떠 있는 키 원문을 건드릴 위험도 없다.
     async function fetchBotStatusOnly() {
         // 모달이 닫혔는데 타이머만 살아있는 경우를 방어
-        if (passwordModalOverlay.style.display === 'none' || !passwordModalOverlay.style.display) {
+        if (htsIntegrationModalOverlay && (htsIntegrationModalOverlay.style.display === 'none' || !htsIntegrationModalOverlay.style.display)) {
             stopBotStatusPolling();
             return;
         }
@@ -5831,9 +5860,16 @@ if (btnChangePassword && passwordModalOverlay) {
     btnChangePassword.addEventListener('click', () => {
         passwordModalOverlay.style.display = 'flex';
         document.body.style.overflow = 'hidden';
-        fetchApiKeyStatus();
-        startBotStatusPolling();
     });
+
+    if (btnHtsIntegration && htsIntegrationModalOverlay) {
+        btnHtsIntegration.addEventListener('click', () => {
+            htsIntegrationModalOverlay.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+            fetchApiKeyStatus();
+            startBotStatusPolling();
+        });
+    }
 
     // ⭐️ HTS 연동 API 키 발급 및 복사 로직 추가
     async function fetchApiKeyStatus() {
@@ -6074,13 +6110,24 @@ if (btnChangePassword && passwordModalOverlay) {
     }
     
     const closePwModal = () => {
-        stopBotStatusPolling(); // 닫힌 모달을 위해 계속 /api/me 를 두드리지 않는다
         passwordModalOverlay.classList.add('closing');
         setTimeout(() => {
             passwordModalOverlay.style.display = 'none';
             passwordModalOverlay.classList.remove('closing');
             document.body.style.overflow = '';
             if(passwordForm) passwordForm.reset();
+        }, 180);
+    };
+    
+    if (btnClosePasswordModal) btnClosePasswordModal.addEventListener('click', closePwModal);
+
+    const closeHtsModal = () => {
+        stopBotStatusPolling(); // 닫힌 모달을 위해 계속 /api/me 를 두드리지 않는다
+        htsIntegrationModalOverlay.classList.add('closing');
+        setTimeout(() => {
+            htsIntegrationModalOverlay.style.display = 'none';
+            htsIntegrationModalOverlay.classList.remove('closing');
+            document.body.style.overflow = '';
             const container = document.getElementById('newApiKeyContainer');
             if(container) container.style.display = 'none';
             const apiKeyValue = document.getElementById('apiKeyValue');
@@ -6088,7 +6135,7 @@ if (btnChangePassword && passwordModalOverlay) {
         }, 180);
     };
     
-    if (btnClosePasswordModal) btnClosePasswordModal.addEventListener('click', closePwModal);
+    if (btnCloseHtsIntegrationModal) btnCloseHtsIntegrationModal.addEventListener('click', closeHtsModal);
     
     if(passwordForm) passwordForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -6136,10 +6183,10 @@ if (btnChangePassword && passwordModalOverlay) {
 // ⭐️ 계좌 관리(매핑) 모달 로직
 const accountMappingModalOverlay = document.getElementById('accountMappingModalOverlay');
 const btnCloseAccountMappingModal = document.getElementById('btnCloseAccountMappingModal');
-const loggedInUserDisplayModalTarget = document.getElementById('loggedInUserDisplay');
+const btnAccountManagement = document.getElementById('btnAccountManagement');
 
-if (loggedInUserDisplayModalTarget && accountMappingModalOverlay) {
-    loggedInUserDisplayModalTarget.addEventListener('click', async () => {
+if (btnAccountManagement && accountMappingModalOverlay) {
+    btnAccountManagement.addEventListener('click', async () => {
         try {
             const res = await fetch('/api/mappings');
             if (res.ok) {
@@ -6175,26 +6222,26 @@ function renderAccountMappings() {
         if (typeof info === 'string') {
             // legacy handling if any
             return `
-                <div style="display: flex; justify-content: space-between; font-size: 12px; padding: 8px; border-bottom: 1px solid var(--border-light-color); align-items: center;">
+                <div style="display: flex; justify-content: space-between; font-size: 11px; padding: 6px; border-bottom: 1px solid var(--border-light-color); align-items: center;">
                     <span style="flex: 1; word-break: break-all; margin-right: 10px;">(이전형식) ${accCode} &rarr; ${info}</span>
-                    <button type="button" onclick="removeMapping('accounts', '${accCode}')" style="background:none; border:none; color:var(--danger-color); cursor:pointer; font-size:12px; width:auto; padding:0; margin:0; box-shadow:none; flex: 0 0 auto;">삭제</button>
+                    <button type="button" onclick="removeMapping('accounts', '${accCode}')" style="background:none; border:none; color:var(--danger-color); cursor:pointer; font-size:11px; width:auto; padding:0; margin:0; box-shadow:none; flex: 0 0 auto;">삭제</button>
                 </div>
             `;
         }
         // ⭐️ '금액 계산 제외' 계좌는 목록에서도 한눈에 구분돼야 한다.
         const excludeBadge = info.exclude_from_stats
-            ? `<span style="font-size: 11px; background: var(--warning-color); color: #fff; padding: 1px 5px; border-radius: 3px; margin-left: 4px;" title="도넛 차트·총액·실현손익·차트·통계에서 제외됩니다.">금액 제외</span>`
+            ? `<span style="font-size: 10px; background: var(--warning-color); color: #fff; padding: 1px 4px; border-radius: 3px; margin-left: 4px;" title="도넛 차트·총액·실현손익·차트·통계에서 제외됩니다.">금액 제외</span>`
             : '';
         return `
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 10px; border-bottom: 1px solid var(--border-light-color);">
-                <span style="flex: 1; word-break: break-word; margin-right: 10px;"><strong style="color:var(--text-strong-color);">[${info.broker_name}]</strong><br>${accCode} &rarr; ${info.alias}${excludeBadge}</span>
-                <div style="display: flex; gap: 12px; flex: 0 0 auto;">
-                    <button type="button" onclick="editMapping('${accCode}')" style="background:none; border:none; color:var(--primary-color); cursor:pointer; font-size:13px; font-weight:bold; width:auto; padding:0; margin:0; box-shadow:none;">수정</button>
-                    <button type="button" onclick="removeMapping('accounts', '${accCode}')" style="background:none; border:none; color:var(--danger-color); cursor:pointer; font-size:13px; font-weight:bold; width:auto; padding:0; margin:0; box-shadow:none;">삭제</button>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; padding: 8px 4px; border-bottom: 1px solid var(--border-light-color);">
+                <span style="flex: 1; word-break: break-word; margin-right: 10px; line-height: 1.4;"><strong style="color:var(--text-strong-color);">[${info.broker_name}]</strong><br>${accCode} &rarr; ${info.alias}${excludeBadge}</span>
+                <div style="display: flex; gap: 8px; flex: 0 0 auto;">
+                    <button type="button" onclick="editMapping('${accCode}')" style="background:none; border:none; color:var(--primary-color); cursor:pointer; font-size:11px; width:auto; padding:0; margin:0; box-shadow:none;">수정</button>
+                    <button type="button" onclick="removeMapping('accounts', '${accCode}')" style="background:none; border:none; color:var(--danger-color); cursor:pointer; font-size:11px; width:auto; padding:0; margin:0; box-shadow:none;">삭제</button>
                 </div>
             </div>
         `;
-    }).join('') || '<div style="font-size:13px; color:var(--text-muted-color); padding: 10px;">등록된 계좌가 없습니다.</div>';
+    }).join('') || '<div style="font-size:11px; color:var(--text-muted-color); padding: 8px 4px;">등록된 계좌가 없습니다.</div>';
 }
 
 // ⭐️ 같은 폼을 '신규 등록'과 '수정'에 함께 쓰므로, 지금 무엇을 하는 중인지 문구로 알려준다.
@@ -6202,8 +6249,8 @@ function setAccountFormMode(mode) {
     const title = document.getElementById('btnToggleNewAccountForm');
     const submit = document.getElementById('btnAddUnifiedMapping');
     const isEdit = mode === 'edit';
-    if (title) title.innerText = isEdit ? '✏️ 계좌 수정' : '➕ 신규 계좌 등록';
-    if (submit) submit.innerText = isEdit ? '수정하기' : '➕ 추가하기';
+    if (title) title.innerText = isEdit ? '계좌 수정' : '신규 계좌 등록';
+    if (submit) submit.innerText = isEdit ? '수정하기' : '추가하기';
     if (title) title.dataset.mode = isEdit ? 'edit' : 'new';
 }
 

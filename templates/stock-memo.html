@@ -73,18 +73,18 @@
         <!-- ⭐️ 데이터 관리 및 로그아웃 버튼 -->
         <div style="margin-left: auto; display: flex; gap: 6px; align-items: center; margin-right: max(0px, calc((100% - 955px) / 2));">
             <!-- ⭐️ 로그인된 사용자 표시 영역 -->
-            <div id="loggedInUserDisplay" style="font-size: 12px; font-weight: bold; color: var(--text-strong-color); margin-right: 4px; display: flex; align-items: center; gap: 4px; background: var(--card-bg-color); padding: 2px 8px; border-radius: 12px; border: 1px solid var(--border-color); display: none; cursor: pointer;" title="계좌 관리"></div>
+            <div id="loggedInUserDisplay" style="font-size: 12px; font-weight: bold; color: var(--text-strong-color); margin-right: 4px; display: flex; align-items: center; gap: 4px; background: var(--card-bg-color); padding: 2px 8px; border-radius: 12px; border: 1px solid var(--border-color); display: none;"></div>
             <input type="file" id="restoreFileInput" accept=".zip" style="display:none;">
             
             <!-- ⭐️ 호버 시 분리되는 설정 버튼 그룹 -->
             <div class="header-action-group">
                 <div class="header-action-icon" title="설정 메뉴">⚙️</div>
                 <div class="header-action-buttons">
-                    <button type="button" id="btnFullBackup" class="header-action-btn btn-backup" title="모든 데이터 완벽 백업 (ZIP)">B</button>
-                    <button type="button" id="btnFullRestore" class="header-action-btn btn-restore" title="백업 파일로 복원 (ZIP)">R</button>
-                    <button type="button" id="btnExportExcel" class="header-action-btn btn-export" title="Excel 파일로 내보내기">E</button>
+                    <button type="button" id="btnAccountManagement" class="header-action-btn btn-restore" title="계좌 관리">A</button>
+                    <button type="button" id="btnHtsIntegration" class="header-action-btn btn-export" title="HTS 연동">H</button>
+                    <button type="button" id="btnDataManagement" class="header-action-btn btn-backup" title="데이터 관리 (백업/복원/엑셀)">D</button>
                     <button type="button" id="btnChangePassword" class="header-action-btn btn-password" title="비밀번호 변경">P</button>
-                    <button type="button" id="btnAdmin" class="header-action-btn btn-admin" title="관리자 대시보드" style="display:none;">A</button>
+                    <button type="button" id="btnAdmin" class="header-action-btn btn-admin" title="관리자 대시보드" style="display:none;">M</button>
                 </div>
             </div>
             <button type="button" id="btnLogout" class="header-action-btn btn-logout" title="안전하게 로그아웃">Logout</button>
@@ -433,29 +433,29 @@
 
     <!-- ⭐️ 계좌 관리(매핑) 팝업(모달) -->
     <div id="accountMappingModalOverlay" class="modal-overlay" style="display:none; z-index: 3000;">
-        <div class="form-container" style="max-width: 400px; padding: 25px;">
-            <div class="form-header-container" style="margin-bottom: 20px; border: none; padding: 0;">
-                <h3 style="font-size: 16px;">🏦 계좌 관리</h3>
+        <div class="form-container" style="max-width: 350px; padding: 18px;">
+            <div class="form-header-container" style="margin-bottom: 12px; border: none; padding: 0;">
+                <h3 style="font-size: 14px;">🏦 계좌 관리</h3>
                 <button type="button" class="btn-close" id="btnCloseAccountMappingModal" title="닫기">&times;</button>
             </div>
             
-            <div style="font-size: 12px; color: var(--text-muted-color); margin-bottom: 20px; line-height: 1.5;">
+            <div style="font-size: 11.5px; color: var(--text-muted-color); margin-bottom: 12px; line-height: 1.4;">
                 매매 일지 작성에 사용할 증권사 계좌 정보를 등록하고 관리합니다. 등록된 계좌는 매매 기록 작성 시 편리하게 선택할 수 있습니다.
             </div>
 
-            <div style="display: flex; flex-direction: column; gap: 15px;">
+            <div style="display: flex; flex-direction: column; gap: 10px;">
                 <!-- 통합 계좌 매핑 -->
                 <div>
-                    <div id="unifiedMappingList" style="margin-bottom: 12px; max-height: 400px; overflow-y: auto;">
+                    <div id="unifiedMappingList" style="margin-bottom: 10px; max-height: 350px; overflow-y: auto;">
                         <!-- JS로 동적 렌더링 -->
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 10px; padding: 15px; background: var(--card-bg-color); border: 1px solid var(--border-color); border-radius: 6px; margin-top: 10px;">
-                        <div id="btnToggleNewAccountForm" style="font-size: 14px; font-weight: bold; margin-bottom: 5px; cursor: pointer; user-select: none;">➕ 신규 계좌 등록</div>
+                    <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--card-bg-color); border: 1px solid var(--border-color); border-radius: 6px; margin-top: 8px;">
+                        <div id="btnToggleNewAccountForm" style="font-size: 12.5px; font-weight: bold; margin-bottom: 5px; cursor: pointer; user-select: none;">신규 계좌 등록</div>
                         
                         <div id="newAccountFormContainer" style="display: none; flex-direction: column; gap: 10px;">
                             <div>
                                 <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-muted-color);">1. 증권사</label>
-                            <select id="unifiedBrokerCode" style="width: 100%; padding: 10px; font-size: 13px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; appearance: auto;">
+                            <select id="unifiedBrokerCode" style="width: 100%; padding: 8px; font-size: 11.5px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; appearance: auto;">
                                 <option value="" disabled selected>증권사 선택</option>
                                 <option value="264" data-name="키움증권">키움증권</option>
                                 <option value="238" data-name="미래에셋증권">미래에셋증권</option>
@@ -470,17 +470,17 @@
                         
                         <div>
                             <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-muted-color);">2. 계좌번호</label>
-                            <input type="text" id="unifiedAccountCode" placeholder="예: 1234-5678" style="width: 100%; padding: 10px; font-size: 13px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;">
+                            <input type="text" id="unifiedAccountCode" placeholder="예: 1234-5678" style="width: 100%; padding: 8px; font-size: 11.5px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;">
                         </div>
                         
                         <div>
                             <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-muted-color);">3. 계좌별칭</label>
-                            <input type="text" id="unifiedAccountName" placeholder="예: 단기스윙계좌, ISA계좌" style="width: 100%; padding: 10px; font-size: 13px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;">
+                            <input type="text" id="unifiedAccountName" placeholder="예: 단기스윙계좌, ISA계좌" style="width: 100%; padding: 8px; font-size: 11.5px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;">
                         </div>
 
                         <!-- ⭐️ 모의투자·연습용 계좌처럼 실제 돈이 아닌 계좌를 금액 집계에서 빼기 위한 옵션 -->
                         <div>
-                            <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--text-strong-color); cursor: pointer;">
+                            <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 11.5px; color: var(--text-strong-color); cursor: pointer;">
                                 <input type="checkbox" id="unifiedAccountExcludeStats" class="app-checkbox" style="margin-top: 1px;">
                                 <span>
                                     금액 계산에서 제외
@@ -492,102 +492,100 @@
                         </div>
 
                         <div style="margin-top: 5px; display: flex; justify-content: flex-end; gap: 8px;">
-                            <button type="button" id="btnCancelNewAccountForm" style="width: auto; margin: 0; padding: 8px 16px; font-size: 13px; background: transparent; color: var(--text-muted-color); border: 1px solid var(--border-color); border-radius: 4px;">취소</button>
-                            <button type="button" id="btnAddUnifiedMapping" style="width: auto; margin: 0; padding: 8px 16px; font-size: 13px; border-radius: 4px;">➕ 추가하기</button>
+                            <button type="button" id="btnCancelNewAccountForm" style="flex: 1; margin: 0; padding: 9px; font-size: 11.5px; border-radius: 6px; background: transparent; border: 1px solid var(--text-muted-color); color: var(--text-muted-color); cursor: pointer; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">취소</button>
+                            <button type="button" id="btnAddUnifiedMapping" style="flex: 1; margin: 0; padding: 9px; font-size: 11.5px; border-radius: 6px; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color); cursor: pointer; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">추가하기</button>
                         </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 25px;">
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px;">
                 <button type="button" id="btnCancelAccountMappings">취소</button>
                 <button type="button" id="btnSaveAccountMappings">저장</button>
             </div>
         </div>
     </div>
 
-    <!-- ⭐️ 비밀번호 변경 및 API 키 팝업(모달) -->
+    <!-- ⭐️ 비밀번호 변경 팝업(모달) -->
     <div id="passwordModalOverlay" class="modal-overlay" style="display:none; z-index: 3000;">
-        <div class="form-container" style="max-width: 350px; padding: 18px;">
+        <div class="form-container" style="max-width: 280px; padding: 16px;">
             <div class="form-header-container" style="margin-bottom: 12px; border: none; padding: 0;">
                 <h3 style="font-size: 14px;">🔒 계정 설정</h3>
                 <button type="button" class="btn-close" id="btnClosePasswordModal" title="닫기">&times;</button>
             </div>
+            <form id="passwordForm">
+                <div class="form-group">
+                    <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-muted-color);">현재 비밀번호</label>
+                    <input type="password" id="currentPassword" placeholder="기존 비밀번호 입력" required autocomplete="off" style="width: 100%; padding: 8px; font-size: 11.5px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;">
+                </div>
+                <div class="form-group">
+                    <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-muted-color);">새 비밀번호</label>
+                    <input type="password" id="newPassword" placeholder="새로운 비밀번호 입력" required autocomplete="off" style="width: 100%; padding: 8px; font-size: 11.5px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;">
+                </div>
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-muted-color);">새 비밀번호 확인</label>
+                    <input type="password" id="newPasswordConfirm" placeholder="새로운 비밀번호 다시 입력" required autocomplete="off" style="width: 100%; padding: 8px; font-size: 11.5px; background: var(--bg-color); color: var(--text-strong-color); border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;">
+                </div>
+                <button type="submit" style="width: 100%; margin: 0; padding: 8px; font-size: 12px; font-weight: bold; display: block; border-radius: 8px; background: linear-gradient(135deg, var(--info-color) 0%, var(--primary-color) 100%); box-shadow: 0 4px 15px rgba(0,0,0,0.15); border: none; transition: transform 0.2s, box-shadow 0.2s;">비밀번호 변경하기</button>
+                <div style="margin-top: 15px; text-align: center;">
+                    <button type="button" id="btnDeleteAccount" style="background: none; border: none; color: var(--danger-color); font-size: 11px; text-decoration: underline; cursor: pointer; box-shadow: none; width: auto; padding: 0;">회원 탈퇴 및 데이터 삭제</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+    <!-- ⭐️ HTS 연동 API 키 팝업(모달) -->
+    <div id="htsIntegrationModalOverlay" class="modal-overlay" style="display:none; z-index: 3000;">
+        <div class="form-container" style="max-width: 350px; padding: 18px;">
+            <div class="form-header-container" style="margin-bottom: 12px; border: none; padding: 0;">
+                <h3 style="font-size: 14px;">🤖 HTS 연동 API 키</h3>
+                <button type="button" class="btn-close" id="btnCloseHtsIntegrationModal" title="닫기">&times;</button>
+            </div>
             
-            <div class="account-settings-layout">
-                <!-- 좌측: 비밀번호 변경 -->
-                <div class="password-section">
-                    <form id="passwordForm">
-                        <div class="form-group">
-                            <label style="font-size: 11px; margin-bottom: 4px; color: var(--text-muted-color);">현재 비밀번호</label>
-                            <input type="password" id="currentPassword" placeholder="기존 비밀번호 입력" required autocomplete="off">
-                        </div>
-                        <div class="form-group">
-                            <label style="font-size: 11px; margin-bottom: 4px; color: var(--text-muted-color);">새 비밀번호</label>
-                            <input type="password" id="newPassword" placeholder="새로운 비밀번호 입력" required autocomplete="off">
-                        </div>
-                        <div class="form-group" style="margin-bottom: 15px;">
-                            <label style="font-size: 11px; margin-bottom: 4px; color: var(--text-muted-color);">새 비밀번호 확인</label>
-                            <input type="password" id="newPasswordConfirm" placeholder="새로운 비밀번호 다시 입력" required autocomplete="off">
-                        </div>
-                        <button type="submit" style="width: 100%; margin: 0; padding: 8px; font-size: 12px; font-weight: bold; display: block; border-radius: 8px; background: linear-gradient(135deg, var(--info-color) 0%, var(--primary-color) 100%); box-shadow: 0 4px 15px rgba(0,0,0,0.15); border: none; transition: transform 0.2s, box-shadow 0.2s;">비밀번호 변경하기</button>
-                        <div style="margin-top: 15px; text-align: center;">
-                            <button type="button" id="btnDeleteAccount" style="background: none; border: none; color: var(--danger-color); font-size: 11px; text-decoration: underline; cursor: pointer; box-shadow: none; width: auto; padding: 0;">회원 탈퇴 및 데이터 삭제</button>
-                        </div>
-                    </form>
+            <div style="font-size: 11.5px; color: var(--text-muted-color); margin-bottom: 8px; line-height: 1.4;">
+                이 키를 사용하여 HTS 시스템에서 보안 접속 토큰(Access Token)을 교환받을 수 있습니다.<br>
+                <span style="color: var(--warning-color);">키 원문은 발급 직후 한 번만 표시됩니다.</span> 서버에는 해시만 저장되어 다시 볼 수 없습니다.
+            </div>
+            <div id="apiKeyList" style="font-size: 10px; color: var(--text-muted-color); margin-bottom: 5px; line-height: 1.6;"></div>
+            <div style="display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-bottom: 5px;">
+                <button type="button" id="btnResync" title="웹에서 지운 기록을 봇의 거래기록에서 다시 받아옵니다" style="margin: 0; padding: 5px 10px; font-size: 11px; width: auto; background: transparent; border: 1px solid var(--success-color); color: var(--success-color); border-radius: 4px;">재동기화</button>
+                <button type="button" id="btnGenerateApiKey" style="margin: 0; padding: 5px 10px; font-size: 11px; width: auto; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color); border-radius: 4px;">새 API 키 발급</button>
+            </div>
+            
+            <!-- 재동기화 패널 -->
+            <div id="resyncPanel" style="display: none; margin-top: 8px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                <div style="font-size: 10px; color: var(--text-muted-color); line-height: 1.5; margin-bottom: 8px;">
+                    지운 기록을 봇의 거래기록에서 다시 받아옵니다.
+                    <span style="color: var(--success-color);">이미 있는 기록은 건너뛰므로 중복이 생기지 않습니다</span> — 기간을 넉넉히 잡아도 안전합니다.
                 </div>
-
-                <div class="account-settings-divider"></div>
-
-                <!-- 우측: API 키 -->
-                <div id="apiKeySection" class="api-key-section">
-                    <h4 style="font-size: 13px; margin: 0 0 10px 0; color: var(--text-strong-color);">🤖 HTS 연동 API 키</h4>
-                    <div style="font-size: 11px; color: var(--text-muted-color); margin-bottom: 8px; line-height: 1.4;">
-                        이 키를 사용하여 HTS 시스템에서 보안 접속 토큰(Access Token)을 교환받을 수 있습니다.<br>
-                        <span style="color: var(--warning-color);">키 원문은 발급 직후 한 번만 표시됩니다.</span> 서버에는 해시만 저장되어 다시 볼 수 없습니다.
-                    </div>
-                    <div id="apiKeyList" style="font-size: 10px; color: var(--text-muted-color); margin-bottom: 5px; line-height: 1.6;"></div>
-                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-bottom: 5px;">
-                        <button type="button" id="btnResync" title="웹에서 지운 기록을 봇의 거래기록에서 다시 받아옵니다" style="margin: 0; padding: 5px 10px; font-size: 11px; width: auto; background: transparent; border: 1px solid var(--success-color); color: var(--success-color); border-radius: 4px;">재동기화</button>
-                        <button type="button" id="btnGenerateApiKey" style="margin: 0; padding: 5px 10px; font-size: 11px; width: auto; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color); border-radius: 4px;">새 API 키 발급</button>
-                    </div>
-                    <!-- 재동기화 패널 — 재동기화 버튼을 눌러야 펼쳐진다 -->
-                    <div id="resyncPanel" style="display: none; margin-top: 8px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
-                        <div style="font-size: 10px; color: var(--text-muted-color); line-height: 1.5; margin-bottom: 8px;">
-                            지운 기록을 봇의 거래기록에서 다시 받아옵니다.
-                            <span style="color: var(--success-color);">이미 있는 기록은 건너뛰므로 중복이 생기지 않습니다</span> — 기간을 넉넉히 잡아도 안전합니다.
-                        </div>
-                        <!-- 봇이 두 대 이상이면 대상을 반드시 골라야 한다. 명령은 한 번만
-                             전달되므로 대상을 비우면 엉뚱한 봇이 채간다(서버가 400 으로 막는다). -->
-                        <div id="resyncBotPicker" style="display: none; margin-bottom: 8px;">
-                            <label for="resyncBotSelect" style="display: block; font-size: 10px; color: var(--text-muted-color); margin-bottom: 4px;">재동기화할 봇</label>
-                            <select id="resyncBotSelect" style="width: 100%; font-size: 11px; padding: 5px; margin: 0; background: var(--bg-color); color: var(--text-strong-color);"></select>
-                        </div>
-                        <div style="display: flex; gap: 5px; margin-bottom: 8px;">
-                            <button type="button" class="resync-preset" data-preset="quarter" style="flex: 1; margin: 0; padding: 5px 0; font-size: 11px; width: auto; background: var(--neutral-color);">분기</button>
-                            <button type="button" class="resync-preset" data-preset="half" style="flex: 1; margin: 0; padding: 5px 0; font-size: 11px; width: auto; background: var(--neutral-color);">반기</button>
-                            <button type="button" class="resync-preset" data-preset="year" style="flex: 1; margin: 0; padding: 5px 0; font-size: 11px; width: auto; background: var(--neutral-color);">1년</button>
-                        </div>
-                        <div id="resyncResult" style="font-size: 10px; color: var(--text-muted-color); line-height: 1.5;"></div>
-                    </div>
-                    <div id="newApiKeyContainer" style="display: none; gap: 5px; margin-bottom: 5px; margin-top: 10px;">
-                        <input type="text" id="apiKeyValue" readonly placeholder="발급된 키가 없습니다." style="flex: 1; font-size: 11px; padding: 6px; margin: 0; background: var(--bg-color); color: var(--text-strong-color); text-align: center;">
-                        <button type="button" id="btnCopyApiKey" style="margin: 0; padding: 0 10px; font-size: 11px; width: auto; background: var(--neutral-color); white-space: nowrap; flex-shrink: 0;">복사</button>
-                    </div>
-                    <div id="botStatusWidget" style="margin-top: 15px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                            <span style="font-size: 12px; color: var(--text-strong-color);">상태</span>
-                            <span id="botStatusIndicator" style="font-size: 11px; font-weight: bold; color: var(--text-muted-color);">확인 중...</span>
-                        </div>
-                        <div style="font-size: 10px; color: var(--text-muted-color); text-align: right; white-space: nowrap;">
-                            최근 연결: <span id="botLastSeenText">-</span>
-                        </div>
-                        <!-- 붙어 있는 봇이 하나라도 있으면 채워진다. 위의 대표 상태는
-                             '가장 나쁜 봇'이라, 어느 봇이 어떤 상태인지는 이 목록에서 확인한다. -->
-                        <div id="botInstanceList" style="display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 10px; line-height: 1.8;"></div>
-                    </div>
+                <div id="resyncBotPicker" style="display: none; margin-bottom: 8px;">
+                    <label for="resyncBotSelect" style="display: block; font-size: 10px; color: var(--text-muted-color); margin-bottom: 4px;">재동기화할 봇</label>
+                    <select id="resyncBotSelect" style="width: 100%; font-size: 11px; padding: 5px; margin: 0; background: var(--bg-color); color: var(--text-strong-color);"></select>
                 </div>
+                <div style="display: flex; gap: 5px; margin-bottom: 8px;">
+                    <button type="button" class="resync-preset" data-preset="quarter" style="flex: 1; margin: 0; padding: 5px 0; font-size: 11px; width: auto; background: var(--neutral-color);">분기</button>
+                    <button type="button" class="resync-preset" data-preset="half" style="flex: 1; margin: 0; padding: 5px 0; font-size: 11px; width: auto; background: var(--neutral-color);">반기</button>
+                    <button type="button" class="resync-preset" data-preset="year" style="flex: 1; margin: 0; padding: 5px 0; font-size: 11px; width: auto; background: var(--neutral-color);">1년</button>
+                </div>
+                <div id="resyncResult" style="font-size: 10px; color: var(--text-muted-color); line-height: 1.5;"></div>
+            </div>
+            
+            <div id="newApiKeyContainer" style="display: none; gap: 5px; margin-bottom: 5px; margin-top: 10px;">
+                <input type="text" id="apiKeyValue" readonly placeholder="발급된 키가 없습니다." style="flex: 1; font-size: 11px; padding: 6px; margin: 0; background: var(--bg-color); color: var(--text-strong-color); text-align: center;">
+                <button type="button" id="btnCopyApiKey" style="margin: 0; padding: 0 10px; font-size: 11px; width: auto; background: var(--neutral-color); white-space: nowrap; flex-shrink: 0;">복사</button>
+            </div>
+            
+            <div id="botStatusWidget" style="margin-top: 15px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                    <span style="font-size: 12px; color: var(--text-strong-color);">상태</span>
+                    <span id="botStatusIndicator" style="font-size: 11px; font-weight: bold; color: var(--text-muted-color);">확인 중...</span>
+                </div>
+                <div style="font-size: 10px; color: var(--text-muted-color); text-align: right; white-space: nowrap;">
+                    최근 연결: <span id="botLastSeenText">-</span>
+                </div>
+                <div id="botInstanceList" style="display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 10px; line-height: 1.8;"></div>
             </div>
         </div>
     </div>
@@ -656,6 +654,26 @@
     <div id="loadingOverlay" class="modal-overlay" style="display:none; z-index: 9999; flex-direction: column; gap: 15px;">
         <div class="loading-spinner"></div>
         <div id="loadingText" style="color: white; font-weight: bold; font-size: 14px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); text-align: center; line-height: 1.5;">처리 중입니다...</div>
+    </div>
+
+    <!-- ⭐️ 데이터 관리(B/R/E) 선택 모달 -->
+    <div id="dataManagementModalOverlay" class="modal-overlay" style="display:none; z-index: 3000;">
+        <div class="form-container" style="max-width: 280px; padding: 16px;">
+            <div class="form-header-container" style="margin-bottom: 12px; border: none; padding: 0;">
+                <h3 style="font-size: 14px;">💾 데이터 관리</h3>
+                <button type="button" class="btn-close" id="btnDataManagementClose" title="닫기">&times;</button>
+            </div>
+            
+            <div style="font-size: 11.5px; color: var(--text-muted-color); margin-bottom: 18px; line-height: 1.4; padding: 0 2px;">
+                데이터 백업, 백업 파일 복원 및 모든 매매 기록 엑셀 다운로드 기능을 지원합니다.
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 2px;">
+                <button type="button" id="btnModalFullBackup" style="width: 100%; margin: 0; padding: 9px; font-size: 11.5px; display: block; border-radius: 6px; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color); cursor: pointer; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">백업 (Backup)</button>
+                <button type="button" id="btnModalFullRestore" style="width: 100%; margin: 0; padding: 9px; font-size: 11.5px; display: block; border-radius: 6px; background: transparent; border: 1px solid var(--warning-color, #f39c12); color: var(--warning-color, #f39c12); cursor: pointer; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">복원 (Restore)</button>
+                <button type="button" id="btnModalExportExcel" style="width: 100%; margin: 0; padding: 9px; font-size: 11.5px; display: block; border-radius: 6px; background: transparent; border: 1px solid var(--success-color); color: var(--success-color); cursor: pointer; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">엑셀 내보내기 (Excel)</button>
+            </div>
+        </div>
     </div>
 
     <!-- ⭐️ 커스텀 공통 모달 (Alert, Confirm, Prompt 대체용) -->
