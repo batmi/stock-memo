@@ -472,13 +472,13 @@ window.addEventListener('DOMContentLoaded', () => {
                 themeSwitchOuter.appendChild(btnToggleNews);
                 btnToggleNews.style.display = 'inline-block';
                 const isExpanded = document.getElementById('newsList')?.classList.contains('news-expanded');
-                btnToggleNews.style.backgroundColor = isExpanded ? 'transparent' : 'var(--primary-color)';
-                btnToggleNews.style.color = isExpanded ? 'var(--primary-color)' : '#fff';
+                btnToggleNews.style.backgroundColor = isExpanded ? 'var(--primary-color)' : 'transparent';
+                btnToggleNews.style.color = isExpanded ? '#fff' : 'var(--primary-color)';
             } else if (btnToggleNews) {
                 btnToggleNews.style.display = 'inline-block';
                 const isExpanded = document.getElementById('newsList')?.classList.contains('news-expanded');
-                btnToggleNews.style.backgroundColor = isExpanded ? 'transparent' : 'var(--primary-color)';
-                btnToggleNews.style.color = isExpanded ? 'var(--primary-color)' : '#fff';
+                btnToggleNews.style.backgroundColor = isExpanded ? 'var(--primary-color)' : 'transparent';
+                btnToggleNews.style.color = isExpanded ? '#fff' : 'var(--primary-color)';
             }
         } else {
             // 데스크탑 레이아웃 원복
@@ -498,8 +498,8 @@ window.addEventListener('DOMContentLoaded', () => {
             }
             if (btnToggleNews) {
                 btnToggleNews.innerText = '펼치기 ▼';
-                btnToggleNews.style.backgroundColor = 'var(--primary-color)';
-                btnToggleNews.style.color = '#fff';
+                btnToggleNews.style.backgroundColor = 'transparent';
+                btnToggleNews.style.color = 'var(--primary-color)';
             }
         }
     }
@@ -540,8 +540,8 @@ window.addEventListener('DOMContentLoaded', () => {
             if (!newsList) return;
             const isExpanded = newsList.classList.toggle('news-expanded');
             btnToggleNews.innerText = isExpanded ? '접기 ▲' : '펼치기 ▼';
-                    btnToggleNews.style.backgroundColor = isExpanded ? 'transparent' : 'var(--primary-color)';
-                    btnToggleNews.style.color = isExpanded ? 'var(--primary-color)' : '#fff';
+                    btnToggleNews.style.backgroundColor = isExpanded ? 'var(--primary-color)' : 'transparent';
+                    btnToggleNews.style.color = isExpanded ? '#fff' : 'var(--primary-color)';
             if (!isExpanded) {
                 newsList.scrollLeft = 0; // 가로 스크롤 원위치
             }
