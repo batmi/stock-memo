@@ -2873,7 +2873,7 @@ function ensureXlsxLoaded() {
     return new Promise((resolve, reject) => {
         if (window.XLSX) { resolve(); return; }
         const tag = document.createElement('script');
-        tag.src = 'https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js';
+        tag.src = 'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js';
         tag.onload = () => window.XLSX ? resolve() : reject(new Error('엑셀 모듈이 초기화되지 않았습니다.'));
         tag.onerror = () => reject(new Error('엑셀 모듈을 불러오지 못했습니다. (네트워크 연결을 확인해주세요)'));
         document.head.appendChild(tag);
@@ -2890,15 +2890,30 @@ document.getElementById('btnExportExcel').addEventListener('click', async () => 
         await ensureXlsxLoaded();
         const header = ['작성일', '분류', '종목명', '증권사', '증권계좌', '계좌분류', '매매종류', '단가', '수량', '태그', '메모/생각'];
         const rows = cloudEntries.map(e => [
-            e.date, (e.type || '').toUpperCase(), e.stockName||'', e.brokerAccount||'', e.subAccount||'', e.accountName||'',
+            e.date, (e.type || '').toUpperCase(), e.stockName||'', getMappedBroker(e.brokerAccount)||'', e.subAccount||'', e.accountName||'',
             e.tradeType||'', Number(e.price)||0, Number(e.quantity)||0, 
             e.tags||'', (e.thoughts||'').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') // HTML 태그 제거 후 엑셀 내보내기
         ]);
         
         const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
         
-        // 단가, 수량 컬럼 숫자 포맷(천 단위 콤마) 지정
+        // 1행 틀고정 및 자동 필터 적용
+        worksheet['!views'] = [{ state: 'frozen', ySplit: 1 }];
+        worksheet['!autofilter'] = { ref: worksheet['!ref'] };
+        
+        // 단가, 수량 컬럼 숫자 포맷(천 단위 콤마) 및 헤더 스타일 지정
         const range = XLSX.utils.decode_range(worksheet['!ref']);
+        
+        // 헤더 배경색 및 볼드 처리
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            const cell = worksheet[XLSX.utils.encode_cell({c: C, r: 0})];
+            if (cell) {
+                cell.s = {
+                    fill: { fgColor: { rgb: "FFEAEAEA" } },
+                    font: { bold: true }
+                };
+            }
+        }
         for (let R = range.s.r + 1; R <= range.e.r; ++R) {
             const priceCell = worksheet[XLSX.utils.encode_cell({c: 7, r: R})]; // H열 (단가)
             if (priceCell && priceCell.t === 'n') priceCell.z = '#,##0';
