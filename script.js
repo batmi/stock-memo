@@ -2868,13 +2868,13 @@ if (btnFullRestore && restoreFileInput) {
     });
 }
 
-// ⭐️ SheetJS(약 1MB)는 초기 로딩에서 제외하고 엑셀 내보내기 시점에만 동적 로드
-function ensureXlsxLoaded() {
+// ⭐️ ExcelJS(약 800KB)는 초기 로딩에서 제외하고 엑셀 내보내기 시점에만 동적 로드
+function ensureExcelLoaded() {
     return new Promise((resolve, reject) => {
-        if (window.XLSX) { resolve(); return; }
+        if (window.ExcelJS) { resolve(); return; }
         const tag = document.createElement('script');
-        tag.src = 'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js';
-        tag.onload = () => window.XLSX ? resolve() : reject(new Error('엑셀 모듈이 초기화되지 않았습니다.'));
+        tag.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js';
+        tag.onload = () => window.ExcelJS ? resolve() : reject(new Error('엑셀 모듈이 초기화되지 않았습니다.'));
         tag.onerror = () => reject(new Error('엑셀 모듈을 불러오지 못했습니다. (네트워크 연결을 확인해주세요)'));
         document.head.appendChild(tag);
     });
@@ -2887,67 +2887,73 @@ document.getElementById('btnExportExcel').addEventListener('click', async () => 
         // ⭐️ UI 스레드가 블록되기 전에 로딩 애니메이션이 화면에 렌더링될 수 있도록 약간의 지연(setTimeout)을 줌
         setTimeout(async () => {
             try {
-        await ensureXlsxLoaded();
-        const header = ['작성일', '분류', '종목명', '증권사', '증권계좌', '계좌분류', '매매종류', '단가', '수량', '태그', '메모/생각'];
-        const rows = cloudEntries.map(e => [
-            e.date, (e.type || '').toUpperCase(), e.stockName||'', getMappedBroker(e.brokerAccount)||'', e.subAccount||'', e.accountName||'',
-            e.tradeType||'', Number(e.price)||0, Number(e.quantity)||0, 
-            e.tags||'', (e.thoughts||'').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ') // HTML 태그 제거 후 엑셀 내보내기
-        ]);
-        
-        const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
-        
-        // 1행 틀고정 및 자동 필터 적용
-        worksheet['!views'] = [{ state: 'frozen', ySplit: 1 }];
-        worksheet['!autofilter'] = { ref: worksheet['!ref'] };
-        
-        // 단가, 수량 컬럼 숫자 포맷(천 단위 콤마) 및 헤더 스타일 지정
-        const range = XLSX.utils.decode_range(worksheet['!ref']);
-        
-        // 헤더 배경색 및 볼드 처리
-        for (let C = range.s.c; C <= range.e.c; ++C) {
-            const cell = worksheet[XLSX.utils.encode_cell({c: C, r: 0})];
-            if (cell) {
-                cell.s = {
-                    fill: { fgColor: { rgb: "FFEAEAEA" } },
-                    font: { bold: true }
+                await ensureExcelLoaded();
+                
+                const workbook = new ExcelJS.Workbook();
+                const worksheet = workbook.addWorksheet('매매일지', {
+                    views: [{ state: 'frozen', xSplit: 0, ySplit: 1, topLeftCell: 'A2' }]
+                });
+                
+                const header = ['작성일', '분류', '종목명', '증권사', '증권계좌', '계좌분류', '매매종류', '단가', '수량', '태그', '메모/생각'];
+                worksheet.addRow(header);
+                
+                // 1행 틀고정 및 헤더 스타일/필터 적용
+                worksheet.autoFilter = 'A1:K1';
+                const headerRow = worksheet.getRow(1);
+                headerRow.font = { bold: true };
+                headerRow.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'FFEAEAEA' }
                 };
-            }
-        }
-        for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-            const priceCell = worksheet[XLSX.utils.encode_cell({c: 7, r: R})]; // H열 (단가)
-            if (priceCell && priceCell.t === 'n') priceCell.z = '#,##0';
-            
-            const qtyCell = worksheet[XLSX.utils.encode_cell({c: 8, r: R})]; // I열 (수량)
-            if (qtyCell && qtyCell.t === 'n') qtyCell.z = '#,##0';
-        }
-
-        // 내용에 맞게 열 너비 자동 조절
-        const colWidths = header.map((h, colIdx) => {
-            let maxLen = h.length * 2; // 헤더 한글 너비 고려
-            rows.forEach(row => {
-                const val = row[colIdx] != null ? row[colIdx].toString() : '';
-                let len = 0;
-                for (let i = 0; i < val.length; i++) len += val.charCodeAt(i) > 255 ? 2 : 1.1; // 한글은 2, 영문/숫자는 1.1 비율
-                if (len > maxLen) maxLen = len;
-            });
-            return { wch: Math.min(Math.max(Math.ceil(maxLen), 10), 100) }; // 최소 10, 최대 100 제한
-        });
-        worksheet['!cols'] = colWidths;
-
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "매매일지");
-        
-        const now = new Date();
-        const yyyy = now.getFullYear();
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const dd = String(now.getDate()).padStart(2, '0');
-        const hh = String(now.getHours()).padStart(2, '0');
-        const min = String(now.getMinutes()).padStart(2, '0');
-        const ss = String(now.getSeconds()).padStart(2, '0');
-        const filename = `TradingJournal_export_${yyyy}${mm}${dd}_${hh}${min}${ss}.xlsx`;
-        
-        XLSX.writeFile(workbook, filename);
+                
+                // 데이터 추가
+                cloudEntries.forEach(e => {
+                    const rowData = [
+                        e.date, (e.type || '').toUpperCase(), e.stockName||'', getMappedBroker(e.brokerAccount)||'', e.subAccount||'', e.accountName||'',
+                        e.tradeType||'', Number(e.price)||0, Number(e.quantity)||0, 
+                        e.tags||'', (e.thoughts||'').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ')
+                    ];
+                    const addedRow = worksheet.addRow(rowData);
+                    
+                    // 단가, 수량 컬럼 숫자 포맷 지정
+                    addedRow.getCell(8).numFmt = '#,##0'; // H열 (단가)
+                    addedRow.getCell(9).numFmt = '#,##0'; // I열 (수량)
+                });
+                
+                // 내용에 맞게 열 너비 자동 조절
+                worksheet.columns.forEach((column, colIdx) => {
+                    let maxLen = header[colIdx].length * 2;
+                    column.eachCell({ includeEmpty: true }, (cell, rowNumber) => {
+                        if (rowNumber > 1) {
+                            const val = cell.value != null ? cell.value.toString() : '';
+                            let len = 0;
+                            for (let i = 0; i < val.length; i++) len += val.charCodeAt(i) > 255 ? 2 : 1.1;
+                            if (len > maxLen) maxLen = len;
+                        }
+                    });
+                    column.width = Math.min(Math.max(Math.ceil(maxLen), 10), 100);
+                });
+                
+                const now = new Date();
+                const yyyy = now.getFullYear();
+                const mm = String(now.getMonth() + 1).padStart(2, '0');
+                const dd = String(now.getDate()).padStart(2, '0');
+                const hh = String(now.getHours()).padStart(2, '0');
+                const min = String(now.getMinutes()).padStart(2, '0');
+                const ss = String(now.getSeconds()).padStart(2, '0');
+                const filename = `TradingJournal_export_${yyyy}${mm}${dd}_${hh}${min}${ss}.xlsx`;
+                
+                // 다운로드 처리
+                const buffer = await workbook.xlsx.writeBuffer();
+                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                const link = document.createElement('a');
+                link.href = window.URL.createObjectURL(blob);
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(link.href);
             } catch (err) {
                 console.error("엑셀 내보내기 실패:", err);
                 await customAlert(`엑셀 내보내기에 실패했습니다.\n(${err && err.message ? err.message : '알 수 없는 오류'})`);
