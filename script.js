@@ -182,7 +182,7 @@ window.currentPriceCache = {};  // ⭐️ 장 종료 시 이전 가격을 유지
 window.monthlyProfitChartInstance = null; // ⭐️ 월별 손익 차트 인스턴스 변수 추가
 window.currentChartGranularity = window.currentChartGranularity || 'monthly'; // ⭐️ 차트 집계 단위 (monthly/weekly, 기본 월간)
 
-// ⭐️ 주간 차트 과거 탐색 상태
+// ⭐️ 차트 과거 기간 탐색 상태 (주간/월간 공통)
 //    CHART_WEEK_WINDOW: 한 화면에 표시할 주 개수(12주)
 //    CHART_WEEK_MAX_BACK: 과거로 볼 수 있는 최대 기간(현재 주 포함 52주)
 //    chartWeekOffset: 화면을 과거로 밀어낸 주 수 (0 = 현재 주 포함 최근 12주)
@@ -190,6 +190,14 @@ const CHART_WEEK_WINDOW = 12;
 const CHART_WEEK_MAX_BACK = 52;
 const CHART_WEEK_MAX_OFFSET = CHART_WEEK_MAX_BACK - CHART_WEEK_WINDOW; // 40주
 window.chartWeekOffset = 0;
+
+//    CHART_MONTH_WINDOW: 한 화면에 표시할 개월 수(12개월)
+//    CHART_MONTH_MAX_BACK: 과거로 볼 수 있는 최대 기간(이번 달 포함 60개월 = 5년)
+//    chartMonthOffset: 화면을 과거로 밀어낸 개월 수 (0 = 이번 달 포함 최근 12개월)
+const CHART_MONTH_WINDOW = 12;
+const CHART_MONTH_MAX_BACK = 60;
+const CHART_MONTH_MAX_OFFSET = CHART_MONTH_MAX_BACK - CHART_MONTH_WINDOW; // 48개월
+window.chartMonthOffset = 0;
 
 // ⭐️ 차트 전용 독립 필터 상태 변수
 let currentChartStock = 'all';
@@ -4802,7 +4810,8 @@ window.updateChartGranularityToggle = function() {
 // ⭐️ 클릭 시 월간 ↔ 주간 전환 (단일 토글 버튼)
 window.toggleChartGranularity = function() {
     window.currentChartGranularity = (window.currentChartGranularity || 'monthly') === 'monthly' ? 'weekly' : 'monthly';
-    window.chartWeekOffset = 0; // 단위 전환 시 항상 최근 기간부터 보여준다
+    window.chartWeekOffset = 0;  // 단위 전환 시 항상 최근 기간부터 보여준다
+    window.chartMonthOffset = 0;
     window.updateChartGranularityToggle();
     // 집계 단위 변경 시 열려있던 상세 내역은 닫아 혼동 방지
     const detailListEl = document.getElementById('chartDetailList');
@@ -4811,33 +4820,45 @@ window.toggleChartGranularity = function() {
     window.renderMonthlyProfitChart();
 };
 
-// ⭐️ 주간 차트 기간 이동 (dir: -1 = 과거로, +1 = 현재 방향으로 / 한 번에 12주씩)
-window.shiftChartWeekRange = function(dir) {
-    if ((window.currentChartGranularity || 'monthly') !== 'weekly') return;
-    const next = (window.chartWeekOffset || 0) + (dir < 0 ? CHART_WEEK_WINDOW : -CHART_WEEK_WINDOW);
-    window.chartWeekOffset = Math.max(0, Math.min(CHART_WEEK_MAX_OFFSET, next));
+// ⭐️ 현재 집계 단위(주간/월간)에 맞는 기간 이동 설정 반환
+window.getChartRangeConfig = function() {
+    const isWeekly = (window.currentChartGranularity || 'monthly') === 'weekly';
+    return isWeekly
+        ? { isWeekly: true,  step: CHART_WEEK_WINDOW,  maxOffset: CHART_WEEK_MAX_OFFSET,  offset: Math.max(0, Math.min(CHART_WEEK_MAX_OFFSET, window.chartWeekOffset || 0)),   unit: '주' }
+        : { isWeekly: false, step: CHART_MONTH_WINDOW, maxOffset: CHART_MONTH_MAX_OFFSET, offset: Math.max(0, Math.min(CHART_MONTH_MAX_OFFSET, window.chartMonthOffset || 0)), unit: '개월' };
+};
+
+// ⭐️ 차트 기간 이동 (dir: -1 = 과거로, +1 = 현재 방향으로 / 주간 12주, 월간 12개월씩)
+window.shiftChartRange = function(dir) {
+    const cfg = window.getChartRangeConfig();
+    const next = Math.max(0, Math.min(cfg.maxOffset, cfg.offset + (dir < 0 ? cfg.step : -cfg.step)));
+    if (next === cfg.offset) return;
+    if (cfg.isWeekly) window.chartWeekOffset = next;
+    else window.chartMonthOffset = next;
     window.renderMonthlyProfitChart();
 };
 
-// ⭐️ 주간 차트를 최근 12주(현재)로 복귀
-window.resetChartWeekRange = function() {
-    if (!window.chartWeekOffset) return;
-    window.chartWeekOffset = 0;
+// ⭐️ 차트를 최근 기간(최근 12주 / 최근 12개월)으로 복귀
+window.resetChartRange = function() {
+    const cfg = window.getChartRangeConfig();
+    if (!cfg.offset) return;
+    if (cfg.isWeekly) window.chartWeekOffset = 0;
+    else window.chartMonthOffset = 0;
     window.renderMonthlyProfitChart();
 };
 
-// ⭐️ 기간 이동 내비게이션 표시 동기화 (주간 모드에서만 노출)
+// ⭐️ 기간 이동 내비게이션 표시 동기화 (주간/월간 모두 노출)
 window.updateChartRangeNav = function(rangeText) {
     const nav = document.getElementById('chartRangeNav');
     if (!nav) return;
-    const isWeekly = (window.currentChartGranularity || 'monthly') === 'weekly';
     // 성과분석(분석) 화면이 열려 있으면 차트가 숨겨진 상태이므로 내비게이션도 숨긴다
     const statsEl = document.getElementById('inlineStatsContainer');
     const statsOpen = !!statsEl && statsEl.style.display === 'block';
-    nav.style.display = (isWeekly && !statsOpen) ? 'flex' : 'none';
-    if (!isWeekly || statsOpen) return;
+    nav.style.display = statsOpen ? 'none' : 'flex';
+    if (statsOpen) return;
 
-    const offset = window.chartWeekOffset || 0;
+    const cfg = window.getChartRangeConfig();
+    const offset = cfg.offset;
     const btnPrev = document.getElementById('btnChartRangePrev');
     const btnNext = document.getElementById('btnChartRangeNext');
     const btnNow = document.getElementById('btnChartRangeNow');
@@ -4849,9 +4870,14 @@ window.updateChartRangeNav = function(rangeText) {
         btn.style.opacity = disabled ? '0.35' : '1';
         btn.style.cursor = disabled ? 'default' : 'pointer';
     };
-    setDisabled(btnPrev, offset >= CHART_WEEK_MAX_OFFSET); // 최대 52주까지만 과거 조회
+    setDisabled(btnPrev, offset >= cfg.maxOffset); // 주간 52주 / 월간 60개월까지만 과거 조회
     setDisabled(btnNext, offset <= 0);
-    if (btnNow) btnNow.style.display = offset > 0 ? 'inline-flex' : 'none';
+    if (btnPrev) btnPrev.title = `이전 ${cfg.step}${cfg.unit}`;
+    if (btnNext) btnNext.title = `다음 ${cfg.step}${cfg.unit}`;
+    if (btnNow) {
+        btnNow.title = `최근 ${cfg.step}${cfg.unit}로 이동`;
+        btnNow.style.display = offset > 0 ? 'inline-flex' : 'none';
+    }
     if (labelEl) labelEl.innerText = rangeText || '';
 };
 
@@ -5004,7 +5030,9 @@ window.renderMonthlyProfitChart = function() {
     // ⭐️ 12개 기간(월간: 12개월 / 주간: 12주) 라벨 생성
     //    주간은 weekOffset 만큼 과거로 밀어서 최대 52주 전까지 조회 가능
     const thisMonday = getMonday(now);
-    const weekOffset = isWeekly ? Math.max(0, Math.min(CHART_WEEK_MAX_OFFSET, window.chartWeekOffset || 0)) : 0;
+    const rangeCfg = window.getChartRangeConfig();
+    const weekOffset = isWeekly ? rangeCfg.offset : 0;
+    const monthOffset = isWeekly ? 0 : rangeCfg.offset;
     for (let i = 11; i >= 0; i--) {
         let key;
         if (isWeekly) {
@@ -5012,7 +5040,7 @@ window.renderMonthlyProfitChart = function() {
             d.setDate(d.getDate() - (i + weekOffset) * 7);
             key = fmtYmd(d);
         } else {
-            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const d = new Date(now.getFullYear(), now.getMonth() - i - monthOffset, 1);
             key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         }
         monthlyData[key] = {
@@ -5264,16 +5292,23 @@ window.renderMonthlyProfitChart = function() {
         ? labels.map(l => { const p = l.split('-'); return `${parseInt(p[1], 10)}/${parseInt(p[2], 10)}`; }) // 주: 월요일 'M/D'
         : labels.map(l => l.split('-')[1].replace(/^0+/, '') + '월');
 
-    // ⭐️ 주간 기간 이동 내비게이션 동기화 (표시 구간: 첫 주 월요일 ~ 마지막 주 일요일)
+    // ⭐️ 기간 이동 내비게이션 동기화
+    //    주간: 첫 주 월요일 ~ 마지막 주 일요일 / 월간: 첫 달 ~ 마지막 달
     if (window.updateChartRangeNav) {
         let rangeText = '';
-        if (isWeekly && labels.length) {
-            const toLocalDate = (ymd) => { const p = ymd.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); };
-            const start = toLocalDate(labels[0]);
-            const end = toLocalDate(labels[labels.length - 1]);
-            end.setDate(end.getDate() + 6);
-            const md = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
-            rangeText = `${start.getFullYear()}. ${md(start)} ~ ${end.getFullYear() !== start.getFullYear() ? end.getFullYear() + '. ' : ''}${md(end)}`;
+        if (labels.length) {
+            if (isWeekly) {
+                const toLocalDate = (ymd) => { const p = ymd.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); };
+                const start = toLocalDate(labels[0]);
+                const end = toLocalDate(labels[labels.length - 1]);
+                end.setDate(end.getDate() + 6);
+                const md = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+                rangeText = `${start.getFullYear()}. ${md(start)} ~ ${end.getFullYear() !== start.getFullYear() ? end.getFullYear() + '. ' : ''}${md(end)}`;
+            } else {
+                const [sy, sm] = labels[0].split('-');
+                const [ey, em] = labels[labels.length - 1].split('-');
+                rangeText = `${sy}. ${parseInt(sm, 10)}월 ~ ${ey !== sy ? ey + '. ' : ''}${parseInt(em, 10)}월`;
+            }
         }
         window.updateChartRangeNav(rangeText);
     }
