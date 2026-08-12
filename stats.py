@@ -29,14 +29,44 @@ def get_monday(dt):
     monday = dt - timedelta(days=dt.weekday())
     return monday.strftime('%Y-%m-%d')
 
-def compute_trade_stats(rows, granularity='monthly'):
+def _parse_period_bound(value):
+    """'YYYY-MM-DD' 형태의 구간 경계를 datetime으로 파싱합니다. 실패 시 None."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value)[:10], '%Y-%m-%d')
+    except (ValueError, TypeError):
+        return None
+
+def compute_trade_stats(rows, granularity='monthly', period_start=None, period_end=None):
     """매매 기록 리스트로부터 성과 분석 지표를 계산합니다.
 
     실현손익은 프론트엔드 대시보드와 동일한 이동평균단가(average-cost) 방식으로,
     보유기간은 FIFO 로트 매칭으로 추정합니다.
+
+    period_start / period_end ('YYYY-MM-DD', 종료일 포함)를 주면 해당 구간의 체결만
+    집계합니다. 단, 평단(avgPrice)은 구간 이전 매수까지 모두 반영해야 실현손익이
+    맞으므로 보유 상태는 전체 기록으로 갱신하고 '지표 누적'만 구간 안으로 제한합니다.
     """
     trades = [r for r in rows if r.get('type') == 'trade' and (r.get('stockName') or '').strip()]
     trades.sort(key=lambda r: parse_entry_dt(r) or datetime.min)
+
+    win_start = _parse_period_bound(period_start)
+    win_end = _parse_period_bound(period_end)
+    if win_end is not None:
+        win_end += timedelta(days=1)  # 종료일 당일까지 포함
+
+    def in_window(dt):
+        """해당 체결을 지표에 반영할지 여부. 구간 지정이 없으면 항상 True."""
+        if win_start is None and win_end is None:
+            return True
+        if dt is None:
+            return False  # 날짜 미상 기록은 구간을 특정할 수 없어 제외
+        if win_start is not None and dt < win_start:
+            return False
+        if win_end is not None and dt >= win_end:
+            return False
+        return True
 
     portfolio = {}  # stock -> {qty, totalCost, avgPrice, lots(deque of [dt, qty])}
     monthly = defaultdict(lambda: {'realized': 0.0, 'dividend': 0.0, 'buyAmount': 0.0, 'sellAmount': 0.0})
@@ -70,49 +100,51 @@ def compute_trade_stats(rows, granularity='monthly'):
             mkey = get_monday(dt) if granularity == 'weekly' else dt.strftime('%Y-%m')
 
         p = portfolio.setdefault(stock, {'qty': 0.0, 'totalCost': 0.0, 'avgPrice': 0.0, 'lots': deque()})
+        inw = in_window(dt)  # ⭐️ 지표에 반영할 구간인지 (보유 상태 갱신은 구간과 무관하게 항상 수행)
 
         if ttype == '매수':
-            buy_count += 1
-            p['qty'] += qty
-            
             vol = price * qty
+            if inw:
+                buy_count += 1
+                total_buy_amount += vol
+                monthly[mkey]['buyAmount'] += vol
+
+            p['qty'] += qty
             p['totalCost'] += vol
-            total_buy_amount += vol
-            monthly[mkey]['buyAmount'] += vol
             
             if p['qty'] > 0:
                 p['avgPrice'] = p['totalCost'] / p['qty']
             p['lots'].append([dt, qty])
 
         elif ttype == '매도':
-            sell_count += 1
             avg = p['avgPrice']
             profit = (price - avg) * qty
-
-            total_realized += profit
-            monthly[mkey]['realized'] += profit
-            
             vol = price * qty
-            monthly[mkey]['sellAmount'] += vol
-            total_sell_amount += vol
-            
-            per_stock[stock]['realized'] += profit
-            per_stock[stock]['sellCount'] += 1
-            
-            if profit > max_single_win:
-                max_single_win = profit
-            if profit < max_single_loss:
-                max_single_loss = profit
-                
-            if profit > 0:
-                win_count += 1
-                gross_profit += profit
-                per_stock[stock]['winCount'] += 1
-            elif profit < 0:
-                loss_count += 1
-                gross_loss += -profit
-            if dt:
-                realized_events.append((dt, profit))
+
+            if inw:
+                sell_count += 1
+                total_realized += profit
+                monthly[mkey]['realized'] += profit
+                monthly[mkey]['sellAmount'] += vol
+                total_sell_amount += vol
+
+                per_stock[stock]['realized'] += profit
+                per_stock[stock]['sellCount'] += 1
+
+                if profit > max_single_win:
+                    max_single_win = profit
+                if profit < max_single_loss:
+                    max_single_loss = profit
+
+                if profit > 0:
+                    win_count += 1
+                    gross_profit += profit
+                    per_stock[stock]['winCount'] += 1
+                elif profit < 0:
+                    loss_count += 1
+                    gross_loss += -profit
+                if dt:
+                    realized_events.append((dt, profit))
 
             # FIFO 로트 매칭으로 보유기간(일) 가중 합산
             remaining = qty
@@ -120,7 +152,7 @@ def compute_trade_stats(rows, granularity='monthly'):
                 lot = p['lots'][0]
                 lot_dt, lot_qty = lot[0], lot[1]
                 matched = min(remaining, lot_qty)
-                if lot_dt and dt:
+                if lot_dt and dt and inw:
                     holding_days_weighted += (dt - lot_dt).total_seconds() / 86400.0 * matched
                     holding_qty_total += matched
                 lot[1] -= matched
@@ -138,6 +170,8 @@ def compute_trade_stats(rows, granularity='monthly'):
                 p['lots'].clear()
 
         elif ttype == '배당':
+            if not inw:
+                continue
             dividend_count += 1
             amount = price * qty
             total_dividend += amount

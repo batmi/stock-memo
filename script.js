@@ -2024,6 +2024,8 @@ if (btnStats && inlineStatsContainer) {
             if (chartDetailList) chartDetailList.style.display = 'none';
             const chartRangeNav = document.getElementById('chartRangeNav');
             if (chartRangeNav) chartRangeNav.style.display = 'none';
+            const chartEvalNotice = document.getElementById('chartEvalNotice');
+            if (chartEvalNotice) chartEvalNotice.style.display = 'none';
             
             // 기존 차트 타입 버튼들의 강조 효과 제거
             document.querySelectorAll('.chart-type-btn').forEach(btn => {
@@ -2064,6 +2066,10 @@ window.loadTradeStats = async function() {
             entryIds.push(entry.id);
         });
         
+        // ⭐️ 차트가 보고 있는 구간을 그대로 넘긴다. entry_ids 는 전체 기간을 보내고
+        //    서버가 구간 밖 체결로 평단만 갱신하도록 해야 실현손익이 맞는다.
+        //    (구간 밖 매수를 아예 빼면 평단이 0이 되어 실현손익이 부풀려진다)
+        const range = window.chartPeriodRange || null;
         const res = await fetch('/api/stats', {
             method: 'POST',
             headers: { 
@@ -2071,7 +2077,9 @@ window.loadTradeStats = async function() {
             },
             body: JSON.stringify({ 
                 entry_ids: entryIds,
-                granularity: window.currentChartGranularity || 'monthly'
+                granularity: window.currentChartGranularity || 'monthly',
+                period_start: range ? range.start : null,
+                period_end: range ? range.end : null
             })
         });
         if (!res.ok) throw new Error('통계를 불러오지 못했습니다.');
@@ -2098,8 +2106,15 @@ function renderTradeStats(s) {
 
     const pf = (s.profitFactor === null || s.profitFactor === undefined) ? '—' : s.profitFactor.toFixed(2);
 
+    // ⭐️ 어느 구간을 본 결과인지 최상단에 명시 (차트의 기간 이동과 동일한 구간)
+    let html = '';
+    const range = window.chartPeriodRange || null;
+    if (range && range.text) {
+        html += `<div style="font-size:12px; font-weight:bold; color:var(--text-strong-color); background:var(--bg-color); border:1px solid var(--border-color); border-radius:6px; padding:7px 10px; margin-bottom:12px; text-align:center;">📅 분석 구간 &nbsp;${range.text}</div>`;
+    }
+
     // 요약 지표 카드
-    let html = '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">';
+    html += '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">';
     html += card('총 손익 (실현+배당)', statsMoney(s.totalPnl), statsColor(s.totalPnl));
     html += card('실현 손익', statsMoney(s.totalRealized), statsColor(s.totalRealized));
     html += card('배당 수익', statsMoney(s.totalDividend), statsColor(s.totalDividend));
@@ -2121,7 +2136,8 @@ function renderTradeStats(s) {
     // 기간별 실현손익
     if (s.monthly && s.monthly.length) {
         const isWeekly = (window.currentChartGranularity === 'weekly');
-        const periodTitle = isWeekly ? '📅 주간 실현손익 (최근 12주)' : '📅 월간 실현손익 (최근 12개월)';
+        const rangeSuffix = (range && range.text) ? ` (${range.text})` : (isWeekly ? ' (최근 12주)' : ' (최근 12개월)');
+        const periodTitle = (isWeekly ? '📅 주간 실현손익' : '📅 월간 실현손익') + rangeSuffix;
         const periodHeader = isWeekly ? '주간(시작일)' : '월';
         html += `<h4 style="font-size:13px; margin:18px 0 8px; color:var(--text-strong-color);">${periodTitle}</h4>`;
         html += '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr>';
@@ -2149,7 +2165,10 @@ function renderTradeStats(s) {
         html += '</tbody></table></div>';
     }
 
-    html += '<p style="font-size:11px; color:var(--text-muted-color); margin-top:14px; line-height:1.5;">※ 실현손익은 이동평균단가 방식으로 계산되며, 보유기간은 선입선출(FIFO) 기준 추정치입니다. 미실현(평가) 손익은 포함되지 않습니다.</p>';
+    html += '<p style="font-size:11px; color:var(--text-muted-color); margin-top:14px; line-height:1.5;">'
+        + '※ 실현손익은 이동평균단가 방식으로 계산되며, 보유기간은 선입선출(FIFO) 기준 추정치입니다. 미실현(평가) 손익은 포함되지 않습니다.<br>'
+        + '※ 위 숫자는 <b>분석 구간 안에서 체결된 거래</b>만 집계한 값입니다. 평균단가는 구간 이전 매수까지 반영해 계산합니다.'
+        + '</p>';
 
     inlineStatsContainer.innerHTML = html;
 }
@@ -4881,6 +4900,43 @@ window.updateChartRangeNav = function(rangeText) {
     if (labelEl) labelEl.innerText = rangeText || '';
 };
 
+// ⭐️ 차트 하단 안내문 — 평가손익의 계산 기준과, 현재가를 못 구해 빠진 종목을 알린다.
+//    평가손익은 개별 매수건 단가(FIFO), 실현손익은 이동평균단가라 기준이 다르다.
+//    월별 귀속을 유지하려면 로트 단위 단가가 필요해 통일할 수 없으므로, 대신 명시한다.
+window.updateChartEvalNotice = function(info) {
+    const el = document.getElementById('chartEvalNotice');
+    if (!el) return;
+
+    const statsEl = document.getElementById('inlineStatsContainer');
+    const statsOpen = !!statsEl && statsEl.style.display === 'block';
+    const { type, missingStocks = [], offset = 0, periodWord = '월' } = info || {};
+
+    const esc = (t) => String(t).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+    const notes = [];
+
+    if (!statsOpen && type === 'evaluated') {
+        notes.push(`※ 막대는 <b>해당 ${periodWord}에 매수해 아직 보유 중인 물량</b>을 <b>오늘 현재가</b>로 평가한 값입니다. 이미 매도한 매수분은 표시되지 않습니다.`);
+        notes.push('※ 평가손익은 <b>개별 매수건 단가(FIFO)</b> 기준, 실현손익은 <b>이동평균단가</b> 기준이라 서로 기준이 다릅니다.');
+        if (offset > 0) notes.push('※ 과거 구간일수록 이미 매도된 물량이 많아 막대가 비어 보일 수 있습니다.');
+
+        if (!showCurrentPrice) {
+            notes.push('⚠️ <b>현재가 보기가 꺼져 있어</b> 평가손익을 계산할 수 없습니다. 현재가 보기를 켜 주세요.');
+        } else if (missingStocks.length) {
+            const shown = missingStocks.slice(0, 5).map(esc).join(', ');
+            const more = missingStocks.length > 5 ? ` 외 ${missingStocks.length - 5}개` : '';
+            notes.push(`⚠️ 현재가를 불러오지 못한 <b>${missingStocks.length}개 종목</b>(${shown}${more})은 평가손익에서 <b>제외</b>됐습니다. 종목코드가 없거나 대시보드 필터에서 빠진 종목일 수 있습니다.`);
+        }
+    }
+
+    if (!notes.length) {
+        el.style.display = 'none';
+        el.innerHTML = '';
+        return;
+    }
+    el.innerHTML = notes.map(t => `<div style="margin-top:4px;">${t}</div>`).join('');
+    el.style.display = 'block';
+};
+
 // ⭐️ 차트 막대 클릭 시 하단에 종목별 상세 내역을 그려주는 함수 (다중 섹션 지원)
 window.renderChartDetailList = function(periodLabel, sections) {
     const inlineStatsContainer = document.getElementById('inlineStatsContainer');
@@ -4903,37 +4959,41 @@ window.renderChartDetailList = function(periodLabel, sections) {
     
     let hasData = false;
     sections.forEach(sec => {
-        const { title, breakdown, isProfit } = sec;
+        const { title, breakdown, isProfit, flow } = sec;
+        // ⭐️ flow: 매매금액처럼 손익이 아닌 '금액' 항목의 방향 (-1 = 매수, +1 = 매도).
+        //    손익이 아니므로 부호는 붙이지 않고, 방향은 색으로만 구분한다.
+        //    색은 바로 위 차트의 매수(빨강)·매도(파랑) 막대와 맞춘다.
+        const decorate = (v) => {
+            if (flow) {
+                return {
+                    color: flow > 0 ? 'var(--primary-color)' : 'var(--danger-color)',
+                    prefix: '',
+                    amount: Math.abs(v)
+                };
+            }
+            if (isProfit && v > 0) return { color: 'var(--danger-color)', prefix: '+', amount: v };
+            if (isProfit && v < 0) return { color: 'var(--primary-color)', prefix: '', amount: v };
+            return { color: 'var(--text-strong-color)', prefix: '', amount: v };
+        };
         const stocks = Object.keys(breakdown).filter(s => breakdown[s] !== 0);
         
         if (stocks.length > 0) {
             hasData = true;
             stocks.sort((a, b) => breakdown[b] - breakdown[a]); // 금액(손익) 기준 내림차순 정렬
             
-            let sectionTotal = stocks.reduce((acc, s) => acc + breakdown[s], 0);
-            let totalColor = 'var(--text-strong-color)';
-            let totalPrefix = '';
-            if (isProfit) {
-                if (sectionTotal > 0) { totalColor = 'var(--danger-color)'; totalPrefix = '+'; }
-                else if (sectionTotal < 0) { totalColor = 'var(--primary-color)'; }
-            }
+            const sectionTotal = stocks.reduce((acc, s) => acc + breakdown[s], 0);
+            const totalDeco = decorate(sectionTotal);
             
             html += `<div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 15px; margin-bottom: 8px;">
                         <span style="font-size: 12px; font-weight: bold; color: var(--text-muted-color);">[ ${title} ]</span>
-                        <span style="font-size: 13px; font-weight: bold; color: ${totalColor};">${totalPrefix}${Math.round(sectionTotal).toLocaleString()}원</span>
+                        <span style="font-size: 13px; font-weight: bold; color: ${totalDeco.color};">${totalDeco.prefix}${Math.round(totalDeco.amount).toLocaleString()}원</span>
                      </div>`;
             html += `<div style="display: grid; gap: 6px;">`;
             stocks.forEach(s => {
-                const val = breakdown[s];
-                let color = 'var(--text-strong-color)';
-                let prefix = '';
-                if (isProfit) {
-                    if (val > 0) { color = 'var(--danger-color)'; prefix = '+'; }
-                    else if (val < 0) { color = 'var(--primary-color)'; }
-                }
+                const { color, prefix, amount } = decorate(breakdown[s]);
                 html += `<div style="display: flex; justify-content: space-between; font-size: 12px; padding: 6px 10px; background: var(--bg-color); border-radius: 6px; border: 1px solid var(--border-light-color);">
                     <span style="font-weight: bold; color: var(--text-strong-color);">${s}</span>
-                    <span style="color: ${color};">${prefix}${Math.round(val).toLocaleString()}원</span>
+                    <span style="color: ${color};">${prefix}${Math.round(amount).toLocaleString()}원</span>
                 </div>`;
             });
             html += `</div>`;
@@ -4952,11 +5012,11 @@ window.renderChartDetailList = function(periodLabel, sections) {
 window.renderMonthlyProfitChart = function() {
     console.log("[Chart] 월별 실현/평가/매매금액 차트 렌더링 시작...");
     
-    // 성과분석 뷰가 열려있다면 필터 갱신에 맞춰 데이터 다시 불러오기
+    // ⭐️ 성과분석 뷰가 열려있다면 필터 갱신에 맞춰 다시 불러온다. 단 호출은 아래에서
+    //    window.chartPeriodRange(= 지금 화면이 보고 있는 구간)를 확정한 뒤에 한다.
+    //    여기서 부르면 직전 렌더의 구간으로 조회돼 차트와 한 박자 어긋난다.
     const inlineStatsContainer = document.getElementById('inlineStatsContainer');
-    if (inlineStatsContainer && inlineStatsContainer.style.display === 'block') {
-        window.loadTradeStats();
-    }
+    const statsViewOpen = !!inlineStatsContainer && inlineStatsContainer.style.display === 'block';
     
     // ⭐️ 차트 필터 초기화 버튼 노출 제어 로직
     const chartClearAllBtnWrapper = document.getElementById('chartClearAllBtnWrapper');
@@ -5145,18 +5205,28 @@ window.renderMonthlyProfitChart = function() {
     });
 
     // ⭐️ 현재가(Cache)를 바탕으로 현재 청산되지 않고 남은 매수 건들의 평가 손익 계산
+    //    현재가 캐시는 '대시보드' 필터/현재가 보기 설정에 따라 채워지므로, 차트가 필요한
+    //    종목이 캐시에 없을 수 있다. 예전엔 그런 종목이 소리 없이 0으로 빠져 평가손익이
+    //    실제보다 작게 나왔다 → 빠진 종목을 모아 화면에 알린다.
+    const evalMissingStocks = [];
     for (const stock in stockRemainingBuys) {
+        const lots = stockRemainingBuys[stock];
+        // 지금 보고 있는 구간 안에 남은 매수건이 있는 종목만 평가 대상이다
+        if (!lots.some(buy => monthlyData[buy.dateKey])) continue;
+
         const stockCode = portfolio[stock]?.stockCode;
-        const currentPrice = window.currentPriceCache[stockCode];
-        if (currentPrice !== undefined && currentPrice !== null) {
-            stockRemainingBuys[stock].forEach(buy => {
-                if (monthlyData[buy.dateKey]) {
-                    const evalProfit = (currentPrice - buy.price) * buy.qty;
-                    monthlyData[buy.dateKey].evaluated += evalProfit;
-                    monthlyData[buy.dateKey].evaluated_breakdown[stock] = (monthlyData[buy.dateKey].evaluated_breakdown[stock] || 0) + evalProfit;
-                }
-            });
+        const currentPrice = stockCode ? window.currentPriceCache[stockCode] : undefined;
+        if (currentPrice === undefined || currentPrice === null) {
+            evalMissingStocks.push(stock);
+            continue;
         }
+        lots.forEach(buy => {
+            if (monthlyData[buy.dateKey]) {
+                const evalProfit = (currentPrice - buy.price) * buy.qty;
+                monthlyData[buy.dateKey].evaluated += evalProfit;
+                monthlyData[buy.dateKey].evaluated_breakdown[stock] = (monthlyData[buy.dateKey].evaluated_breakdown[stock] || 0) + evalProfit;
+            }
+        });
     }
     
     // ⭐️ 12개월 라벨별로 과거부터 해당 월까지의 총 누적 수익금 계산 및 상세 내역 생성
@@ -5292,26 +5362,44 @@ window.renderMonthlyProfitChart = function() {
         ? labels.map(l => { const p = l.split('-'); return `${parseInt(p[1], 10)}/${parseInt(p[2], 10)}`; }) // 주: 월요일 'M/D'
         : labels.map(l => l.split('-')[1].replace(/^0+/, '') + '월');
 
-    // ⭐️ 기간 이동 내비게이션 동기화
-    //    주간: 첫 주 월요일 ~ 마지막 주 일요일 / 월간: 첫 달 ~ 마지막 달
-    if (window.updateChartRangeNav) {
-        let rangeText = '';
-        if (labels.length) {
-            if (isWeekly) {
-                const toLocalDate = (ymd) => { const p = ymd.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); };
-                const start = toLocalDate(labels[0]);
-                const end = toLocalDate(labels[labels.length - 1]);
-                end.setDate(end.getDate() + 6);
-                const md = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
-                rangeText = `${start.getFullYear()}. ${md(start)} ~ ${end.getFullYear() !== start.getFullYear() ? end.getFullYear() + '. ' : ''}${md(end)}`;
-            } else {
-                const [sy, sm] = labels[0].split('-');
-                const [ey, em] = labels[labels.length - 1].split('-');
-                rangeText = `${sy}. ${parseInt(sm, 10)}월 ~ ${ey !== sy ? ey + '. ' : ''}${parseInt(em, 10)}월`;
-            }
+    // ⭐️ 지금 화면이 보고 있는 구간을 확정한다.
+    //    주간: 첫 주 월요일 ~ 마지막 주 일요일 / 월간: 첫 달 1일 ~ 마지막 달 말일
+    //    이 값은 분석 탭(/api/stats)에도 그대로 넘겨 두 화면이 같은 구간을 보게 한다.
+    let rangeText = '';
+    window.chartPeriodRange = null;
+    if (labels.length) {
+        const toYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        if (isWeekly) {
+            const toLocalDate = (ymd) => { const p = ymd.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); };
+            const start = toLocalDate(labels[0]);
+            const end = toLocalDate(labels[labels.length - 1]);
+            end.setDate(end.getDate() + 6);
+            const md = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+            rangeText = `${start.getFullYear()}. ${md(start)} ~ ${end.getFullYear() !== start.getFullYear() ? end.getFullYear() + '. ' : ''}${md(end)}`;
+            window.chartPeriodRange = { start: toYmd(start), end: toYmd(end), text: rangeText };
+        } else {
+            const [sy, sm] = labels[0].split('-');
+            const [ey, em] = labels[labels.length - 1].split('-');
+            rangeText = `${sy}. ${parseInt(sm, 10)}월 ~ ${ey !== sy ? ey + '. ' : ''}${parseInt(em, 10)}월`;
+            const start = new Date(Number(sy), Number(sm) - 1, 1);
+            const end = new Date(Number(ey), Number(em), 0); // 마지막 달의 말일
+            window.chartPeriodRange = { start: toYmd(start), end: toYmd(end), text: rangeText };
         }
-        window.updateChartRangeNav(rangeText);
     }
+    if (window.updateChartRangeNav) window.updateChartRangeNav(rangeText);
+
+    // ⭐️ 차트 아래 안내문 (평가손익의 계산 기준 / 현재가 누락 / 과거 구간 주의)
+    if (window.updateChartEvalNotice) {
+        window.updateChartEvalNotice({
+            type,
+            missingStocks: evalMissingStocks,
+            offset: rangeCfg.offset,
+            periodWord
+        });
+    }
+
+    // ⭐️ 구간이 확정된 뒤에 분석 탭을 다시 불러온다 (차트와 같은 기간으로 맞추기 위함)
+    if (statsViewOpen) window.loadTradeStats();
 
     const ctx = document.getElementById('monthlyProfitChart');
     if (!ctx) {
@@ -5394,8 +5482,9 @@ window.renderMonthlyProfitChart = function() {
                 } else if (type === 'evaluated') {
                     sections.push({ title: '매수분 평가 손익', breakdown: dataObj.evaluated_breakdown || {}, isProfit: true });
                 } else if (type === 'volume') {
-                    sections.push({ title: '매수 금액', breakdown: dataObj.buy_volume_breakdown || {}, isProfit: false });
-                    sections.push({ title: '매도 금액', breakdown: dataObj.sell_volume_breakdown || {}, isProfit: false });
+                    // ⭐️ 매매금액은 손익이 아니므로 부호 없이 매수(빨강)·매도(파랑) 색으로만 구분
+                    sections.push({ title: '매수 금액', breakdown: dataObj.buy_volume_breakdown || {}, isProfit: false, flow: -1 });
+                    sections.push({ title: '매도 금액', breakdown: dataObj.sell_volume_breakdown || {}, isProfit: false, flow: 1 });
                 } else if (type === 'cumulative') {
                     sections.push({ title: '누적 배당 수익금', breakdown: dataObj.cumulative_div_breakdown || {}, isProfit: true });
                     sections.push({ title: '총 누적 수익금', breakdown: dataObj.cumulative_breakdown || {}, isProfit: true });

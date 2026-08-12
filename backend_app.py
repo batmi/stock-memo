@@ -1436,13 +1436,17 @@ def get_stats():
     username = session.get('username')
     entry_ids = None
     granularity = 'monthly'
+    # ⭐️ 차트가 보고 있는 기간(기간 이동 버튼 반영)을 그대로 받아 같은 구간만 집계한다.
+    period_start = period_end = None
     if request.method == 'POST':
         data = request.json or {}
         entry_ids = data.get('entry_ids')
         granularity = data.get('granularity', 'monthly')
+        period_start = data.get('period_start')
+        period_end = data.get('period_end')
 
-    # ⭐️ 전체 통계 요청은 캐시 우선 조회 (필터링 요청은 캐시 대상 아님)
-    if entry_ids is None:
+    # ⭐️ 전체 통계 요청은 캐시 우선 조회 (필터링·기간 지정 요청은 캐시 대상 아님)
+    if entry_ids is None and not period_start and not period_end:
         cache_key = (username, granularity)
         with _stats_cache_lock:
             cached = _stats_cache.get(cache_key)
@@ -1480,9 +1484,13 @@ def get_stats():
         rows = [row for row in rows
                 if not _is_excluded_account_row(row, excluded_codes, excluded_aliases)]
 
-    result = stats.compute_trade_stats(rows, granularity=granularity)
+    result = stats.compute_trade_stats(rows, granularity=granularity,
+                                       period_start=period_start, period_end=period_end)
+    # ⭐️ 프론트가 "어느 구간을 본 결과인지" 화면에 표기할 수 있도록 되돌려 준다.
+    result['periodStart'] = period_start
+    result['periodEnd'] = period_end
 
-    if entry_ids is None:
+    if entry_ids is None and not period_start and not period_end:
         with _stats_cache_lock:
             _stats_cache[(username, granularity)] = result
 
