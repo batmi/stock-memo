@@ -198,11 +198,11 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
     profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
     avg_holding_days = (holding_days_weighted / holding_qty_total) if holding_qty_total > 0 else 0.0
 
-    # 월별: 최근 12개월만 시간순으로 반환 ('미상' 제외)
+    # 기간별: 전체 기간을 시간순으로 반환 ('미상' 제외)
     monthly_list = [
         {'month': k, **v}
         for k, v in sorted(monthly.items()) if k != '미상'
-    ][-12:]
+    ]
 
     # 종목별: 실현손익(+배당) 합계 내림차순
     per_stock_list = []

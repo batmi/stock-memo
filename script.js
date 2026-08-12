@@ -2066,10 +2066,8 @@ window.loadTradeStats = async function() {
             entryIds.push(entry.id);
         });
         
-        // ⭐️ 차트가 보고 있는 구간을 그대로 넘긴다. entry_ids 는 전체 기간을 보내고
-        //    서버가 구간 밖 체결로 평단만 갱신하도록 해야 실현손익이 맞는다.
-        //    (구간 밖 매수를 아예 빼면 평단이 0이 되어 실현손익이 부풀려진다)
-        const range = window.chartPeriodRange || null;
+        // ⭐️ 분석은 차트 기간과 무관하게 '전체 기간'을 집계한다.
+        //    (종목·계좌 등 필터는 그대로 적용되고, 기간만 제한하지 않는다)
         const res = await fetch('/api/stats', {
             method: 'POST',
             headers: { 
@@ -2078,8 +2076,8 @@ window.loadTradeStats = async function() {
             body: JSON.stringify({ 
                 entry_ids: entryIds,
                 granularity: window.currentChartGranularity || 'monthly',
-                period_start: range ? range.start : null,
-                period_end: range ? range.end : null
+                period_start: null,
+                period_end: null
             })
         });
         if (!res.ok) throw new Error('통계를 불러오지 못했습니다.');
@@ -2106,12 +2104,9 @@ function renderTradeStats(s) {
 
     const pf = (s.profitFactor === null || s.profitFactor === undefined) ? '—' : s.profitFactor.toFixed(2);
 
-    // ⭐️ 어느 구간을 본 결과인지 최상단에 명시 (차트의 기간 이동과 동일한 구간)
+    // ⭐️ 분석은 차트 기간과 무관하게 전체 기록을 집계한다.
+    //    (월간/주간 선택은 아래 기간별 표의 묶음 단위로만 반영된다)
     let html = '';
-    const range = window.chartPeriodRange || null;
-    if (range && range.text) {
-        html += `<div style="font-size:12px; font-weight:bold; color:var(--text-strong-color); background:var(--bg-color); border:1px solid var(--border-color); border-radius:6px; padding:7px 10px; margin-bottom:12px; text-align:center;">📅 분석 구간 &nbsp;${range.text}</div>`;
-    }
 
     // 요약 지표 카드
     html += '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">';
@@ -2125,24 +2120,31 @@ function renderTradeStats(s) {
     html += card('평균 손실 (손실 거래)', statsMoney(-s.avgLoss), statsColor(-s.avgLoss));
     html += card('최대 단일 수익', statsMoney(s.maxSingleWin), statsColor(s.maxSingleWin));
     html += card('최대 단일 손실', statsMoney(s.maxSingleLoss), statsColor(s.maxSingleLoss));
-    html += card('총 매수금', `${Math.round(s.totalBuyAmount).toLocaleString()}원`, 'var(--text-strong-color)');
-    html += card('총 매도금', `${Math.round(s.totalSellAmount).toLocaleString()}원`, 'var(--text-strong-color)');
+    // ⭐️ 매수는 빨강, 매도는 파랑 (국내 호가창 관행)
+    html += card('총 매수금', `${Math.round(s.totalBuyAmount).toLocaleString()}원`, 'var(--danger-color, #e74c3c)');
+    html += card('총 매도금', `${Math.round(s.totalSellAmount).toLocaleString()}원`, 'var(--primary-color, #3b82f6)');
     html += '</div>';
 
     const thStyle = 'padding:8px; text-align:right; font-weight:bold; color:var(--text-strong-color); border-bottom:2px solid var(--border-color); white-space:nowrap;';
     const tdStyle = 'padding:7px 8px; text-align:right; border-bottom:1px solid var(--border-color); white-space:nowrap;';
     const tdLeft = tdStyle.replace('text-align:right', 'text-align:left');
+    // ⭐️ 행이 길어지면 표 안에서만 스크롤되므로(아래 tableWrap) 열 이름은 고정한다.
+    //    밑줄은 스크롤 시에도 남는 inset 그림자로만 그린다
+    //    (border-bottom 을 같이 두면 줄이 두 개로 보인다)
+    const thSticky = thStyle.replace('border-bottom:2px solid var(--border-color);', '')
+        + ' position:sticky; top:0; z-index:1; background:var(--card-bg-color); box-shadow: inset 0 -2px 0 var(--border-color);';
+    const tableWrap = '<div style="overflow:auto; max-height:340px;"><table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr>';
 
     // 기간별 실현손익
     if (s.monthly && s.monthly.length) {
         const isWeekly = (window.currentChartGranularity === 'weekly');
-        const rangeSuffix = (range && range.text) ? ` (${range.text})` : (isWeekly ? ' (최근 12주)' : ' (최근 12개월)');
-        const periodTitle = (isWeekly ? '📅 주간 실현손익' : '📅 월간 실현손익') + rangeSuffix;
+        const periodTitle = isWeekly ? '📅 주간 실현손익' : '📅 월간 실현손익';
         const periodHeader = isWeekly ? '주간(시작일)' : '월';
         html += `<h4 style="font-size:13px; margin:18px 0 8px; color:var(--text-strong-color);">${periodTitle}</h4>`;
-        html += '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr>';
-        html += `<th style="${thStyle.replace('text-align:right','text-align:left')}">${periodHeader}</th><th style="${thStyle}">실현손익</th><th style="${thStyle}">배당</th><th style="${thStyle}">매도금액</th></tr></thead><tbody>`;
-        s.monthly.forEach(m => {
+        html += tableWrap;
+        html += `<th style="${thSticky.replace('text-align:right','text-align:left')}">${periodHeader}</th><th style="${thSticky}">실현손익</th><th style="${thSticky}">배당</th><th style="${thSticky}">매도금액</th></tr></thead><tbody>`;
+        // ⭐️ 최근 기간이 위로 오도록 뒤집어 보여준다 (서버는 과거→최근 순으로 준다)
+        s.monthly.slice().reverse().forEach(m => {
             html += `<tr><td style="${tdLeft}">${m.month}</td>`
                 + `<td style="${tdStyle} color:${statsColor(m.realized)};">${statsMoney(m.realized)}</td>`
                 + `<td style="${tdStyle} color:${statsColor(m.dividend)};">${statsMoney(m.dividend)}</td>`
@@ -2154,8 +2156,8 @@ function renderTradeStats(s) {
     // 종목별 실현손익
     if (s.perStock && s.perStock.length) {
         html += '<h4 style="font-size:13px; margin:18px 0 8px; color:var(--text-strong-color);">🏷️ 종목별 실현손익</h4>';
-        html += '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr>';
-        html += `<th style="${thStyle.replace('text-align:right','text-align:left')}">종목</th><th style="${thStyle}">합계(실현+배당)</th><th style="${thStyle}">매도 횟수</th><th style="${thStyle}">승률</th></tr></thead><tbody>`;
+        html += tableWrap;
+        html += `<th style="${thSticky.replace('text-align:right','text-align:left')}">종목</th><th style="${thSticky}">합계(실현+배당)</th><th style="${thSticky}">매도 횟수</th><th style="${thSticky}">승률</th></tr></thead><tbody>`;
         s.perStock.forEach(p => {
             html += `<tr><td style="${tdLeft}">${p.stock}</td>`
                 + `<td style="${tdStyle} color:${statsColor(p.total)};">${statsMoney(p.total)}</td>`
@@ -2166,8 +2168,7 @@ function renderTradeStats(s) {
     }
 
     html += '<p style="font-size:11px; color:var(--text-muted-color); margin-top:14px; line-height:1.5;">'
-        + '※ 실현손익은 이동평균단가 방식으로 계산되며, 보유기간은 선입선출(FIFO) 기준 추정치입니다. 미실현(평가) 손익은 포함되지 않습니다.<br>'
-        + '※ 위 숫자는 <b>분석 구간 안에서 체결된 거래</b>만 집계한 값입니다. 평균단가는 구간 이전 매수까지 반영해 계산합니다.'
+        + '※ 실현손익은 이동평균단가 방식으로 계산되며, 보유기간은 선입선출(FIFO) 기준 추정치입니다. 미실현(평가) 손익은 포함되지 않습니다.'
         + '</p>';
 
     inlineStatsContainer.innerHTML = html;
