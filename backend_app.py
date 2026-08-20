@@ -47,13 +47,19 @@ from entry_logic import validate_trade_entry
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 
+# ⭐️ 모든 데이터 경로의 기준점. 상대 경로로 두면 프로세스의 실행 위치(cwd)에 따라
+#    엉뚱한 곳에 빈 DB·빈 시크릿키가 새로 생겨 "비밀번호가 틀렸다"·"갑자기 로그아웃"
+#    으로 나타난다. run.sh 는 cd 를 하지만 systemd·cron·다른 터미널로 띄우면 그 보호가
+#    사라지므로, 실행 방식과 무관하게 항상 소스 파일 위치를 기준으로 고정한다.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 # ⭐️ 1. 시크릿 키: 환경변수가 우선. 없으면 파일에 영속화하여 재시작 시에도 세션 유지
 def _load_secret_key():
     env_key = os.environ.get('SECRET_KEY')
     if env_key:
         return env_key
-    key_path = '.secret_key'
+    key_path = os.path.join(BASE_DIR, '.secret_key')
     try:
         if os.path.exists(key_path):
             with open(key_path, 'r') as f:
@@ -73,7 +79,7 @@ app.secret_key = _load_secret_key()
 
 
 # ⭐️ 로깅(Logging) 설정
-LOG_DIR = 'logs'
+LOG_DIR = os.path.join(BASE_DIR, 'logs')
 os.makedirs(LOG_DIR, exist_ok=True)
 log_file = os.path.join(LOG_DIR, 'backend_app.log')
 
@@ -310,11 +316,12 @@ app.config['SESSION_REFRESH_EACH_REQUEST'] = False  # ⭐️ 만료 시각은 �
 # ⭐️ 2. 악의적인 대용량 파일 업로드 방어 (Payload 제한: 16MB)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-DATA_FILE = 'my_stock_trading_journal.json'
-DB_DIR = 'db'
+DATA_FILE = os.path.join(BASE_DIR, 'my_stock_trading_journal.json')
+DB_DIR = os.path.join(BASE_DIR, 'db')
 DB_FILE = os.path.join(DB_DIR, 'journal.db')
-UPLOAD_FOLDER = 'uploads'
-BACKUP_DIR = 'backup'
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
+BACKUP_DIR = os.path.join(BASE_DIR, 'backup')
+JSON_DIR = os.path.join(BASE_DIR, 'json')
 
 # 필요한 폴더들 생성
 os.makedirs(DB_DIR, exist_ok=True)
@@ -350,6 +357,15 @@ def db_conn():
         yield conn
     finally:
         conn.close()
+
+
+def _count_users():
+    """시작 로그용 계정 수. 실패해도 서버 기동을 막지 않는다."""
+    try:
+        with db_conn() as conn:
+            return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    except Exception as e:
+        return f"조회 실패: {e}"
 
 
 # ⭐️ 시세 모듈에 DB 연결 공급자 주입 (순환 임포트 회피)
@@ -623,7 +639,7 @@ def auto_backup_job():
                                 arcname = os.path.join('uploads', file)
                                 zf.write(file_path, arcname=arcname)
                                 
-                    account_info_path = os.path.join('json', username, 'account_info.json')
+                    account_info_path = os.path.join(JSON_DIR, username, 'account_info.json')
                     if os.path.exists(account_info_path):
                         zf.write(account_info_path, arcname='account_info.json')
 
@@ -785,6 +801,7 @@ def login():
             # 계정이 존재하고, 입력한 비밀번호와 DB의 해시값이 일치하는지 검증
             if user_record and check_password_hash(user_record['password_hash'], password):
                 if not user_record['is_allowed']:
+                    app.logger.warning(f"로그인 거부(미승인 계정): username='{username}' ip={client_ip}")
                     error_message = "관리자의 승인이 필요하거나 로그인이 제한된 계정입니다."
                 else:
                     # 로그인 성공 시 최근 로그인 일시 업데이트
@@ -809,6 +826,15 @@ def login():
                     return redirect(url_for('index'))
             else:
                 record['count'] += 1
+                # ⭐️ 화면에는 "아이디 또는 비밀번호" 로 뭉뚱그려 계정 존재 여부를 감추되,
+                #    서버 로그에는 실제 사유를 남긴다. 두 경우가 같은 문구로 보이는 탓에
+                #    '엉뚱한(빈) DB 를 보고 있어서 계정이 없는' 상황과 단순 오타를
+                #    로그만으로 구분할 수 없었다. 그래서 조회한 DB 경로도 함께 남긴다.
+                reason = "비밀번호 불일치" if user_record else "존재하지 않는 계정"
+                app.logger.warning(
+                    f"로그인 실패({reason}): username='{username}' ip={client_ip} "
+                    f"시도={record['count']}/5 db={DB_FILE}"
+                )
                 if record['count'] >= 5:
                     record['lockout_until'] = current_time + 60
                     error_message = "비밀번호 5회 연속 실패! 1분 동안 로그인이 차단됩니다."
@@ -1075,7 +1101,7 @@ def get_bot_resync_status():
 
 
 def get_user_mappings(username):
-    file_path = os.path.join('json', username, 'account_info.json')
+    file_path = os.path.join(JSON_DIR, username, 'account_info.json')
     if os.path.exists(file_path):
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -1100,7 +1126,7 @@ def save_mappings_frontend():
     if not isinstance(data, dict):
         return jsonify({"error": "잘못된 데이터 형식입니다."}), 400
         
-    user_dir = os.path.join('json', username)
+    user_dir = os.path.join(JSON_DIR, username)
     os.makedirs(user_dir, exist_ok=True)
     file_path = os.path.join(user_dir, 'account_info.json')
     
@@ -1660,7 +1686,7 @@ def full_backup():
                     zf.write(file_path, arcname=arcname)
                     
         # 3. 사용자 매핑 정보 백업
-        account_info_path = os.path.join('json', username, 'account_info.json')
+        account_info_path = os.path.join(JSON_DIR, username, 'account_info.json')
         if os.path.exists(account_info_path):
             zf.write(account_info_path, arcname='account_info.json')
 
@@ -1730,7 +1756,7 @@ def full_restore():
         # 4. 사용자 매핑 정보 복원
         temp_account_info = os.path.join(temp_dir, 'account_info.json')
         if os.path.exists(temp_account_info):
-            user_json_dir = os.path.join('json', username)
+            user_json_dir = os.path.join(JSON_DIR, username)
             os.makedirs(user_json_dir, exist_ok=True)
             shutil.copy2(temp_account_info, os.path.join(user_json_dir, 'account_info.json'))
 
@@ -1775,6 +1801,9 @@ if __name__ == '__main__':
             app.logger.warning(f"경고: 잘못된 포트 번호('{sys.argv[1]}')가 입력되어 기본 포트(5000)로 실행합니다.")
 
     app.logger.info(f"로컬 주식 매매 일지 서버를 시작합니다. (포트: {port})")
+    # ⭐️ 어느 DB 를 붙잡고 떴는지 시작 시점에 못박아 둔다. 계정이 통째로 사라진 것처럼
+    #    보이는 사고는 대부분 '다른 파일을 보고 있었다' 가 원인이었다.
+    app.logger.info(f"📁 사용 중인 DB: {DB_FILE} (계정 {_count_users()}개)")
     app.logger.info(f"웹 브라우저를 열고 http://127.0.0.1:{port} 또는 기기의 로컬 IP 주소(예: 192.168.x.x:{port})로 접속해주세요.")
 
     try:
