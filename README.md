@@ -109,6 +109,19 @@ http://127.0.0.1:5000
 *   **외부 접속 주의**: 공유기 포트포워딩을 통한 직접적인 외부망(HTTP) 노출은 권장하지 않습니다. 외부(스마트폰 등)에서 안전하게 접속하려면 `ngrok`, `Cloudflare Tunnels`, `Tailscale`과 같은 암호화된 보안 터널링 서비스를 이용하시기 바랍니다.
 *   **운영 환경(HTTPS)**: 로컬망에서는 `waitress`를 통해 안정적으로 구동되지만, 본격적으로 웹에 퍼블리싱 하시려면 Nginx 등의 리버스 프록시(Reverse Proxy)를 연동하여 HTTPS(SSL) 인증서를 적용하는 것을 적극 권장합니다.
 
+### 로그인 복구 (Password Recovery)
+웹의 관리자 초기화 기능은 **관리자가 이미 로그인해 있을 때만** 쓸 수 있어, 정작 관리자 본인이 잠기면 소용이 없습니다. 이때는 서버에 접속해 복구 도구를 실행하세요. 앱이 떠 있지 않아도, 계정이 잠겨 있어도 동작하며, 변경 사항은 서버 재시작 없이 즉시 반영됩니다.
+
+```bash
+cd ~/GitHub/stock-memo
+./.venv/bin/python tools/reset_password.py --list              # 계정 목록·상태 확인
+./.venv/bin/python tools/reset_password.py --user <계정>        # 새 비밀번호 직접 입력
+./.venv/bin/python tools/reset_password.py --user <계정> --random   # 무작위 임시 비밀번호 발급
+./.venv/bin/python tools/reset_password.py --user <계정> --unlock   # 미승인/차단 상태까지 해제
+```
+
+비밀번호는 입력 시 화면에 표시되지 않고 셸 히스토리에도 남지 않습니다. 초기화 사실만 `logs/backend_app.log` 에 기록되며 비밀번호 자체는 로그에 남지 않습니다. 참고로 로그인 실패 시 서버 로그에는 실패 사유(존재하지 않는 계정 / 비밀번호 불일치)와 조회한 DB 경로가 함께 남으므로, 원인 파악은 먼저 로그를 확인하는 편이 빠릅니다.
+
 ---
 
 ## 6. 프로젝트 구조 (Project Structure)
@@ -127,6 +140,8 @@ stock-memo/
 ├── calc.js             # 매매 계산 단일 소스 (백엔드 stats.py 와 동일 알고리즘)
 ├── script.js           # 화면 동작, 데이터 통신, 차트 로직 (JavaScript)
 ├── run.sh              # 자동화 실행 쉘 스크립트 (Mac/Linux)
+├── tools/              # 서버에서 직접 실행하는 운영·복구 도구
+│   └── reset_password.py  # 로그인 불가 시 비밀번호를 되살리는 CLI (웹 노출 없음)
 ├── UniversalTradingHistoryAPI.json  # 트레이딩 봇 연동 API 계약 (OpenAPI 3.1)
 ├── backup/             # 매일 자동 생성되는 사용자별 백업 파일(ZIP) 저장 폴더
 ├── db/                 # 데이터베이스 폴더

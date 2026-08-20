@@ -109,6 +109,19 @@ This application handles sensitive personal financial and investment data, so ex
 *   **External Access Caution**: Direct external network (HTTP) exposure via router port forwarding is not recommended. For secure external access (e.g., from a smartphone), please use encrypted security tunneling services like `ngrok`, `Cloudflare Tunnels`, or `Tailscale`.
 *   **Production Environment (HTTPS)**: While it runs stably on a local network via `waitress`, integrating a reverse proxy (e.g., Nginx) to apply HTTPS (SSL) certificates is highly recommended for proper web publishing.
 
+### Password Recovery
+The web-based admin reset only works **while an admin is already logged in**, which is useless when the admin themselves is locked out. In that case, log into the server and run the recovery tool. It works even when the app is not running and even when the account is locked; changes take effect immediately, without restarting the server.
+
+```bash
+cd ~/GitHub/stock-memo
+./.venv/bin/python tools/reset_password.py --list               # list accounts and their status
+./.venv/bin/python tools/reset_password.py --user <name>        # type a new password
+./.venv/bin/python tools/reset_password.py --user <name> --random   # issue a random temporary password
+./.venv/bin/python tools/reset_password.py --user <name> --unlock   # also clear a locked/unapproved state
+```
+
+The password is never echoed and never lands in shell history. Only the fact of the reset is appended to `logs/backend_app.log` — never the password itself. Note that failed logins now log the reason (unknown account vs. password mismatch) along with the DB path in use, so checking the log first is the fastest route to a diagnosis.
+
 ---
 
 ## 6. Project Structure
@@ -127,6 +140,8 @@ stock-memo/
 ├── calc.js             # Trading calculation single source (same algorithm as stats.py)
 ├── script.js           # Screen behavior, data communication, chart logic (JavaScript)
 ├── run.sh              # Automation execution shell script (Mac/Linux)
+├── tools/              # Operational and recovery tools, run directly on the server
+│   └── reset_password.py  # CLI to restore a lost password (never exposed to the web)
 ├── UniversalTradingHistoryAPI.json  # Trading-bot integration API contract (OpenAPI 3.1)
 ├── backup/             # Daily auto-generated user backup files (ZIP) folder
 ├── db/                 # Database folder
