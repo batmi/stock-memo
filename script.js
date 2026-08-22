@@ -417,6 +417,10 @@ scheduleSessionTimers(); // 초기 타이머 시작
 const mainApp = document.getElementById('mainApp');
 window.addEventListener('DOMContentLoaded', () => {
     console.log("[App Init] DOMContentLoaded 이벤트 시작 - DOM 로드 완료");
+
+    // ⭐️ 휴장일 목록을 먼저 받아둔다. (실패해도 평일 판정으로 동작하므로 await 하지 않는다)
+    window.loadMarketCalendar();
+
     const themeToggle = document.getElementById('theme-toggle');
 
     function applyTheme(theme) {
@@ -3051,6 +3055,26 @@ function animateValue(element, endValue, duration, isProfit = false) {
 }
 
 // ⭐️ 정규장 오픈 시간(한국 및 미국)인지 확인하는 함수 (자동 갱신 타이머용)
+// ⭐️ KRX 휴장일 집합. 서버(prices.KRX_HOLIDAYS)에서 한 번 받아와 캐시한다.
+//    비어 있으면(미수신/실패) 기존과 동일하게 평일 여부만으로 판정한다.
+let krxHolidaySet = new Set();
+
+window.loadMarketCalendar = async function() {
+    try {
+        const res = await fetchWithTimeout('/api/market_calendar', {}, 8000);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data.holidays)) krxHolidaySet = new Set(data.holidays);
+        // 목록이 만료된 해에는 휴장일 판정이 무의미해지므로 콘솔에 남긴다.
+        const thisYear = new Date().getFullYear();
+        if (data.maxYear && thisYear > data.maxYear) {
+            console.warn(`[MarketCalendar] 휴장일 목록이 ${data.maxYear}년까지만 등록되어 있습니다.`);
+        }
+    } catch (e) {
+        console.warn('[MarketCalendar] 휴장일 목록을 가져오지 못했습니다:', e);
+    }
+};
+
 window.getMarketStatus = function() {
     const now = new Date();
     // 브라우저 지역에 상관없이 KST(한국 표준시) 기준으로 변환하여 일관된 시간 체크
@@ -3060,8 +3084,12 @@ window.getMarketStatus = function() {
     const day = kst.getDay(); // 0: 일, 1: 월, 2: 화, 3: 수, 4: 목, 5: 금, 6: 토
     const timeNum = kst.getHours() * 100 + kst.getMinutes();
     
-    // 1. 한국 정규장 및 장전/NXT(장후) 시간외 포함: 평일(월~금) 08:00 ~ 20:00
-    const isKrOpen = (day >= 1 && day <= 5) && (timeNum >= 800 && timeNum <= 2000);
+    // ⭐️ KST 기준 YYYY-MM-DD (휴장일 대조용). toISOString 은 UTC 로 되돌리므로 쓰지 않는다.
+    const kstDate = `${kst.getFullYear()}-${String(kst.getMonth() + 1).padStart(2, '0')}-${String(kst.getDate()).padStart(2, '0')}`;
+    const isKrHoliday = krxHolidaySet.has(kstDate);
+    
+    // 1. 한국 정규장 및 장전/NXT(장후) 시간외 포함: 평일(월~금) 08:00 ~ 20:00 (휴장일 제외)
+    const isKrOpen = !isKrHoliday && (day >= 1 && day <= 5) && (timeNum >= 800 && timeNum <= 2000);
     
     // 2. 미국 정규장: 평일(월~금) 밤 22:30 ~ 23:59 또는 (화~토) 새벽 00:00 ~ 06:00
     const isUsOpenEvening = (day >= 1 && day <= 5) && (timeNum >= 2230);
@@ -3111,11 +3139,13 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
     try {
         // ⭐️ allow_cached: 60초 자동 폴링(isAuto)만 서버측 단기 캐시를 허용한다.
         //    수동 새로고침은 항상 false → 서버가 외부 API 를 라이브 조회하여 "진짜 현재가"를 보장.
-        const res = await fetch('/api/current_price', {
+        // ⭐️ 서버가 다단계 폴백을 도는 동안 응답이 늦어지면 60초 폴링이 겹쳐 쌓인다.
+        //    다른 요청들과 동일하게 fetchWithTimeout 으로 상한을 둔다.
+        const res = await fetchWithTimeout('/api/current_price', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ codes: codesToFetch, market_mode: displayMarket, allow_cached: isAuto === true })
-        });
+        }, 20000);
         const prices = await res.json();
         
         let totalEval = 0;

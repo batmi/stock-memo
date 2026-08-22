@@ -160,6 +160,16 @@ app.logger.setLevel(logging.DEBUG)
 werkzeug_logger = logging.getLogger('werkzeug')
 werkzeug_logger.setLevel(logging.ERROR)
 
+# ⭐️ prices 모듈 로거를 앱 로그와 같은 파일/콘솔로 흘려보낸다.
+#    app.logger 는 propagate=False 라 루트 로거를 타지 않으므로 직접 붙여야 한다.
+#    레벨은 INFO — 단계별 실패(debug)는 평소 묻어두고, 캐시 대체·전체 실패만 남긴다.
+prices_logger = logging.getLogger('prices')
+prices_logger.handlers.clear()
+prices_logger.propagate = False
+prices_logger.addHandler(file_handler)
+prices_logger.addHandler(console_handler)
+prices_logger.setLevel(logging.INFO)
+
 
 # ⭐️ 몇 초마다 반복돼 콘솔을 덮어버리는 경로. 성공했을 때만 조용히 넘긴다.
 #    (봇 하트비트는 인스턴스마다 10초 주기라 여러 대가 붙으면 3~4초에 한 줄씩 찍힌다)
@@ -664,6 +674,9 @@ def auto_backup_job():
 
 
 # ⭐️ 시간외 단일가(NXT) 종가를 자동 갱신하는 백그라운드 스레드 함수
+#    시세 조회 자체는 prices 모듈에 위임한다. 예전에는 이 함수가 네이버 모바일
+#    API 를 urllib 로 따로 호출해 헤더·타임아웃·파싱이 prices.py 와 이중으로
+#    존재했고, 네이버 응답 스펙이 바뀌면 두 곳을 모두 고쳐야 했다.
 def auto_fetch_nxt_close_job():
     while True:
         try:
@@ -677,45 +690,33 @@ def auto_fetch_nxt_close_job():
             day_of_week = kst_now.weekday()  # 0: 월, 1: 화, ..., 4: 금, 5: 토, 6: 일
 
             # 평일(월~금) 15:30 ~ 18:30 (장 종료 후 시간외 단일가 운영 및 마감 직후 시간)에만 캐시 갱신 수행
-            if 0 <= day_of_week <= 4 and 1530 <= time_num <= 1830:
-                app.logger.info("🔄 백그라운드: 시간외 단일가(NXT) 자동 캐싱을 시작합니다...")
-                conn = get_db()
+            if not (0 <= day_of_week <= 4 and 1530 <= time_num <= 1830):
+                continue
+            # 휴장일에는 시간외 단일가도 없다 (prices 의 휴장일 목록과 판정을 공유)
+            if (kst_now.year, kst_now.month, kst_now.day) in prices.KRX_HOLIDAYS:
+                continue
+
+            app.logger.info("🔄 백그라운드: 시간외 단일가(NXT) 자동 캐싱을 시작합니다...")
+            conn = get_db()
+            try:
                 c = conn.cursor()
                 c.execute("SELECT DISTINCT stockCode FROM entries WHERE stockCode IS NOT NULL AND stockCode != ''")
                 codes = [row['stockCode'].strip().upper() for row in c.fetchall()]
 
-                api_headers = {
-                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)',
-                    'Accept': 'application/json, text/plain, */*',
-                    'Referer': 'https://m.stock.naver.com/'
-                }
-
                 updated_count = 0
                 for code in codes:
-                    # 국내 주식(6자리 영숫자) 여부 간단 체크
-                    if len(code) == 6 and code.isalnum():
-                        try:
-                            ts = int(time.time() * 1000)
-                            url = f"https://m.stock.naver.com/api/stock/{code}/basic?_={ts}"
-                            req = urllib.request.Request(url, headers=api_headers)
-                            with urllib.request.urlopen(req, timeout=3) as response:
-                                res_data = json.loads(response.read())
-                                over_info = res_data.get('overMarketPriceInfo', {})
-                                if isinstance(over_info, dict) and over_info.get('overPrice'):
-                                    price_str = str(over_info.get('overPrice'))
-                                    price_val = float(price_str.replace(',', ''))
-
-                                    now_str = dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                    c.execute("REPLACE INTO price_cache (code, market_type, price, updated_at) VALUES (?, ?, ?, ?)", (code, 'NXT', price_val, now_str))
-                                    updated_count += 1
-                        except Exception:
-                            pass
-                        # 네이버 서버에 부담을 주지 않기 위해 약간의 지연 시간 추가
-                        time.sleep(0.3)
-
-                conn.commit()
+                    # 국내 주식(6자리 영숫자) 만 시간외 단일가 대상
+                    if prices.detect_market(code) != 'KR':
+                        continue
+                    price_val = prices.fetch_nxt_close(code)
+                    if price_val is not None:
+                        prices.save_price_cache(conn, code, price_val, 'NXT')
+                        updated_count += 1
+                    # 네이버 서버에 부담을 주지 않기 위해 약간의 지연 시간 추가
+                    time.sleep(0.3)
+            finally:
                 conn.close()
-                app.logger.info(f"✅ 백그라운드: 시간외 단일가 캐싱 완료 (총 {updated_count}개 종목 업데이트 됨)")
+            app.logger.info(f"✅ 백그라운드: 시간외 단일가 캐싱 완료 (총 {updated_count}개 종목 업데이트 됨)")
         except Exception as e:
             app.logger.error(f"❌ 시간외 단일가 자동 캐싱 스레드 오류: {e}")
 
@@ -1521,6 +1522,20 @@ def get_stats():
             _stats_cache[(username, granularity)] = result
 
     return jsonify(result)
+
+
+@app.route('/api/market_calendar', methods=['GET'])
+def get_market_calendar():
+    """KRX 휴장일 목록을 프론트에 내려준다.
+
+    ⭐️ 프론트의 getMarketStatus() 가 휴장일을 몰라 공휴일에도 60초마다 시세를
+       폴링하던 문제를 막는다. 판정 기준을 서버 한 곳에서만 관리하기 위해
+       prices.KRX_HOLIDAYS 를 그대로 공유한다.
+    """
+    return jsonify({
+        'holidays': prices.holiday_list(),
+        'maxYear': prices.KRX_HOLIDAYS_MAX_YEAR,
+    })
 
 
 @app.route('/api/current_price', methods=['POST'])

@@ -5,6 +5,7 @@ Flask 라우트를 거치지 않고 provider 함수들을 직접 호출하여
 """
 import os
 import sys
+import time
 import sqlite3
 import datetime as _dt
 from unittest.mock import patch, MagicMock
@@ -447,3 +448,158 @@ def test_get_prices_filters_none_code():
     with patch.object(prices, 'fetch_price', side_effect=fake_fetch):
         result = prices.get_prices(['', '005930'])
     assert result == {'005930': 1.0}
+
+
+# ─────────────────────────────────────────────────────────────
+# is_nxt_mode / holiday_list / 휴장일 목록 만료 경고
+# ─────────────────────────────────────────────────────────────
+def test_is_nxt_mode_variants():
+    assert prices.is_nxt_mode('NXT') is True
+    assert prices.is_nxt_mode(' nxt ') is True
+    assert prices.is_nxt_mode('KRX') is False
+    assert prices.is_nxt_mode('AUTO') is False   # AUTO 는 KRX 와 동일 취급
+    assert prices.is_nxt_mode(None) is False
+
+
+def test_holiday_list_is_sorted_iso_strings():
+    lst = prices.holiday_list()
+    assert lst == sorted(lst)
+    assert '2026-01-01' in lst
+    assert all(len(d) == 10 and d.count('-') == 2 for d in lst)
+
+
+def test_holidays_outdated_warns_once_per_day(caplog):
+    prices._holiday_warn_date = None
+    future = _dt.datetime(prices.KRX_HOLIDAYS_MAX_YEAR + 1, 3, 4, 10, 0)
+    with caplog.at_level('WARNING', logger='prices'):
+        prices.is_kr_out_of_hours(future)
+        prices.is_kr_out_of_hours(future)  # 같은 날 재호출은 침묵
+    warnings = [r for r in caplog.records if 'KRX_HOLIDAYS' in r.getMessage()]
+    assert len(warnings) == 1
+    prices._holiday_warn_date = None
+
+
+def test_holidays_within_range_does_not_warn(caplog):
+    prices._holiday_warn_date = None
+    inside = _dt.datetime(prices.KRX_HOLIDAYS_MAX_YEAR, 3, 4, 10, 0)
+    with caplog.at_level('WARNING', logger='prices'):
+        prices.is_kr_out_of_hours(inside)
+    assert not [r for r in caplog.records if 'KRX_HOLIDAYS' in r.getMessage()]
+
+
+# ─────────────────────────────────────────────────────────────
+# 야후 심볼 접미사 (국내/아시아 종목은 접미사 없이는 조회 불가)
+# ─────────────────────────────────────────────────────────────
+@pytest.fixture(autouse=True)
+def _clear_yahoo_hint():
+    prices._yahoo_symbol_hint.clear()
+    yield
+    prices._yahoo_symbol_hint.clear()
+
+
+def test_yahoo_candidates_kr_gets_ks_kq():
+    assert prices._yahoo_symbol_candidates('005930') == ['005930.KS', '005930.KQ', '005930']
+
+
+def test_yahoo_candidates_us_is_bare():
+    assert prices._yahoo_symbol_candidates('AAPL') == ['AAPL']
+
+
+def test_yahoo_candidates_other_asian():
+    assert prices._yahoo_symbol_candidates('7203') == ['7203.T', '7203.HK', '7203']
+
+
+def test_fetch_yahoo_kr_falls_through_to_kosdaq(conn):
+    body = b'{"chart": {"result": [{"meta": {"regularMarketPrice": 41000}}]}}'
+    calls = []
+
+    def fake_get(url, headers):
+        calls.append(url)
+        if url.endswith('.KS'):
+            raise Exception('404')
+        return body
+
+    with patch.object(prices, '_http_get', side_effect=fake_get):
+        assert prices._fetch_yahoo(conn, '035720') == 41000.0
+    assert calls[0].endswith('035720.KS')
+    assert calls[1].endswith('035720.KQ')
+    # 성공한 심볼을 기억해 다음 조회는 한 번만 호출한다
+    assert prices._yahoo_symbol_hint['035720'] == '035720.KQ'
+
+
+def test_fetch_yahoo_uses_remembered_symbol(conn):
+    prices._yahoo_symbol_hint['035720'] = '035720.KQ'
+    body = b'{"chart": {"result": [{"meta": {"regularMarketPrice": 41000}}]}}'
+    with patch.object(prices, '_http_get', return_value=body) as g:
+        assert prices._fetch_yahoo(conn, '035720') == 41000.0
+    assert g.call_count == 1
+
+
+def test_fetch_yahoo_forgets_stale_symbol(conn):
+    prices._yahoo_symbol_hint['035720'] = '035720.KQ'
+    with patch.object(prices, '_http_get', side_effect=Exception('404')):
+        assert prices._fetch_yahoo(conn, '035720') is None
+    # 기억한 심볼이 실패하면 잊고 다음 호출에서 전체 후보를 다시 시도한다
+    assert '035720' not in prices._yahoo_symbol_hint
+
+
+def test_fetch_yahoo_null_price_is_skipped(conn):
+    body = b'{"chart": {"result": [{"meta": {"regularMarketPrice": null}}]}}'
+    with patch.object(prices, '_http_get', return_value=body):
+        assert prices._fetch_yahoo(conn, 'AAPL') is None
+
+
+# ─────────────────────────────────────────────────────────────
+# fetch_nxt_close: 백그라운드 캐싱 잡이 쓰는 진입점
+# ─────────────────────────────────────────────────────────────
+def test_fetch_nxt_close_uses_over_price():
+    body = b'{"overMarketPriceInfo": {"overPrice": "91,200"}}'
+    with patch.object(prices, '_http_get', return_value=body):
+        assert prices.fetch_nxt_close('005930') == 91200.0
+
+
+def test_fetch_nxt_close_falls_back_to_pc_crawl():
+    with patch.object(prices, '_http_get', return_value=b'{}'), \
+         patch.object(prices, '_fetch_nxt_pc_crawl', return_value=71500.0):
+        assert prices.fetch_nxt_close('005930') == 71500.0
+
+
+def test_fetch_nxt_close_network_error_falls_back():
+    with patch.object(prices, '_http_get', side_effect=Exception('net')), \
+         patch.object(prices, '_fetch_nxt_pc_crawl', return_value=None):
+        assert prices.fetch_nxt_close('005930') is None
+
+
+# ─────────────────────────────────────────────────────────────
+# 메모리 캐시 정리
+# ─────────────────────────────────────────────────────────────
+def test_prune_price_mem_cache_drops_expired():
+    prices._price_mem_cache.clear()
+    now = 1000.0
+    for i in range(prices.PRICE_MEM_MAX + 5):
+        prices._price_mem_cache[(f'C{i}', 'KRX')] = (1.0, now - prices.PRICE_MEM_TTL - 1)
+    prices._price_mem_cache[('FRESH', 'KRX')] = (2.0, now)
+    prices._prune_price_mem_cache(now)
+    assert list(prices._price_mem_cache) == [('FRESH', 'KRX')]
+    prices._price_mem_cache.clear()
+
+
+def test_prune_price_mem_cache_noop_under_limit():
+    prices._price_mem_cache.clear()
+    prices._price_mem_cache[('OLD', 'KRX')] = (1.0, 0.0)
+    prices._prune_price_mem_cache(9999.0)
+    # 상한 미만이면 만료됐어도 굳이 훑지 않는다 (락 구간을 짧게 유지)
+    assert ('OLD', 'KRX') in prices._price_mem_cache
+    prices._price_mem_cache.clear()
+
+
+def test_fetch_price_uses_mem_cache_only_when_allowed():
+    prices._price_mem_cache.clear()
+    prices._price_mem_cache[('005930', 'KRX')] = (95000.0, time.time())
+    # 자동 폴링: 캐시 사용 → DB 접근 없음
+    assert prices.fetch_price('005930', 'KRX', allow_cached=True) == ('005930', 95000.0)
+    # 수동 새로고침: 캐시 우회 → 라이브 조회
+    with patch.object(prices, '_get_db', return_value=MagicMock()), \
+         patch.object(prices, '_fetch_price_uncached', return_value=96000.0):
+        assert prices.fetch_price('005930', 'KRX', allow_cached=False) == ('005930', 96000.0)
+    prices._price_mem_cache.clear()
