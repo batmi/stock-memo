@@ -80,3 +80,48 @@ test('applyTradeToHolding 핵심 상태전이', () => {
     assert.strictEqual(h.totalCost, 0);
     assert.strictEqual(h.avgPrice, 0);
 });
+
+// ── 정의가 갈리기 쉬운 경계값 (test_stats_parity.py 가 백엔드와 교차 검증) ──
+
+test('손익 0 매도는 승률 분모에서 빠진다', () => {
+    const rows = [
+        buy({ qty: 10, price: 100, rawDate: '2024-01-10T09:00', id: 1 }),
+        sell({ qty: 5, price: 100, rawDate: '2024-02-10T09:00', id: 2 }),  // 본전
+        sell({ qty: 5, price: 120, rawDate: '2024-03-10T09:00', id: 3 }),
+    ];
+    const s = computeTradeStats(rows);
+    assert.strictEqual(s.sellCount, 2);   // 매도 건수는 2건
+    assert.strictEqual(s.winCount, 1);
+    assert.strictEqual(s.lossCount, 0);
+    assert.strictEqual(s.winRate, 100);   // 승부가 난 건 1건뿐
+});
+
+test('손실이 없으면 손익비는 null (금액을 대신 돌려주지 않는다)', () => {
+    const rows = [
+        buy({ qty: 10, price: 100, rawDate: '2024-01-10T09:00', id: 1 }),
+        sell({ qty: 10, price: 130, rawDate: '2024-02-10T09:00', id: 2 }),
+    ];
+    assert.strictEqual(computeTradeStats(rows).profitFactor, null);
+});
+
+test('소수점 전량 매도 후 잔여 수량이 평단을 오염시키지 않는다', () => {
+    const h = { qty: 0, totalCost: 0, avgPrice: 0 };
+    applyTradeToHolding(h, 0.1, 100, '매수');
+    applyTradeToHolding(h, 0.1, 100, '매수');
+    applyTradeToHolding(h, 0.1, 100, '매수');   // qty = 0.30000000000000004
+    applyTradeToHolding(h, 0.3, 120, '매도');
+    assert.strictEqual(h.qty, 0);
+    assert.strictEqual(h.avgPrice, 0);
+    assert.strictEqual(h.totalCost, 0);
+});
+
+test('monthly 는 12개월을 넘겨도 잘라내지 않는다 (표시 구간은 화면 책임)', () => {
+    const rows = [];
+    for (let i = 0; i < 14; i++) {
+        const y = 2024 + Math.floor(i / 12);
+        const m = String((i % 12) + 1).padStart(2, '0');
+        rows.push(buy({ qty: 1, price: 100, rawDate: `${y}-${m}-05T09:00`, id: i * 10 + 1 }));
+        rows.push(sell({ qty: 1, price: 110, rawDate: `${y}-${m}-06T09:00`, id: i * 10 + 2 }));
+    }
+    assert.strictEqual(computeTradeStats(rows).monthly.length, 14);
+});

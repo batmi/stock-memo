@@ -1611,6 +1611,18 @@ def save_preferences():
 # ⭐️ 뉴스 검색 결과를 임시 보관할 캐시 딕셔너리와 유효 시간(초) 설정
 news_cache = {}
 NEWS_CACHE_TTL = 600  # 10분(600초) 동안 캐시 유지
+NEWS_CACHE_MAX = 300  # ⭐️ 종목명이 키라 상시 구동 시 무한히 쌓인다. 넘으면 만료분부터 정리.
+_news_cache_lock = threading.Lock()
+
+
+def _prune_news_cache(now_ts):
+    """만료된 뉴스 캐시 항목 정리. (상한을 넘었을 때만 훑는다)"""
+    with _news_cache_lock:
+        if len(news_cache) <= NEWS_CACHE_MAX:
+            return
+        for key in [k for k, v in news_cache.items()
+                    if (now_ts - v[1]) >= NEWS_CACHE_TTL]:
+            news_cache.pop(key, None)
 
 
 @app.route('/api/news', methods=['POST'])
@@ -1633,6 +1645,7 @@ def get_news():
                 return cached_data
 
         news_list = []
+        fetch_failed = False
         try:
             # ⭐️ 네이버 RSS 서비스 전면 종료(404)에 따라 안정적인 구글 뉴스 RSS로 복귀
             query = urllib.parse.quote(f"{stock} when:7d")
@@ -1657,10 +1670,19 @@ def get_news():
                         'pubDate': pub_elem.text if pub_elem is not None else ''
                     })
         except Exception as e:
+            fetch_failed = True
             app.logger.error(f"Error fetching Google news for {stock}: {e}")
 
-        # ⭐️ 2. 새로 가져온 뉴스 데이터를 현재 시간과 함께 캐시에 저장
-        news_cache[stock] = (news_list, current_time)
+        # ⭐️ 2. 성공한 결과만 캐시에 저장한다.
+        #    구글 RSS 가 3초 타임아웃 한 번만 나도 빈 결과를 캐시하면, 그 종목 뉴스가
+        #    10분 동안 빈 화면으로 굳어 수동 새로고침 전까지 회복되지 않았다.
+        #    실패했으면 캐시를 건드리지 않아 다음 요청이 곧바로 다시 시도하게 둔다.
+        if not fetch_failed:
+            news_cache[stock] = (news_list, current_time)
+            _prune_news_cache(current_time)
+        elif stock in news_cache:
+            # 실패 시에는 만료됐더라도 마지막으로 성공했던 뉴스를 보여주는 편이 낫다.
+            return news_cache[stock][0]
 
         return news_list
 

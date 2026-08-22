@@ -5,14 +5,36 @@
  * 기존에 프론트엔드 3곳(포트폴리오 대시보드 / 캘린더 / 월별 차트)과 백엔드
  * (stats.py)에 흩어져 있던 동일 알고리즘의 중복을 제거하기 위한 공용 엔진입니다.
  *
- * computeTradeStats() 는 백엔드 stats.compute_trade_stats() 와 동일한 결과를
- * 내도록 작성되어 있으며, tests/calc.test.js 가 백엔드 테스트와 동일한 픽스처로
- * 양쪽 일치(parity)를 검증합니다.
+ * computeTradeStats() 는 백엔드 stats.compute_trade_stats() 를 '전체 기간 + 월간
+ * (granularity='monthly', 기간 필터 없음)' 조건에서 그대로 옮긴 것입니다. 백엔드에만
+ * 있는 주간 집계(weekly)와 기간 필터(period_start/period_end)는 다루지 않으므로,
+ * 그 두 기능이 필요하면 /api/stats 를 호출해야 합니다.
+ * tests/calc.test.js 와 tests/test_stats_parity.py 가 같은 픽스처로 양쪽 일치를
+ * 검증합니다. (승률·손익비의 경계값처럼 정의가 갈리기 쉬운 구간을 포함합니다)
+ *
+ * ⚠️ 현재 앱에서 실제로 호출되는 것은 applyTradeToHolding 뿐이고 computeTradeStats
+ *    는 분석 화면이 /api/stats 를 쓰기 때문에 호출되지 않습니다. 계산식을 고칠 때는
+ *    stats.py 와 함께 고쳐 parity 를 유지하세요.
  *
  * 브라우저에서는 window 전역으로, Node(테스트)에서는 module.exports 로 노출됩니다.
  */
 (function (root) {
     'use strict';
+
+    /**
+     * 수량 비교용 허용 오차.
+     *
+     * ⭐️ 해외주식 소수점 거래에서 0.1 을 세 번 사고 0.3 을 팔면 부동소수점 잔여가
+     *    5.55e-17 만큼 남는다. `qty <= 0` 으로 청산을 판정하면 이 잔여가 살아남아
+     *    청산한 종목의 카드·평단·원가가 그대로 남고, 이후 재매수 시 평단이 오염된다.
+     *    백엔드(stats.py)는 처음부터 EPS 로 눕히고 있어 화면과 분석 탭이 어긋났다.
+     */
+    const EPS = 1e-9;
+
+    /** 사실상 청산된 수량인지 여부. 화면의 isClosed 판정도 이 함수를 쓴다. */
+    function isFlat(qty) {
+        return !(Number(qty) > EPS);
+    }
 
     /**
      * 단일 거래를 보유 상태(holding)에 적용하는 핵심 상태전이 함수.
@@ -39,7 +61,7 @@
             cost = avg * qty;
             holding.qty -= qty;
             holding.totalCost -= avg * qty;
-            if (holding.qty <= 0) {
+            if (isFlat(holding.qty)) {
                 holding.qty = 0;
                 holding.totalCost = 0;
                 holding.avgPrice = 0;
@@ -75,8 +97,6 @@
      * 백엔드 stats.compute_trade_stats() 와 동일한 형태/값을 반환합니다.
      */
     function computeTradeStats(rows) {
-        const EPS = 1e-9;
-
         const trades = rows
             .filter(r => r.type === 'trade' && (r.stockName || '').trim())
             .slice();
@@ -98,13 +118,15 @@
         let winCount = 0, lossCount = 0;
         let grossProfit = 0, grossLoss = 0;
         let holdingDaysWeighted = 0, holdingQtyTotal = 0;
+        let maxSingleWin = 0, maxSingleLoss = 0;
+        let totalBuyAmount = 0, totalSellAmount = 0;
 
         function mget(k) {
             if (!monthly[k]) monthly[k] = { realized: 0, dividend: 0, buyAmount: 0, sellAmount: 0 };
             return monthly[k];
         }
         function sget(s) {
-            if (!perStock[s]) perStock[s] = { realized: 0, dividend: 0, sellCount: 0, winCount: 0 };
+            if (!perStock[s]) perStock[s] = { realized: 0, dividend: 0, sellCount: 0, winCount: 0, lossCount: 0 };
             return perStock[s];
         }
 
@@ -126,6 +148,7 @@
                 if (p.qty > 0) p.avgPrice = p.totalCost / p.qty;
                 p.lots.push([dt, qty]);
                 mget(mkey).buyAmount += price * qty;
+                totalBuyAmount += price * qty;
             } else if (ttype === '매도') {
                 sellCount++;
                 const avg = p.avgPrice;
@@ -134,8 +157,11 @@
                 totalRealized += profit;
                 mget(mkey).realized += profit;
                 mget(mkey).sellAmount += price * qty;
+                totalSellAmount += price * qty;
                 sget(stock).realized += profit;
                 sget(stock).sellCount += 1;
+                if (profit > maxSingleWin) maxSingleWin = profit;
+                if (profit < maxSingleLoss) maxSingleLoss = profit;
                 if (profit > 0) {
                     winCount++;
                     grossProfit += profit;
@@ -143,6 +169,7 @@
                 } else if (profit < 0) {
                     lossCount++;
                     grossLoss += -profit;
+                    sget(stock).lossCount += 1;
                 }
                 if (dt) realizedEvents.push([dt, profit]);
 
@@ -163,7 +190,7 @@
 
                 p.qty -= qty;
                 p.totalCost -= avg * qty;
-                if (p.qty <= EPS) {
+                if (isFlat(p.qty)) {
                     p.qty = 0; p.totalCost = 0; p.avgPrice = 0; p.lots = [];
                 }
             } else if (ttype === '배당') {
@@ -194,15 +221,18 @@
         const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss) : null;
         const avgHoldingDays = holdingQtyTotal > 0 ? (holdingDaysWeighted / holdingQtyTotal) : 0;
 
+        // ⭐️ 백엔드와 동일하게 전체 기간을 시간순으로 반환한다. 예전에는 여기서만
+        //    .slice(-12) 로 최근 12개월을 잘라내 13개월 이상이면 결과가 갈렸다.
+        //    표시 구간을 자르는 일은 화면 쪽 책임이다.
         const monthlyList = Object.keys(monthly)
             .filter(k => k !== '미상')
             .sort()
-            .map(k => Object.assign({ month: k }, monthly[k]))
-            .slice(-12);
+            .map(k => Object.assign({ month: k }, monthly[k]));
 
         const perStockList = Object.keys(perStock).map(stock => {
             const v = perStock[stock];
             const sc = v.sellCount;
+            const decidedS = v.winCount + v.lossCount;
             return {
                 stock,
                 realized: v.realized,
@@ -210,7 +240,9 @@
                 total: v.realized + v.dividend,
                 sellCount: sc,
                 winCount: v.winCount,
-                winRate: sc ? (v.winCount / sc * 100) : 0,
+                lossCount: v.lossCount,
+                // 전체 승률과 같은 정의(승/(승+패)) — 손익 0 매도는 분모에서 뺀다.
+                winRate: decidedS ? (v.winCount / decidedS * 100) : 0,
             };
         });
         perStockList.sort((a, b) => b.total - a.total);
@@ -230,23 +262,29 @@
             profitFactor,
             avgHoldingDays,
             maxDrawdown,
+            maxSingleWin,
+            maxSingleLoss,
+            totalBuyAmount,
+            totalSellAmount,
             monthly: monthlyList,
             perStock: perStockList,
         };
     }
 
-    const api = { applyTradeToHolding, parseEntryDt, monthKey, computeTradeStats };
+    const api = { applyTradeToHolding, parseEntryDt, monthKey, computeTradeStats, isFlat, EPS };
 
     // 브라우저: window 전역 / Node: module.exports
     if (typeof window !== 'undefined') {
         window.StockCalc = api;
         window.applyTradeToHolding = applyTradeToHolding;
         window.computeTradeStats = computeTradeStats;
+        window.isFlatQty = isFlat;
     } else if (typeof module !== 'undefined' && module.exports) {
         module.exports = api;
     } else {
         root.StockCalc = api;
         root.applyTradeToHolding = applyTradeToHolding;
         root.computeTradeStats = computeTradeStats;
+        root.isFlatQty = isFlat;
     }
 })(typeof globalThis !== 'undefined' ? globalThis : this);

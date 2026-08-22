@@ -153,7 +153,10 @@ stock-memo/
 
 > 백엔드는 도메인별 모듈(`prices`/`stats`/`entry_logic`/`backups`)로 분리되어 있으며,
 > 손익 계산은 프론트엔드 `calc.js` 와 백엔드 `stats.py` 가 **동일한 이동평균단가
-> 알고리즘**을 사용하도록 단일화되어 있습니다 (`tests/calc.test.js` 가 양쪽 일치를 검증).
+> 알고리즘**을 사용하도록 단일화되어 있습니다. `tests/test_stats_parity.py` 가 두 엔진에
+> 같은 픽스처(`tests/fixtures/parity_fixtures.json`)를 실제로 통과시켜 값을 직접
+> 비교합니다. 단, 주간 집계(`granularity='weekly'`)와 기간 필터는 `stats.py` 에만
+> 있으므로 그 두 기능은 `/api/stats` 를 호출해야 합니다.
 
 ---
 
@@ -255,10 +258,14 @@ pytest
 pytest -q
 ```
 
-프론트엔드 계산 엔진(`calc.js`)은 Node 내장 테스트 러너로 검증하며, 백엔드 통계
-테스트와 동일한 픽스처를 사용해 프론트=백엔드 결과 일치를 보장합니다.
+프론트엔드 계산 엔진(`calc.js`)은 Node 내장 테스트 러너로 검증합니다.
+프론트=백엔드 결과 일치(parity)는 `tests/test_stats_parity.py` 가 두 엔진을 모두
+실행해 값을 직접 비교하는 방식으로 보장합니다. (node 가 없으면 자동 skip)
 
 ```bash
 # 프론트엔드 계산 단위 테스트 (Node 18+)
 node --test tests/calc.test.js
+
+# 프론트=백엔드 계산 일치 검증
+pytest tests/test_stats_parity.py
 ```

@@ -3135,6 +3135,7 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
     
     codesToFetch = [...new Set(codesToFetch)];
     if (codesToFetch.length === 0) return; // ⭐️ 업데이트할 종목이 없으면 리턴 (평가액 유지를 위해 기존 UI 상태 유지)
+    const requestedCodes = new Set(codesToFetch); // 아래 루프에서 종목마다 조회하므로 Set 으로 둔다
     
     try {
         // ⭐️ allow_cached: 60초 자동 폴링(isAuto)만 서버측 단기 캐시를 허용한다.
@@ -3156,9 +3157,16 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
             let isFresh = false;
             
             // 이번 요청에 포함된 종목이면 새로 가져온 가격을 캐시에 저장
-            if (codesToFetch.includes(data.stockCode)) {
+            if (requestedCodes.has(data.stockCode)) {
                 cp = prices[data.stockCode];
-                window.currentPriceCache[data.stockCode] = cp;
+                // ⭐️ 조회 실패(null)로 캐시를 덮지 않는다. 서버가 null 을 준다는 건 DB
+                //    캐시까지 전부 실패했다는 뜻이지만, 이 화면은 직전 폴링에서 받은
+                //    정상 가격을 이미 갖고 있다. 그걸 지우면 차트 탭 평가손익이 해당
+                //    종목을 '빠진 종목'으로 빼버려, 일시적 네트워크 오류 한 번에
+                //    멀쩡하던 손익이 사라진다.
+                //    카드 자체는 cp 가 null 인 채로 '조회 실패'를 그대로 보여준다 —
+                //    캐시된 옛 가격을 현재가인 척 띄우지는 않는다.
+                if (Number.isFinite(cp)) window.currentPriceCache[data.stockCode] = cp;
                 isFresh = true;
             } else {
                 // 요청에서 제외된 종목(장 종료)은 캐시된 가격을 사용
@@ -3296,7 +3304,9 @@ function updatePortfolioSummary() {
     for (const key in portfolio) {
         const p = portfolio[key];
         const stock = p.stock;
-        const isClosed = p.qty <= 0;
+        // ⭐️ 소수점 거래의 부동소수점 잔여(5e-17 등)를 청산으로 인정한다. calc.js 의
+        //    applyTradeToHolding 과 같은 기준을 써야 '청산했는데 카드가 남는' 일이 없다.
+        const isClosed = window.isFlatQty ? window.isFlatQty(p.qty) : (p.qty <= 1e-9);
         // ⭐️ 보유 중인 숨김 종목은 카드 노출과 무관하게 배열에 항상 담는다.
         //    총 투자금액·총 평가금액·누적 실현 손익은 숨김 여부와 관계없이 계속 반영해야 하고,
         //    현재가 조회 대상(currentPortfolioArrayForPrice)에도 포함돼야 하기 때문이다.

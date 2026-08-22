@@ -70,7 +70,8 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
 
     portfolio = {}  # stock -> {qty, totalCost, avgPrice, lots(deque of [dt, qty])}
     monthly = defaultdict(lambda: {'realized': 0.0, 'dividend': 0.0, 'buyAmount': 0.0, 'sellAmount': 0.0})
-    per_stock = defaultdict(lambda: {'realized': 0.0, 'dividend': 0.0, 'sellCount': 0, 'winCount': 0})
+    per_stock = defaultdict(lambda: {'realized': 0.0, 'dividend': 0.0, 'sellCount': 0,
+                                     'winCount': 0, 'lossCount': 0})
     realized_events = []  # (dt, amount) — 누적 실현손익 곡선 / MDD 계산용
 
     total_realized = 0.0      # 매도 실현손익 합계
@@ -143,6 +144,7 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
                 elif profit < 0:
                     loss_count += 1
                     gross_loss += -profit
+                    per_stock[stock]['lossCount'] += 1
                 if dt:
                     realized_events.append((dt, profit))
 
@@ -191,10 +193,16 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
         if drawdown > max_drawdown:
             max_drawdown = drawdown
 
+    # ⭐️ 승률은 '승/(승+패)'. 예전에는 여기서 이렇게 계산해 놓고 버린 뒤 반환값에서는
+    #    '승/전체 매도건수'로 다시 계산해, 손익이 정확히 0인 매도가 섞이면 화면에
+    #    '승률 50.0% (1승 0패)' 같은 자기모순이 찍혔다. 라벨과 맞는 쪽으로 통일한다.
     decided = win_count + loss_count
     win_rate = (win_count / decided * 100.0) if decided else 0.0
     avg_win = (gross_profit / win_count) if win_count else 0.0
     avg_loss = (gross_loss / loss_count) if loss_count else 0.0
+    # ⭐️ 손익비는 '이익합/손실합' 비율이다. 손실이 한 건도 없을 때 예전에는
+    #    gross_profit(금액)을 그대로 돌려줘 화면에 '손익비 100.00' 처럼 금액이
+    #    비율인 척 찍혔다. 정의할 수 없는 구간이므로 None(화면에서 '—')으로 둔다.
     profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
     avg_holding_days = (holding_days_weighted / holding_qty_total) if holding_qty_total > 0 else 0.0
 
@@ -215,7 +223,10 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
             'total': v['realized'] + v['dividend'],
             'sellCount': sc,
             'winCount': v['winCount'],
-            'winRate': (v['winCount'] / sc * 100.0) if sc else 0.0,
+            'lossCount': v['lossCount'],
+            # 전체 승률과 같은 정의(승/(승+패)) — 손익 0 매도는 분모에서 뺀다.
+            'winRate': (v['winCount'] / (v['winCount'] + v['lossCount']) * 100.0)
+                       if (v['winCount'] + v['lossCount']) else 0.0,
         })
     per_stock_list.sort(key=lambda x: x['total'], reverse=True)
 
@@ -228,11 +239,11 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
         'dividendCount': dividend_count,
         'winCount': win_count,
         'lossCount': loss_count,
-        'winRate': (win_count / sell_count * 100.0) if sell_count > 0 else 0.0,
-        'profitFactor': (gross_profit / gross_loss) if gross_loss > 0 else (gross_profit if gross_profit > 0 else None),
-        'avgWin': (gross_profit / win_count) if win_count > 0 else 0.0,
-        'avgLoss': (gross_loss / loss_count) if loss_count > 0 else 0.0,
-        'avgHoldingDays': (holding_days_weighted / holding_qty_total) if holding_qty_total > 0 else 0.0,
+        'winRate': win_rate,
+        'profitFactor': profit_factor,
+        'avgWin': avg_win,
+        'avgLoss': avg_loss,
+        'avgHoldingDays': avg_holding_days,
         'maxDrawdown': max_drawdown,
         'maxSingleWin': max_single_win,
         'maxSingleLoss': max_single_loss,
