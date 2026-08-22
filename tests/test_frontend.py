@@ -81,7 +81,7 @@ def test_user_login_and_dashboard_render(page: Page):
     page.click('button[type="submit"]')
     
     # 4. 로그인이 완료되어 메인 대시보드의 특정 요소(예: 백업 버튼)가 뜨는지 확인
-    expect(page.locator('#btnFullBackup')).to_be_visible(timeout=5000)
+    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
 
 def _seed_entries(page: Page, entries):
     """로그인된 세션으로 기록을 심는다 (브라우저 fetch 사용)."""
@@ -104,7 +104,7 @@ def test_simulated_trades_show_as_card_but_excluded_from_totals(page: Page):
     page.fill('input[name="username"]', 'admin')
     page.fill('input[name="password"]', 'admin123')
     page.click('button[type="submit"]')
-    expect(page.locator('#btnFullBackup')).to_be_visible(timeout=5000)
+    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
 
     assert _seed_entries(page, [
         # 실거래: 1,000원 × 10주 = 10,000원
@@ -143,7 +143,7 @@ def test_simulated_trade_does_not_pollute_real_average_price(page: Page):
     page.fill('input[name="username"]', 'admin')
     page.fill('input[name="password"]', 'admin123')
     page.click('button[type="submit"]')
-    expect(page.locator('#btnFullBackup')).to_be_visible(timeout=5000)
+    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
 
     assert _seed_entries(page, [
         # 동일 종목명 '겹침종목' 을 실거래 100원, 모의 9,900원에 매수
@@ -194,7 +194,7 @@ def test_chart_excludes_simulated_and_flagged_accounts(page: Page, cleanup_admin
     page.fill('input[name="username"]', 'admin')
     page.fill('input[name="password"]', 'admin123')
     page.click('button[type="submit"]')
-    expect(page.locator('#btnFullBackup')).to_be_visible(timeout=5000)
+    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
 
     # '연습계좌'(99998888-01)를 금액 계산 제외로 등록한다
     assert page.evaluate("""async () => {
@@ -255,7 +255,7 @@ def test_account_form_switches_to_edit_mode(page: Page, cleanup_admin_mappings):
     page.fill('input[name="username"]', 'admin')
     page.fill('input[name="password"]', 'admin123')
     page.click('button[type="submit"]')
-    expect(page.locator('#btnFullBackup')).to_be_visible(timeout=5000)
+    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
 
     assert page.evaluate("""async () => {
         const res = await fetch('/api/mappings', {
@@ -270,18 +270,21 @@ def test_account_form_switches_to_edit_mode(page: Page, cleanup_admin_mappings):
     }""") == 'OK'
 
     page.reload()
-    page.click('#loggedInUserDisplay')
+    # ⭐️ 헤더의 설정 버튼들은 '⚙️ 설정 메뉴' 아이콘을 눌러야(.active) 펼쳐진다.
+    #    펼치지 않고 바로 클릭하면 접힌 상태의 다른 버튼이 포인터를 가로챈다.
+    page.click('.header-action-icon')
+    page.click('#btnAccountManagement')
     form = page.locator('#newAccountFormContainer')
     title = page.locator('#btnToggleNewAccountForm')
     submit = page.locator('#btnAddUnifiedMapping')
 
     # 모달을 열면 항상 접힌 '신규 계좌 등록' 상태
     expect(form).to_be_hidden()
-    expect(title).to_have_text('➕ 신규 계좌 등록')
+    expect(title).to_have_text('신규 계좌 등록')
 
     page.click('#unifiedMappingList button:has-text("수정")')
     expect(form).to_be_visible()
-    expect(title).to_have_text('✏️ 계좌 수정')
+    expect(title).to_have_text('계좌 수정')
     expect(submit).to_have_text('수정하기')
     expect(page.locator('#unifiedAccountCode')).to_have_value('77776666-01')
     # 저장돼 있던 '금액 계산에서 제외' 체크 상태도 그대로 불러온다
@@ -290,6 +293,6 @@ def test_account_form_switches_to_edit_mode(page: Page, cleanup_admin_mappings):
     # 취소하면 신규 등록 상태로 되돌아간다
     page.click('#btnCancelNewAccountForm')
     expect(form).to_be_hidden()
-    expect(title).to_have_text('➕ 신규 계좌 등록')
-    expect(submit).to_have_text('➕ 추가하기')
+    expect(title).to_have_text('신규 계좌 등록')
+    expect(submit).to_have_text('추가하기')
     expect(page.locator('#unifiedAccountCode')).to_have_value('')

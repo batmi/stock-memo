@@ -25,6 +25,7 @@ def test_home_page_status_with_auth(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
 
     response = client.get('/')
     assert response.status_code == 200
@@ -46,6 +47,7 @@ def test_logout(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     response = client.get('/logout')
     assert response.status_code == 302
@@ -62,6 +64,7 @@ def test_get_data_empty(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'new_user'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     response = client.get('/api/data')
     assert response.status_code == 200
@@ -74,6 +77,7 @@ def test_create_and_get_entry(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     new_entry = {
         "type": "buy",
@@ -154,6 +158,7 @@ def test_update_and_delete_entry(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     # 1. 테스트용 데이터 생성
     client.post('/api/entry', json={
@@ -189,6 +194,7 @@ def test_preferences_api(client):
         sess['logged_in'] = True
         sess['username'] = 'admin'
         sess['is_admin'] = True
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     prefs = {"theme": "dark", "chartType": "bar"}
     post_res = client.post('/api/preferences', json=prefs)
@@ -206,6 +212,7 @@ def test_admin_api_access_control(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'normal_user'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     res_forbidden = client.get('/api/admin/users')
     assert res_forbidden.status_code == 403
@@ -215,6 +222,7 @@ def test_admin_api_access_control(client):
         sess['logged_in'] = True
         sess['username'] = 'admin'
         sess['is_admin'] = True
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     res_allowed = client.get('/api/admin/users')
     assert res_allowed.status_code == 200
@@ -229,6 +237,7 @@ def test_backup_and_restore_workflow(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
 
     # 1. 백업할 원본 테스트 데이터 생성
     client.post('/api/entry', json={
@@ -301,6 +310,7 @@ def test_admin_edge_cases(client):
         sess['logged_in'] = True
         sess['username'] = 'admin'
         sess['is_admin'] = True
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     # 최고 관리자 본인 삭제 시도
     res = client.delete('/api/admin/users/admin')
@@ -332,12 +342,14 @@ def test_account_deletion_and_change_pw(client):
         sess['logged_in'] = True
         sess['username'] = 'admin'
         sess['is_admin'] = True
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
     client.post('/api/admin/users/normal/toggle_allow')
     
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'normal'
         sess['is_admin'] = False
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     # 1. 비밀번호 변경 - 현재 비밀번호 오입력
     res = client.post('/api/change_password', json={'current_password': 'pw2', 'new_password': 'pw3'})
@@ -356,6 +368,7 @@ def test_account_deletion_and_change_pw(client):
         sess['logged_in'] = True
         sess['username'] = 'admin'
         sess['is_admin'] = True
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
     res = client.delete('/api/account', json={'password': 'pw'})
     assert res.status_code == 403
 
@@ -366,6 +379,7 @@ def test_restore_exceptions(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     # 1. 파일이 없을 때
     res = client.post('/api/restore')
@@ -385,6 +399,43 @@ def test_restore_exceptions(client):
     res = client.post('/api/restore', data=data, content_type='multipart/form-data')
     assert res.status_code == 400
 
+    # 4. data.json 이 기록 목록(list) 형식이 아닐 때 — 500 이 아니라 원인을 알려준다
+    for bad in (b'{"entries": []}', b'"just a string"', b'[1, 2, 3]'):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as zf:
+            zf.writestr('data.json', bad)
+        buf.seek(0)
+        data = {'file': (buf, 'test.zip')}
+        res = client.post('/api/restore', data=data, content_type='multipart/form-data')
+        assert res.status_code == 400, f"{bad!r} -> {res.status_code}"
+        assert '기록 목록' in res.get_json()['error']
+
+
+def test_restore_rejects_oversized_uncompressed_zip(client, monkeypatch):
+    """압축 해제 후 크기가 상한을 넘으면 디스크를 채우기 전에 막는다.
+
+    업로드 크기 제한(MAX_CONTENT_LENGTH)만으로는 막을 수 없다 — ZIP 은 압축률이
+    높아 작은 업로드가 해제 시 수백 MB 가 될 수 있다.
+    """
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600
+
+    # 상한을 낮춰, 압축이 잘 되는 큰 데이터를 작은 업로드로 재현한다.
+    monkeypatch.setattr(backend_app, 'MAX_RESTORE_UNCOMPRESSED_BYTES', 1024 * 1024)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr('data.json', b'0' * (4 * 1024 * 1024))  # 4MB -> 압축하면 수 KB
+    buf.seek(0)
+    assert buf.getbuffer().nbytes < 512 * 1024  # 업로드 자체는 작다
+
+    data = {'file': (buf, 'big.zip')}
+    res = client.post('/api/restore', data=data, content_type='multipart/form-data')
+    assert res.status_code == 413
+    assert '압축 해제 크기' in res.get_json()['error']
+
 def test_image_upload_and_access(client):
     """
     Base64 이미지 업로드 처리와 사용자 간 격리된 첨부파일 접근 제어를 테스트합니다.
@@ -392,6 +443,7 @@ def test_image_upload_and_access(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'imguser'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     # 1px 짜리 투명 PNG 더미 파일
     b64_image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
@@ -406,6 +458,7 @@ def test_image_upload_and_access(client):
     # 다른 유저 세션으로 타인의 파일 접근 시도 시 403 에러 발생 확인
     with client.session_transaction() as sess:
         sess['username'] = 'otheruser'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
     res_file_unauth = client.get(f"/uploads/imguser/{filename}")
     assert res_file_unauth.status_code == 403
 
@@ -418,6 +471,7 @@ def test_mock_external_apis(mock_urlopen, mock_http_get, client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
 
     mock_res = MagicMock()
     # 국내 주식과 해외 주식 파싱에 모두 통과할 수 있는 다목적 더미 JSON 구조 생성
@@ -448,6 +502,7 @@ def test_ping_and_timeout(client):
         sess['logged_in'] = True
         sess['username'] = 'admin'
         sess['is_admin'] = True
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     res_ping = client.post('/api/ping')
     assert res_ping.status_code == 200
@@ -519,6 +574,7 @@ def test_preferences_edge_cases(client):
         sess['logged_in'] = True
         sess['username'] = 'admin'
         sess['is_admin'] = True
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     conn = backend_app.get_db()
     conn.execute("UPDATE users SET preferences = 'INVALID_JSON_DATA' WHERE username = 'admin'")
@@ -534,6 +590,7 @@ def test_uploaded_file_success(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     user_dir = os.path.join(backend_app.UPLOAD_FOLDER, 'admin')
     os.makedirs(user_dir, exist_ok=True)
@@ -551,6 +608,7 @@ def test_current_price_edge_cases(mock_http_get, client, app):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
 
     test_state = {'gold_fail_all': False, 'all_fail': False}
 
@@ -629,6 +687,7 @@ def test_news_api_exceptions(mock_urlopen, client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     mock_urlopen.side_effect = Exception("Network Connection Error")
     
@@ -646,6 +705,7 @@ def test_account_deletion_and_password_exceptions(client):
         sess['logged_in'] = True
         sess['username'] = 'admin'
         sess['is_admin'] = True
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     # 비밀번호 변경 - 빈 값 전송
     res_pw_empty = client.post('/api/change_password', json={})
@@ -657,6 +717,7 @@ def test_account_deletion_and_password_exceptions(client):
         sess['logged_in'] = True
         sess['username'] = 'normal_user'
         sess['is_admin'] = False
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     # 계정 삭제 - 빈 비밀번호 전송
     res_del_empty = client.delete('/api/account', json={})
@@ -664,17 +725,23 @@ def test_account_deletion_and_password_exceptions(client):
     assert '비밀번호를 입력' in res_del_empty.json['error']
 
 @patch('time.sleep')
-def test_auto_backup_job(mock_sleep, client, app):
+def test_auto_backup_job(mock_sleep, client, app, tmp_path, monkeypatch):
     """
     자동 백업 스레드 함수가 실행될 때 ZIP 파일이 잘 생성되는지,
     그리고 7일이 지난 오래된 백업 파일이 정상적으로 삭제되는지(보관 주기) 테스트합니다.
     무한 루프를 탈출하기 위해 두 번째 time.sleep 호출 시 예외를 발생시킵니다.
     """
+    # ⭐️ 백업 폴더를 임시 경로로 격리한다. 예전에는 실제 backup/ 에 쓰는 바람에
+    #    이전 실행이 남긴 zip 이 다음 실행의 '새 백업 1개' 단언을 깨뜨렸고,
+    #    사용자의 백업 폴더에도 테스트 찌꺼기가 계속 쌓였다.
+    monkeypatch.setattr(backend_app, 'BACKUP_DIR', str(tmp_path / 'backup'))
+
     # 1. 테스트 유저 및 매매 기록 생성
     client.post('/signup', data={'username': 'autobackupuser', 'password': 'pw', 'password_confirm': 'pw'})
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'autobackupuser'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     client.post('/api/entry', json={"type": "buy", "stockName": "자동백업테스트", "price": 10000, "quantity": 1})
 
@@ -686,7 +753,8 @@ def test_auto_backup_job(mock_sleep, client, app):
     with open(old_file_path, 'w') as f:
         f.write("old data")
         
-    import time
+    # (time 은 모듈 상단에서 이미 import 되어 있다. 여기서 다시 import 하면 함수
+    #  전체에서 time 이 지역 변수로 취급돼 위쪽 time.time() 이 UnboundLocalError 가 된다)
     old_time = time.time() - (8 * 86400) # 8일 전 시간
     os.utime(old_file_path, (old_time, old_time))
 
@@ -735,6 +803,7 @@ def _login(client, username='trader'):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = username
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         # before_request 가 절대 만료(expires_at)를 검사하므로 없으면 전부 401 이 된다.
         sess['expires_at'] = time.time() + 3600
 
@@ -968,6 +1037,7 @@ def test_create_entry_extracts_inline_images(client, monkeypatch, tmp_path):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'imgentry'
+        sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
 
     encoded = b64.b64encode(b'img-bytes').decode()
     res = client.post('/api/entry', json={

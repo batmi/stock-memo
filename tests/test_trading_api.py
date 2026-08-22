@@ -926,3 +926,82 @@ def test_a_live_bot_reappears_after_being_forgotten(api):
 
     _ping(api, botId='raspi:real:68029263')
     assert [b['botId'] for b in trading_api.list_bots('bot')] == ['raspi:real:68029263']
+
+
+# ── last_used_at 쓰기 스로틀 (SD카드 마모 방지) ──────────────────
+def test_should_touch_last_used_first_use():
+    """기록이 없으면 첫 사용은 반드시 남긴다."""
+    assert trading_api._should_touch_last_used(None) is True
+    assert trading_api._should_touch_last_used('') is True
+    assert trading_api._should_touch_last_used('깨진 값') is True
+
+
+def test_should_touch_last_used_skips_within_interval():
+    now = trading_api._now_kst()
+    recent = (now - timedelta(seconds=5)).strftime('%Y-%m-%d %H:%M:%S')
+    assert trading_api._should_touch_last_used(recent, now=now) is False
+
+
+def test_should_touch_last_used_after_interval():
+    now = trading_api._now_kst()
+    old = (now - timedelta(seconds=trading_api.LAST_USED_WRITE_INTERVAL_SECONDS + 1)
+           ).strftime('%Y-%m-%d %H:%M:%S')
+    assert trading_api._should_touch_last_used(old, now=now) is True
+
+
+def test_should_touch_last_used_when_clock_went_backwards():
+    """저장된 값이 미래면(시계 역행) 그대로 굳지 않도록 갱신한다."""
+    now = trading_api._now_kst()
+    future = (now + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
+    assert trading_api._should_touch_last_used(future, now=now) is True
+
+
+def _stored_last_used(key_id):
+    with backend_app.db_conn() as conn:
+        row = conn.cursor().execute(
+            "SELECT last_used_at FROM api_keys WHERE id = ?", (key_id,)).fetchone()
+    return row['last_used_at']
+
+
+def test_last_used_at_recorded_on_first_use(api):
+    api['client'].post('/api/v1/bot/status', headers=api['headers'],
+                       json={'status': 'running'})
+    assert _stored_last_used(api['key_id']) is not None
+
+
+def test_last_used_at_not_rewritten_on_every_request(api):
+    """연속 요청이 매번 UPDATE 를 일으키지 않는다 — SD카드 상시 쓰기 방지."""
+    api['client'].post('/api/v1/bot/status', headers=api['headers'],
+                       json={'status': 'running'})
+    first = _stored_last_used(api['key_id'])
+    assert first is not None
+
+    # 시각을 강제로 바꿔도, 60초 이내 재요청이면 값이 그대로여야 한다.
+    original = trading_api._now_kst_str
+    trading_api._now_kst_str = lambda: '2099-01-01 00:00:00'
+    try:
+        api['client'].post('/api/v1/bot/status', headers=api['headers'],
+                           json={'status': 'running'})
+    finally:
+        trading_api._now_kst_str = original
+    assert _stored_last_used(api['key_id']) == first
+
+
+def test_last_used_at_updates_after_interval(api):
+    """간격이 지나면 정상적으로 갱신된다."""
+    api['client'].post('/api/v1/bot/status', headers=api['headers'],
+                       json={'status': 'running'})
+    first = _stored_last_used(api['key_id'])
+
+    stale = (trading_api._now_kst()
+             - timedelta(seconds=trading_api.LAST_USED_WRITE_INTERVAL_SECONDS + 5)
+             ).strftime('%Y-%m-%d %H:%M:%S')
+    with backend_app.db_conn() as conn:
+        conn.execute("UPDATE api_keys SET last_used_at = ? WHERE id = ?",
+                     (stale, api['key_id']))
+        conn.commit()
+
+    api['client'].post('/api/v1/bot/status', headers=api['headers'],
+                       json={'status': 'running'})
+    updated = _stored_last_used(api['key_id'])
+    assert updated != stale and updated is not None

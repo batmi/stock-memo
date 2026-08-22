@@ -55,6 +55,20 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 # ⭐️ 1. 시크릿 키: 환경변수가 우선. 없으면 파일에 영속화하여 재시작 시에도 세션 유지
+def _harden_key_permissions(key_path):
+    """.secret_key 를 소유자만 읽을 수 있게(0600) 조인다.
+
+    ⭐️ 이 키가 유출되면 임의 사용자의 세션 쿠키를 위조할 수 있다(로그인 우회).
+       예전에는 umask 기본값(0644)으로 만들어져 같은 머신의 다른 계정·프로세스가
+       읽을 수 있었으므로, 새로 만들 때뿐 아니라 기존 파일도 함께 조인다.
+    """
+    try:
+        if os.name != 'nt' and (os.stat(key_path).st_mode & 0o077):
+            os.chmod(key_path, 0o600)
+    except Exception:
+        pass  # 권한 변경 실패가 기동을 막아서는 안 된다
+
+
 def _load_secret_key():
     env_key = os.environ.get('SECRET_KEY')
     if env_key:
@@ -62,13 +76,18 @@ def _load_secret_key():
     key_path = os.path.join(BASE_DIR, '.secret_key')
     try:
         if os.path.exists(key_path):
+            _harden_key_permissions(key_path)
             with open(key_path, 'r') as f:
                 saved = f.read().strip()
                 if saved:
                     return saved
         new_key = os.urandom(24).hex()
-        with open(key_path, 'w') as f:
+        # ⭐️ 0600 으로 '만들면서' 연다. 먼저 만들고 chmod 하면 그 사이 짧게나마
+        #    누구나 읽을 수 있는 창이 생긴다.
+        fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w') as f:
             f.write(new_key)
+        _harden_key_permissions(key_path)  # 이미 있던 파일을 덮어쓴 경우 대비
         return new_key
     except Exception:
         # 파일 접근 불가 환경에서는 임시 난수 키로 폴백 (재시작 시 세션 무효화)
@@ -325,6 +344,9 @@ app.config['SESSION_REFRESH_EACH_REQUEST'] = False  # ⭐️ 만료 시각은 �
 
 # ⭐️ 2. 악의적인 대용량 파일 업로드 방어 (Payload 제한: 16MB)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+# ⭐️ 복원 ZIP 의 '압축 해제 후' 총 크기 상한. 업로드 자체는 위 16MB 로 막히지만
+#    ZIP 은 압축률이 높아 해제하면 그보다 훨씬 커질 수 있다.
+MAX_RESTORE_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
 
 DATA_FILE = os.path.join(BASE_DIR, 'my_stock_trading_journal.json')
 DB_DIR = os.path.join(BASE_DIR, 'db')
@@ -1754,6 +1776,15 @@ def full_restore():
     temp_dir = tempfile.mkdtemp()
     try:
         with zipfile.ZipFile(file.stream, 'r') as zf:
+            # ⭐️ 해제 후 크기를 먼저 확인한다. ZIP 은 압축률이 매우 높을 수 있어
+            #    업로드 크기 제한(MAX_CONTENT_LENGTH)만으로는 디스크가 가득 차는 것을
+            #    막지 못한다. (라즈베리파이처럼 저장공간이 작으면 실수로도 발생한다)
+            total_size = sum(info.file_size for info in zf.infolist())
+            if total_size > MAX_RESTORE_UNCOMPRESSED_BYTES:
+                return jsonify({'error':
+                    f'백업 파일의 압축 해제 크기가 너무 큽니다. '
+                    f'(약 {total_size // (1024 * 1024)}MB, 최대 '
+                    f'{MAX_RESTORE_UNCOMPRESSED_BYTES // (1024 * 1024)}MB)'}), 413
             zf.extractall(temp_dir)
 
         json_path = os.path.join(temp_dir, 'data.json')
@@ -1762,6 +1793,12 @@ def full_restore():
 
         with open(json_path, 'r', encoding='utf-8') as f:
             entries = json.load(f)
+
+        # ⭐️ 형식을 먼저 확인한다. 리스트가 아니면 아래 루프가 엉뚱한 값을 순회하다
+        #    500 과 불투명한 메시지로 끝나, 사용자는 원인을 알 수 없었다.
+        if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+            return jsonify({'error':
+                '손상된 백업 파일입니다. (data.json 이 기록 목록 형식이 아닙니다)'}), 400
 
         with db_conn() as conn:
             c = conn.cursor()

@@ -41,6 +41,14 @@ bp = Blueprint('trading_api', __name__, url_prefix='/api/v1')
 API_VERSION = '2.0.0'
 TOKEN_TTL_SECONDS = 86400
 MAX_BATCH_ITEMS = 500
+
+# ⭐️ api_keys.last_used_at 갱신 최소 간격(초).
+#    이 값은 화면에 '마지막 사용'을 보여주기 위한 감사용 메타데이터인데, 예전에는
+#    인증된 요청마다 UPDATE+commit 을 했다. 봇 하트비트가 10초 주기라 봇 1대만
+#    붙어도 하루 8,640회의 쓰기가 SD카드(라즈베리파이)에 쌓인다.
+#    prices.save_price_cache 가 같은 이유로 동일 값 쓰기를 생략하는 것과 같은 처리다.
+#    60초로 뭉개면 쓰기는 1/6 로 줄고 화면 표시상 차이는 없다.
+LAST_USED_WRITE_INTERVAL_SECONDS = 60
 KST = timezone(timedelta(hours=9))
 
 # ── 스코프 ─────────────────────────────────────────────────────────────
@@ -319,6 +327,19 @@ def _now_kst_str():
     return _now_kst().strftime('%Y-%m-%d %H:%M:%S')
 
 
+def _should_touch_last_used(stored_value, now=None):
+    """last_used_at 을 지금 갱신해야 하는지 여부.
+
+    저장된 값이 없거나 읽을 수 없으면 갱신한다(첫 사용 기록은 남겨야 한다).
+    """
+    last = _parse_stored_dt(stored_value)
+    if last is None:
+        return True
+    elapsed = ((now or _now_kst()) - last).total_seconds()
+    # 시계가 뒤로 간 경우(elapsed < 0)에도 갱신해 값이 미래에 굳는 것을 막는다.
+    return not (0 <= elapsed < LAST_USED_WRITE_INTERVAL_SECONDS)
+
+
 def _now_iso():
     """오프셋을 포함한 ISO 8601 문자열 (예: 2026-08-01T20:08:04+09:00).
 
@@ -564,16 +585,19 @@ def require_token(*required_scopes):
             with _db() as conn:
                 c = conn.cursor()
                 c.execute(
-                    "SELECT scopes, revoked_at FROM api_keys WHERE id = ? AND username = ?",
+                    "SELECT scopes, revoked_at, last_used_at FROM api_keys "
+                    "WHERE id = ? AND username = ?",
                     (key_id, username))
                 key_row = c.fetchone()
                 if key_row is None or key_row['revoked_at']:
                     return _err(401, 'TOKEN_REVOKED',
                                 '이 토큰의 API 키가 폐기되었습니다. 새 키로 다시 발급받으세요.')
                 scopes = set((key_row['scopes'] or '').split())
-                c.execute("UPDATE api_keys SET last_used_at = ? WHERE id = ?",
-                          (_now_kst_str(), key_id))
-                conn.commit()
+                # ⭐️ 위 SELECT 에 last_used_at 을 함께 담았으므로 추가 쿼리 없이 판정한다.
+                if _should_touch_last_used(key_row['last_used_at']):
+                    c.execute("UPDATE api_keys SET last_used_at = ? WHERE id = ?",
+                              (_now_kst_str(), key_id))
+                    conn.commit()
 
             missing = [s for s in required_scopes if s not in scopes]
             if missing:
