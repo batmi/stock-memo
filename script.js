@@ -3110,15 +3110,53 @@ window.getMarketStatus = function() {
     // 1. 한국 정규장 및 장전/NXT(장후) 시간외 포함: 평일(월~금) 08:00 ~ 20:00 (휴장일 제외)
     const isKrOpen = !isKrHoliday && (day >= 1 && day <= 5) && (timeNum >= 800 && timeNum <= 2000);
     
-    // 2. 미국 정규장: 평일(월~금) 밤 22:30 ~ 23:59 또는 (화~토) 새벽 00:00 ~ 06:00
-    const isUsOpenEvening = (day >= 1 && day <= 5) && (timeNum >= 2230);
-    const isUsOpenMorning = (day >= 2 && day <= 6) && (timeNum <= 600);
-    
+    // 2. 미국 정규장: 뉴욕 현지 시각으로 직접 판정한다.
+    //    ⭐️ 예전에는 KST 22:30~06:00 으로 고정했는데, 미국 서머타임(EDT/EST) 때문에
+    //       실제 개장 시각이 KST 기준 한 시간씩 움직인다.
+    //         - 서머타임(EDT): 22:30 ~ 05:00
+    //         - 표준시(EST)  : 23:30 ~ 06:00
+    //       고정 창은 두 경우를 모두 덮으려고 넓게 잡은 탓에, 겨울에는 22:30~23:30
+    //       한 시간 동안 장이 열리지도 않았는데 60초마다 시세를 조회했다.
+    //       DST 규칙을 직접 구현하는 대신 브라우저의 타임존 데이터에 맡긴다.
     return {
         kr: isKrOpen,
-        us: isUsOpenEvening || isUsOpenMorning
+        us: isUsMarketOpen(now)
     };
 };
+
+// ⭐️ 뉴욕 현지 시각/요일을 구한다. Intl 타임존을 못 쓰는 환경이면 null.
+function getNewYorkTime(date) {
+    try {
+        const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York', hour12: false,
+            weekday: 'short', hour: '2-digit', minute: '2-digit'
+        }).formatToParts(date).reduce((acc, p) => (acc[p.type] = p.value, acc), {});
+        const hour = parseInt(parts.hour, 10) % 24;  // 자정을 24 로 주는 구현 대비
+        const minute = parseInt(parts.minute, 10);
+        if (isNaN(hour) || isNaN(minute)) return null;
+        return { weekday: parts.weekday, timeNum: hour * 100 + minute };
+    } catch (e) {
+        return null;
+    }
+}
+
+// 미국 정규장(뉴욕 평일 09:30~16:00) 여부.
+// ※ 미국 공휴일(추수감사절 등)은 아직 반영하지 않는다 — 그날은 조회가 실패하고
+//   서버가 직전 종가 캐시로 답한다.
+function isUsMarketOpen(date) {
+    const ny = getNewYorkTime(date || new Date());
+    if (!ny) {
+        // 타임존 데이터를 못 쓰면 예전처럼 넓은 창으로 폴백한다 (조회를 놓치지 않는 쪽)
+        const utc = (date || new Date());
+        const kst = new Date(utc.getTime() + (utc.getTimezoneOffset() * 60000) + (9 * 3600000));
+        const d = kst.getDay(), t = kst.getHours() * 100 + kst.getMinutes();
+        return ((d >= 1 && d <= 5) && t >= 2230) || ((d >= 2 && d <= 6) && t <= 600);
+    }
+    if (['Sat', 'Sun'].indexOf(ny.weekday) !== -1) return false;
+    return ny.timeNum >= 930 && ny.timeNum < 1600;
+}
+window.isUsMarketOpen = isUsMarketOpen;
+window.getNewYorkTime = getNewYorkTime;
 
 // ⭐️ 하위 호환성을 위한 래퍼 함수
 window.isMarketOpen = function() {

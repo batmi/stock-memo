@@ -88,6 +88,18 @@
         return null;
     }
 
+    /**
+     * 종목 동일성 판정 키. 종목코드가 있으면 코드, 없으면 종목명.
+     * (백엔드 stats.stock_identity 와 동일 규칙)
+     *
+     * ⭐️ 종목명은 표기가 갈린다(우선주·해외 티커·증권사별 명칭). 이름으로만 묶으면
+     *    같은 종목의 손익이 쪼개지고, 코드가 다른 동명 종목이 한 덩어리가 된다.
+     */
+    function stockIdentity(entry) {
+        const code = String(entry.stockCode == null ? '' : entry.stockCode).trim().toUpperCase();
+        return code || String(entry.stockName == null ? '' : entry.stockName).trim();
+    }
+
     function monthKey(dt) {
         return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0');
     }
@@ -108,7 +120,9 @@
             return ta - tb;
         });
 
-        const portfolio = {};       // stock -> {qty,totalCost,avgPrice,lots:[[dt,qty]]}
+        const portfolio = {};       // key -> {qty,totalCost,avgPrice,lots:[[dt,qty]]}
+        const displayNames = {};    // key -> 표시용 종목명 (가장 최근 기록의 이름)
+        const displayCodes = {};    // key -> 종목코드
         const monthly = {};         // key -> {realized,dividend,buyAmount,sellAmount}
         const perStock = {};        // stock -> {realized,dividend,sellCount,winCount}
         const realizedEvents = [];  // [dt, amount]
@@ -131,7 +145,9 @@
         }
 
         for (const t of trades) {
-            const stock = t.stockName.trim();
+            const stock = stockIdentity(t);
+            displayNames[stock] = t.stockName.trim();
+            displayCodes[stock] = String(t.stockCode == null ? '' : t.stockCode).trim().toUpperCase();
             const qty = Number(t.quantity) || 0;
             const price = Number(t.price) || 0;
             const ttype = t.tradeType;
@@ -234,7 +250,8 @@
             const sc = v.sellCount;
             const decidedS = v.winCount + v.lossCount;
             return {
-                stock,
+                stock: displayNames[stock] || stock,
+                stockCode: displayCodes[stock] || '',
                 realized: v.realized,
                 dividend: v.dividend,
                 total: v.realized + v.dividend,
@@ -271,7 +288,7 @@
         };
     }
 
-    const api = { applyTradeToHolding, parseEntryDt, monthKey, computeTradeStats, isFlat, EPS };
+    const api = { applyTradeToHolding, parseEntryDt, monthKey, stockIdentity, computeTradeStats, isFlat, EPS };
 
     // 브라우저: window 전역 / Node: module.exports
     if (typeof window !== 'undefined') {

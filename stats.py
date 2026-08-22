@@ -24,6 +24,19 @@ def parse_entry_dt(entry):
 # 하위 호환을 위한 별칭 (기존 내부 명칭)
 _parse_entry_dt = parse_entry_dt
 
+def stock_identity(entry):
+    """종목 동일성 판정 키. 종목코드가 있으면 코드, 없으면 종목명.
+
+    ⭐️ 종목명은 표기가 갈린다(우선주·해외 티커·증권사별 명칭). 이름으로만 묶으면
+       같은 종목의 손익이 둘로 쪼개지고, 반대로 코드가 다른 동명이인 종목이 한
+       덩어리가 된다. entry_logic.net_holding_for_stock 이 이미 코드를 1순위로
+       쓰고 있으므로 통계도 같은 기준을 따른다.
+       코드가 비어 있는 레거시 수동 기록은 종전대로 이름으로 묶는다.
+    """
+    code = (entry.get('stockCode') or '').strip().upper()
+    return code or (entry.get('stockName') or '').strip()
+
+
 def get_monday(dt):
     """주어진 날짜의 월요일(YYYY-MM-DD)을 반환합니다."""
     monday = dt - timedelta(days=dt.weekday())
@@ -68,7 +81,10 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
             return False
         return True
 
-    portfolio = {}  # stock -> {qty, totalCost, avgPrice, lots(deque of [dt, qty])}
+    portfolio = {}  # key -> {qty, totalCost, avgPrice, lots(deque of [dt, qty])}
+    # 표시용 종목명. 같은 코드에 표기가 여럿이면 가장 최근 기록의 이름을 쓴다.
+    display_names = {}
+    display_codes = {}
     monthly = defaultdict(lambda: {'realized': 0.0, 'dividend': 0.0, 'buyAmount': 0.0, 'sellAmount': 0.0})
     per_stock = defaultdict(lambda: {'realized': 0.0, 'dividend': 0.0, 'sellCount': 0,
                                      'winCount': 0, 'lossCount': 0})
@@ -91,7 +107,9 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
     EPS = 1e-9
 
     for t in trades:
-        stock = t['stockName'].strip()
+        stock = stock_identity(t)
+        display_names[stock] = t['stockName'].strip()
+        display_codes[stock] = (t.get('stockCode') or '').strip().upper()
         qty = float(t.get('quantity') or 0)
         price = float(t.get('price') or 0)
         ttype = t.get('tradeType')
@@ -217,7 +235,8 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
     for stock, v in per_stock.items():
         sc = v['sellCount']
         per_stock_list.append({
-            'stock': stock,
+            'stock': display_names.get(stock, stock),
+            'stockCode': display_codes.get(stock, ''),
             'realized': v['realized'],
             'dividend': v['dividend'],
             'total': v['realized'] + v['dividend'],

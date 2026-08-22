@@ -5,6 +5,7 @@ import zipfile
 import json
 import os
 import backend_app
+import entry_logic
 from unittest.mock import patch, MagicMock
 
 def test_home_page_redirects_without_auth(client):
@@ -1272,3 +1273,126 @@ def test_unhandled_exception_does_not_leak_internals(client, monkeypatch):
     body = res.get_data(as_text=True)
     assert '/var/secret' not in body       # 내부 정보 비노출
     assert res.get_json()['error'] == '서버 오류가 발생했습니다.'
+
+
+# ── 복원 중 실패해도 기존 첨부파일이 사라지지 않는지 ──────────────
+def test_restore_keeps_existing_uploads_when_copy_fails(client, monkeypatch, tmp_path):
+    """복사가 도중에 실패해도 원본 첨부파일 폴더는 그대로 남아야 한다.
+
+    예전에는 기존 폴더를 먼저 rmtree 하고 복사해서, 복사가 실패하면 첨부파일이
+    영구 소실되고 되돌릴 방법이 없었다.
+    """
+    monkeypatch.setattr(backend_app, 'UPLOAD_FOLDER', str(tmp_path / 'uploads'))
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'restoreuser'
+        sess['expires_at'] = time.time() + 3600
+
+    # 기존 첨부파일을 심어 둔다
+    user_folder = os.path.join(backend_app.UPLOAD_FOLDER, 'restoreuser')
+    os.makedirs(user_folder, exist_ok=True)
+    keep = os.path.join(user_folder, 'important.png')
+    with open(keep, 'w') as f:
+        f.write('원본 이미지')
+
+    # 백업 ZIP (첨부파일 1개 포함)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as zf:
+        zf.writestr('data.json', json.dumps([]))
+        zf.writestr('uploads/new.png', 'new')
+    buf.seek(0)
+
+    # 복사 단계에서 디스크가 찬 상황을 흉내낸다
+    def boom(*a, **k):
+        raise OSError('No space left on device')
+    monkeypatch.setattr(backend_app.shutil, 'copy2', boom)
+
+    res = client.post('/api/restore', data={'file': (buf, 'b.zip')},
+                      content_type='multipart/form-data')
+    assert res.status_code == 500
+
+    # 핵심: 원본이 살아 있어야 한다
+    assert os.path.exists(keep), '복원 실패로 기존 첨부파일이 사라졌다'
+    with open(keep) as f:
+        assert f.read() == '원본 이미지'
+    # 작업용 폴더는 남지 않는다
+    assert not os.path.exists(user_folder + '.restoring')
+
+
+def test_restore_replaces_uploads_on_success(client, monkeypatch, tmp_path):
+    """정상 복원 시에는 첨부파일 폴더가 백업 내용으로 교체된다."""
+    monkeypatch.setattr(backend_app, 'UPLOAD_FOLDER', str(tmp_path / 'uploads'))
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'restoreuser2'
+        sess['expires_at'] = time.time() + 3600
+
+    user_folder = os.path.join(backend_app.UPLOAD_FOLDER, 'restoreuser2')
+    os.makedirs(user_folder, exist_ok=True)
+    with open(os.path.join(user_folder, 'old.png'), 'w') as f:
+        f.write('old')
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as zf:
+        zf.writestr('data.json', json.dumps([]))
+        zf.writestr('uploads/new.png', 'new')
+    buf.seek(0)
+
+    res = client.post('/api/restore', data={'file': (buf, 'b.zip')},
+                      content_type='multipart/form-data')
+    assert res.status_code == 200
+    assert sorted(os.listdir(user_folder)) == ['new.png']
+    assert not os.path.exists(user_folder + '.old')
+    assert not os.path.exists(user_folder + '.restoring')
+
+
+# ── 큰 응답도 압축되는지 (예전 16MB 상한이 압축을 꺼뜨렸다) ──────────
+def test_large_json_response_is_still_compressed(client, monkeypatch):
+    """/api/data 가 커져도 gzip 이 꺼지면 안 된다.
+
+    예전에는 16MB 를 넘는 순간 '메모리 보호'로 압축을 건너뛰어, 정작 절감 효과가
+    가장 큰 구간에서 수십 MB 가 그대로 전송됐다.
+    """
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'compressuser'
+        sess['expires_at'] = time.time() + 3600
+
+    # 상한을 낮춰서 '큰 응답' 상황을 작은 데이터로 재현한다
+    monkeypatch.setattr(backend_app, 'MAX_COMPRESS_BYTES', 96 * 1024 * 1024)
+
+    body = '<p>' + ('메모 ' * 400) + '</p>'
+    with backend_app.db_conn() as conn:
+        c = conn.cursor()
+        for i in range(200):
+            entry_logic.insert_entry(c, 'compressuser', {
+                'id': 1700000000000 + i, 'type': 'trade', 'stockName': '종목',
+                'stockCode': '000001', 'tradeType': '매수', 'price': 100,
+                'quantity': 1, 'rawDate': '2025-01-01T09:00', 'thoughts': body})
+        conn.commit()
+
+    plain = client.get('/api/data')
+    gz = client.get('/api/data', headers={'Accept-Encoding': 'gzip'})
+    assert plain.status_code == gz.status_code == 200
+    assert gz.headers.get('Content-Encoding') == 'gzip'
+    assert len(gz.get_data()) < len(plain.get_data()) / 2, '압축이 적용되지 않았다'
+
+
+def test_response_above_cap_is_not_compressed(client, monkeypatch):
+    """상한을 넘는 응답은 그대로 보낸다 (메모리 보호는 유지)."""
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'compressuser2'
+        sess['expires_at'] = time.time() + 3600
+
+    monkeypatch.setattr(backend_app, 'MAX_COMPRESS_BYTES', 1024)  # 1KB 로 낮춤
+    with backend_app.db_conn() as conn:
+        c = conn.cursor()
+        entry_logic.insert_entry(c, 'compressuser2', {
+            'id': 1700000000001, 'type': 'trade', 'stockName': '종목',
+            'tradeType': '매수', 'price': 100, 'quantity': 1,
+            'rawDate': '2025-01-01T09:00', 'thoughts': '메모 ' * 500})
+        conn.commit()
+
+    res = client.get('/api/data', headers={'Accept-Encoding': 'gzip'})
+    assert res.headers.get('Content-Encoding') is None

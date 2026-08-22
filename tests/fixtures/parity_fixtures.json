@@ -1,49 +1,406 @@
 {
   "기본_승패혼합": [
-    {"type":"trade","tradeType":"매수","stockName":"A","quantity":10,"price":100,"rawDate":"2024-01-10T09:00","id":1},
-    {"type":"trade","tradeType":"매도","stockName":"A","quantity":5,"price":120,"rawDate":"2024-02-10T09:00","id":2},
-    {"type":"trade","tradeType":"매도","stockName":"A","quantity":5,"price":80,"rawDate":"2024-03-10T09:00","id":3}
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "A",
+      "quantity": 10,
+      "price": 100,
+      "rawDate": "2024-01-10T09:00",
+      "id": 1
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "A",
+      "quantity": 5,
+      "price": 120,
+      "rawDate": "2024-02-10T09:00",
+      "id": 2
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "A",
+      "quantity": 5,
+      "price": 80,
+      "rawDate": "2024-03-10T09:00",
+      "id": 3
+    }
   ],
   "손익0_매도_포함": [
-    {"type":"trade","tradeType":"매수","stockName":"A","quantity":10,"price":100,"rawDate":"2024-01-10T09:00","id":1},
-    {"type":"trade","tradeType":"매도","stockName":"A","quantity":5,"price":100,"rawDate":"2024-02-10T09:00","id":2},
-    {"type":"trade","tradeType":"매도","stockName":"A","quantity":5,"price":120,"rawDate":"2024-03-10T09:00","id":3}
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "A",
+      "quantity": 10,
+      "price": 100,
+      "rawDate": "2024-01-10T09:00",
+      "id": 1
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "A",
+      "quantity": 5,
+      "price": 100,
+      "rawDate": "2024-02-10T09:00",
+      "id": 2
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "A",
+      "quantity": 5,
+      "price": 120,
+      "rawDate": "2024-03-10T09:00",
+      "id": 3
+    }
   ],
   "손실0건_손익비_정의불가": [
-    {"type":"trade","tradeType":"매수","stockName":"A","quantity":10,"price":100,"rawDate":"2024-01-10T09:00","id":1},
-    {"type":"trade","tradeType":"매도","stockName":"A","quantity":10,"price":130,"rawDate":"2024-02-10T09:00","id":2}
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "A",
+      "quantity": 10,
+      "price": 100,
+      "rawDate": "2024-01-10T09:00",
+      "id": 1
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "A",
+      "quantity": 10,
+      "price": 130,
+      "rawDate": "2024-02-10T09:00",
+      "id": 2
+    }
   ],
   "이익0건_손실만": [
-    {"type":"trade","tradeType":"매수","stockName":"A","quantity":10,"price":100,"rawDate":"2024-01-10T09:00","id":1},
-    {"type":"trade","tradeType":"매도","stockName":"A","quantity":10,"price":70,"rawDate":"2024-02-10T09:00","id":2}
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "A",
+      "quantity": 10,
+      "price": 100,
+      "rawDate": "2024-01-10T09:00",
+      "id": 1
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "A",
+      "quantity": 10,
+      "price": 70,
+      "rawDate": "2024-02-10T09:00",
+      "id": 2
+    }
   ],
   "소수점_전량매도_잔여없음": [
-    {"type":"trade","tradeType":"매수","stockName":"A","quantity":0.1,"price":100,"rawDate":"2024-01-01T09:00","id":1},
-    {"type":"trade","tradeType":"매수","stockName":"A","quantity":0.1,"price":100,"rawDate":"2024-01-02T09:00","id":2},
-    {"type":"trade","tradeType":"매수","stockName":"A","quantity":0.1,"price":100,"rawDate":"2024-01-03T09:00","id":3},
-    {"type":"trade","tradeType":"매도","stockName":"A","quantity":0.3,"price":120,"rawDate":"2024-01-05T09:00","id":4},
-    {"type":"trade","tradeType":"매수","stockName":"A","quantity":1,"price":200,"rawDate":"2024-01-06T09:00","id":5},
-    {"type":"trade","tradeType":"매도","stockName":"A","quantity":1,"price":210,"rawDate":"2024-01-07T09:00","id":6}
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "A",
+      "quantity": 0.1,
+      "price": 100,
+      "rawDate": "2024-01-01T09:00",
+      "id": 1
+    },
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "A",
+      "quantity": 0.1,
+      "price": 100,
+      "rawDate": "2024-01-02T09:00",
+      "id": 2
+    },
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "A",
+      "quantity": 0.1,
+      "price": 100,
+      "rawDate": "2024-01-03T09:00",
+      "id": 3
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "A",
+      "quantity": 0.3,
+      "price": 120,
+      "rawDate": "2024-01-05T09:00",
+      "id": 4
+    },
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "A",
+      "quantity": 1,
+      "price": 200,
+      "rawDate": "2024-01-06T09:00",
+      "id": 5
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "A",
+      "quantity": 1,
+      "price": 210,
+      "rawDate": "2024-01-07T09:00",
+      "id": 6
+    }
   ],
   "배당_포함": [
-    {"type":"trade","tradeType":"매수","stockName":"B","quantity":10,"price":100,"rawDate":"2024-01-01T09:00","id":1},
-    {"type":"trade","tradeType":"배당","stockName":"B","quantity":10,"price":3,"rawDate":"2024-02-01T09:00","id":2},
-    {"type":"trade","tradeType":"매도","stockName":"B","quantity":10,"price":110,"rawDate":"2024-03-01T09:00","id":3}
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "B",
+      "quantity": 10,
+      "price": 100,
+      "rawDate": "2024-01-01T09:00",
+      "id": 1
+    },
+    {
+      "type": "trade",
+      "tradeType": "배당",
+      "stockName": "B",
+      "quantity": 10,
+      "price": 3,
+      "rawDate": "2024-02-01T09:00",
+      "id": 2
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "B",
+      "quantity": 10,
+      "price": 110,
+      "rawDate": "2024-03-01T09:00",
+      "id": 3
+    }
   ],
   "매도만_보유없음": [
-    {"type":"trade","tradeType":"매도","stockName":"C","quantity":5,"price":100,"rawDate":"2024-01-10T09:00","id":1}
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "C",
+      "quantity": 5,
+      "price": 100,
+      "rawDate": "2024-01-10T09:00",
+      "id": 1
+    }
   ],
   "13개월_이상": [
-    {"type":"trade","tradeType":"매수","stockName":"A","quantity":1,"price":100,"rawDate":"2024-01-05T09:00","id":11},
-    {"type":"trade","tradeType":"매도","stockName":"A","quantity":1,"price":110,"rawDate":"2024-01-06T09:00","id":12},
-    {"type":"trade","tradeType":"매수","stockName":"A","quantity":1,"price":100,"rawDate":"2024-04-05T09:00","id":21},
-    {"type":"trade","tradeType":"매도","stockName":"A","quantity":1,"price":90,"rawDate":"2024-04-06T09:00","id":22},
-    {"type":"trade","tradeType":"매수","stockName":"A","quantity":1,"price":100,"rawDate":"2024-08-05T09:00","id":31},
-    {"type":"trade","tradeType":"매도","stockName":"A","quantity":1,"price":115,"rawDate":"2024-08-06T09:00","id":32},
-    {"type":"trade","tradeType":"매수","stockName":"A","quantity":1,"price":100,"rawDate":"2024-12-05T09:00","id":41},
-    {"type":"trade","tradeType":"매도","stockName":"A","quantity":1,"price":95,"rawDate":"2024-12-06T09:00","id":42},
-    {"type":"trade","tradeType":"매수","stockName":"A","quantity":1,"price":100,"rawDate":"2025-03-05T09:00","id":51},
-    {"type":"trade","tradeType":"매도","stockName":"A","quantity":1,"price":120,"rawDate":"2025-03-06T09:00","id":52}
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "A",
+      "quantity": 1,
+      "price": 100,
+      "rawDate": "2024-01-05T09:00",
+      "id": 11
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "A",
+      "quantity": 1,
+      "price": 110,
+      "rawDate": "2024-01-06T09:00",
+      "id": 12
+    },
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "A",
+      "quantity": 1,
+      "price": 100,
+      "rawDate": "2024-04-05T09:00",
+      "id": 21
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "A",
+      "quantity": 1,
+      "price": 90,
+      "rawDate": "2024-04-06T09:00",
+      "id": 22
+    },
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "A",
+      "quantity": 1,
+      "price": 100,
+      "rawDate": "2024-08-05T09:00",
+      "id": 31
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "A",
+      "quantity": 1,
+      "price": 115,
+      "rawDate": "2024-08-06T09:00",
+      "id": 32
+    },
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "A",
+      "quantity": 1,
+      "price": 100,
+      "rawDate": "2024-12-05T09:00",
+      "id": 41
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "A",
+      "quantity": 1,
+      "price": 95,
+      "rawDate": "2024-12-06T09:00",
+      "id": 42
+    },
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "A",
+      "quantity": 1,
+      "price": 100,
+      "rawDate": "2025-03-05T09:00",
+      "id": 51
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "A",
+      "quantity": 1,
+      "price": 120,
+      "rawDate": "2025-03-06T09:00",
+      "id": 52
+    }
   ],
-  "빈_기록": []
+  "빈_기록": [],
+  "같은코드_다른표기": [
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "삼성전자",
+      "quantity": 10,
+      "price": 100,
+      "rawDate": "2024-01-10T09:00",
+      "id": 1,
+      "stockCode": "005930"
+    },
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "삼성 전자",
+      "quantity": 10,
+      "price": 200,
+      "rawDate": "2024-02-10T09:00",
+      "id": 2,
+      "stockCode": "005930"
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "삼성전자",
+      "quantity": 20,
+      "price": 250,
+      "rawDate": "2024-03-10T09:00",
+      "id": 3,
+      "stockCode": "005930"
+    }
+  ],
+  "같은이름_다른코드": [
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "우리금융",
+      "quantity": 10,
+      "price": 100,
+      "rawDate": "2024-01-10T09:00",
+      "id": 1,
+      "stockCode": "316140"
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "우리금융",
+      "quantity": 10,
+      "price": 150,
+      "rawDate": "2024-02-10T09:00",
+      "id": 2,
+      "stockCode": "316140"
+    },
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "우리금융",
+      "quantity": 10,
+      "price": 100,
+      "rawDate": "2024-03-10T09:00",
+      "id": 3,
+      "stockCode": "999999"
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "우리금융",
+      "quantity": 10,
+      "price": 50,
+      "rawDate": "2024-04-10T09:00",
+      "id": 4,
+      "stockCode": "999999"
+    }
+  ],
+  "코드없는_레거시": [
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "옛날종목",
+      "quantity": 10,
+      "price": 100,
+      "rawDate": "2024-01-10T09:00",
+      "id": 1
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "옛날종목",
+      "quantity": 10,
+      "price": 130,
+      "rawDate": "2024-02-10T09:00",
+      "id": 2,
+      "stockCode": ""
+    }
+  ],
+  "코드_대소문자": [
+    {
+      "type": "trade",
+      "tradeType": "매수",
+      "stockName": "ETN상품",
+      "quantity": 10,
+      "price": 100,
+      "rawDate": "2024-01-10T09:00",
+      "id": 1,
+      "stockCode": "0162z0"
+    },
+    {
+      "type": "trade",
+      "tradeType": "매도",
+      "stockName": "ETN상품",
+      "quantity": 10,
+      "price": 120,
+      "rawDate": "2024-02-10T09:00",
+      "id": 2,
+      "stockCode": "0162Z0"
+    }
+  ]
 }
