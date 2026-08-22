@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <title>TRADING JOURNAL - 비밀번호 초기화 요청</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="TRADING JOURNAL">
+    <meta name="theme-color" content="#121212">
+    <link rel="shortcut icon" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
+    <link rel="icon" type="image/png" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
+    <style>
+        body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: linear-gradient(135deg, #121212 0%, #1a1a2e 100%); margin: 0; color: #e0e0e0; }
+        .login-container { background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 30px 20px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 260px; }
+        .logo-text { font-size: 22px; font-weight: 900; font-style: italic; background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -1px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; }
+        input[type="text"], textarea { width: 100%; box-sizing: border-box; padding: 10px; margin: 0 0 12px 0; border: 1px solid #333; border-radius: 8px; font-size: 16px; background-color: rgba(18, 18, 18, 0.8); color: #fff; transition: all 0.3s ease; font-family: inherit; }
+        input[type="text"]::placeholder, textarea::placeholder { color: #666; }
+        input[type="text"]:focus, textarea:focus { border-color: #8a2be2; outline: none; box-shadow: 0 0 0 3px rgba(138, 43, 226, 0.3); background-color: #121212; }
+        /* 메모는 여러 줄을 적는 칸이라 3줄 높이로 두고, 아이디보다 글자를 작게 한다. */
+        textarea#resetNote { font-size: 13px; line-height: 1.5; resize: vertical; min-height: 68px; }
+        button { width: 100%; padding: 10px; margin-top: 5px; background: linear-gradient(135deg, #9d4edd 0%, #7b2cbf 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); }
+        button:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(123, 44, 191, 0.5); background: linear-gradient(135deg, #b388ff 0%, #8a2be2 100%); }
+        button:disabled { opacity: 0.6; cursor: default; }
+        .guide { font-size: 12px; color: #888; line-height: 1.6; text-align: left; margin: 0 0 16px 0; }
+        #resetRequestMessage { margin-top: 14px; font-size: 12.5px; line-height: 1.5; display: none; text-align: left; }
+        .error-banner { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(39, 174, 96, 0.95); color: white; padding: 12px 24px; border-radius: 8px; box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4); font-size: 14px; font-weight: bold; z-index: 1000; animation: slideDown 0.3s ease-out forwards; }
+        @keyframes slideDown { 0% { top: -20px; opacity: 0; } 100% { top: 20px; opacity: 1; } }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo-text">TRADING JOURNAL</div>
+        <h2 style="font-size: 15px; margin: 0 0 14px 0; color: #e0e0e0;">비밀번호 초기화 요청</h2>
+        <p class="guide">
+            아이디와 <strong style="color:#b388ff;">연락받으실 메일 주소</strong>를 남기시면
+            관리자가 확인 후 임시 비밀번호를 발급해 드립니다.<br>
+            발급받은 임시 비밀번호로 로그인하면 새 비밀번호를 바로 설정하게 됩니다.
+        </p>
+        <input type="text" id="resetUsername" placeholder="아이디" autocomplete="username" autofocus>
+        <textarea id="resetNote" rows="3" placeholder="연락받으실 메일 주소와 남길 메모" maxlength="300"></textarea>
+        <button type="button" id="btnSubmitResetRequest">요청 보내기</button>
+        <div id="resetRequestMessage"></div>
+        <div style="margin-top: 15px; font-size: 13px;">
+            <a href="{{ url_for('login') }}" id="linkBackToLogin" style="color: #b388ff; text-decoration: none; font-weight: bold;">로그인 화면으로 돌아가기</a>
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const resetUsername = document.getElementById('resetUsername');
+            const resetNote = document.getElementById('resetNote');
+            const btnSubmit = document.getElementById('btnSubmitResetRequest');
+            const msg = document.getElementById('resetRequestMessage');
+
+            // 로그인 화면에서 적어 둔 아이디가 있으면 미리 채워 준다.
+            const saved = localStorage.getItem('last_username');
+            if (saved) resetUsername.value = saved;
+
+            function showMessage(text, ok) {
+                msg.style.display = 'block';
+                msg.style.color = ok ? '#7ed321' : '#ff6b6b';
+                msg.innerText = text;
+            }
+
+            async function submitRequest() {
+                const name = resetUsername.value.trim();
+                if (!name) { showMessage('아이디를 입력해주세요.', false); return; }
+
+                btnSubmit.disabled = true;
+                const original = btnSubmit.innerText;
+                btnSubmit.innerText = '보내는 중...';
+                try {
+                    const res = await fetch('/request_password_reset', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username: name, note: resetNote.value.trim() })
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok) {
+                        // ⭐️ 접수되면 안내를 띄우고 로그인 화면으로 되돌린다.
+                        const banner = document.createElement('div');
+                        banner.className = 'error-banner';
+                        banner.id = 'resetSuccessBanner';
+                        banner.innerText = '✅ ' + (data.message || '요청이 접수되었습니다.');
+                        document.body.appendChild(banner);
+                        btnSubmit.innerText = '요청 완료';
+                        setTimeout(function() {
+                            window.location.href = document.getElementById('linkBackToLogin').href;
+                        }, 1800);
+                        return;
+                    }
+                    // 실패(예: 요청 과다)면 사유를 보여주고 다시 시도할 수 있게 둔다.
+                    showMessage(data.message || '요청을 보내지 못했습니다.', false);
+                } catch (e) {
+                    showMessage('요청을 보내지 못했습니다. 잠시 후 다시 시도해주세요.', false);
+                }
+                btnSubmit.disabled = false;
+                btnSubmit.innerText = original;
+            }
+
+            btnSubmit.addEventListener('click', submitRequest);
+            // ⭐️ Enter 전송은 아이디 칸에만 건다. 메모는 여러 줄을 적는 칸이라
+            //    Enter 를 가로채면 줄바꿈을 할 수 없다.
+            resetUsername.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { e.preventDefault(); submitRequest(); }
+            });
+        });
+    </script>
+</body>
+</html>

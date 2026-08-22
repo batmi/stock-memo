@@ -16,6 +16,11 @@ def app():
     
     # 테스트 간 전역 변수(로그인 차단 상태 등)가 겹치지 않도록 초기화
     backend_app.login_attempts.clear()
+    # ⭐️ IP 레이트리밋(가입·비밀번호 재설정 요청), 계정 잠금, 세션 epoch 캐시도
+    #    모듈 전역이라 앞 테스트의 상태가 다음 테스트로 새어 들어간다.
+    backend_app._ip_attempts.clear()
+    backend_app._user_failures.clear()
+    backend_app._session_epochs.clear()
     
     # ⭐️ 실제 DB 파일 대신 임시 DB 경로를 사용하도록 덮어쓰기하여 원본 데이터를 보호합니다.
     backend_app.DB_FILE = db_path

@@ -1228,12 +1228,28 @@ async function loadDataFromLocal() {
                         const btnAdmin = document.getElementById('btnAdmin');
                         if (btnAdmin) {
                             btnAdmin.style.display = 'flex';
-                            if (meData.pending_count > 0) {
-                                btnAdmin.style.position = 'relative';
-                                btnAdmin.innerHTML += `<span class="admin-notification-badge">${meData.pending_count}</span>`;
-                                setTimeout(async () => { await customAlert(`가입 승인 대기 중인 신규 사용자가 ${meData.pending_count}명 있습니다.\n상단 어드민 메뉴에서 확인해주세요.`); }, 500);
+                            // ⭐️ 가입 승인 대기 + 비밀번호 초기화 요청을 함께 알린다.
+                            const resetCount = meData.reset_request_count || 0;
+                            const totalBadge = (meData.pending_count || 0) + resetCount;
+                            window.applyAdminBadges(totalBadge);
+                            if (totalBadge > 0) {
+                                const lines = [];
+                                if (meData.pending_count > 0) lines.push(`가입 승인 대기 중인 신규 사용자가 ${meData.pending_count}명 있습니다.`);
+                                if (resetCount > 0) lines.push(`비밀번호 초기화를 요청한 사용자가 ${resetCount}명 있습니다.`);
+                                setTimeout(async () => { await customAlert(lines.join('\n') + '\n상단 어드민 메뉴에서 확인해주세요.'); }, 500);
                             }
                         }
+                    }
+
+                    // ⭐️ 관리자가 임시 비밀번호로 초기화한 계정이면, 다른 작업 전에
+                    //    비밀번호부터 바꾸게 한다. (임시 비밀번호가 계속 유효한 채로
+                    //    남는 것을 막는다)
+                    if (meData.must_change_password) {
+                        setTimeout(async () => {
+                            await customAlert('임시 비밀번호로 로그인하셨습니다.\n보안을 위해 새 비밀번호를 설정해 주세요.');
+                            const btnPw = document.getElementById('btnChangePassword');
+                            if (btnPw) btnPw.click();
+                        }, 300);
                     }
                 }
             } catch(e) { console.warn("사용자 정보 파싱 실패", e); }
@@ -2208,6 +2224,8 @@ window.loadAdminUsers = async function() {
         if (!res.ok) throw new Error("권한이 없습니다.");
         adminUsersData = await res.json();
         renderAdminUsers();
+        // 목록을 새로 받을 때마다 '남은 할 일' 기준으로 배지를 다시 계산한다.
+        window.refreshAdminBadges();
     } catch(e) {
         adminUserList.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color: var(--danger-color);">데이터를 불러오지 못했습니다.</td></tr>';
     }
@@ -2290,18 +2308,37 @@ window.renderAdminUsers = function() {
             const allowBtnBg = isAllowed ? 'var(--neutral-color)' : 'var(--success-color)';
             const createdStr = u.created_at || '-';
             const lastLoginStr = u.last_login_at || '-';
-            
+
+            // ⭐️ 로그인 화면에서 접수된 비밀번호 재설정 요청을 한눈에 보이게 한다.
+            const hasReset = !!u.reset_requested_at;
+            const resetBadge = hasReset
+                ? `<span style="margin-left: 6px; font-size: 10px; background: var(--warning-color); color: #fff; padding: 1px 5px; border-radius: 3px; white-space: nowrap;">🔑 초기화 요청${u.reset_request_count > 1 ? ' ×' + u.reset_request_count : ''}</span>`
+                : '';
+            // ⭐️ 사용자가 남긴 메모는 툴팁으로만 두면 아무도 보지 못한다. 표에 펼쳐 보여준다.
+            const resetDetail = hasReset
+                ? `<div style="margin-top: 4px; font-weight: normal; font-size: 11px; color: var(--text-muted-color); line-height: 1.4; white-space: normal;">`
+                  + `<span style="color: var(--warning-color);">요청 ${escapeHtml(u.reset_requested_at)}</span>`
+                  + (u.reset_note ? `<br>💬 ${escapeHtml(u.reset_note)}` : '<br><span style="opacity:.7;">(남긴 메모 없음)</span>')
+                  + `</div>`
+                : '';
+            // 임시 비밀번호를 아직 안 바꾼 계정도 표시한다.
+            const mustChangeBadge = u.must_change_password
+                ? `<span title="임시 비밀번호 상태 — 다음 로그인에서 변경이 강제됩니다" style="margin-left: 6px; font-size: 10px; background: var(--neutral-color); color: #fff; padding: 1px 5px; border-radius: 3px;">임시 비번</span>`
+                : '';
+
             const tr = document.createElement('tr');
             tr.style.borderBottom = '1px solid var(--border-light-color)';
+            if (hasReset) tr.style.background = 'rgba(243, 156, 18, 0.08)';
             tr.innerHTML = `
-                <td style="padding: 10px; font-weight: bold; color: var(--text-strong-color); white-space: nowrap;">${u.username}</td>
+                <td style="padding: 10px; font-weight: bold; color: var(--text-strong-color); word-break: break-all; min-width: 140px;">${escapeHtml(u.username)}${resetBadge}${mustChangeBadge}${resetDetail}</td>
                 <td style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${createdStr}</td>
                 <td style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${lastLoginStr}</td>
                 <td style="padding: 10px; white-space: nowrap;">${u.entry_count}건</td>
                 <td style="padding: 10px; text-align: right; white-space: nowrap;">
-                    <button onclick="toggleUserAllow('${u.username}')" style="background: ${allowBtnBg}; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0 4px 0 0; box-shadow: none;">${allowBtnText}</button>
-                    <button onclick="resetUserPassword('${u.username}')" style="background: var(--warning-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0 4px 0 0; box-shadow: none;">비번 초기화</button>
-                    <button onclick="deleteUserAccount('${u.username}')" style="background: var(--danger-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0; box-shadow: none;">삭제</button>
+                    <button onclick="toggleUserAllow('${escapeJsInAttr(u.username)}')" style="background: ${allowBtnBg}; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0 4px 0 0; box-shadow: none;">${allowBtnText}</button>
+                    <button onclick="resetUserPassword('${escapeJsInAttr(u.username)}')" style="background: var(--warning-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0 4px 0 0; box-shadow: none;">비번 초기화</button>
+                    ${hasReset ? `<button onclick="dismissResetRequest('${escapeJsInAttr(u.username)}')" title="비밀번호를 바꾸지 않고 요청만 내립니다" style="background: var(--neutral-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0 4px 0 0; box-shadow: none;">요청 해제</button>` : ''}
+                    <button onclick="deleteUserAccount('${escapeJsInAttr(u.username)}')" style="background: var(--danger-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0; box-shadow: none;">삭제</button>
                 </td>
             `;
             adminUserList.appendChild(tr);
@@ -2311,6 +2348,48 @@ window.renderAdminUsers = function() {
         tr.innerHTML = '<td colspan="5" style="padding: 20px; text-align: center; color: var(--text-muted-color);">가입한 일반 사용자가 없습니다.</td>';
         adminUserList.appendChild(tr);
     }
+};
+
+// ⭐️ 관리자 알림 배지(가입 승인 대기 + 비밀번호 초기화 요청)를 화면에 반영한다.
+//    M 버튼과 톱니바퀴(⚙️) 두 곳에 같은 값을 붙이고, 0 이면 양쪽 모두 지운다.
+//    (접힌 상태에서는 M 이 보이지 않고, 펼친 상태에서는 톱니바퀴가 사라지기 때문)
+window.applyAdminBadges = function(count) {
+    const btnAdmin = document.getElementById('btnAdmin');
+    const group = document.querySelector('.header-action-group');
+
+    [btnAdmin, group].forEach(host => {
+        if (!host) return;
+        const existing = host.querySelector(':scope > .admin-notification-badge');
+        if (!count) { if (existing) existing.remove(); return; }
+        host.style.position = 'relative';
+        if (existing) { existing.innerText = count; return; }
+        const badge = document.createElement('span');
+        badge.className = 'admin-notification-badge';
+        badge.innerText = count;
+        host.appendChild(badge);
+    });
+};
+
+// ⭐️ 처리해야 할 일이 남았는지 서버에 다시 물어 배지를 갱신한다.
+//    승인/초기화/요청 해제/삭제 후 호출해, 할 일이 없어지면 배지가 저절로 사라진다.
+window.refreshAdminBadges = async function() {
+    try {
+        const res = await fetch('/api/me');
+        if (!res.ok) return;
+        const me = await res.json();
+        if (!me.is_admin) { window.applyAdminBadges(0); return; }
+        window.applyAdminBadges((me.pending_count || 0) + (me.reset_request_count || 0));
+    } catch (e) { /* 배지 갱신 실패는 조용히 넘긴다 */ }
+};
+
+// ⭐️ 비밀번호를 바꾸지 않고 요청만 내린다 (본인이 다시 기억해낸 경우 등).
+window.dismissResetRequest = async function(username) {
+    if (!await customConfirm(`'${username}' 의 비밀번호 초기화 요청을 해제할까요?\n(비밀번호는 바뀌지 않습니다)`)) return;
+    try {
+        const res = await fetch(`/api/admin/password_resets/${encodeURIComponent(username)}`, { method: 'DELETE' });
+        if (res.ok) { loadAdminUsers(); }
+        else { await customAlert('요청 해제에 실패했습니다.'); }
+    } catch(e) { await customAlert('통신 오류가 발생했습니다.'); }
 };
 
 window.toggleUserAllow = async function(username) {
@@ -2331,7 +2410,9 @@ window.resetUserPassword = async function(username) {
             const res = await fetch(`/api/admin/users/${username}/reset_password`, { method: 'POST'});
             if (res.ok) {
                 const data = await res.json();
-                await customAlert(`'${username}' 계정의 비밀번호가 [ ${data.new_password} ] 로 초기화되었습니다.\n사용자에게 이 임시 비밀번호를 전달해 주세요.`);
+                await customAlert(`'${username}' 계정의 비밀번호가 [ ${data.new_password} ] 로 초기화되었습니다.\n사용자에게 이 임시 비밀번호를 전달해 주세요.\n\n다른 기기의 로그인은 모두 해제되었으며, 이 사용자는 다음 로그인에서 새 비밀번호를 설정하게 됩니다.`);
+                // ⭐️ 처리한 요청이 목록·배지에서 바로 사라지도록 다시 불러온다.
+                loadAdminUsers();
             } else {
                 await customAlert("초기화에 실패했습니다.");
             }
@@ -6375,12 +6456,18 @@ if (btnChangePassword && passwordModalOverlay) {
                 headers: { 
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ current_password, new_password })
+                body: JSON.stringify({
+                    current_password, new_password,
+                    revoke_api_keys: !!(document.getElementById('revokeApiKeysOnChange') || {}).checked
+                })
             });
             
             const data = await res.json();
             if (res.ok && data.status === 'success') {
-                await customAlert("비밀번호가 성공적으로 변경되었습니다.\n새로운 비밀번호로 다시 로그인해주세요.");
+                let extra = '';
+                if (data.api_keys_revoked) extra = `\nAPI 키 ${data.api_keys_revoked}개를 폐기했습니다.`;
+                else if (data.api_keys_remaining) extra = `\n※ API 키 ${data.api_keys_remaining}개는 그대로 유효합니다. 유출이 의심되면 HTS 연동 메뉴에서 폐기하세요.`;
+                await customAlert("비밀번호가 성공적으로 변경되었습니다.\n다른 기기의 로그인은 모두 해제되었습니다." + extra + "\n\n새로운 비밀번호로 다시 로그인해주세요.");
                 window.location.href = '/logout'; // 로그아웃 처리하여 새 비번으로 로그인 유도
             } else {
                 submitBtn.innerText = origText;

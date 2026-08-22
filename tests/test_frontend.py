@@ -337,3 +337,116 @@ def test_account_list_escapes_quotes_and_html(page: Page, cleanup_admin_mappings
     expect(page.locator('#newAccountFormContainer')).to_be_visible()
     expect(page.locator('#unifiedAccountCode')).to_have_value('12345678-01')
     expect(page.locator('#unifiedAccountName')).to_have_value(tricky_alias)
+
+
+def test_gear_button_shows_badge_when_admin_has_notifications(page: Page):
+    """관리자(M) 버튼에 배지가 생기면 접혀 있는 톱니바퀴에도 배지가 보여야 한다.
+
+    설정 메뉴가 접힌 상태에서는 M 버튼이 숨어 있어, 배지가 M 에만 붙으면
+    알림이 있는지 알 수 없다.
+    """
+    # 승인 대기 사용자를 만들어 관리자에게 알림이 생기게 한다
+    page.goto(BASE_URL + '/signup')
+    page.fill('input[name="username"]', 'pendinguser')
+    page.fill('input[name="password"]', 'Passw0rd!')
+    page.fill('input[name="password_confirm"]', 'Passw0rd!')
+    page.click('button[type="submit"]')
+    page.wait_for_url('**/login')
+
+    page.fill('input[name="username"]', 'admin')
+    page.fill('input[name="password"]', 'admin123')
+    page.click('button[type="submit"]')
+    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+
+    gear_badge = page.locator('.header-action-group > .admin-notification-badge')
+    expect(gear_badge).to_be_visible(timeout=5000)
+    expect(gear_badge).to_have_text('1')
+
+    # 메뉴를 펼치면 M 버튼의 배지가 대신 보이므로 톱니바퀴 배지는 숨는다
+    page.click('.header-action-icon')
+    expect(gear_badge).to_be_hidden()
+    expect(page.locator('#btnAdmin .admin-notification-badge')).to_be_visible()
+
+
+def test_login_page_links_to_reset_request_page(page: Page):
+    """로그인 화면의 '초기화 요청'은 가입하기처럼 별도 페이지로 이동한다."""
+    page.goto(BASE_URL + '/login')
+    page.click('a:has-text("초기화 요청")')
+    page.wait_for_url('**/request_password_reset')
+
+    # 요청 화면에는 로그인 입력칸이 없어야 한다 (화면이 섞이지 않게 분리)
+    expect(page.locator('#resetUsername')).to_be_visible()
+    expect(page.locator('input[name="password"]')).to_have_count(0)
+    expect(page.locator('button:has-text("접속하기")')).to_have_count(0)
+
+
+def test_reset_request_submits_and_returns_to_login(page: Page):
+    """요청을 보내면 안내가 뜨고 로그인 화면으로 되돌아간다."""
+    page.goto(BASE_URL + '/request_password_reset')
+    page.fill('#resetUsername', 'admin')
+    page.fill('#resetNote', '비밀번호를 잊었습니다')
+    page.click('#btnSubmitResetRequest')
+
+    expect(page.locator('#resetSuccessBanner')).to_be_visible(timeout=5000)
+    expect(page.locator('#resetSuccessBanner')).to_contain_text('접수')
+
+    # 잠시 뒤 로그인 화면으로 복귀 → 아이디/비밀번호 입력칸이 다시 보인다
+    page.wait_for_url('**/login', timeout=8000)
+    expect(page.locator('input[name="username"]')).to_be_visible()
+    expect(page.locator('input[name="password"]')).to_be_visible()
+
+
+def test_reset_request_response_is_same_for_unknown_account(page: Page):
+    """없는 계정으로 요청해도 같은 문구가 나와야 한다 (계정 존재 여부 은닉)."""
+    page.goto(BASE_URL + '/request_password_reset')
+    page.fill('#resetUsername', 'no_such_user_here')
+    page.click('#btnSubmitResetRequest')
+    expect(page.locator('#resetSuccessBanner')).to_contain_text('접수', timeout=5000)
+
+
+def test_admin_table_has_no_horizontal_scroll(page: Page):
+    """관리자 표가 가로 스크롤 없이 들어가야 한다.
+
+    '요청 해제' 버튼이 늘면서 관리 열이 잘려 스크롤바가 생겼었다.
+    긴 아이디(32자)와 요청 횟수 배지까지 붙은 최악 조건으로 검증한다.
+    """
+    long_name = 'z' * 32
+    page.goto(BASE_URL + '/signup')
+    page.fill('input[name="username"]', long_name)
+    page.fill('input[name="password"]', 'Passw0rd!')
+    page.fill('input[name="password_confirm"]', 'Passw0rd!')
+    page.click('button[type="submit"]')
+    page.wait_for_url('**/login')
+
+    # 초기화 요청을 여러 번 넣어 '×N' 배지까지 붙인 상태로 만든다
+    for _ in range(3):
+        page.request.post(BASE_URL + '/request_password_reset',
+                          data={'username': long_name})
+
+    page.fill('input[name="username"]', 'admin')
+    page.fill('input[name="password"]', 'admin123')
+    page.click('button[type="submit"]')
+    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+
+    page.click('.header-action-icon')
+    page.click('#btnAdmin')
+    page.wait_for_function(
+        "() => document.querySelectorAll('#adminUserList tr').length >= 2"
+        " && document.querySelector('#adminUserList tr').children.length >= 5")
+
+    metrics = page.evaluate("""() => {
+        const box = document.querySelector('#adminUserList').closest('div');
+        const table = document.querySelector('#adminUserList').closest('table');
+        return { scrollWidth: table.scrollWidth, clientWidth: box.clientWidth };
+    }""")
+    assert metrics['scrollWidth'] <= metrics['clientWidth'], (
+        f"가로 스크롤 발생: 표 {metrics['scrollWidth']}px > 보이는 폭 {metrics['clientWidth']}px")
+
+    # 관리 열의 버튼이 잘리지 않고 모두 보여야 한다
+    # (미승인 계정이라 승인 토글은 '허용'으로 뜬다)
+    row = page.locator(f'#adminUserList tr:has-text("{long_name}")')
+    for label in ('허용', '비번 초기화', '요청 해제', '삭제'):
+        expect(row.locator(f'button:has-text("{label}")')).to_be_visible()
+
+    # 사용자가 남긴 메모가 표에 실제로 보여야 한다 (툴팁으로만 두면 아무도 못 본다)
+    expect(row).to_contain_text('요청')

@@ -422,6 +422,17 @@ button:hover {
     display: flex;
     align-items: center;
     height: 22px;
+    /* ⭐️ 접힌 상태에서는 관리자(M) 버튼이 숨어 있어 그 배지가 보이지 않는다.
+       톱니바퀴에도 같은 배지를 띄우기 위한 기준점. */
+    position: relative;
+}
+/* 톱니바퀴 위의 알림 배지 — 메뉴를 펼치면 M 버튼의 배지가 대신 보이므로 숨긴다. */
+.header-action-group > .admin-notification-badge {
+    top: -5px;
+    right: -5px;
+}
+.header-action-group.active > .admin-notification-badge {
+    display: none;
 }
 .header-action-icon {
     cursor: pointer;
@@ -472,6 +483,9 @@ button:hover {
     opacity: 1;
     gap: 6px;
     margin-left: 0;
+    /* ⭐️ 접힘 애니메이션 때문에 overflow:hidden 이 걸려 있어, 펼친 뒤에도 M 버튼의
+       알림 배지(top/right 가 음수)가 잘려 보이지 않았다. 펼친 상태에서만 푼다. */
+    overflow: visible;
 }
 .header-action-buttons .header-action-btn {
     flex-shrink: 0; /* 확장되는 동안 버튼이 찌그러지는 현상 방지 */

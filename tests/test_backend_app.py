@@ -6,6 +6,7 @@ import json
 import os
 import backend_app
 import entry_logic
+import trading_api
 from unittest.mock import patch, MagicMock
 
 def test_home_page_redirects_without_auth(client):
@@ -22,7 +23,7 @@ def test_home_page_status_with_auth(client):
     세션을 조작하여 로그인한 상태를 만든 후 메인 페이지(/) 접속 시 
     정상적으로 페이지(200)가 로드되는지 테스트합니다.
     """
-    client.post('/signup', data={'username': 'admin', 'password': 'pw', 'password_confirm': 'pw'})
+    client.post('/signup', data={'username': 'admin', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -133,8 +134,8 @@ def test_login_process(client):
     # 1. 첫 가입 (최고 관리자가 됨)
     client.post('/signup', data={
         'username': 'admin',
-        'password': 'adminpassword',
-        'password_confirm': 'adminpassword'
+        'password': 'Adminpassw0rd!',
+        'password_confirm': 'Adminpassw0rd!'
     })
 
     # 1. 비밀번호를 틀렸을 경우
@@ -147,7 +148,7 @@ def test_login_process(client):
     # 2. 정상 로그인 시도
     response_success = client.post('/login', data={
         'username': 'admin',
-        'password': 'adminpassword'
+        'password': 'Adminpassw0rd!'
     })
     assert response_success.status_code == 302
     assert response_success.location == '/'
@@ -190,7 +191,7 @@ def test_preferences_api(client):
     """
     사용자별 환경 설정(Preferences) 저장 및 조회가 잘 되는지 테스트합니다.
     """
-    client.post('/signup', data={'username': 'admin', 'password': 'pw', 'password_confirm': 'pw'})
+    client.post('/signup', data={'username': 'admin', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
@@ -283,29 +284,29 @@ def test_login_lockout(client):
     """
     비밀번호 5회 이상 오입력 시 IP가 차단되는지 테스트합니다.
     """
-    client.post('/signup', data={'username': 'admin', 'password': 'pw', 'password_confirm': 'pw'})
+    client.post('/signup', data={'username': 'admin', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
     for _ in range(5):
-        res = client.post('/login', data={'username': 'admin', 'password': 'wrong_password'})
+        res = client.post('/login', data={'username': 'admin', 'password': 'WrongPassw0rd!'})
     
     # 6번째 시도 시 차단 메시지 확인
-    res = client.post('/login', data={'username': 'admin', 'password': 'wrong_password'})
+    res = client.post('/login', data={'username': 'admin', 'password': 'WrongPassw0rd!'})
     assert '차단' in res.get_data(as_text=True)
 
 def test_unallowed_user_login(client):
     """
     관리자 승인이 안 된(is_allowed=0) 계정의 로그인 차단 테스트입니다.
     """
-    client.post('/signup', data={'username': 'admin', 'password': 'pw', 'password_confirm': 'pw'})
-    client.post('/signup', data={'username': 'wait_user', 'password': 'pw1', 'password_confirm': 'pw1'})
-    res = client.post('/login', data={'username': 'wait_user', 'password': 'pw1'})
+    client.post('/signup', data={'username': 'admin', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
+    client.post('/signup', data={'username': 'wait_user', 'password': 'Passw0rd1!', 'password_confirm': 'Passw0rd1!'})
+    res = client.post('/login', data={'username': 'wait_user', 'password': 'Passw0rd1!'})
     assert '승인이 필요' in res.get_data(as_text=True)
 
 def test_admin_edge_cases(client):
     """
     관리자 기능의 각종 예외 상황(최고 관리자 삭제/변경 방지 등)을 테스트합니다.
     """
-    client.post('/signup', data={'username': 'admin', 'password': 'pw', 'password_confirm': 'pw'})
-    client.post('/signup', data={'username': 'user2', 'password': 'pw', 'password_confirm': 'pw'})
+    client.post('/signup', data={'username': 'admin', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
+    client.post('/signup', data={'username': 'user2', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
     
     with client.session_transaction() as sess:
         sess['logged_in'] = True
@@ -338,7 +339,7 @@ def test_account_deletion_and_change_pw(client):
     """
     회원 탈퇴 및 비밀번호 변경 시 예외(비밀번호 오입력 등) 케이스를 테스트합니다.
     """
-    client.post('/signup', data={'username': 'normal', 'password': 'pw1', 'password_confirm': 'pw1'})
+    client.post('/signup', data={'username': 'normal', 'password': 'Passw0rd1!', 'password_confirm': 'Passw0rd1!'})
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
@@ -353,7 +354,7 @@ def test_account_deletion_and_change_pw(client):
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     # 1. 비밀번호 변경 - 현재 비밀번호 오입력
-    res = client.post('/api/change_password', json={'current_password': 'pw2', 'new_password': 'pw3'})
+    res = client.post('/api/change_password', json={'current_password': 'Nope0rd!x', 'new_password': 'Brand0New!'})
     assert res.status_code == 400
     
     # 2. 회원 탈퇴 - 비밀번호 오입력
@@ -361,7 +362,7 @@ def test_account_deletion_and_change_pw(client):
     assert res.status_code == 400
     
     # 3. 회원 탈퇴 - 정상
-    res = client.delete('/api/account', json={'password': 'pw1'})
+    res = client.delete('/api/account', json={'password': 'Passw0rd1!'})
     assert res.status_code == 200
     
     # 4. 최고 관리자 탈퇴 시도 방어
@@ -370,7 +371,7 @@ def test_account_deletion_and_change_pw(client):
         sess['username'] = 'admin'
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
-    res = client.delete('/api/account', json={'password': 'pw'})
+    res = client.delete('/api/account', json={'password': 'Passw0rd!'})
     assert res.status_code == 403
 
 def test_restore_exceptions(client):
@@ -535,7 +536,7 @@ def test_json_migration(app, client):
     with app.app_context():
         backend_app.init_db()
         
-    client.post('/signup', data={'username': 'admin_mig', 'password': 'pw', 'password_confirm': 'pw'})
+    client.post('/signup', data={'username': 'admin_mig', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
     
     with app.app_context():
         conn = backend_app.get_db()
@@ -559,7 +560,7 @@ def test_signup_edge_cases(client):
     res1 = client.post('/signup', data={'username': '', 'password': ''})
     assert '모두 입력해주세요' in res1.get_data(as_text=True)
     
-    res2 = client.post('/signup', data={'username': 'testuser', 'password': 'pw1', 'password_confirm': 'pw2'})
+    res2 = client.post('/signup', data={'username': 'testuser', 'password': 'Passw0rd1!', 'password_confirm': 'Passw0rd2!'})
     assert '일치하지 않습니다' in res2.get_data(as_text=True)
 
 def test_preferences_edge_cases(client):
@@ -738,7 +739,7 @@ def test_auto_backup_job(mock_sleep, client, app, tmp_path, monkeypatch):
     monkeypatch.setattr(backend_app, 'BACKUP_DIR', str(tmp_path / 'backup'))
 
     # 1. 테스트 유저 및 매매 기록 생성
-    client.post('/signup', data={'username': 'autobackupuser', 'password': 'pw', 'password_confirm': 'pw'})
+    client.post('/signup', data={'username': 'autobackupuser', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'autobackupuser'
@@ -1396,3 +1397,493 @@ def test_response_above_cap_is_not_compressed(client, monkeypatch):
 
     res = client.get('/api/data', headers={'Accept-Encoding': 'gzip'})
     assert res.headers.get('Content-Encoding') is None
+
+
+# ══════════════════════════════════════════════════════════════
+# 보안: 사용자명 검증 (경로 탈출 차단)
+# ══════════════════════════════════════════════════════════════
+def test_is_valid_username_rules():
+    ok = ['batmi', 'user_1', 'user.name', 'a1b', 'A' * 32]
+    bad = ['ab', '', None, '../../etc', 'a/b', 'a\\b', 'a..b', '한글이름',
+           'A' * 33, '_lead', '.lead', '-lead', 'has space', 'null\x00byte']
+    for n in ok:
+        assert backend_app.is_valid_username(n) is True, n
+    for n in bad:
+        assert backend_app.is_valid_username(n) is False, n
+
+
+def test_signup_rejects_path_traversal_username(client):
+    """'../../../tmp/x' 로 가입하면 안 된다 — 사용자명이 파일 경로에 그대로 쓰인다."""
+    res = client.post('/signup', data={
+        'username': '../../../tmp/pwned',
+        'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
+    assert '아이디는' in res.get_data(as_text=True)
+    with backend_app.db_conn() as conn:
+        rows = conn.execute("SELECT username FROM users").fetchall()
+    assert rows == []
+
+
+def test_user_dir_blocks_escape(tmp_path):
+    """경로 조합 헬퍼가 상위 탈출을 막고 None 을 돌려준다."""
+    base = str(tmp_path)
+    assert backend_app.user_dir(base, 'batmi') == os.path.join(base, 'batmi')
+    assert backend_app.user_dir(base, '../../etc') is None
+    assert backend_app.user_dir(base, 'a/b') is None
+    assert backend_app.user_dir(base, '') is None
+
+
+def test_backup_job_skips_unsafe_username(client, tmp_path, monkeypatch):
+    """규칙 이전에 만들어진 이상한 이름의 계정은 백업 잡이 파일을 건드리지 않는다."""
+    monkeypatch.setattr(backend_app, 'BACKUP_DIR', str(tmp_path / 'backup'))
+    # 검증을 우회해 DB 에 직접 심는다 (레거시 데이터 상황 재현)
+    with backend_app.db_conn() as conn:
+        conn.execute("INSERT INTO users (username, password_hash, is_allowed) "
+                     "VALUES ('../../../evil', 'x', 1)")
+        conn.commit()
+
+    outside = tmp_path / 'evil'
+    outside.mkdir(parents=True, exist_ok=True)
+    victim = outside / 'important.txt'
+    victim.write_text('건드리면 안 됨')
+    old = time.time() - 30 * 86400
+    os.utime(victim, (old, old))   # 7일보다 오래됨 → 예전 코드면 지워졌다
+
+    calls = [0]
+    def side_effect(*a):
+        calls[0] += 1
+        if calls[0] > 1:
+            raise RuntimeError('Break Loop')
+    with patch('time.sleep', side_effect=side_effect):
+        with backend_app.app.app_context():
+            try:
+                backend_app.auto_backup_job()
+            except RuntimeError:
+                pass
+
+    assert victim.exists(), '경로 탈출로 서버 파일이 삭제됐다'
+
+
+# ══════════════════════════════════════════════════════════════
+# 보안: 비밀번호 정책
+# ══════════════════════════════════════════════════════════════
+def test_validate_password_rules():
+    assert backend_app.validate_password('Passw0rd!') is None
+    assert backend_app.validate_password('abcd1234') is None          # 소문자+숫자
+    assert '8자' in backend_app.validate_password('Ab1!')             # 너무 짧음
+    assert '두 종류' in backend_app.validate_password('abcdefghij')   # 소문자만
+    assert '너무 깁니다' in backend_app.validate_password('Ab1' + 'x' * 300)
+    assert '아이디와' in backend_app.validate_password('Testuser1', 'testuser1')
+
+
+def test_signup_rejects_weak_password(client):
+    res = client.post('/signup', data={
+        'username': 'weakuser', 'password': '1234', 'password_confirm': '1234'})
+    assert '8자 이상' in res.get_data(as_text=True)
+    with backend_app.db_conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+
+
+def test_change_password_enforces_policy(client):
+    client.post('/signup', data={'username': 'polic', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'polic'
+        sess['expires_at'] = time.time() + 3600
+
+    res = client.post('/api/change_password',
+                      json={'current_password': 'Passw0rd!', 'new_password': 'abc'})
+    assert res.status_code == 400 and '8자 이상' in res.get_json()['error']
+
+    res = client.post('/api/change_password',
+                      json={'current_password': 'Passw0rd!', 'new_password': 'Passw0rd!'})
+    assert res.status_code == 400 and '같습니다' in res.get_json()['error']
+
+
+def test_signup_is_rate_limited(client):
+    """가입 시도를 IP 당 시간 제한한다 (계정 대량 생성 방지)."""
+    made = 0
+    for i in range(backend_app.SIGNUP_MAX_PER_HOUR + 2):
+        res = client.post('/signup', data={
+            'username': f'ratelimit{i}', 'password': 'Passw0rd!',
+            'password_confirm': 'Passw0rd!'})
+        if '너무 잦' in res.get_data(as_text=True):
+            break
+        made += 1
+    assert made == backend_app.SIGNUP_MAX_PER_HOUR
+
+
+# ══════════════════════════════════════════════════════════════
+# 보안: 비밀번호 변경 시 세션 무효화
+# ══════════════════════════════════════════════════════════════
+def _signup_and_login(client, username, password):
+    client.post('/signup', data={'username': username, 'password': password,
+                                 'password_confirm': password})
+    with backend_app.db_conn() as conn:
+        conn.execute("UPDATE users SET is_allowed = 1 WHERE username = ?", (username,))
+        conn.commit()
+    return client.post('/login', data={'username': username, 'password': password})
+
+
+def test_password_change_invalidates_other_sessions(app, client):
+    """다른 기기(다른 클라이언트)의 세션이 비밀번호 변경 즉시 끊긴다."""
+    _signup_and_login(client, 'sessuser', 'Passw0rd!')
+
+    attacker = app.test_client()
+    attacker.post('/login', data={'username': 'sessuser', 'password': 'Passw0rd!'})
+    assert attacker.get('/api/data').status_code == 200   # 아직 유효
+
+    res = client.post('/api/change_password',
+                      json={'current_password': 'Passw0rd!', 'new_password': 'Br4ndNew!'})
+    assert res.status_code == 200
+    assert res.get_json()['sessions_invalidated'] is True
+
+    # 침입자 세션은 끊기고, 비밀번호를 바꾼 본인 세션은 유지된다
+    assert attacker.get('/api/data').status_code == 401
+    assert client.get('/api/data').status_code == 200
+
+
+def test_password_change_can_revoke_api_keys(client):
+    _signup_and_login(client, 'keyuser', 'Passw0rd!')
+    trading_api.create_api_key('keyuser')
+
+    res = client.post('/api/change_password',
+                      json={'current_password': 'Passw0rd!', 'new_password': 'Br4ndNew!'})
+    # 기본값은 유지 — 봇이 조용히 멈추지 않도록
+    assert res.get_json()['api_keys_revoked'] == 0
+    assert res.get_json()['api_keys_remaining'] == 1
+
+    res = client.post('/api/change_password',
+                      json={'current_password': 'Br4ndNew!', 'new_password': 'Th1rdOne!',
+                            'revoke_api_keys': True})
+    assert res.get_json()['api_keys_revoked'] == 1
+    assert res.get_json()['api_keys_remaining'] == 0
+
+
+# ══════════════════════════════════════════════════════════════
+# 보안: 계정 단위 로그인 잠금
+# ══════════════════════════════════════════════════════════════
+def test_account_lockout_after_repeated_failures(app, client):
+    """IP 를 바꿔도 계정 단위로 잠긴다."""
+    client.post('/signup', data={'username': 'lockme', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    for i in range(backend_app.USER_LOCKOUT_THRESHOLD):
+        c = app.test_client()   # 매번 다른 세션
+        c.post('/login', data={'username': 'lockme', 'password': 'Wr0ngPass!'},
+               environ_overrides={'REMOTE_ADDR': f'10.0.0.{i + 1}'})
+
+    fresh = app.test_client()
+    res = fresh.post('/login', data={'username': 'lockme', 'password': 'Passw0rd!'},
+                     environ_overrides={'REMOTE_ADDR': '10.9.9.9'})
+    assert '잠겨 있습니다' in res.get_data(as_text=True)
+
+
+# ══════════════════════════════════════════════════════════════
+# 보안: 관리자 임시 비밀번호
+# ══════════════════════════════════════════════════════════════
+def test_admin_reset_issues_strong_temp_password(client):
+    client.post('/signup', data={'username': 'adminx', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    client.post('/signup', data={'username': 'victim', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'adminx'
+        sess['is_admin'] = True
+        sess['expires_at'] = time.time() + 3600
+
+    res = client.post('/api/admin/users/victim/reset_password')
+    assert res.status_code == 200
+    temp = res.get_json()['new_password']
+    assert len(temp) == 12                      # 예전 uuid4[:8] 대비 강화
+    assert not set(temp) & set('0O1lI')         # 혼동 문자 제외
+
+    with backend_app.db_conn() as conn:
+        row = conn.execute("SELECT must_change_password FROM users WHERE username='victim'").fetchone()
+    assert row['must_change_password'] == 1     # 다음 로그인에서 변경 강제
+
+
+def test_generate_temp_password_is_random():
+    a = backend_app.generate_temp_password()
+    b = backend_app.generate_temp_password()
+    assert a != b and len(a) == 12
+
+
+# ══════════════════════════════════════════════════════════════
+# 기능: 비밀번호 재설정 요청 (로그인 화면 → 관리자)
+# ══════════════════════════════════════════════════════════════
+def test_reset_request_is_public_and_recorded(client):
+    client.post('/signup', data={'username': 'forgetful', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    # 로그인하지 않은 상태에서 호출 가능해야 한다
+    res = client.post('/request_password_reset',
+                      json={'username': 'forgetful', 'note': '휴대폰 바꿨어요'})
+    assert res.status_code == 200
+    with backend_app.db_conn() as conn:
+        row = conn.execute("SELECT * FROM password_reset_requests").fetchone()
+    assert row['username'] == 'forgetful'
+    assert row['note'] == '휴대폰 바꿨어요'
+
+
+def test_reset_request_hides_account_existence(client):
+    """없는 계정이어도 응답이 같아야 한다 (계정 존재 여부 탐색 방지)."""
+    client.post('/signup', data={'username': 'realuser', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    a = client.post('/request_password_reset', json={'username': 'realuser'})
+    b = client.post('/request_password_reset', json={'username': 'ghostuser'})
+    assert a.status_code == b.status_code == 200
+    assert a.get_json() == b.get_json()
+    with backend_app.db_conn() as conn:
+        names = [r['username'] for r in conn.execute(
+            "SELECT username FROM password_reset_requests").fetchall()]
+    assert names == ['realuser']   # 없는 계정은 요청함에 쌓이지 않는다
+
+
+def test_reset_request_is_deduplicated_and_counted(client):
+    client.post('/signup', data={'username': 'again', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    for _ in range(3):
+        client.post('/request_password_reset', json={'username': 'again'})
+    with backend_app.db_conn() as conn:
+        rows = conn.execute("SELECT * FROM password_reset_requests").fetchall()
+    assert len(rows) == 1 and rows[0]['request_count'] == 3
+
+
+def test_reset_request_is_rate_limited(client):
+    client.post('/signup', data={'username': 'spamtarget', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    codes = [client.post('/request_password_reset', json={'username': 'spamtarget'}).status_code
+             for _ in range(backend_app.RESET_REQUEST_MAX_PER_HOUR + 2)]
+    assert 429 in codes
+
+
+def test_admin_sees_reset_requests_and_reset_clears_them(client):
+    client.post('/signup', data={'username': 'adminy', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    client.post('/signup', data={'username': 'lostpw', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    client.post('/request_password_reset', json={'username': 'lostpw', 'note': '메모'})
+
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'adminy'
+        sess['is_admin'] = True
+        sess['expires_at'] = time.time() + 3600
+
+    users = {u['username']: u for u in client.get('/api/admin/users').get_json()}
+    assert users['lostpw']['reset_requested_at'] is not None
+    assert users['lostpw']['reset_note'] == '메모'
+    assert client.get('/api/me').get_json()['reset_request_count'] == 1
+
+    client.post('/api/admin/users/lostpw/reset_password')
+    with backend_app.db_conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM password_reset_requests").fetchone()[0] == 0
+
+
+def test_admin_can_dismiss_reset_request_without_reset(client):
+    client.post('/signup', data={'username': 'adminz', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    client.post('/signup', data={'username': 'mistake', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    client.post('/request_password_reset', json={'username': 'mistake'})
+
+    with backend_app.db_conn() as conn:
+        before = conn.execute(
+            "SELECT password_hash FROM users WHERE username='mistake'").fetchone()['password_hash']
+
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'adminz'
+        sess['is_admin'] = True
+        sess['expires_at'] = time.time() + 3600
+
+    assert client.delete('/api/admin/password_resets/mistake').status_code == 200
+    with backend_app.db_conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM password_reset_requests").fetchone()[0] == 0
+        after = conn.execute(
+            "SELECT password_hash FROM users WHERE username='mistake'").fetchone()['password_hash']
+    assert before == after   # 비밀번호는 그대로
+
+
+def test_reset_request_requires_no_login_but_admin_list_does(client):
+    """요청은 공개, 조회/해제는 관리자 전용."""
+    assert client.post('/request_password_reset', json={'username': 'x'}).status_code == 200
+    assert client.get('/api/admin/users').status_code == 401
+    assert client.delete('/api/admin/password_resets/x').status_code == 401
+
+
+# ══════════════════════════════════════════════════════════════
+# 복원: 다른 계정의 기록과 id 가 겹쳐도 실패하지 않는다
+# ══════════════════════════════════════════════════════════════
+def test_restore_survives_id_collision_with_other_user(client):
+    """entries.id 는 전역 PK 라 다른 계정의 id 와 겹치면 복원이 통째로 실패했다.
+
+    (예: test 계정으로 batmi 의 백업을 복원 → UNIQUE constraint failed: entries.id)
+    """
+    # 다른 사용자가 id 1000, 1001 을 이미 쓰고 있다
+    with backend_app.db_conn() as conn:
+        c = conn.cursor()
+        for eid in (1000, 1001):
+            entry_logic.insert_entry(c, 'someone_else', {
+                'id': eid, 'type': 'trade', 'stockName': '남의기록',
+                'tradeType': '매수', 'price': 100, 'quantity': 1,
+                'rawDate': '2025-01-01T09:00'})
+        conn.commit()
+
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'restorer'
+        sess['expires_at'] = time.time() + 3600
+
+    # 같은 id 를 담은 백업을 복원한다
+    payload = [
+        {'id': 1000, 'type': 'trade', 'stockName': '내기록A', 'tradeType': '매수',
+         'price': 500, 'quantity': 2, 'rawDate': '2025-02-01T09:00'},
+        {'id': 1001, 'type': 'trade', 'stockName': '내기록B', 'tradeType': '매도',
+         'price': 600, 'quantity': 2, 'rawDate': '2025-02-02T09:00'},
+        {'id': 2000, 'type': 'trade', 'stockName': '내기록C', 'tradeType': '매수',
+         'price': 700, 'quantity': 1, 'rawDate': '2025-02-03T09:00'},
+    ]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as zf:
+        zf.writestr('data.json', json.dumps(payload, ensure_ascii=False))
+    buf.seek(0)
+
+    res = client.post('/api/restore', data={'file': (buf, 'b.zip')},
+                      content_type='multipart/form-data')
+    assert res.status_code == 200, res.get_data(as_text=True)
+
+    with backend_app.db_conn() as conn:
+        mine = conn.execute(
+            "SELECT stockName FROM entries WHERE username='restorer' ORDER BY stockName").fetchall()
+        theirs = conn.execute(
+            "SELECT id FROM entries WHERE username='someone_else' ORDER BY id").fetchall()
+        dups = conn.execute("SELECT COUNT(*) - COUNT(DISTINCT id) FROM entries").fetchone()[0]
+
+    assert [r['stockName'] for r in mine] == ['내기록A', '내기록B', '내기록C']
+    assert [r['id'] for r in theirs] == [1000, 1001], '남의 기록이 훼손됐다'
+    assert dups == 0
+    # 겹치지 않은 id(2000)는 그대로 살아 있어야 한다
+    with backend_app.db_conn() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM entries WHERE username='restorer' AND id=2000"
+        ).fetchone()[0] == 1
+
+
+def test_restore_same_account_keeps_original_ids(client):
+    """같은 계정의 백업을 되돌릴 때는 id 가 그대로 유지된다 (불필요한 재배정 금지)."""
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'selfrestore'
+        sess['expires_at'] = time.time() + 3600
+
+    payload = [{'id': 555, 'type': 'trade', 'stockName': 'A', 'tradeType': '매수',
+                'price': 1, 'quantity': 1, 'rawDate': '2025-01-01T09:00'}]
+    for _ in range(2):   # 두 번 연속 복원해도 id 가 안 밀려야 한다
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as zf:
+            zf.writestr('data.json', json.dumps(payload, ensure_ascii=False))
+        buf.seek(0)
+        assert client.post('/api/restore', data={'file': (buf, 'b.zip')},
+                           content_type='multipart/form-data').status_code == 200
+
+    with backend_app.db_conn() as conn:
+        ids = [r['id'] for r in conn.execute(
+            "SELECT id FROM entries WHERE username='selfrestore'").fetchall()]
+    assert ids == [555]
+
+
+# ══════════════════════════════════════════════════════════════
+# 초기화는 비밀번호만 바꾼다 (다른 데이터 보존)
+# ══════════════════════════════════════════════════════════════
+def test_admin_reset_only_touches_credentials(client):
+    """비밀번호 초기화가 매매기록·API 키·환경설정을 건드리지 않는다."""
+    client.post('/signup', data={'username': 'keepdata', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    client.post('/signup', data={'username': 'adminq', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    with backend_app.db_conn() as conn:
+        c = conn.cursor()
+        for i in range(3):
+            entry_logic.insert_entry(c, 'keepdata', {
+                'id': 7000 + i, 'type': 'trade', 'stockName': f'종목{i}',
+                'tradeType': '매수', 'price': 100 * (i + 1), 'quantity': 5,
+                'rawDate': '2025-03-01T09:00', 'thoughts': f'<p>메모{i}</p>'})
+        c.execute("UPDATE users SET preferences = ? WHERE username = ?",
+                  ('{"showCurrentPrice": true}', 'keepdata'))
+        conn.commit()
+    trading_api.create_api_key('keepdata')
+
+    def snapshot():
+        with backend_app.db_conn() as conn:
+            entries = [tuple(r) for r in conn.execute(
+                "SELECT id, stockName, price, quantity, thoughts FROM entries "
+                "WHERE username='keepdata' ORDER BY id").fetchall()]
+            keys = [tuple(r) for r in conn.execute(
+                "SELECT id, key_hash, revoked_at FROM api_keys WHERE username='keepdata'").fetchall()]
+            prefs = conn.execute(
+                "SELECT preferences FROM users WHERE username='keepdata'").fetchone()['preferences']
+        return entries, keys, prefs
+
+    before = snapshot()
+
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'adminq'
+        sess['is_admin'] = True
+        sess['expires_at'] = time.time() + 3600
+    assert client.post('/api/admin/users/keepdata/reset_password').status_code == 200
+
+    after = snapshot()
+    assert before[0] == after[0], '매매기록이 변경됐다'
+    assert before[1] == after[1], 'API 키가 변경됐다'
+    assert before[2] == after[2], '환경설정이 변경됐다'
+
+
+# ══════════════════════════════════════════════════════════════
+# 배지: 처리하면 저절로 사라진다
+# ══════════════════════════════════════════════════════════════
+def test_badge_counts_clear_after_handling(client):
+    """승인·초기화를 끝내면 /api/me 의 배지 근거 수치가 0 이 된다."""
+    client.post('/signup', data={'username': 'adminb', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    client.post('/signup', data={'username': 'newbie', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    client.post('/request_password_reset', json={'username': 'newbie', 'note': '메모'})
+
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'adminb'
+        sess['is_admin'] = True
+        sess['expires_at'] = time.time() + 3600
+
+    me = client.get('/api/me').get_json()
+    assert me['pending_count'] == 1 and me['reset_request_count'] == 1
+
+    client.post('/api/admin/users/newbie/toggle_allow')     # 가입 승인
+    client.post('/api/admin/users/newbie/reset_password')   # 초기화 처리
+
+    me = client.get('/api/me').get_json()
+    assert me['pending_count'] == 0 and me['reset_request_count'] == 0
+
+
+def test_admin_list_exposes_reset_note_for_display(client):
+    """관리자 표가 메모를 그릴 수 있도록 API 가 메모를 실어 보낸다."""
+    client.post('/signup', data={'username': 'adminc', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    client.post('/signup', data={'username': 'noteuser', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    client.post('/request_password_reset',
+                json={'username': 'noteuser', 'note': '폰을 바꿔서 비밀번호를 잊었습니다'})
+
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'adminc'
+        sess['is_admin'] = True
+        sess['expires_at'] = time.time() + 3600
+
+    users = {u['username']: u for u in client.get('/api/admin/users').get_json()}
+    row = users['noteuser']
+    assert row['reset_note'] == '폰을 바꿔서 비밀번호를 잊었습니다'
+    assert row['reset_requested_at']
+    assert row['reset_request_count'] == 1

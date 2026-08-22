@@ -8,6 +8,8 @@ if hasattr(sys.stderr, 'reconfigure'):
 
 import json
 import uuid
+import secrets
+import string
 import os
 import sqlite3
 import base64
@@ -356,7 +358,10 @@ def handle_exception(e):
 
 # ⭐️ 세션(쿠키) 보안 설정 강화
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # 자바스크립트(XSS)로 쿠키 접근 원천 차단
-app.config['SESSION_COOKIE_SECURE'] = False   # ⭐️ 로컬(HTTP) 환경 접속 시 로그인 갱신 오류 방지를 위해 비활성화
+# ⭐️ 기본은 False (로컬 HTTP 접속에서 로그인이 풀리지 않도록). HTTPS 로 외부에
+#    공개할 때는 SESSION_COOKIE_SECURE=1 로 켜서 쿠키가 평문 경로로 나가지 않게 한다.
+app.config['SESSION_COOKIE_SECURE'] = (
+    os.environ.get('SESSION_COOKIE_SECURE', '').strip().lower() in ('1', 'true', 'yes', 'on'))
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF(크로스 사이트 요청 위조) 공격 방어
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)  # ⭐️ "로그인 유지" 선택 시 쿠키 수명 24시간 (실제 만료는 서버의 expires_at 검사로 강제)
 app.config['SESSION_REFRESH_EACH_REQUEST'] = False  # ⭐️ 만료 시각은 로그인 시점에 확정되므로 요청마다 쿠키 수명을 연장하지 않음
@@ -381,6 +386,112 @@ os.makedirs(BACKUP_DIR, exist_ok=True)
 
 # 로그인 시도 횟수 및 차단 시간 관리를 위한 전역 변수 (IP 기준)
 login_attempts = {}
+
+
+# ⭐️ 사용자명은 그대로 파일 경로에 들어간다(uploads/<username>, backup/<username> 등).
+#    예전에는 아무 검증이 없어 '../../../tmp/x' 같은 이름으로 가입할 수 있었고,
+#    자동 백업 잡이 그 경로에 폴더를 만들고 7일 지난 파일을 지웠다.
+#    (가입은 로그인 없이 가능하므로 인증 없이 서버 파일이 삭제될 수 있었다)
+USERNAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{2,31}$')
+
+# ⭐️ 비밀번호 최소 정책. scrypt 로 해시해도 '1234' 같은 값은 막지 못한다.
+#    tools/reset_password.py 가 이미 8자를 강제하고 있어 웹만 무정책이던 것을 맞춘다.
+PASSWORD_MIN_LENGTH = 8
+# 경로 구분자·상위 참조는 규칙에서 이미 걸리지만, 이름이 바뀌어도 안전하도록 따로 막는다.
+_UNSAFE_NAME_PARTS = ('..', '/', '\\', '\x00')
+
+
+def is_valid_username(name):
+    """가입 가능한 사용자명인지. 영문/숫자로 시작하는 3~32자."""
+    if not name or not isinstance(name, str):
+        return False
+    if any(bad in name for bad in _UNSAFE_NAME_PARTS):
+        return False
+    return bool(USERNAME_RE.fullmatch(name))
+
+
+# ⭐️ 세션 무효화용 epoch 캐시.
+#    비밀번호를 바꿔도 예전 세션 쿠키가 만료 시각까지(최대 24시간) 그대로 살아
+#    있어서, '유출이 의심돼 비밀번호를 바꿨는데 침입자가 그대로 로그인 상태'인
+#    상황이 가능했다. 로그인 시 세션에 epoch 을 심고 매 요청 대조한다.
+#    요청마다 DB 를 읽지 않도록 메모리에 캐시하고, 값이 바뀌는 지점에서만 갱신한다.
+_session_epochs = {}
+_session_epoch_lock = threading.Lock()
+
+
+def current_session_epoch(username):
+    with _session_epoch_lock:
+        if username in _session_epochs:
+            return _session_epochs[username]
+    epoch = 0
+    try:
+        with db_conn() as conn:
+            row = conn.execute(
+                "SELECT session_epoch FROM users WHERE username = ?", (username,)).fetchone()
+            if row and row['session_epoch'] is not None:
+                epoch = int(row['session_epoch'])
+    except Exception:
+        return 0
+    with _session_epoch_lock:
+        _session_epochs[username] = epoch
+    return epoch
+
+
+def bump_session_epoch(c, username):
+    """이 사용자의 다른 모든 세션을 즉시 무효화한다. (커서를 받아 같은 트랜잭션에서 수행)"""
+    c.execute("UPDATE users SET session_epoch = COALESCE(session_epoch, 0) + 1 "
+              "WHERE username = ?", (username,))
+    row = c.execute("SELECT session_epoch FROM users WHERE username = ?",
+                    (username,)).fetchone()
+    epoch = int(row['session_epoch']) if row and row['session_epoch'] is not None else 0
+    with _session_epoch_lock:
+        _session_epochs[username] = epoch
+    return epoch
+
+
+def validate_password(password, username=None):
+    """비밀번호 정책 위반 시 한국어 사유(str), 통과하면 None."""
+    if not password or len(password) < PASSWORD_MIN_LENGTH:
+        return f"비밀번호는 {PASSWORD_MIN_LENGTH}자 이상이어야 합니다."
+    if len(password) > 256:
+        return "비밀번호가 너무 깁니다. (최대 256자)"
+    kinds = sum([
+        any(ch.islower() for ch in password),
+        any(ch.isupper() for ch in password),
+        any(ch.isdigit() for ch in password),
+        any(not ch.isalnum() for ch in password),
+    ])
+    if kinds < 2:
+        return "비밀번호는 영문·숫자·기호 중 두 종류 이상을 섞어주세요."
+    if username and password.lower() == str(username).lower():
+        return "비밀번호를 아이디와 같게 설정할 수 없습니다."
+    return None
+
+
+def generate_temp_password(length=12):
+    """관리자 초기화용 임시 비밀번호. 혼동하기 쉬운 글자(0/O, 1/l/I)는 뺀다.
+
+    ⭐️ 예전에는 uuid4().hex[:8](32비트)를 썼다. 같은 저장소의
+       tools/reset_password.py 는 이미 secrets 를 쓰고 있어 기준을 맞춘다.
+    """
+    alphabet = ''.join(c for c in string.ascii_letters + string.digits if c not in '0O1lI')
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+
+def user_dir(base, username):
+    """base/<username> 경로를 안전하게 조합한다. 이름이 수상하면 None.
+
+    ⭐️ 규칙 도입 이전에 만들어진 계정이 DB 에 남아 있을 수 있으므로, 경로를 쓰는
+       쪽에서도 한 번 더 막는다. (호출부는 None 이면 건너뛴다)
+    """
+    if not is_valid_username(username):
+        app.logger.warning(f"⚠️ 경로에 쓸 수 없는 사용자명이라 건너뜁니다: {username!r}")
+        return None
+    path = os.path.normpath(os.path.join(base, username))
+    if os.path.commonpath([os.path.abspath(base), os.path.abspath(path)]) != os.path.abspath(base):
+        app.logger.error(f"⚠️ 경로 탈출 시도 차단: {username!r}")
+        return None
+    return path
 
 
 def get_db():
@@ -442,7 +553,9 @@ def extract_inline_images(username, entry):
     if not username or not thoughts or 'data:image' not in thoughts:
         return entry
 
-    user_folder = os.path.join(UPLOAD_FOLDER, username)
+    user_folder = user_dir(UPLOAD_FOLDER, username)
+    if user_folder is None:
+        return entry  # 경로에 쓸 수 없는 계정이면 이미지 추출을 건너뛴다
     os.makedirs(user_folder, exist_ok=True)
 
     def _save_to_file(match):
@@ -555,6 +668,10 @@ def init_db():
         "ALTER TABLE users ADD COLUMN api_key TEXT",
         "ALTER TABLE users ADD COLUMN bot_status TEXT",
         "ALTER TABLE users ADD COLUMN bot_last_seen TEXT",
+        # ⭐️ 비밀번호를 바꾸면 이 값을 올려 기존 세션을 한꺼번에 무효화한다.
+        "ALTER TABLE users ADD COLUMN session_epoch INTEGER DEFAULT 0",
+        # ⭐️ 관리자가 임시 비밀번호로 초기화하면 1 — 다음 로그인에서 변경을 강제한다.
+        "ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0",
     ):
         try:
             c.execute(ddl)
@@ -569,6 +686,18 @@ def init_db():
         # 기존 스키마(market_type 컬럼 없음) → 테이블 재생성
         c.execute("DROP TABLE IF EXISTS price_cache")
         app.logger.info("🔄 price_cache 테이블을 KRX/NXT 분리 저장 스키마로 마이그레이션합니다.")
+    # ⭐️ 비밀번호 재설정 요청함. 로그인 화면에서 누구나 넣을 수 있으므로
+    #    username 을 기본키로 두어 같은 계정이 여러 번 눌러도 한 줄만 쌓이게 한다.
+    #    (무한 증가 방지 — 별도 정리 작업이 필요 없다)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS password_reset_requests (
+            username TEXT PRIMARY KEY,
+            requested_at TEXT NOT NULL,
+            note TEXT,
+            request_count INTEGER NOT NULL DEFAULT 1
+        )
+    ''')
+
     c.execute('''
         CREATE TABLE IF NOT EXISTS price_cache (
             code TEXT,
@@ -671,7 +800,9 @@ def auto_backup_job():
                 rows = [dict(row) for row in c.fetchall()]
                 conn.close()
 
-                user_backup_dir = os.path.join(BACKUP_DIR, username)
+                user_backup_dir = user_dir(BACKUP_DIR, username)
+                if user_backup_dir is None:
+                    continue  # 규칙 이전에 만들어진 이상한 이름 — 파일을 건드리지 않는다
                 os.makedirs(user_backup_dir, exist_ok=True)
 
                 current_time_str = time.strftime('%Y%m%d')
@@ -682,8 +813,8 @@ def auto_backup_job():
                     json_data = json.dumps(rows, ensure_ascii=False, indent=2)
                     zf.writestr('data.json', json_data)
 
-                    user_folder = os.path.join(UPLOAD_FOLDER, username)
-                    if os.path.exists(user_folder):
+                    user_folder = user_dir(UPLOAD_FOLDER, username)
+                    if user_folder and os.path.exists(user_folder):
                         for root, dirs, files in os.walk(user_folder):
                             for file in files:
                                 file_path = os.path.join(root, file)
@@ -765,7 +896,8 @@ def auto_fetch_nxt_close_job():
 @app.before_request
 def check_login():
     # 로그인 및 회원가입 처리를 수행하는 라우트 및 API Key 연동 라우트는 세션 검사에서 제외
-    if request.endpoint not in ['login', 'signup', 'logout'] and not request.path.startswith('/api/v1/'):
+    if (request.endpoint not in ['login', 'signup', 'logout', 'request_password_reset']
+            and not request.path.startswith('/api/v1/')):
         # 세션에 로그인 상태가 없으면 차단
         if not session.get('logged_in'):
             # 백엔드 API 요청인 경우 401 인증 에러 반환
@@ -777,6 +909,18 @@ def check_login():
         # ⭐️ 로그인 시점에 확정된 절대 만료 시각(expires_at)이 지나면 활동 여부와 무관하게 무조건 세션 파기
         #    (만료 정보가 없는 구버전 세션도 즉시 만료 처리하여 재로그인 유도)
         if time.time() > session.get('expires_at', 0):
+            session.clear()
+            if request.path.startswith('/api/'):
+                return jsonify({"error": "Unauthorized"}), 401
+            return redirect(url_for('login', timeout=1))
+
+        # ⭐️ 비밀번호가 바뀌었으면(epoch 증가) 이 세션은 즉시 끊는다.
+        #    비밀번호 변경이 '다른 기기·침입자 로그아웃'으로 실제 작동하게 하는 장치.
+        #    epoch 이 없는 세션(이 기능 도입 전에 로그인한 쿠키)은 0 으로 본다.
+        #    배포하자마자 전원이 로그아웃되는 일은 피하면서, 이후 비밀번호가 한 번이라도
+        #    바뀌면(epoch >= 1) 그 옛 쿠키는 그때 끊긴다.
+        sess_user = session.get('username')
+        if sess_user and session.get('epoch', 0) != current_session_epoch(sess_user):
             session.clear()
             if request.path.startswith('/api/'):
                 return jsonify({"error": "Unauthorized"}), 401
@@ -826,12 +970,18 @@ def login():
         timeout_message = "보안을 위해 로그인 세션이 만료되어 자동으로 로그아웃 되었습니다."
 
     if request.method == 'POST':
-        # 현재 차단된 상태인지 확인
+        typed_username = (request.form.get('username') or '').strip()
+        # ⭐️ IP 잠금은 IP 를 바꾸면 우회된다. 계정 단위 잠금을 함께 걸어
+        #    한 계정을 표적으로 삼은 무차별 대입을 늦춘다.
+        user_locked_for = _user_lockout_remaining(typed_username, current_time)
         if current_time < record['lockout_until']:
             remaining = int(record['lockout_until'] - current_time)
             error_message = f"로그인 5회 실패로 차단되었습니다. {remaining}초 후에 다시 시도해주세요."
+        elif user_locked_for:
+            error_message = (f"이 계정은 반복된 로그인 실패로 잠겨 있습니다. "
+                             f"{user_locked_for}초 후에 다시 시도해주세요.")
         else:
-            username = request.form.get('username')
+            username = typed_username
             password = request.form.get('password') or ""
 
             # DB에서 입력한 아이디와 일치하는 암호화된 비밀번호 조회
@@ -855,6 +1005,9 @@ def login():
 
                     record['count'] = 0
                     record['lockout_until'] = 0
+                    _clear_user_failures(username)
+                    # ⭐️ 이전 세션에 남아 있던 값을 물려받지 않도록 비우고 시작한다.
+                    session.clear()
                     # ⭐️ "로그인 유지" 선택 여부에 따라 절대 만료 시각 확정
                     #   - 미선택: 1시간 뒤 만료(사용 중이면 연장 팝업으로 1시간씩 연장 가능) + 브라우저 완전 종료 시에도 만료(세션 쿠키)
                     #   - 선택: 24시간 뒤 무조건 만료(연장 없음), 브라우저를 닫아도 유지(영구 쿠키)
@@ -865,9 +1018,11 @@ def login():
                     session['logged_in'] = True
                     session['username'] = username  # ⭐️ 계정별 설정 저장을 위해 세션에 저장
                     session['is_admin'] = bool(user_record['is_admin'])
+                    session['epoch'] = current_session_epoch(username)
                     return redirect(url_for('index'))
             else:
                 record['count'] += 1
+                _record_user_failure(username)
                 # ⭐️ 화면에는 "아이디 또는 비밀번호" 로 뭉뚱그려 계정 존재 여부를 감추되,
                 #    서버 로그에는 실제 사유를 남긴다. 두 경우가 같은 문구로 보이는 탓에
                 #    '엉뚱한(빈) DB 를 보고 있어서 계정이 없는' 상황과 단순 오타를
@@ -896,10 +1051,20 @@ def signup():
         password = request.form.get('password')
         password_confirm = request.form.get('password_confirm')
 
+        username = (username or '').strip()
+
         if not username or not password:
             error_message = "아이디와 비밀번호를 모두 입력해주세요."
+        elif not is_valid_username(username):
+            # ⭐️ 사용자명은 파일 경로에 그대로 쓰이므로 화이트리스트로 제한한다.
+            error_message = ("아이디는 영문·숫자로 시작하는 3~32자여야 하며, "
+                             "영문·숫자와 _ . - 만 사용할 수 있습니다.")
         elif password != password_confirm:
             error_message = "비밀번호가 일치하지 않습니다."
+        elif validate_password(password, username):
+            error_message = validate_password(password, username)
+        elif not _signup_allowed(request.remote_addr):
+            error_message = "가입 시도가 너무 잦습니다. 잠시 후 다시 시도해주세요."
         else:
             conn = get_db()
             c = conn.cursor()
@@ -944,6 +1109,152 @@ def signup():
             conn.close()
 
     return render_template('signup.html', error_message=error_message, success_message=success_message)
+
+
+# ⭐️ 로그인 화면에서 누구나 호출할 수 있는 공개 엔드포인트라 두 가지를 지킨다.
+#    1) 계정 존재 여부를 응답으로 알려주지 않는다 (있든 없든 같은 문구)
+#    2) IP 당 요청 횟수를 제한한다 (요청함을 스팸으로 채우지 못하게)
+RESET_REQUEST_MAX_PER_HOUR = 5
+SIGNUP_MAX_PER_HOUR = 5
+
+# ⭐️ 로그인 없이 부를 수 있는 엔드포인트(가입·재설정 요청)용 IP 단위 리미터.
+#    인메모리라 재시작하면 초기화되지만, 자동화된 대량 시도를 늦추기에는 충분하다.
+_ip_attempts = {}  # (bucket, ip) -> [timestamps]
+_ip_attempts_lock = threading.Lock()
+
+
+def _ip_rate_allowed(bucket, client_ip, limit, window=3600):
+    now = time.time()
+    cutoff = now - window
+    key = (bucket, client_ip)
+    with _ip_attempts_lock:
+        # 오래된 기록 정리 (24시간 상시 구동에서 무한 증가 방지)
+        if len(_ip_attempts) > 500:
+            for k, ts in list(_ip_attempts.items()):
+                if not [t for t in ts if t > cutoff]:
+                    _ip_attempts.pop(k, None)
+        stamps = [t for t in _ip_attempts.get(key, []) if t > cutoff]
+        if len(stamps) >= limit:
+            _ip_attempts[key] = stamps
+            return False
+        stamps.append(now)
+        _ip_attempts[key] = stamps
+        return True
+
+
+# ⭐️ 계정 단위 로그인 실패 추적. IP 잠금(5회/60초)만으로는 IP 를 바꾸면 우회되고,
+#    한 계정을 노린 느린 대입 공격을 막지 못한다.
+USER_LOCKOUT_THRESHOLD = 10      # 실패 횟수
+USER_LOCKOUT_SECONDS = 300       # 잠금 시간(초)
+USER_FAILURE_WINDOW = 900        # 이 시간 안의 실패만 센다
+_user_failures = {}              # username -> {'count': int, 'lockout_until': float, 'last': float}
+_user_failures_lock = threading.Lock()
+
+
+def _user_lockout_remaining(username, now=None):
+    """계정이 잠겨 있으면 남은 초(int), 아니면 0."""
+    if not username:
+        return 0
+    now = now or time.time()
+    with _user_failures_lock:
+        rec = _user_failures.get(username)
+        if not rec:
+            return 0
+        return max(0, int(rec['lockout_until'] - now))
+
+
+def _record_user_failure(username):
+    if not username:
+        return
+    now = time.time()
+    with _user_failures_lock:
+        if len(_user_failures) > 200:
+            for u, r in list(_user_failures.items()):
+                if r['last'] < now - USER_FAILURE_WINDOW and r['lockout_until'] < now:
+                    _user_failures.pop(u, None)
+        rec = _user_failures.get(username)
+        if not rec or rec['last'] < now - USER_FAILURE_WINDOW:
+            rec = {'count': 0, 'lockout_until': 0, 'last': now}
+        rec['count'] += 1
+        rec['last'] = now
+        if rec['count'] >= USER_LOCKOUT_THRESHOLD:
+            rec['lockout_until'] = now + USER_LOCKOUT_SECONDS
+            rec['count'] = 0
+            app.logger.warning(f"🔒 계정 잠금(로그인 반복 실패): username='{username}' "
+                               f"{USER_LOCKOUT_SECONDS}초")
+        _user_failures[username] = rec
+
+
+def _clear_user_failures(username):
+    with _user_failures_lock:
+        _user_failures.pop(username, None)
+
+
+def _reset_request_allowed(client_ip):
+    return _ip_rate_allowed('reset', client_ip, RESET_REQUEST_MAX_PER_HOUR)
+
+
+def _signup_allowed(client_ip):
+    return _ip_rate_allowed('signup', client_ip, SIGNUP_MAX_PER_HOUR)
+
+
+@app.route('/request_password_reset', methods=['GET', 'POST'])
+def request_password_reset():
+    """비밀번호를 잊은 사용자가 관리자에게 초기화를 요청한다.
+
+    GET  — 요청 화면(별도 페이지). 로그인 폼과 섞이지 않도록 /signup 처럼 분리한다.
+    POST — 요청 접수(JSON).
+
+    ⭐️ 여기서 비밀번호를 바꾸지는 않는다. '요청'만 남기고, 실제 초기화는 관리자가
+       대시보드에서 수행한다. 메일 발송 수단이 없는 환경이라 자동 재설정 링크를
+       보낼 수 없고, 자동으로 바꿔주면 아이디만 알면 남의 계정을 잠글 수 있다.
+    """
+    if request.method == 'GET':
+        return render_template('reset_request.html')
+
+    data = request.get_json(silent=True) or request.form or {}
+    username = str(data.get('username') or '').strip()
+    note = str(data.get('note') or '').strip()[:300]
+
+    # 응답 문구는 어떤 경우에도 동일하다 (계정 존재 여부 은닉)
+    neutral = jsonify({
+        'status': 'success',
+        'message': '요청이 접수되었습니다. 관리자가 확인 후 비밀번호를 초기화해 드립니다.'
+    })
+
+    if not username or len(username) > 150:
+        return neutral, 200
+
+    client_ip = request.remote_addr
+    if not _reset_request_allowed(client_ip):
+        app.logger.warning(f"비밀번호 재설정 요청 과다: ip={client_ip}")
+        return jsonify({
+            'status': 'rate_limited',
+            'message': '요청이 너무 잦습니다. 잠시 후 다시 시도해주세요.'
+        }), 429
+
+    with db_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT username FROM users WHERE username = ?", (username,))
+        row = c.fetchone()
+        if row:
+            now_str = time.strftime('%Y-%m-%d %H:%M:%S')
+            # 같은 계정이 다시 눌러도 줄은 하나. 시각과 횟수만 갱신한다.
+            c.execute("""
+                INSERT INTO password_reset_requests (username, requested_at, note, request_count)
+                VALUES (?, ?, ?, 1)
+                ON CONFLICT(username) DO UPDATE SET
+                    requested_at = excluded.requested_at,
+                    note = COALESCE(NULLIF(excluded.note, ''), password_reset_requests.note),
+                    request_count = password_reset_requests.request_count + 1
+            """, (row['username'], now_str, note))
+            conn.commit()
+            app.logger.info(f"🔑 비밀번호 재설정 요청 접수: username=\'{row['username']}\' ip={client_ip}")
+        else:
+            # 존재하지 않는 계정도 로그에만 남기고 응답은 동일하게 한다.
+            app.logger.info(f"🔑 비밀번호 재설정 요청(존재하지 않는 계정): username=\'{username}\' ip={client_ip}")
+
+    return neutral, 200
 
 
 @app.route('/logout')
@@ -1143,7 +1454,10 @@ def get_bot_resync_status():
 
 
 def get_user_mappings(username):
-    file_path = os.path.join(JSON_DIR, username, 'account_info.json')
+    safe_dir = user_dir(JSON_DIR, username)
+    if safe_dir is None:
+        return {"brokers": {}, "accounts": {}}
+    file_path = os.path.join(safe_dir, 'account_info.json')
     if os.path.exists(file_path):
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -1168,9 +1482,11 @@ def save_mappings_frontend():
     if not isinstance(data, dict):
         return jsonify({"error": "잘못된 데이터 형식입니다."}), 400
         
-    user_dir = os.path.join(JSON_DIR, username)
-    os.makedirs(user_dir, exist_ok=True)
-    file_path = os.path.join(user_dir, 'account_info.json')
+    target_dir = user_dir(JSON_DIR, username)
+    if target_dir is None:
+        return jsonify({"error": "계정 이름이 올바르지 않습니다."}), 400
+    os.makedirs(target_dir, exist_ok=True)
+    file_path = os.path.join(target_dir, 'account_info.json')
     
     with open(file_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -1186,6 +1502,8 @@ def save_mappings_frontend():
 def get_me():
     username = session.get('username')
     pending_count = 0
+    reset_request_count = 0
+    must_change_password = False
     admin_flag = False
 
     bot_status = None
@@ -1195,17 +1513,21 @@ def get_me():
         with db_conn() as conn:
             c = conn.cursor()
             # ⭐️ 매 요청 시마다 DB에서 최신 관리자 권한을 조회하여 세션 동기화
-            c.execute("SELECT is_admin, bot_status, bot_last_seen FROM users WHERE username = ?", (username,))
+            c.execute("SELECT is_admin, bot_status, bot_last_seen, must_change_password "
+                      "FROM users WHERE username = ?", (username,))
             user = c.fetchone()
             if user:
                 admin_flag = bool(user['is_admin'])
                 session['is_admin'] = admin_flag  # 브라우저 세션에 즉각 갱신 반영
                 bot_status = user['bot_status']
                 bot_last_seen = user['bot_last_seen']
+                must_change_password = bool(user['must_change_password'])
 
             if admin_flag:
                 c.execute("SELECT COUNT(*) FROM users WHERE is_allowed = 0")
                 pending_count = c.fetchone()[0]
+                c.execute("SELECT COUNT(*) FROM password_reset_requests")
+                reset_request_count = c.fetchone()[0]
 
     # ⭐️ 봇 만료 판정은 서버가 확정해서 내려준다. 브라우저 시계가 틀어져 있거나
     #    타임존이 다르면 클라이언트 계산은 그대로 오판이 되기 때문이다.
@@ -1226,6 +1548,10 @@ def get_me():
         "username": username,
         "is_admin": admin_flag,
         "pending_count": pending_count,
+        # ⭐️ 로그인 화면에서 접수된 비밀번호 재설정 요청 수 (관리자에게만 의미 있음)
+        "reset_request_count": reset_request_count,
+        # ⭐️ 관리자가 임시 비밀번호로 초기화한 계정은 즉시 변경을 강제한다.
+        "must_change_password": must_change_password,
         "bot_status": bot_status,
         "bot_last_seen": bot_last_seen,
         "bot_state": bot_state,
@@ -1269,8 +1595,8 @@ def delete_account():
     invalidate_stats_cache(username)
 
     # 사용자 전용 업로드 폴더 삭제
-    user_folder = os.path.join(UPLOAD_FOLDER, username)
-    if os.path.exists(user_folder):
+    user_folder = user_dir(UPLOAD_FOLDER, username)
+    if user_folder and os.path.exists(user_folder):
         shutil.rmtree(user_folder)
 
     session.pop('logged_in', None)
@@ -1283,14 +1609,34 @@ def delete_account():
 def admin_get_users():
     with db_conn() as conn:
         c = conn.cursor()
+        # ⭐️ 비밀번호 재설정 요청(로그인 화면에서 접수)을 같은 표에 실어 보낸다.
         c.execute('''
-            SELECT u.username, u.is_allowed, u.is_admin, u.created_at, u.last_login_at, COUNT(e.id) as entry_count
+            SELECT u.username, u.is_allowed, u.is_admin, u.created_at, u.last_login_at,
+                   u.must_change_password,
+                   COUNT(e.id) as entry_count,
+                   r.requested_at AS reset_requested_at,
+                   r.note AS reset_note,
+                   r.request_count AS reset_request_count
             FROM users u
             LEFT JOIN entries e ON u.username = e.username
+            LEFT JOIN password_reset_requests r ON r.username = u.username
             GROUP BY u.username
         ''')
         users = [dict(row) for row in c.fetchall()]
     return jsonify(users)
+
+
+@app.route('/api/admin/password_resets/<target_username>', methods=['DELETE'])
+@admin_required
+def admin_dismiss_reset_request(target_username):
+    """초기화하지 않고 요청만 내린다 (본인이 다시 기억해냈다거나 장난 요청인 경우)."""
+    with db_conn() as conn:
+        conn.execute("DELETE FROM password_reset_requests WHERE username = ?",
+                     (target_username,))
+        conn.commit()
+    app.logger.info(f"🔑 비밀번호 재설정 요청 해제: username='{target_username}' "
+                    f"(by {session.get('username')})")
+    return jsonify({"status": "success"})
 
 
 @app.route('/api/admin/users/<target_username>', methods=['DELETE'])
@@ -1341,14 +1687,29 @@ def admin_toggle_allow(target_username):
 @app.route('/api/admin/users/<target_username>/reset_password', methods=['POST'])
 @admin_required
 def admin_reset_password(target_username):
-    # 8자리의 무작위 영문+숫자 임시 비밀번호 생성
-    new_password = uuid.uuid4().hex[:8]
+    # ⭐️ secrets 기반 12자리 임시 비밀번호 (예전 uuid4().hex[:8] 은 32비트뿐이었다)
+    new_password = generate_temp_password(12)
     hashed_pw = generate_password_hash(new_password)
 
     with db_conn() as conn:
         c = conn.cursor()
-        c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (hashed_pw, target_username))
+        row = c.execute("SELECT username FROM users WHERE username = ?",
+                        (target_username,)).fetchone()
+        if not row:
+            return jsonify({"error": "존재하지 않는 계정입니다."}), 404
+
+        # must_change_password: 임시 비밀번호로 로그인하면 즉시 변경을 강제한다.
+        c.execute("UPDATE users SET password_hash = ?, must_change_password = 1 "
+                  "WHERE username = ?", (hashed_pw, target_username))
+        # 초기화도 '비밀번호가 바뀐 것'이므로 기존 세션을 전부 끊는다.
+        bump_session_epoch(c, target_username)
+        # 처리한 재설정 요청은 요청함에서 내린다.
+        c.execute("DELETE FROM password_reset_requests WHERE username = ?", (target_username,))
         conn.commit()
+
+    _clear_user_failures(target_username)
+    app.logger.info(f"🔑 관리자 비밀번호 초기화: username='{target_username}' "
+                    f"(by {session.get('username')})")
 
     return jsonify({"status": "success", "new_password": new_password})
 
@@ -1603,8 +1964,16 @@ def change_password():
     current_password = data.get('current_password')
     new_password = data.get('new_password')
 
+    revoke_api_keys = bool(data.get('revoke_api_keys'))
+
     if not current_password or not new_password:
         return jsonify({"error": "모든 필드를 입력해주세요."}), 400
+
+    policy_error = validate_password(new_password, username)
+    if policy_error:
+        return jsonify({"error": policy_error}), 400
+    if new_password == current_password:
+        return jsonify({"error": "새 비밀번호가 기존 비밀번호와 같습니다."}), 400
 
     with db_conn() as conn:
         c = conn.cursor()
@@ -1615,10 +1984,43 @@ def change_password():
             return jsonify({"error": "현재 비밀번호가 일치하지 않습니다."}), 400
 
         hashed_pw = generate_password_hash(new_password)
-        c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (hashed_pw, username))
+        # ⭐️ 임시 비밀번호로 로그인한 상태였다면 여기서 강제 변경 플래그가 풀린다.
+        c.execute("UPDATE users SET password_hash = ?, must_change_password = 0 "
+                  "WHERE username = ?", (hashed_pw, username))
+        # ⭐️ 다른 기기·침입자의 세션을 전부 끊는다.
+        epoch = bump_session_epoch(c, username)
+
+        key_count = c.execute(
+            "SELECT COUNT(*) AS n FROM api_keys WHERE username = ? AND revoked_at IS NULL",
+            (username,)).fetchone()['n']
+        revoked = 0
+        if revoke_api_keys and key_count:
+            # ⭐️ 자동으로 폐기하지는 않는다 — 봇이 조용히 멈춘다. 사용자가 고른 경우에만.
+            #    trading_api.revoke_all_api_keys() 는 별도 커넥션을 열기 때문에
+            #    이 트랜잭션이 쥔 쓰기 잠금과 부딪혀 'database is locked' 가 난다.
+            #    같은 커서로 처리해 한 트랜잭션 안에서 끝낸다.
+            c.execute("UPDATE api_keys SET revoked_at = ? "
+                      "WHERE username = ? AND revoked_at IS NULL",
+                      (time.strftime('%Y-%m-%d %H:%M:%S'), username))
+            revoked = c.rowcount
+            key_count = 0
+
+        # 처리 완료된 재설정 요청은 요청함에서 내린다.
+        c.execute("DELETE FROM password_reset_requests WHERE username = ?", (username,))
         conn.commit()
 
-    return jsonify({"status": "success"})
+    # 방금 바꾼 본인 세션은 유지되어야 하므로 새 epoch 으로 갱신한다.
+    session['epoch'] = epoch
+    app.logger.info(f"🔑 비밀번호 변경: username='{username}' 세션 무효화 완료 "
+                    f"(API 키 폐기 {revoked}개)")
+
+    return jsonify({
+        "status": "success",
+        "sessions_invalidated": True,
+        "api_keys_revoked": revoked,
+        # 남아 있는 키가 있으면 화면에서 안내할 수 있도록 알려준다.
+        "api_keys_remaining": key_count,
+    })
 
 
 @app.route('/api/preferences', methods=['GET'])
@@ -1758,8 +2160,8 @@ def full_backup():
         zf.writestr('data.json', json_data)
 
         # 2. 사용자 이미지 폴더 백업
-        user_folder = os.path.join(UPLOAD_FOLDER, username)
-        if os.path.exists(user_folder):
+        user_folder = user_dir(UPLOAD_FOLDER, username)
+        if user_folder and os.path.exists(user_folder):
             for root, dirs, files in os.walk(user_folder):
                 for file in files:
                     file_path = os.path.join(root, file)
@@ -1829,10 +2231,32 @@ def full_restore():
             c.execute("DELETE FROM entries WHERE username = ?", (username,))
 
             # 2. 복원할 데이터 삽입 (구버전 백업의 본문 내장 base64 이미지도 파일로 추출)
+            #
+            # ⭐️ entries.id 는 전역 PRIMARY KEY 인데 위 DELETE 는 '이 계정의 행'만
+            #    지운다. 그래서 백업 안의 id 가 다른 계정의 기존 행과 겹치면
+            #    'UNIQUE constraint failed: entries.id' 로 복원 전체가 실패했다.
+            #    (예: test 계정으로 batmi 의 백업을 복원)
+            #    id 는 밀리초 타임스탬프라 값 자체에 의미가 크지 않으므로, 비어 있으면
+            #    원래 id 를 그대로 쓰고 이미 쓰이는 것만 새로 배정한다.
+            taken = {row['id'] for row in c.execute("SELECT id FROM entries")}
+            next_id = (max(taken) + 1) if taken else int(time.time() * 1000)
+            remapped = 0
+
             for entry in entries:
                 entry = extract_inline_images(username, entry)
+                entry_id = entry.get('id')
+                if entry_id is None or entry_id in taken:
+                    next_id += 1
+                    entry = dict(entry, id=next_id)
+                    entry_id = next_id
+                    remapped += 1
+                taken.add(entry_id)
                 entry_logic.insert_entry(c, username, entry)
             conn.commit()
+
+        if remapped:
+            app.logger.info(f"🔄 복원: id 가 이미 사용 중이던 {remapped}건에 새 id 를 배정했습니다."
+                            f" (username={username})")
 
         invalidate_stats_cache(username)
 
@@ -1841,7 +2265,9 @@ def full_restore():
         #       디스크가 차거나 권한 오류가 나면 원본 첨부파일이 이미 사라진 뒤라
         #       되돌릴 방법이 없었다. 그래서 '새 폴더를 옆에 완성한 뒤 맞바꾸는'
         #       순서로 바꾼다. 실패하면 기존 폴더가 그대로 남는다.
-        user_folder = os.path.join(UPLOAD_FOLDER, username)
+        user_folder = user_dir(UPLOAD_FOLDER, username)
+        if user_folder is None:
+            return jsonify({'error': '계정 이름이 올바르지 않습니다.'}), 400
         staging = user_folder + '.restoring'
         retired = user_folder + '.old'
         shutil.rmtree(staging, ignore_errors=True)
@@ -1872,9 +2298,11 @@ def full_restore():
         # 4. 사용자 매핑 정보 복원
         temp_account_info = os.path.join(temp_dir, 'account_info.json')
         if os.path.exists(temp_account_info):
-            user_json_dir = os.path.join(JSON_DIR, username)
-            os.makedirs(user_json_dir, exist_ok=True)
-            shutil.copy2(temp_account_info, os.path.join(user_json_dir, 'account_info.json'))
+            user_json_dir = user_dir(JSON_DIR, username)
+            if user_json_dir:
+                os.makedirs(user_json_dir, exist_ok=True)
+                shutil.copy2(temp_account_info,
+                             os.path.join(user_json_dir, 'account_info.json'))
 
         return jsonify({'status': 'success'})
     except Exception as e:
@@ -1882,9 +2310,9 @@ def full_restore():
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
         # 예외로 중단됐을 때 남을 수 있는 작업용 폴더 정리 (원본은 건드리지 않는다)
-        if username:
-            for leftover in (os.path.join(UPLOAD_FOLDER, username) + '.restoring',):
-                shutil.rmtree(leftover, ignore_errors=True)
+        safe_folder = user_dir(UPLOAD_FOLDER, username) if username else None
+        if safe_folder:
+            shutil.rmtree(safe_folder + '.restoring', ignore_errors=True)
 
 
 # ⭐️ 시스템 트레이딩 API(/api/v1/*) 블루프린트 등록.
