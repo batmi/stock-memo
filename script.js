@@ -141,6 +141,25 @@ function escapeAttrSelector(value) {
     return String(value == null ? '' : value).replace(/["\\]/g, '\\$&');
 }
 
+// 텍스트를 HTML 본문에 안전하게 넣기 위한 이스케이프.
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text == null ? '' : String(text);
+    return div.innerHTML;
+}
+
+// ⭐️ onclick="fn('...')" 처럼 'HTML 속성 안의 JS 문자열 리터럴'에 값을 넣기 위한 이스케이프.
+//    브라우저는 속성값을 HTML 디코딩한 뒤 JS 로 평가하므로 JS → HTML 순서로 두 번 막아야 한다.
+//    (계좌 별칭에 작은따옴표가 하나만 들어가도 핸들러가 깨져 수정·삭제 버튼이 먹통이 됐다)
+function escapeJsInAttr(value) {
+    const js = String(value == null ? '' : value)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/[\r\n]/g, '');
+    return js.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+             .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // ⭐️ 포트폴리오와 히스토리의 '청산 종목 보기' 버튼 UI 를 현재 상태로 함께 갱신한다.
 function syncClosedPositionsButtons() {
     const label = showClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
@@ -6114,12 +6133,6 @@ if (btnChangePassword && passwordModalOverlay) {
         });
     }
 
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text == null ? '' : String(text);
-        return div.innerHTML;
-    }
-
     const btnGenerateApiKey = document.getElementById('btnGenerateApiKey');
     if (btnGenerateApiKey) {
         btnGenerateApiKey.addEventListener('click', async () => {
@@ -6388,8 +6401,8 @@ function renderAccountMappings() {
             // legacy handling if any
             return `
                 <div style="display: flex; justify-content: space-between; font-size: 11px; padding: 6px; border-bottom: 1px solid var(--border-light-color); align-items: center;">
-                    <span style="flex: 1; word-break: break-all; margin-right: 10px;">(이전형식) ${accCode} &rarr; ${info}</span>
-                    <button type="button" onclick="removeMapping('accounts', '${accCode}')" style="background:none; border:none; color:var(--danger-color); cursor:pointer; font-size:11px; width:auto; padding:0; margin:0; box-shadow:none; flex: 0 0 auto;">삭제</button>
+                    <span style="flex: 1; word-break: break-all; margin-right: 10px;">(이전형식) ${escapeHtml(accCode)} &rarr; ${escapeHtml(info)}</span>
+                    <button type="button" onclick="removeMapping('accounts', '${escapeJsInAttr(accCode)}')" style="background:none; border:none; color:var(--danger-color); cursor:pointer; font-size:11px; width:auto; padding:0; margin:0; box-shadow:none; flex: 0 0 auto;">삭제</button>
                 </div>
             `;
         }
@@ -6399,10 +6412,10 @@ function renderAccountMappings() {
             : '';
         return `
             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; padding: 8px 4px; border-bottom: 1px solid var(--border-light-color);">
-                <span style="flex: 1; word-break: break-word; margin-right: 10px; line-height: 1.4;"><strong style="color:var(--text-strong-color);">[${info.broker_name}]</strong><br>${accCode} &rarr; ${info.alias}${excludeBadge}</span>
+                <span style="flex: 1; word-break: break-word; margin-right: 10px; line-height: 1.4;"><strong style="color:var(--text-strong-color);">[${escapeHtml(info.broker_name)}]</strong><br>${escapeHtml(accCode)} &rarr; ${escapeHtml(info.alias)}${excludeBadge}</span>
                 <div style="display: flex; gap: 8px; flex: 0 0 auto;">
-                    <button type="button" onclick="editMapping('${accCode}')" style="background:none; border:none; color:var(--primary-color); cursor:pointer; font-size:11px; width:auto; padding:0; margin:0; box-shadow:none;">수정</button>
-                    <button type="button" onclick="removeMapping('accounts', '${accCode}')" style="background:none; border:none; color:var(--danger-color); cursor:pointer; font-size:11px; width:auto; padding:0; margin:0; box-shadow:none;">삭제</button>
+                    <button type="button" onclick="editMapping('${escapeJsInAttr(accCode)}')" style="background:none; border:none; color:var(--primary-color); cursor:pointer; font-size:11px; width:auto; padding:0; margin:0; box-shadow:none;">수정</button>
+                    <button type="button" onclick="removeMapping('accounts', '${escapeJsInAttr(accCode)}')" style="background:none; border:none; color:var(--danger-color); cursor:pointer; font-size:11px; width:auto; padding:0; margin:0; box-shadow:none;">삭제</button>
                 </div>
             </div>
         `;

@@ -1226,3 +1226,49 @@ def test_simulated_holdings_do_not_block_real_sell(client):
     # 실거래 보유는 0 이므로 실거래 매도는 차단되어야 한다
     res = client.post('/api/entry', json=_sell(stock='C', qty=10, price=1200))
     assert res.status_code == 400
+
+
+# ── 전역 예외 핸들러가 정상 HTTP 응답을 삼키지 않는지 ──────────────
+def test_http_errors_keep_their_status_codes(client):
+    """404/405/413 이 500 으로 뭉개지면 클라이언트가 원인을 구분할 수 없다."""
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600
+
+    assert client.get('/nope').status_code == 404
+    assert client.get('/api/nope').status_code == 404
+    # /api/current_price 는 POST 전용
+    assert client.delete('/api/data').status_code == 405
+
+
+def test_oversized_upload_returns_413_not_500(client):
+    """MAX_CONTENT_LENGTH 초과는 413 이어야 한다 (예전엔 500 + 스택트레이스)."""
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600
+
+    limit = backend_app.app.config['MAX_CONTENT_LENGTH']
+    data = {'file': (io.BytesIO(b'x' * (limit + 1024)), 'big.zip')}
+    res = client.post('/api/restore', data=data, content_type='multipart/form-data')
+    assert res.status_code == 413
+
+
+def test_unhandled_exception_does_not_leak_internals(client, monkeypatch):
+    """진짜 예외는 500 이되, 내부 메시지(경로·SQL 등)를 밖으로 흘리지 않는다."""
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600
+
+    def boom(_username):
+        raise RuntimeError('내부 경로 /var/secret/journal.db')
+
+    monkeypatch.setattr(backend_app, 'get_user_mappings', boom)
+
+    res = client.get('/api/mappings')
+    assert res.status_code == 500
+    body = res.get_data(as_text=True)
+    assert '/var/secret' not in body       # 내부 정보 비노출
+    assert res.get_json()['error'] == '서버 오류가 발생했습니다.'

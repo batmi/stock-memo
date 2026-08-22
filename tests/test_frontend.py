@@ -296,3 +296,44 @@ def test_account_form_switches_to_edit_mode(page: Page, cleanup_admin_mappings):
     expect(title).to_have_text('신규 계좌 등록')
     expect(submit).to_have_text('추가하기')
     expect(page.locator('#unifiedAccountCode')).to_have_value('')
+
+
+def test_account_list_escapes_quotes_and_html(page: Page, cleanup_admin_mappings):
+    """별칭에 따옴표·HTML 이 들어가도 수정/삭제 버튼이 살아있고 마크업이 깨지지 않는다.
+
+    예전에는 값을 그대로 innerHTML 과 onclick 에 끼워 넣어서, 별칭에 작은따옴표가
+    하나만 있어도 핸들러 문자열이 끊겨 버튼이 먹통이 됐다.
+    """
+    page.goto(BASE_URL + '/login')
+    page.fill('input[name="username"]', 'admin')
+    page.fill('input[name="password"]', 'admin123')
+    page.click('button[type="submit"]')
+    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+
+    tricky_alias = "John's <img src=x onerror=window.__xss=1> 계좌"
+    assert page.evaluate("""async (alias) => {
+        const res = await fetch('/api/mappings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({brokers: {}, accounts: {
+                "12345678-01": {broker_code: "243", broker_name: "한국투자증권",
+                                alias: alias, exclude_from_stats: false}
+            }})
+        });
+        return res.ok ? 'OK' : 'FAIL';
+    }""", tricky_alias) == 'OK'
+
+    page.reload()
+    page.click('.header-action-icon')
+    page.click('#btnAccountManagement')
+
+    # 1) 별칭이 '텍스트로' 그대로 보인다 (HTML 로 해석되지 않는다)
+    expect(page.locator('#unifiedMappingList')).to_contain_text(tricky_alias)
+    assert page.evaluate("() => document.querySelectorAll('#unifiedMappingList img').length") == 0
+    assert page.evaluate("() => window.__xss === undefined")
+
+    # 2) 따옴표가 있어도 '수정' 버튼이 정상 동작해 편집 모드로 들어간다
+    page.click('#unifiedMappingList button:has-text("수정")')
+    expect(page.locator('#newAccountFormContainer')).to_be_visible()
+    expect(page.locator('#unifiedAccountCode')).to_have_value('12345678-01')
+    expect(page.locator('#unifiedAccountName')).to_have_value(tricky_alias)

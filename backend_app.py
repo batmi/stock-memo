@@ -31,6 +31,7 @@ from datetime import timedelta, datetime
 from flask import (Flask, jsonify, request, send_from_directory, session, redirect,
                    url_for, render_template, send_file)
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.exceptions import HTTPException
 
 # ⭐️ 추출된 도메인 모듈 (순수 로직 — 단위 테스트 용이)
 import prices
@@ -328,11 +329,21 @@ def _apply_gzip(response, compressed):
         response.headers['Vary'] = (existing_vary + ', Accept-Encoding') if existing_vary else 'Accept-Encoding'
 
 
-# ⭐️ 전역 서버 에러 핸들러 추가 (서버 중단/500 에러 발생 시 상세 로그 기록)
+# ⭐️ 전역 서버 에러 핸들러 (예상치 못한 예외만 500 으로 기록)
 @app.errorhandler(Exception)
 def handle_exception(e):
+    # ⭐️ 404/405/413 같은 정상적인 HTTP 응답까지 삼키지 않는다.
+    #    이 핸들러는 Exception 을 받으므로 werkzeug 의 HTTPException 도 걸려들어,
+    #    예전에는 "없는 페이지"가 404 대신 500 으로 나가고 업로드 크기 초과가
+    #    413 대신 500 이 됐다. 클라이언트가 '잘못된 요청'과 '서버 장애'를 구분할 수
+    #    없었고, 평범한 404 한 건마다 스택 트레이스가 ERROR 로 쌓였다.
+    if isinstance(e, HTTPException):
+        return e
+
     app.logger.error(f"Unhandled Exception: {e}", exc_info=True)
-    return jsonify(error=str(e)), 500
+    # ⭐️ 예외 메시지를 그대로 내보내면 DB 경로·SQL 등 내부 정보가 새어 나간다.
+    #    원인은 서버 로그(위 exc_info)에만 남기고, 클라이언트에는 일반 문구를 준다.
+    return jsonify(error="서버 오류가 발생했습니다."), 500
 
 
 # ⭐️ 세션(쿠키) 보안 설정 강화
