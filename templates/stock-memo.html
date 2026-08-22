@@ -14,6 +14,18 @@
             document.documentElement.setAttribute('data-theme', theme);
         })();
     </script>
+    <!-- ⭐️ 금액 가리기 상태도 같은 이유로 첫 페인트 전에 적용한다.
+         나중에 걸면 금액이 한 번 노출됐다가 가려지므로 가리는 의미가 없어진다.
+         테마와 마찬가지로 기기별 화면 설정이라 서버가 아닌 localStorage 에 둔다. -->
+    <script>
+        (function () {
+            try {
+                if (localStorage.getItem('amountMasked') === '1') {
+                    document.documentElement.classList.add('amount-masked');
+                }
+            } catch (e) { }
+        })();
+    </script>
     <!-- ⭐️ 초기 필수 API 프리페치: 문서 파싱 시작 즉시 요청을 발사하여
          라이브러리(js) 다운로드와 데이터 수신을 병렬화한다.
          script.js 의 loadDataFromLocal() 이 이 프라미스를 이어받아 사용한다. -->
@@ -125,7 +137,7 @@
                         <div class="form-group" id="isHiddenGroup">
                             <label for="isHidden">숨김</label>
                             <div class="checkbox-slot">
-                                <input type="checkbox" id="isHidden" title="체크 시 이 종목을 포트폴리오·히스토리에서 숨깁니다. '청산 종목 보기'를 켜면 다시 표시됩니다.">
+                                <input type="checkbox" id="isHidden" title="체크 시 이 종목을 포트폴리오·히스토리에서 숨깁니다. '청산종목 보기'를 켜면 다시 표시됩니다.">
                             </div>
                         </div>
                     </div>
@@ -216,8 +228,8 @@
             <div class="portfolio-header">
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span class="section-title">PORTFOLIO</span>
-                <button type="button" id="btnToggleCurrentPrice" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="현재가 및 평가금액 조회 (인터넷 연결 필요)">현재가 보기</button>
-                <button type="button" id="btnToggleClosed" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="청산(매도 완료)·숨김 종목 보기">청산 종목 보기</button>
+                <button type="button" id="btnToggleAmountMask" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="금액·수량을 흐리게 가립니다 (화면공유·어깨너머 시선용, 이 기기에 설정이 유지됩니다)">금액 가리기</button>
+                <button type="button" id="btnToggleClosed" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="청산(매도 완료)·숨김 종목 보기">청산종목 보기</button>
                 <button type="button" id="btnToggleMarketMode" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="장외(NXT) / 정규장(KRX) 전환">NXT</button>
                 <button type="button" id="btnTogglePortfolio" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="포트폴리오 대시보드 접기/펴기">▲</button>
             </div>
@@ -229,13 +241,13 @@
                         <canvas id="portfolioChart" style="position: relative; z-index: 10;"></canvas>
                         <div id="chartCenterText" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; text-align: center; width: 68%; display: flex; flex-direction: column; gap: 2px; z-index: 11;">
                             <div style="font-size: 11px; color: var(--text-muted-color);">현재 총 투자 금액</div>
-                            <div id="centerTotalInvested" style="font-size: 17px; font-weight: 800; color: var(--text-strong-color); letter-spacing: -0.5px; white-space: nowrap; transition: font-size 0.2s ease;">0원</div>
+                            <div id="centerTotalInvested" class="masked-amount" style="font-size: 17px; font-weight: 800; color: var(--text-strong-color); letter-spacing: -0.5px; white-space: nowrap; transition: font-size 0.2s ease;">0원</div>
                             <div id="centerTotalEvaluationContainer" class="clickable-evaluation" style="display: none; margin-top: 5px; pointer-events: auto;" title="클릭하여 전체 현재가 갱신" onclick="window.fetchCurrentPricesAndUpdateUI()">
                                 <div style="font-size: 11px; color: var(--text-muted-color);">총 평가금액</div>
-                                <div id="centerTotalEvaluation" style="font-size: 15px; font-weight: 800; color: var(--info-color); letter-spacing: -0.5px; white-space: nowrap; transition: font-size 0.2s ease;">0원</div>
+                                <div id="centerTotalEvaluation" class="masked-amount" style="font-size: 15px; font-weight: 800; color: var(--info-color); letter-spacing: -0.5px; white-space: nowrap; transition: font-size 0.2s ease;">0원</div>
                             </div>
                             <div style="font-size: 11px; color: var(--text-muted-color); margin-top: 5px;">누적 실현 손익</div>
-                            <div id="centerTotalProfit" style="font-size: 15px; font-weight: 800; letter-spacing: -0.5px; white-space: nowrap; transition: font-size 0.2s ease;">0원</div>
+                            <div id="centerTotalProfit" class="masked-amount" style="font-size: 15px; font-weight: 800; letter-spacing: -0.5px; white-space: nowrap; transition: font-size 0.2s ease;">0원</div>
                         </div>
                     </div>
                     <!-- ⭐️ 너무 많은 정보가 차트를 가리지 않도록 차트 하단으로 분리 -->
@@ -267,7 +279,7 @@
         <div class="history-header">
             <div style="display: flex; align-items: center; gap: 8px;">
                 <h2 class="section-title" style="margin: 0;">TRADE HISTORY</h2>
-                <button type="button" id="btnToggleHistoryClosed" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="청산(매도 완료)·숨김 종목 보기">청산 종목 보기</button>
+                <button type="button" id="btnToggleHistoryClosed" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="청산(매도 완료)·숨김 종목 보기">청산종목 보기</button>
             </div>
         </div>
 

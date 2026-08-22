@@ -77,8 +77,10 @@ let currentFilterBroker = 'all';     // ⭐️ 독립 필터 4 (증권사별)
 let currentFilterSubAccount = 'all'; // ⭐️ 독립 필터 5 (계좌별)
 let currentFilterKeywords = []; // ⭐️ 다중 키워드 필터용 배열
 let isDashboardCollapsed = false;
-let showClosedPositions = false; // 청산 종목 보기 상태
-let showCurrentPrice = true; // ⭐️ 현재가 및 평가금액 보기 상태 (기본값: 보기)
+let showClosedPositions = false; // 청산종목 보기 상태
+// ⭐️ 금액 가리기(프라이버시) 모드. 초기값은 head 의 FOUC 방지 스크립트가 이미 적용해 둔
+//    클래스에서 읽어 온다 — localStorage 를 두 곳에서 따로 읽으면 언젠가 어긋난다.
+let isAmountMasked = document.documentElement.classList.contains('amount-masked');
 let currentMarketMode = 'NXT'; // ⭐️ KRX/NXT 토글 상태 (기본값 NXT)
 let currentPortfolioArrayForPrice = []; // 현재가 계산용 임시 배열
 let showHistoryClosedPositions = false; // ⭐️ 히스토리도 포트폴리오와 동일하게 청산·숨김 종목을 기본 숨김 처리
@@ -160,9 +162,9 @@ function escapeJsInAttr(value) {
              .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// ⭐️ 포트폴리오와 히스토리의 '청산 종목 보기' 버튼 UI 를 현재 상태로 함께 갱신한다.
+// ⭐️ 포트폴리오와 히스토리의 '청산종목 보기' 버튼 UI 를 현재 상태로 함께 갱신한다.
 function syncClosedPositionsButtons() {
-    const label = showClosedPositions ? '청산 종목 숨기기' : '청산 종목 보기';
+    const label = showClosedPositions ? '청산종목 숨김' : '청산종목 보기';
     const bg = showClosedPositions ? 'var(--primary-color)' : 'transparent';
     const fg = showClosedPositions ? '#fff' : 'var(--primary-color)';
     ['btnToggleClosed', 'btnToggleHistoryClosed'].forEach(id => {
@@ -600,7 +602,7 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 청산 종목 보기 토글 버튼 이벤트 연결
+    // 청산종목 보기 토글 버튼 이벤트 연결
     const btnToggleClosed = document.getElementById('btnToggleClosed');
     if (btnToggleClosed) {
         // 초기 버튼 상태 동기화 (두 버튼을 함께 갱신)
@@ -614,32 +616,17 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ⭐️ 현재가 보기 토글 버튼 이벤트 연결
-    const btnToggleCurrentPrice = document.getElementById('btnToggleCurrentPrice');
-    if (btnToggleCurrentPrice) {
-        btnToggleCurrentPrice.innerText = showCurrentPrice ? '현재가 숨기기' : '현재가 보기';
-        btnToggleCurrentPrice.style.backgroundColor = showCurrentPrice ? 'transparent' : 'var(--primary-color)';
-        btnToggleCurrentPrice.style.color = showCurrentPrice ? 'var(--primary-color)' : '#fff';
+    // ⭐️ 금액 가리기(프라이버시) 토글 버튼 이벤트 연결
+    //    화면공유·어깨너머 시선을 가리기 위한 '표시 전용' 기능이다. 현재가 조회와
+    //    자동 갱신은 그대로 돌아가므로 껐다 켜는 데 드는 비용이 없고, 다시 켜면
+    //    화면이 즉시 원래대로 돌아온다. (예전 '현재가 숨기기'는 조회 자체를 끊어
+    //    평가금액·평가손익·분석 탭까지 함께 죽었고, 그래서 아무도 쓰지 않았다)
+    const btnToggleAmountMask = document.getElementById('btnToggleAmountMask');
+    if (btnToggleAmountMask) {
+        syncAmountMaskButton();
 
-        btnToggleCurrentPrice.addEventListener('click', () => {
-            showCurrentPrice = !showCurrentPrice;
-            btnToggleCurrentPrice.innerText = showCurrentPrice ? '현재가 숨기기' : '현재가 보기';
-            btnToggleCurrentPrice.style.backgroundColor = showCurrentPrice ? 'transparent' : 'var(--primary-color)';
-            btnToggleCurrentPrice.style.color = showCurrentPrice ? 'var(--primary-color)' : '#fff';
-            userPreferences.showCurrentPrice = showCurrentPrice;
-            savePreferences();
-            
-            updatePortfolioSummary(); // UI 리렌더링 및 현재가 fetch 트리거
-            
-            // ⭐️ 현재가 보기 상태에 따라 1분(60초) 자동 업데이트 타이머 켜기/끄기
-            if (showCurrentPrice) {
-                if (priceUpdateInterval !== null) clearInterval(priceUpdateInterval);
-                priceUpdateInterval = setInterval(() => {
-                    window.fetchCurrentPricesAndUpdateUI(true); // isAuto = true 로 자동 갱신 요청
-                }, 60000); // 60초(60000ms) 주기
-            } else {
-                if (priceUpdateInterval !== null) clearInterval(priceUpdateInterval);
-            }
+        btnToggleAmountMask.addEventListener('click', () => {
+            setAmountMasked(!isAmountMasked);
         });
     }
 
@@ -730,7 +717,7 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 히스토리 청산 종목 숨기기/보기 토글 버튼 이벤트 연결
+    // 히스토리 청산종목 숨김/보기 토글 버튼 이벤트 연결
     const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
     if (btnToggleHistoryClosed) {
         // 초기 버튼 상태 동기화 (두 버튼을 함께 갱신)
@@ -1279,7 +1266,7 @@ async function loadDataFromLocal() {
                 if (typeof userPreferences.isDashboardCollapsed !== 'undefined') {
                     isDashboardCollapsed = userPreferences.isDashboardCollapsed;
                 }
-                // ⭐️ 청산 종목 보기 상태 복원 — 포트폴리오/히스토리 두 버튼은 항상 같은 값을 쓴다.
+                // ⭐️ 청산종목 보기 상태 복원 — 포트폴리오/히스토리 두 버튼은 항상 같은 값을 쓴다.
                 //    구버전 환경설정에는 두 키가 따로 저장돼 있을 수 있어 포트폴리오 값을 우선하고,
                 //    없으면 히스토리 값으로 대체한다. (복원 시점에는 저장을 다시 트리거하지 않는다)
                 const savedClosedVisible = (typeof userPreferences.showClosedPositions !== 'undefined')
@@ -1288,24 +1275,16 @@ async function loadDataFromLocal() {
                 if (typeof savedClosedVisible !== 'undefined') {
                     setClosedPositionsVisible(!!savedClosedVisible, { persist: false });
                 }
-                if (typeof userPreferences.showCurrentPrice !== 'undefined') {
-                    showCurrentPrice = userPreferences.showCurrentPrice;
-                    const btnCP = document.getElementById('btnToggleCurrentPrice');
-                    if (btnCP) {
-                        btnCP.innerText = showCurrentPrice ? '현재가 숨기기' : '현재가 보기';
-                        btnCP.style.backgroundColor = showCurrentPrice ? 'transparent' : 'var(--primary-color)';
-                        btnCP.style.color = showCurrentPrice ? 'var(--primary-color)' : '#fff';
-                    }
+                // ⭐️ 현재가 1분(60초) 자동 갱신 시작.
+                //    예전에는 저장된 '현재가 보기' 설정이 있을 때만 타이머를 걸어서,
+                //    설정을 한 번도 건드린 적 없는 신규 계정은 자동 갱신이 아예
+                //    돌지 않았다. 토글을 없앤 김에 조건 없이 켠다.
+                if (priceUpdateInterval !== null) clearInterval(priceUpdateInterval);
+                priceUpdateInterval = setInterval(() => {
+                    window.fetchCurrentPricesAndUpdateUI(true); // isAuto = true 로 자동 갱신 요청
+                }, 60000);
 
-                    // ⭐️ 초기 로드 시 현재가 보기가 켜져있다면 1분(60초) 자동 업데이트 시작
-                    if (showCurrentPrice) {
-                        if (priceUpdateInterval !== null) clearInterval(priceUpdateInterval);
-                        priceUpdateInterval = setInterval(() => {
-                            window.fetchCurrentPricesAndUpdateUI(true); // isAuto = true 로 자동 갱신 요청
-                        }, 60000);
-                    }
-                }
-                
+
                 // ⭐️ KRX/NXT 버튼 상태 복원
                 if (typeof userPreferences.currentMarketMode !== 'undefined') {
                     currentMarketMode = userPreferences.currentMarketMode;
@@ -3122,6 +3101,29 @@ document.getElementById('btnModalExportExcel').addEventListener('click', async (
     }
 });
 
+// ⭐️ 금액 가리기 모드 반영.
+//    실제 마스킹은 CSS(.amount-masked .masked-amount)가 하므로 값을 다시
+//    그릴 필요가 없다 — 갱신 애니메이션이나 현재가 폴링과 부딪히지 않는다.
+//    다만 도넛 툴팁만은 canvas 라 CSS 가 닿지 않아 따로 처리한다(아래 label 콜백).
+//    값 자체는 DOM 에 그대로 남으므로 보안 기능이 아니라 시선 차단용이다.
+function syncAmountMaskButton() {
+    const btn = document.getElementById('btnToggleAmountMask');
+    if (!btn) return;
+    btn.innerText = isAmountMasked ? '금액 보이기' : '금액 가리기';
+    btn.style.backgroundColor = isAmountMasked ? 'var(--primary-color)' : 'transparent';
+    btn.style.color = isAmountMasked ? '#fff' : 'var(--primary-color)';
+}
+
+function setAmountMasked(masked) {
+    isAmountMasked = !!masked;
+    document.documentElement.classList.toggle('amount-masked', isAmountMasked);
+    // 기기별 화면 설정이라 서버 설정이 아닌 localStorage 에 저장한다(테마와 동일).
+    try {
+        localStorage.setItem('amountMasked', isAmountMasked ? '1' : '0');
+    } catch (e) { /* 시크릿 모드 등 저장이 막혀도 이번 세션 동작은 유지한다 */ }
+    syncAmountMaskButton();
+}
+
 // ⭐️ 숫자 카운트업 애니메이션 함수 (차트 중앙 텍스트용)
 function animateValue(element, endValue, duration, isProfit = false) {
     let startValue = parseInt(element.getAttribute('data-val')) || 0;
@@ -3247,7 +3249,7 @@ window.isMarketOpen = function() {
 
 // ⭐️ 백엔드 API를 통해 현재가와 평가금액을 가져와 DOM에 반영하는 함수
 window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
-    if (!showCurrentPrice || currentPortfolioArrayForPrice.length === 0) return;
+    if (currentPortfolioArrayForPrice.length === 0) return;
     
     const displayMarket = currentMarketMode; // ⭐️ 토글된 시장 모드(KRX 또는 NXT) 사용
     
@@ -3328,7 +3330,7 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
                     eEls.forEach(el => el.innerText = Math.round(evalAmount).toLocaleString());
                     
                     const pColor = profitAmount > 0 ? 'var(--danger-color)' : (profitAmount < 0 ? 'var(--primary-color)' : 'var(--text-strong-color)');
-                    pfEls.forEach(el => el.innerHTML = `<span style="color: ${pColor}; font-weight: bold; text-align: right; display: inline-block;">${profitAmount > 0 ? '+' : ''}${Math.round(profitAmount).toLocaleString()}<br>(${profitRate > 0 ? '+' : ''}${profitRate.toFixed(2)}%)</span>`);
+                    pfEls.forEach(el => el.innerHTML = `<span style="color: ${pColor}; font-weight: bold; text-align: right; display: inline-block;"><span class="masked-amount">${profitAmount > 0 ? '+' : ''}${Math.round(profitAmount).toLocaleString()}</span><br>(${profitRate > 0 ? '+' : ''}${profitRate.toFixed(2)}%)</span>`);
                     
                     // ⭐️ 값이 새로 업데이트될 때만 카드 배경 반짝임(Flash) 애니메이션 적용
                     pEls.forEach(el => {
@@ -3522,7 +3524,7 @@ function updatePortfolioSummary() {
             hasHoldings = true;
         }
 
-        // ⭐️ 숨김 종목은 '청산 종목 보기'가 꺼져 있으면 종목명이 드러나는 표현
+        // ⭐️ 숨김 종목은 '청산종목 보기'가 꺼져 있으면 종목명이 드러나는 표현
         //    (카드·도넛 차트·뉴스)에서 제외한다. 수치 반영은 위에서 이미 끝났다.
         const hideThisStock = data.isHiddenStock && !showClosedPositions;
 
@@ -3562,36 +3564,33 @@ function updatePortfolioSummary() {
         card.innerHTML = `
             <div class="stock-name" style="margin-bottom: 2px;">${stock}</div>
             <div style="margin-bottom: 8px; display: flex; align-items: center; min-height: 16px;">${accountBadgeHtml}${statusBadge}</div>
-            <div class="stat-row"><span>보유 수량</span><span>${data.qty.toLocaleString()}주</span></div>
+            <div class="stat-row"><span>보유 수량</span><span class="masked-amount">${data.qty.toLocaleString()}주</span></div>
             <div class="stat-row"><span>평균 단가</span><span>${Math.round(data.avgPrice).toLocaleString()}</span></div>
-            <div class="stat-row"><span>총 매수금액</span><span>${Math.round(data.totalCost).toLocaleString()}</span></div>
+            <div class="stat-row"><span>총 매수금액</span><span class="masked-amount">${Math.round(data.totalCost).toLocaleString()}</span></div>
         `;
         
-        // ⭐️ 현재가 보기 활성화 시에만 종목 실현손익 및 현재가 정보 표시
-        if (showCurrentPrice) {
-            if (data.realizedProfit !== 0) {
-                const profitColor = data.realizedProfit > 0 ? 'var(--danger-color)' : 'var(--primary-color)';
-                const profitStr = (data.realizedProfit > 0 ? '+' : '') + Math.round(data.realizedProfit).toLocaleString();
-                card.innerHTML += `
-                    <div class="stat-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
-                        <span>종목 실현손익</span><span style="color:${profitColor}">${profitStr}</span>
-                    </div>`;
-            }
-            
-            // ⭐️ 현재 보유 중인 종목만 현재가 영역 추가
-            //    data-pkey 는 카드 단위 식별자다. 같은 종목을 실거래·모의로 함께 들고 있으면
-            //    data-code 만으로는 두 카드가 구분되지 않아 서로의 평가금액을 덮어쓴다.
-            if (!isClosed) {
-                const pkey = escapeAttr(data.key);
-                const code = escapeAttr(data.stockCode || '');
-                card.innerHTML += `
-                    <div class="current-price-section" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);" title="클릭하여 현재가 갱신">
-                        <div class="stat-row" style="align-items: center;"><span>현재가</span><span class="cp-price" data-pkey="${pkey}" data-code="${code}">조회 중...</span></div>
-                        <div class="stat-row" style="align-items: center;"><span>평가금액</span><span class="cp-eval" data-pkey="${pkey}" data-code="${code}">-</span></div>
-                        <div class="stat-row" style="align-items: center;"><span>평가손익</span><span class="cp-profit" data-pkey="${pkey}" data-code="${code}">-</span></div>
-                    </div>
-                `;
-            }
+        if (data.realizedProfit !== 0) {
+            const profitColor = data.realizedProfit > 0 ? 'var(--danger-color)' : 'var(--primary-color)';
+            const profitStr = (data.realizedProfit > 0 ? '+' : '') + Math.round(data.realizedProfit).toLocaleString();
+            card.innerHTML += `
+                <div class="stat-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
+                    <span>종목 실현손익</span><span class="masked-amount" style="color:${profitColor}">${profitStr}</span>
+                </div>`;
+        }
+
+        // ⭐️ 현재 보유 중인 종목만 현재가 영역 추가
+        //    data-pkey 는 카드 단위 식별자다. 같은 종목을 실거래·모의로 함께 들고 있으면
+        //    data-code 만으로는 두 카드가 구분되지 않아 서로의 평가금액을 덮어쓴다.
+        if (!isClosed) {
+            const pkey = escapeAttr(data.key);
+            const code = escapeAttr(data.stockCode || '');
+            card.innerHTML += `
+                <div class="current-price-section" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);" title="클릭하여 현재가 갱신">
+                    <div class="stat-row" style="align-items: center;"><span>현재가</span><span class="cp-price" data-pkey="${pkey}" data-code="${code}">조회 중...</span></div>
+                    <div class="stat-row" style="align-items: center;"><span>평가금액</span><span class="cp-eval masked-amount" data-pkey="${pkey}" data-code="${code}">-</span></div>
+                    <div class="stat-row" style="align-items: center;"><span>평가손익</span><span class="cp-profit" data-pkey="${pkey}" data-code="${code}">-</span></div>
+                </div>
+            `;
         }
         
         // ⭐️ 종목 카드 클릭 시 해당 종목 히스토리 필터링 이벤트 연동
@@ -3779,7 +3778,7 @@ function updatePortfolioSummary() {
         const finalHoverColors = isPortfolioEmpty ? [theme === 'dark' ? '#f0f0f0' : '#2c2c2c'] : hoverColors;
 
         // ⭐️ 도넛 중앙의 총 평가금액은 실거래 합계이므로 실거래가 없으면 감춘다.
-        if (showCurrentPrice && !isPortfolioEmpty) {
+        if (!isPortfolioEmpty) {
             document.getElementById('centerTotalEvaluationContainer').style.display = 'block';
         } else {
             document.getElementById('centerTotalEvaluationContainer').style.display = 'none';
@@ -3789,9 +3788,7 @@ function updatePortfolioSummary() {
         //    isPortfolioEmpty 는 실거래 투자금액(totalInvestedAmount) 기준인데, 모의투자는
         //    합계에 잡히지 않으므로 '모의투자계좌'로 필터하면 보유 종목이 있어도 참이 된다.
         //    여기에 묶어 두면 그 화면의 카드가 영영 '조회 중...' 에서 멈춘다.
-        if (showCurrentPrice) {
-            window.fetchCurrentPricesAndUpdateUI();
-        }
+        window.fetchCurrentPricesAndUpdateUI();
 
         const ctx = document.getElementById('portfolioChart').getContext('2d');
         if (portfolioChartInstance) portfolioChartInstance.destroy();
@@ -3839,6 +3836,8 @@ function updatePortfolioSummary() {
                                 let value = context.parsed;
                                 let total = context.dataset.data.reduce((a, b) => a + b, 0);
                                 let percentage = total > 0 ? ((value / total) * 100).toFixed(1) + '%' : '0%';
+                                    // ⭐️ 툴팁은 canvas 안이라 CSS 로 가릴 수 없다. 금액 가리기 모드에서는 비중만 남긴다.
+                                    if (isAmountMasked) return `비중: ${percentage}`;
                                     return `금액: ${Math.round(value).toLocaleString()}원 (${percentage})`;
                             }
                         }
@@ -4355,7 +4354,7 @@ function displayEntries(isFilterUpdate = false) {
             if (!isMatchTrade && !isMatchMemo) return false;
         }
         
-        // ⭐️ 청산 종목 숨기기 상태일 때 (보유 수량이 0인 종목과 숨김 종목을 검색 및 필터에서 제외)
+        // ⭐️ 청산종목 숨김 상태일 때 (보유 수량이 0인 종목과 숨김 종목을 검색 및 필터에서 제외)
         if (!showHistoryClosedPositions && entry.stockName) {
             if (hiddenStocks.has(entry.stockName)) return false;
 
@@ -4582,7 +4581,7 @@ function renderPage() {
                 const totalAmount = (entry.price * (entry.quantity || 1)).toLocaleString();
                 detailsHtml = `
                     <div class="entry-details">
-                        <div class="detail-item">배당금: <span>${cPre}${totalAmount}${cSuf}</span></div>
+                        <div class="detail-item">배당금: <span class="masked-amount">${cPre}${totalAmount}${cSuf}</span></div>
                     </div>
                 `;
             } else if (entry.tradeType !== '관망' && entry.tradeType !== '주시' && (entry.price > 0 || entry.quantity > 0)) {
@@ -4592,8 +4591,8 @@ function renderPage() {
                 detailsHtml = `
                     <div class="entry-details">
                         <div class="detail-item">단가: <span>${cPre}${priceStr}${cSuf}</span></div>
-                        <div class="detail-item">수량: <span>${qtyStr}주</span></div>
-                        <div class="detail-item">총액: <span>${cPre}${totalAmount}${cSuf}</span></div>
+                        <div class="detail-item">수량: <span class="masked-amount">${qtyStr}주</span></div>
+                        <div class="detail-item">총액: <span class="masked-amount">${cPre}${totalAmount}${cSuf}</span></div>
                     </div>
                 `;
             }
@@ -5098,9 +5097,7 @@ window.updateChartEvalNotice = function(info) {
         notes.push('※ 평가손익은 <b>개별 매수건 단가(FIFO)</b> 기준, 실현손익은 <b>이동평균단가</b> 기준이라 서로 기준이 다릅니다.');
         if (offset > 0) notes.push('※ 과거 구간일수록 이미 매도된 물량이 많아 막대가 비어 보일 수 있습니다.');
 
-        if (!showCurrentPrice) {
-            notes.push('⚠️ <b>현재가 보기가 꺼져 있어</b> 평가손익을 계산할 수 없습니다. 현재가 보기를 켜 주세요.');
-        } else if (missingStocks.length) {
+        if (missingStocks.length) {
             const shown = missingStocks.slice(0, 5).map(esc).join(', ');
             const more = missingStocks.length > 5 ? ` 외 ${missingStocks.length - 5}개` : '';
             notes.push(`⚠️ 현재가를 불러오지 못한 <b>${missingStocks.length}개 종목</b>(${shown}${more})은 평가손익에서 <b>제외</b>됐습니다. 종목코드가 없거나 대시보드 필터에서 빠진 종목일 수 있습니다.`);
@@ -5384,7 +5381,7 @@ window.renderMonthlyProfitChart = function() {
     });
 
     // ⭐️ 현재가(Cache)를 바탕으로 현재 청산되지 않고 남은 매수 건들의 평가 손익 계산
-    //    현재가 캐시는 '대시보드' 필터/현재가 보기 설정에 따라 채워지므로, 차트가 필요한
+    //    현재가 캐시는 '대시보드' 필터에 걸린 종목만 채우므로, 차트가 필요한
     //    종목이 캐시에 없을 수 있다. 예전엔 그런 종목이 소리 없이 0으로 빠져 평가손익이
     //    실제보다 작게 나왔다 → 빠진 종목을 모아 화면에 알린다.
     const evalMissingStocks = [];

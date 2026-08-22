@@ -450,3 +450,79 @@ def test_admin_table_has_no_horizontal_scroll(page: Page):
 
     # 사용자가 남긴 메모가 표에 실제로 보여야 한다 (툴팁으로만 두면 아무도 못 본다)
     expect(row).to_contain_text('요청')
+
+
+def test_amount_mask_hides_money_but_keeps_prices_flowing(page: Page):
+    """'금액 가리기'는 표시만 가려야 한다.
+
+    예전 '현재가 숨기기'는 조회 자체를 끊어 평가금액·평가손익·분석 탭까지 함께
+    죽었다. 대체 기능은 그러면 안 된다 — 값은 그대로 계산되고 화면에만 블러가
+    걸려야 하며, 종목명·현재가·손익률은 남아 상황 판단이 계속 가능해야 한다.
+    """
+    page.goto(BASE_URL + '/login')
+    page.fill('input[name="username"]', 'admin')
+    page.fill('input[name="password"]', 'admin123')
+    page.click('button[type="submit"]')
+    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+
+    assert _seed_entries(page, [
+        {"type": "trade", "tradeType": "매수", "stockName": "가림종목",
+         "stockCode": "000101", "price": 1000, "quantity": 7,
+         "tradeClass": "장기투자", "rawDate": "2026-07-01T09:00", "id": 900501},
+    ]) == 'OK'
+
+    page.reload()
+    card = page.locator('#portfolioGrid .portfolio-card[data-id="가림종목"]')
+    expect(card).to_have_count(1, timeout=10000)
+
+    btn = page.locator('#btnToggleAmountMask')
+    expect(btn).to_have_text('금액 가리기')
+
+    def filter_of(selector):
+        return page.evaluate(
+            "sel => { const el = document.querySelector(sel);"
+            "         return el ? getComputedStyle(el).filter : 'MISSING'; }",
+            selector)
+
+    # 기본 상태: 아무것도 가려져 있지 않다
+    assert filter_of('#centerTotalInvested') == 'none'
+
+    btn.click()
+    expect(btn).to_have_text('금액 보이기')
+
+    # 1) 자산 규모가 드러나는 값은 흐려진다
+    for sel in ('#centerTotalInvested', '#centerTotalProfit',
+                '#portfolioGrid .portfolio-card[data-id="가림종목"] .cp-eval'):
+        assert 'blur' in filter_of(sel), f'가려지지 않음: {sel}'
+
+    # 2) 종목명·현재가는 남는다 (현재가는 공개 시세라 가릴 이유가 없다)
+    assert filter_of('#portfolioGrid .portfolio-card[data-id="가림종목"] .stock-name') == 'none'
+    assert filter_of('#portfolioGrid .portfolio-card[data-id="가림종목"] .cp-price') == 'none'
+
+    # 3) 핵심: 가려도 값은 계속 계산된다 (예전 토글은 여기서 조회가 끊겼다)
+    #    앞선 테스트가 심어 둔 기록도 함께 잡히므로 합계 대신 이 종목 카드로 확인한다.
+    assert '7,000' in card.inner_text()
+    assert page.locator('#centerTotalInvested').inner_text().endswith('원')
+    assert page.evaluate("() => typeof window.currentPriceCache === 'object'")
+
+    # 4) 아래 히스토리 목록의 수량·총액도 함께 가려진다.
+    #    대시보드만 가리고 바로 아래 기록에 금액이 그대로 남으면 가리는 의미가 없다.
+    hist_amount = page.locator('#historyList .entry-details .masked-amount').first
+    expect(hist_amount).to_have_count(1)
+    assert 'blur' in page.evaluate(
+        "() => getComputedStyle(document.querySelector('#historyList .entry-details .masked-amount')).filter")
+
+    # 5) 새로고침해도 가림 상태가 유지되고, 첫 페인트부터 가려져 있어야 한다.
+    #    나중에 걸면 금액이 한 번 노출됐다가 가려지므로 가리는 의미가 없다.
+    page.reload()
+    expect(page.locator('#btnToggleAmountMask')).to_have_text('금액 보이기', timeout=10000)
+    assert page.evaluate(
+        "() => document.documentElement.classList.contains('amount-masked')")
+    assert 'blur' in filter_of('#centerTotalInvested')
+
+    # 6) 다시 누르면 원래대로 — 되돌리는 비용이 없어야 실제로 쓰인다
+    page.locator('#btnToggleAmountMask').click()
+    expect(page.locator('#btnToggleAmountMask')).to_have_text('금액 가리기')
+    assert filter_of('#centerTotalInvested') == 'none'
+    page.reload()
+    expect(page.locator('#btnToggleAmountMask')).to_have_text('금액 가리기', timeout=10000)

@@ -1392,3 +1392,20 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
     background: var(--border-color);
     margin: 5px 0;
 }
+
+/* ⭐️ 금액 가리기(프라이버시) 모드
+   화면공유·어깨너머 시선을 막기 위한 '표시 전용' 장치다. 값을 지우거나 다시
+   그리지 않고 흐리게만 처리해서 레이아웃이 흔들리지 않고, 현재가 폴링·카운트업
+   애니메이션과도 부딪히지 않는다. 그래서 껐다 켜는 비용이 사실상 없다.
+   가리는 대상은 '자산 규모가 드러나는 값'(보유 수량·총 매수금액·평가금액·손익 금액)이고,
+   종목명·현재가·손익률(%)·손익 색상은 남겨 상황 판단은 계속 되게 둔다.
+   ⚠️ 값은 DOM 에 그대로 남으므로 보안 기능이 아니다. */
+.masked-amount {
+    transition: filter 0.15s ease;
+}
+.amount-masked .masked-amount {
+    filter: blur(6px);
+    user-select: none;
+    -webkit-user-select: none;
+    pointer-events: none;
+}
