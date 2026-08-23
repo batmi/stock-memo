@@ -2,6 +2,7 @@ import os
 import shutil
 import sqlite3
 import sys
+import tempfile
 
 import pytest
 
@@ -10,8 +11,17 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 # tests/helpers.py 를 `from helpers import ...` 로 부를 수 있게 한다
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import backend_app  # noqa: E402
+# ⭐️ backend_app 을 임포트하면 applog.setup() 이 그 시점의 config.LOG_DIR 에
+#    파일 핸들러를 연다. 그래서 로그 경로만은 **임포트 전에** 임시 폴더로 돌려야
+#    한다. (app 픽스처처럼 테스트마다 바꿔서는 이미 열린 핸들러가 따라오지 않는다)
+#    이걸 안 하면 테스트가 운영 로그(logs/backend_app.log)에 계속 써넣는다 —
+#    실제로 테스트 한 번에 수백 바이트씩 쌓이고 있었고, 사고를 되짚을 때 보는
+#    바로 그 파일이라 오염되면 곤란하다.
 import config  # noqa: E402
+
+config.LOG_DIR = tempfile.mkdtemp(prefix='stock-memo-test-logs-')
+
+import backend_app  # noqa: E402
 import news  # noqa: E402
 import ratelimit  # noqa: E402
 import statscache  # noqa: E402

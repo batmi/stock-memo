@@ -530,7 +530,7 @@ def get_market_calendar():
     """
     return jsonify({
         'holidays': prices.holiday_list(),
-        'maxYear': prices.KRX_HOLIDAYS_MAX_YEAR,
+        'maxYear': prices.max_holiday_year(),
     })
 
 

@@ -10,6 +10,7 @@ import zipfile
 from unittest.mock import patch
 
 
+import accounts
 import backend_app
 import config
 import jobs
@@ -86,6 +87,57 @@ def test_auto_backup_job(mock_sleep, client, app, tmp_path, monkeypatch):
     # 테스트 후 폴더 정리
     import shutil
     shutil.rmtree(backup_dir)
+
+@patch('time.sleep')
+def test_auto_backup_includes_account_mappings(mock_sleep, client, app, tmp_path, monkeypatch):
+    """자동 백업 ZIP 에도 계좌 매핑(account_info.json)이 들어가야 한다.
+
+    ⭐️ 예전에는 기록을 읽은 연결을 곧바로 닫아 놓고, ZIP 을 쓰는 아래쪽에서 그
+       **닫힌 연결**로 accounts.load(conn, ...) 를 불렀다. load() 는 조회 실패를
+       '매핑 없음' 으로 삼키므로(그게 맞는 설계다) 예외도 로그도 없이 빈 매핑이
+       돌아왔고, 자동 백업 ZIP 에서만 account_info.json 이 조용히 빠졌다.
+       수동 백업은 멀쩡했기 때문에 "복원했더니 계좌 매핑만 사라졌다" 로 나타난다.
+    """
+    monkeypatch.setattr(config, 'BACKUP_DIR', str(tmp_path / 'backup'))
+
+    client.post('/signup', data={'username': 'mapbackup', 'password': 'Passw0rd!',
+                                 'password_confirm': 'Passw0rd!'})
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'mapbackup'
+        sess['expires_at'] = time.time() + 3600
+
+    mappings = {'brokers': {'KI': '한국투자'},
+                'accounts': {'12345678-01': {'broker_name': '한국투자', 'alias': '주력'}}}
+    with backend_app.db_conn() as conn:
+        accounts.save(conn, 'mapbackup', mappings)
+        conn.commit()
+    client.post('/api/entry', json={"type": "buy", "stockName": "매핑백업", "price": 1, "quantity": 1})
+
+    sleep_calls = [0]
+
+    def side_effect(*args):
+        sleep_calls[0] += 1
+        if sleep_calls[0] > 1:
+            raise RuntimeError("Break Loop")
+    mock_sleep.side_effect = side_effect
+
+    with app.app_context():
+        try:
+            jobs.auto_backup_job()
+        except RuntimeError:
+            pass
+
+    backup_dir = os.path.join(config.BACKUP_DIR, 'mapbackup')
+    zip_files = [f for f in os.listdir(backup_dir) if f.endswith('.zip')]
+    assert len(zip_files) == 1
+    with zipfile.ZipFile(os.path.join(backup_dir, zip_files[0])) as zf:
+        assert accounts.BACKUP_ARCNAME in zf.namelist(), (
+            f"자동 백업에 계좌 매핑이 빠졌습니다: {zf.namelist()}")
+        saved = json.loads(zf.read(accounts.BACKUP_ARCNAME).decode('utf-8'))
+    assert saved['brokers'] == {'KI': '한국투자'}
+    assert '12345678-01' in saved['accounts']
+
 
 def test_backup_job_skips_unsafe_username(client, tmp_path, monkeypatch):
     """규칙 이전에 만들어진 이상한 이름의 계정은 백업 잡이 파일을 건드리지 않는다."""

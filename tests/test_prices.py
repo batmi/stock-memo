@@ -525,6 +525,45 @@ def test_malformed_dates_are_skipped_not_fatal(tmp_path, monkeypatch, caplog):
     assert len([r for r in caplog.records if '형식이 올바르지 않아' in r.getMessage()]) == 2
 
 
+def test_holiday_file_change_is_picked_up_without_restart(tmp_path, monkeypatch):
+    """파일을 고치면 재시작 없이 반영돼야 한다.
+
+    ⭐️ 코드에서 데이터 파일로 옮겨 놓고 재시작을 요구하면 "갱신에 배포가 필요
+       없다" 가 반쪽이 된다. 연초에 목록을 채우는 것이 이 파일의 유일한 용도인데
+       그때 서버를 내렸다 올려야 한다면 결국 미루게 된다.
+    """
+    f = tmp_path / 'h.json'
+    f.write_text(json.dumps({'holidays': {'2030-01-01': '신정'}}), encoding='utf-8')
+    monkeypatch.setattr(config, 'KRX_HOLIDAYS_FILE', str(f))
+    prices.reload_holidays()
+    assert prices.holidays() == {(2030, 1, 1)}
+    assert prices.max_holiday_year() == 2030
+
+    # 파일 갱신 (연초에 다음 해 목록을 채워 넣는 상황)
+    f.write_text(json.dumps({'holidays': {'2030-01-01': '신정', '2031-01-01': '신정'}}),
+                 encoding='utf-8')
+    prices._holiday_state['checked_at'] = 0        # 확인 간격 경과
+    assert prices.holidays() == {(2030, 1, 1), (2031, 1, 1)}
+    assert prices.max_holiday_year() == 2031
+    assert '2031-01-01' in prices.holiday_list()
+
+
+def test_holiday_file_is_not_stat_ed_on_every_call(tmp_path, monkeypatch):
+    """확인 간격 안에서는 파일을 다시 보지 않는다 (요청마다 stat 하지 않도록)."""
+    f = tmp_path / 'h.json'
+    f.write_text(json.dumps({'holidays': {'2030-01-01': '신정'}}), encoding='utf-8')
+    monkeypatch.setattr(config, 'KRX_HOLIDAYS_FILE', str(f))
+    prices.reload_holidays()
+
+    calls = []
+    real_getmtime = os.path.getmtime
+    monkeypatch.setattr(os.path, 'getmtime',
+                        lambda p: (calls.append(p), real_getmtime(p))[1])
+    for _ in range(50):
+        prices.holidays()
+    assert calls == [], "확인 간격 안인데도 파일을 다시 조회했습니다"
+
+
 def test_holidays_within_range_does_not_warn(caplog):
     prices._holiday_warn_date = None
     inside = _dt.datetime(prices.KRX_HOLIDAYS_MAX_YEAR, 3, 4, 10, 0)

@@ -13,6 +13,7 @@ provider 단위로 분해하고, 다음 성능 개선을 적용합니다.
 ⭐️ 조회 실패는 화면에 "조회 실패" 로만 드러나 원인 추적이 불가능했으므로,
    단계별 실패는 debug, 종목 전체 실패는 warning 으로 남긴다. (logger 'prices')
 """
+import os
 import re
 import json
 import time
@@ -62,13 +63,77 @@ def _load_holidays():
     return days
 
 
-KRX_HOLIDAYS = _load_holidays()
+def _holidays_file_mtime():
+    try:
+        return os.path.getmtime(config.KRX_HOLIDAYS_FILE)
+    except OSError:
+        return None
 
-# ⭐️ 목록이 커버하는 마지막 연도. 이 연도를 넘기면 휴장일을 "정규장"으로
-#    오판하므로, 조용히 틀리는 대신 하루 1회 경고 로그를 남긴다.
-#    (목록이 비면 0 — 그 경우 매일 경고가 나가는 편이 맞다)
-KRX_HOLIDAYS_MAX_YEAR = max((y for (y, _m, _d) in KRX_HOLIDAYS), default=0)
+
+def _apply_holidays(days):
+    """읽어들인 휴장일을 모듈 전역에 반영한다."""
+    global KRX_HOLIDAYS, KRX_HOLIDAYS_MAX_YEAR
+    KRX_HOLIDAYS = days
+    # 목록이 커버하는 마지막 연도. 이 연도를 넘기면 휴장일을 "정규장"으로 오판하므로,
+    # 조용히 틀리는 대신 하루 1회 경고 로그를 남긴다.
+    # (목록이 비면 0 — 그 경우 매일 경고가 나가는 편이 맞다)
+    KRX_HOLIDAYS_MAX_YEAR = max((y for (y, _m, _d) in days), default=0)
+
+
+KRX_HOLIDAYS = set()
+KRX_HOLIDAYS_MAX_YEAR = 0
 _holiday_warn_date = None
+
+# ⭐️ 파일을 고치면 **재시작 없이** 반영되게 한다.
+#    코드에서 데이터 파일로 옮겨 놓고 재시작을 요구하면 "갱신에 배포가 필요 없다"는
+#    말이 반쪽이 된다. 연초에 목록을 채워 넣는 것이 이 파일의 유일한 용도인데,
+#    그때 서버를 내렸다 올려야 한다면 결국 미루게 된다.
+#    매 호출마다 stat 하지 않도록 확인 간격을 두고, mtime 이 바뀐 경우에만 다시 읽는다.
+HOLIDAY_RELOAD_CHECK_SECONDS = 60
+_holiday_state = {'mtime': None, 'checked_at': 0.0}
+_holiday_lock = threading.Lock()
+
+
+def _refresh_holidays_if_changed(now_ts=None):
+    """파일이 바뀌었으면 다시 읽는다. 확인은 최대 60초에 한 번."""
+    now_ts = now_ts if now_ts is not None else time.time()
+    with _holiday_lock:
+        if now_ts - _holiday_state['checked_at'] < HOLIDAY_RELOAD_CHECK_SECONDS:
+            return
+        _holiday_state['checked_at'] = now_ts
+        mtime = _holidays_file_mtime()
+        if mtime == _holiday_state['mtime']:
+            return
+        _holiday_state['mtime'] = mtime
+        days = _load_holidays()
+        if days != KRX_HOLIDAYS:
+            logger.info("🔄 휴장일 목록을 다시 읽었습니다: %d건 (~%d년)",
+                        len(days), max((y for (y, _m, _d) in days), default=0))
+        _apply_holidays(days)
+
+
+def reload_holidays():
+    """휴장일을 즉시 다시 읽는다 (확인 간격 무시). 테스트·수동 갱신용."""
+    with _holiday_lock:
+        _holiday_state['mtime'] = _holidays_file_mtime()
+        _holiday_state['checked_at'] = time.time()
+        _apply_holidays(_load_holidays())
+    return KRX_HOLIDAYS
+
+
+def holidays():
+    """최신 휴장일 집합. 파일이 바뀌었으면 여기서 반영된다."""
+    _refresh_holidays_if_changed()
+    return KRX_HOLIDAYS
+
+
+def max_holiday_year():
+    """목록이 커버하는 마지막 연도 (최신 파일 기준)."""
+    _refresh_holidays_if_changed()
+    return KRX_HOLIDAYS_MAX_YEAR
+
+
+reload_holidays()   # 기동 시 1회
 
 
 HTTP_TIMEOUT = 2.5      # 단계별 외부 API 호출 제한시간(초)
@@ -206,7 +271,7 @@ def _warn_if_holidays_outdated(kst):
     실시간 시세를 무의미하게 호출하면서도 아무도 알아채지 못한다.
     """
     global _holiday_warn_date
-    if kst.year <= KRX_HOLIDAYS_MAX_YEAR:
+    if kst.year <= max_holiday_year():
         return
     today = (kst.year, kst.month, kst.day)
     if _holiday_warn_date == today:
@@ -224,13 +289,13 @@ def is_kr_out_of_hours(now_kst=None):
     _warn_if_holidays_outdated(kst)
     time_num = kst.hour * 100 + kst.minute
     day_of_week = kst.weekday()
-    is_holiday = (kst.year, kst.month, kst.day) in KRX_HOLIDAYS
+    is_holiday = (kst.year, kst.month, kst.day) in holidays()
     return (day_of_week >= 5) or is_holiday or not (900 <= time_num < 1530)
 
 
 def holiday_list():
     """휴장일을 'YYYY-MM-DD' 문자열로 정렬해 반환. (프론트 공유용)"""
-    return ['%04d-%02d-%02d' % ymd for ymd in sorted(KRX_HOLIDAYS)]
+    return ['%04d-%02d-%02d' % ymd for ymd in sorted(holidays())]
 
 
 def is_nxt_mode(market_mode):

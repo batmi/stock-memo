@@ -20,7 +20,7 @@ import accounts
 import config
 import prices
 from backups import verify_backup_zip
-from db import get_db
+from db import db_conn, get_db
 from users import user_dir
 
 log = logging.getLogger('jobs')
@@ -46,20 +46,24 @@ def auto_backup_job():
 
         try:
             log.info("🔄 일일 자동 백업을 시작합니다.")
-            conn = get_db()
-            c = conn.cursor()
-            c.execute("SELECT username FROM users")
-            users = c.fetchall()
-            conn.close()
+            with db_conn() as conn:
+                users = conn.execute("SELECT username FROM users").fetchall()
 
             for user in users:
                 username = user['username']
 
-                conn = get_db()
-                c = conn.cursor()
-                c.execute("SELECT * FROM entries WHERE username = ?", (username,))
-                rows = [dict(row) for row in c.fetchall()]
-                conn.close()
+                # ⭐️ 기록과 계좌 매핑을 **같은 연결에서** 읽는다.
+                #    예전에는 기록만 읽고 곧바로 conn.close() 한 뒤, ZIP 을 쓰는
+                #    한참 아래에서 그 닫힌 연결로 accounts.load(conn, ...) 를 불렀다.
+                #    load() 는 조회 실패를 '매핑 없음'으로 삼키도록 되어 있어(그게
+                #    맞는 설계다) 아무 소리 없이 빈 매핑이 돌아왔고, 결과적으로
+                #    **자동 백업 ZIP 에서만 account_info.json 이 통째로 빠졌다.**
+                #    수동 백업(backup_api)은 with db_conn() 을 써서 멀쩡했기 때문에
+                #    "백업은 되는데 복원하면 계좌 매핑만 사라지는" 형태로 나타난다.
+                with db_conn() as conn:
+                    rows = [dict(row) for row in conn.execute(
+                        "SELECT * FROM entries WHERE username = ?", (username,)).fetchall()]
+                    mappings = accounts.load(conn, username)
 
                 user_backup_dir = user_dir(config.BACKUP_DIR, username)
                 if user_backup_dir is None:
@@ -84,7 +88,6 @@ def auto_backup_job():
                                 
                     # 계좌 매핑은 DB 에 있지만, 백업 ZIP 안에서는 구버전과 같은
                     # account_info.json 이름을 유지한다 (예전 백업과 호환).
-                    mappings = accounts.load(conn, username)
                     if mappings.get('brokers') or mappings.get('accounts'):
                         zf.writestr(accounts.BACKUP_ARCNAME, accounts.dumps(mappings))
 
@@ -127,7 +130,7 @@ def auto_fetch_nxt_close_job():
             if not (0 <= day_of_week <= 4 and 1530 <= time_num <= 1830):
                 continue
             # 휴장일에는 시간외 단일가도 없다 (prices 의 휴장일 목록과 판정을 공유)
-            if (kst_now.year, kst_now.month, kst_now.day) in prices.KRX_HOLIDAYS:
+            if (kst_now.year, kst_now.month, kst_now.day) in prices.holidays():
                 continue
 
             log.info("🔄 백그라운드: 시간외 단일가(NXT) 자동 캐싱을 시작합니다...")

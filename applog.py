@@ -19,8 +19,24 @@ QUIET_CONSOLE_PATHS = {'/api/v1/bot/status'}
 # ⭐️ 콘솔에서 걷어낼 백그라운드 작업 (파일에는 그대로 남는다)
 QUIET_CONSOLE_FUNCS = {'auto_fetch_nxt_close_job'}
 
-# ⭐️ app.logger 와 같은 핸들러에 붙일 도메인 모듈 로거
-MODULE_LOGGERS = ('prices', 'users')
+# ⭐️ app.logger 와 같은 핸들러에 붙일 프로젝트 모듈 로거.
+#
+#    ⚠️ 여기 없는 모듈의 로그는 **로그 파일에 남지 않는다.** 핸들러가 없는 로거는
+#       루트로 전파되는데 루트에도 핸들러가 없어, 파이썬의 lastResort 가 WARNING
+#       이상만 stderr 로 흘린다 — 시각도 레벨도 파일:줄도 없는 맨 문장으로. INFO 는
+#       아예 사라진다.
+#
+#       실제로 계층 분리(모듈화) 직후 auth·admin·jobs·ratelimit·api·backup_api 의
+#       로그가 전부 이 상태였다. 로그인 실패 사유와 IP, 계정 잠금, 자동 백업 성패,
+#       복원 결과처럼 **사후에 반드시 되짚어야 하는 기록**이 파일에서 사라진 것이다.
+#       모듈을 쪼개면서 각자 getLogger(모듈명) 를 갖게 됐는데 이 목록만 그대로였다.
+#
+#       "새 모듈을 만들면 여기 추가할 것" 이라는 주석은 이미 한 번 어긋났으므로,
+#       이제 tests/test_applog.py 가 소스를 훑어 강제한다.
+MODULE_LOGGERS = (
+    'admin', 'api', 'auth', 'backup_api', 'jobs', 'news',
+    'prices', 'ratelimit', 'trading_api', 'users',
+)
 
 
 class CustomDailyRotatingFileHandler(TimedRotatingFileHandler):
@@ -71,7 +87,7 @@ class ConsoleFilter(logging.Filter):
 
 
 def setup(app):
-    """앱 로거와 prices 로거를 파일·콘솔 핸들러에 연결한다."""
+    """앱 로거와 모든 프로젝트 모듈 로거를 파일·콘솔 핸들러에 연결한다."""
     os.makedirs(config.LOG_DIR, exist_ok=True)
     log_file = os.path.join(config.LOG_DIR, LOG_FILENAME)
 
@@ -104,7 +120,6 @@ def setup(app):
     # ⭐️ 도메인 모듈 로거를 앱 로그와 같은 파일/콘솔로 흘려보낸다.
     #    app.logger 는 propagate=False 라 루트 로거를 타지 않으므로 직접 붙여야 한다.
     #    레벨은 INFO — 단계별 실패(debug)는 평소 묻어두고, 캐시 대체·전체 실패만 남긴다.
-    #    (여기 없는 모듈의 경고는 어디에도 남지 않는다 — 새 모듈을 만들면 추가할 것)
     for name in MODULE_LOGGERS:
         module_logger = logging.getLogger(name)
         module_logger.handlers.clear()
