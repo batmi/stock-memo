@@ -23,6 +23,7 @@ from flask import (Flask)
 # ⭐️ 추출된 도메인 모듈 (순수 로직 — 단위 테스트 용이)
 import config
 import applog
+import memcache
 import middleware
 import trading_api
 import accounts
@@ -184,6 +185,15 @@ def bootstrap(start_jobs=True):
     # ⭐️ 어느 DB 를 붙잡고 떴는지 시작 시점에 못박아 둔다. 계정이 통째로 사라진 것처럼
     #    보이는 사고는 대부분 '다른 파일을 보고 있었다' 가 원인이었다.
     app.logger.info(f"📁 사용 중인 DB: {config.DB_FILE} (계정 {_count_users()}개)")
+
+    # ⭐️ 같은 이유로, 이 프로세스에만 존재하는 상태도 시작 시점에 적어 둔다.
+    #    멀티 워커로 띄웠을 때 나타나는 증상(레이트리밋이 헐거워지고, 저장했는데
+    #    통계가 안 바뀌고, 비밀번호를 바꿨는데 다른 창이 안 끊기는)은 서로 무관해
+    #    보여서 원인을 한참 뒤에야 찾게 된다. 로그에 목록이 있으면 바로 짚인다.
+    app.logger.info(
+        "🧠 프로세스 메모리에만 있는 상태: "
+        + ", ".join(name for name, _why in memcache.PROCESS_LOCAL_STATE)
+        + " — 단일 프로세스로 구동해야 의도한 대로 동작합니다 (wsgi.py 참고)")
     return app
 
 

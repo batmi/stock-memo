@@ -3,6 +3,7 @@
 Flask 라우트를 거치지 않고 provider 함수들을 직접 호출하여
 시장 판정/장중 판정/DB 캐시/HTTP keep-alive/다단계 폴백 분기를 검증합니다.
 """
+import json
 import os
 import sys
 import time
@@ -15,6 +16,7 @@ import pytest
 # prices 모듈을 임포트할 수 있도록 상위 경로 추가
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+import config
 import prices
 
 
@@ -481,6 +483,48 @@ def test_holidays_outdated_warns_once_per_day(caplog):
     prices._holiday_warn_date = None
 
 
+# ─────────────────────────────────────────────────────────────
+# 휴장일 데이터 파일 로딩
+#   ⭐️ 휴장일은 코드가 아니라 data/krx_holidays.json 이 갖는다. 파일이 없거나
+#      깨져도 서버 기동을 막아서는 안 된다 — 휴장일을 모르는 것은 성능·표시
+#      문제이지 데이터 무결성 문제가 아니다.
+# ─────────────────────────────────────────────────────────────
+def test_holidays_are_loaded_from_the_data_file(tmp_path, monkeypatch):
+    f = tmp_path / 'h.json'
+    f.write_text(json.dumps({'holidays': {'2030-01-01': '신정', '2030-12-25': '성탄절'}}),
+                 encoding='utf-8')
+    monkeypatch.setattr(config, 'KRX_HOLIDAYS_FILE', str(f))
+    assert prices._load_holidays() == {(2030, 1, 1), (2030, 12, 25)}
+
+
+def test_missing_holiday_file_does_not_crash(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(config, 'KRX_HOLIDAYS_FILE', str(tmp_path / '없는파일.json'))
+    with caplog.at_level('WARNING', logger='prices'):
+        assert prices._load_holidays() == set()
+    assert any('휴장일 파일이 없습니다' in r.getMessage() for r in caplog.records)
+
+
+def test_broken_holiday_file_does_not_crash(tmp_path, monkeypatch, caplog):
+    f = tmp_path / 'h.json'
+    f.write_text('{ 이건 JSON 이 아니다', encoding='utf-8')
+    monkeypatch.setattr(config, 'KRX_HOLIDAYS_FILE', str(f))
+    with caplog.at_level('ERROR', logger='prices'):
+        assert prices._load_holidays() == set()
+    assert any('읽지 못했습니다' in r.getMessage() for r in caplog.records)
+
+
+def test_malformed_dates_are_skipped_not_fatal(tmp_path, monkeypatch, caplog):
+    """한 줄이 잘못됐다고 나머지 휴장일까지 버리면 안 된다."""
+    f = tmp_path / 'h.json'
+    f.write_text(json.dumps({'holidays': {
+        '2030-01-01': '신정', '2030/05/05': '형식 오류', '엉망': '형식 오류',
+    }}), encoding='utf-8')
+    monkeypatch.setattr(config, 'KRX_HOLIDAYS_FILE', str(f))
+    with caplog.at_level('WARNING', logger='prices'):
+        assert prices._load_holidays() == {(2030, 1, 1)}
+    assert len([r for r in caplog.records if '형식이 올바르지 않아' in r.getMessage()]) == 2
+
+
 def test_holidays_within_range_does_not_warn(caplog):
     prices._holiday_warn_date = None
     inside = _dt.datetime(prices.KRX_HOLIDAYS_MAX_YEAR, 3, 4, 10, 0)
@@ -573,35 +617,37 @@ def test_fetch_nxt_close_network_error_falls_back():
 
 
 # ─────────────────────────────────────────────────────────────
-# 메모리 캐시 정리
+# 자동 폴링 전용 단기 메모리 캐시
+#   (TTL·상한·정리 규칙 자체는 tests/test_memcache.py 가 본다)
 # ─────────────────────────────────────────────────────────────
-def test_prune_price_mem_cache_drops_expired():
-    prices._price_mem_cache.clear()
-    now = 1000.0
-    for i in range(prices.PRICE_MEM_MAX + 5):
-        prices._price_mem_cache[(f'C{i}', 'KRX')] = (1.0, now - prices.PRICE_MEM_TTL - 1)
-    prices._price_mem_cache[('FRESH', 'KRX')] = (2.0, now)
-    prices._prune_price_mem_cache(now)
-    assert list(prices._price_mem_cache) == [('FRESH', 'KRX')]
-    prices._price_mem_cache.clear()
-
-
-def test_prune_price_mem_cache_noop_under_limit():
-    prices._price_mem_cache.clear()
-    prices._price_mem_cache[('OLD', 'KRX')] = (1.0, 0.0)
-    prices._prune_price_mem_cache(9999.0)
-    # 상한 미만이면 만료됐어도 굳이 훑지 않는다 (락 구간을 짧게 유지)
-    assert ('OLD', 'KRX') in prices._price_mem_cache
-    prices._price_mem_cache.clear()
-
-
 def test_fetch_price_uses_mem_cache_only_when_allowed():
     prices._price_mem_cache.clear()
-    prices._price_mem_cache[('005930', 'KRX')] = (95000.0, time.time())
+    prices._price_mem_cache.put(('005930', 'KRX'), 95000.0)
     # 자동 폴링: 캐시 사용 → DB 접근 없음
     assert prices.fetch_price('005930', 'KRX', allow_cached=True) == ('005930', 95000.0)
     # 수동 새로고침: 캐시 우회 → 라이브 조회
     with patch.object(prices, 'get_db', return_value=MagicMock()), \
          patch.object(prices, '_fetch_price_uncached', return_value=96000.0):
         assert prices.fetch_price('005930', 'KRX', allow_cached=False) == ('005930', 96000.0)
+    prices._price_mem_cache.clear()
+
+
+def test_live_lookup_refreshes_the_cache_for_the_next_poll():
+    """수동 조회가 캐시를 우회하더라도, 얻은 값은 캐시에 갱신해 둔다."""
+    prices._price_mem_cache.clear()
+    with patch.object(prices, 'get_db', return_value=MagicMock()), \
+         patch.object(prices, '_fetch_price_uncached', return_value=96000.0):
+        prices.fetch_price('005930', 'KRX', allow_cached=False)
+    assert prices._price_mem_cache.get(('005930', 'KRX')) == 96000.0
+    prices._price_mem_cache.clear()
+
+
+def test_failed_lookup_does_not_poison_the_cache():
+    """조회 실패(None)를 캐시하면 그 종목이 TTL 동안 '조회 실패'로 굳는다."""
+    prices._price_mem_cache.clear()
+    with patch.object(prices, 'get_db', return_value=MagicMock()), \
+         patch.object(prices, '_fetch_price_uncached', return_value=None):
+        assert prices.fetch_price('005930', 'KRX', allow_cached=False) == ('005930', None)
+    assert prices._price_mem_cache.get(('005930', 'KRX')) is None
+    assert len(prices._price_mem_cache) == 0
     prices._price_mem_cache.clear()

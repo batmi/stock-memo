@@ -23,36 +23,53 @@ import datetime as _dt
 import concurrent.futures
 from urllib.parse import urlsplit
 
+import config
 from db import get_db
+from memcache import TTLCache
 
 logger = logging.getLogger('prices')
 
-# ⭐️ 한국거래소(KRX) 휴장일 목록 (매년 연초에 갱신 필요)
-KRX_HOLIDAYS = {
-    (2026, 1, 1),    # 신정
-    (2026, 2, 16),   # 설날 연휴
-    (2026, 2, 17),   # 설날
-    (2026, 2, 18),   # 설날 연휴
-    (2026, 3, 2),    # 삼일절 대체공휴일 (3/1 일요일)
-    (2026, 5, 1),    # 근로자의 날
-    (2026, 5, 5),    # 어린이날
-    (2026, 5, 25),   # 석가탄신일 대체공휴일 (5/24 일요일)
-    (2026, 6, 3),    # 지방선거일
-    (2026, 6, 6),    # 현충일 (토요일이지만 목록에 포함)
-    (2026, 7, 17),   # 제헌절
-    (2026, 8, 17),   # 광복절 대체공휴일 (8/15 토요일)
-    (2026, 9, 24),   # 추석 연휴
-    (2026, 9, 25),   # 추석
-    (2026, 10, 5),   # 개천절 대체공휴일 (10/3 토요일)
-    (2026, 10, 9),   # 한글날
-    (2026, 12, 25),  # 성탄절
-    (2026, 12, 31),  # 연말 휴장일
-}
+# ⭐️ 한국거래소(KRX) 휴장일 — 목록은 data/krx_holidays.json 이 갖는다.
+#    예전에는 이 집합이 소스에 그대로 박혀 있었다. 매년 연초에 반드시 갱신해야
+#    하는 순수한 '데이터'인데 코드에 있으면 갱신이 곧 코드 수정 + 재배포가 되고,
+#    그래서 미뤄지다가 잊힌다. 잊히면 조용히 틀린다 — 공휴일에 정규장으로 판정해
+#    쉬는 날 내내 외부 API 를 두드리고, 화면은 '장중'으로 표시된다.
+def _load_holidays():
+    """휴장일 파일을 (연,월,일) 집합으로 읽는다.
+
+    파일이 없거나 깨져도 서버 기동을 막지 않는다 — 휴장일을 모르는 것은
+    성능·표시 문제이지 데이터 무결성 문제가 아니다. 대신 경고를 남긴다.
+    """
+    try:
+        with open(config.KRX_HOLIDAYS_FILE, encoding='utf-8') as f:
+            raw = json.load(f).get('holidays') or {}
+    except FileNotFoundError:
+        logger.warning("⚠️ 휴장일 파일이 없습니다: %s (모든 평일을 정규장으로 봅니다)",
+                       config.KRX_HOLIDAYS_FILE)
+        return set()
+    except (ValueError, OSError) as e:
+        logger.error("⚠️ 휴장일 파일을 읽지 못했습니다: %s (%r)", config.KRX_HOLIDAYS_FILE, e)
+        return set()
+
+    days = set()
+    for key in raw:
+        try:
+            y, m, d = (int(part) for part in str(key).split('-'))
+        except ValueError:
+            logger.warning("⚠️ 휴장일 형식이 올바르지 않아 건너뜁니다: %r (YYYY-MM-DD)", key)
+            continue
+        days.add((y, m, d))
+    return days
+
+
+KRX_HOLIDAYS = _load_holidays()
 
 # ⭐️ 목록이 커버하는 마지막 연도. 이 연도를 넘기면 휴장일을 "정규장"으로
 #    오판하므로, 조용히 틀리는 대신 하루 1회 경고 로그를 남긴다.
-KRX_HOLIDAYS_MAX_YEAR = max(y for (y, _m, _d) in KRX_HOLIDAYS)
+#    (목록이 비면 0 — 그 경우 매일 경고가 나가는 편이 맞다)
+KRX_HOLIDAYS_MAX_YEAR = max((y for (y, _m, _d) in KRX_HOLIDAYS), default=0)
 _holiday_warn_date = None
+
 
 HTTP_TIMEOUT = 2.5      # 단계별 외부 API 호출 제한시간(초)
 
@@ -469,21 +486,7 @@ def _fetch_price_uncached(conn, code_str, market_mode):
 #    반드시 새로 조회하므로 신선도도 유지된다.
 PRICE_MEM_TTL = 50  # 초
 PRICE_MEM_MAX = 500  # 항목 수 상한 — 넘으면 만료분부터 정리
-_price_mem_cache = {}  # (code_str, market_mode) -> (price, timestamp)
-_price_mem_lock = threading.Lock()
-
-
-def _prune_price_mem_cache(now_ts):
-    """만료 항목 제거. (락을 잡은 상태에서 호출할 것)
-
-    종목을 지우거나 코드를 고쳐도 옛 키가 계속 남아 메모리가 단조 증가하던
-    것을 막는다.
-    """
-    if len(_price_mem_cache) <= PRICE_MEM_MAX:
-        return
-    for key in [k for k, v in _price_mem_cache.items()
-                if (now_ts - v[1]) >= PRICE_MEM_TTL]:
-        _price_mem_cache.pop(key, None)
+_price_mem_cache = TTLCache(PRICE_MEM_TTL, PRICE_MEM_MAX, name='prices')
 
 
 def fetch_price(code, market_mode='AUTO', allow_cached=False):
@@ -497,20 +500,16 @@ def fetch_price(code, market_mode='AUTO', allow_cached=False):
         return None, None  # 빈 코드는 결과에서 제외 (호출자가 code is None 으로 필터)
 
     if allow_cached:
-        with _price_mem_lock:
-            hit = _price_mem_cache.get((code_str, market_mode))
-        if hit is not None and (time.time() - hit[1]) < PRICE_MEM_TTL:
-            return code, hit[0]
+        cached = _price_mem_cache.get((code_str, market_mode))
+        if cached is not None:
+            return code, cached
 
     conn = None
     try:
         conn = get_db()
         price = _fetch_price_uncached(conn, code_str, market_mode)
         if price is not None:
-            now_ts = time.time()
-            with _price_mem_lock:
-                _price_mem_cache[(code_str, market_mode)] = (price, now_ts)
-                _prune_price_mem_cache(now_ts)
+            _price_mem_cache.put((code_str, market_mode), price)
         return code, price
     except Exception as e:
         logger.warning("⚠️ %s 시세 조회 중 예외: %r", code_str, e)

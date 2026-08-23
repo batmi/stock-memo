@@ -1,5 +1,6 @@
 import os
 import shutil
+import sqlite3
 import sys
 
 import pytest
@@ -22,6 +23,8 @@ _SANDBOXED_PATHS = ('DB_FILE', 'UPLOAD_FOLDER', 'BACKUP_DIR', 'JSON_DIR', 'DATA_
 
 # 실제 데이터 폴더 (세션 시작 시점의 값 — 흔적 검사에 쓴다)
 _REAL_DIRS = (config.UPLOAD_FOLDER, config.JSON_DIR, config.BACKUP_DIR)
+# 실제 DB 파일 (세션 시작 시점의 경로 — 변경 검사에 쓴다)
+_REAL_DB_FILE = config.DB_FILE
 
 
 @pytest.fixture
@@ -70,18 +73,72 @@ def client(app):
 
 
 @pytest.fixture(scope='session', autouse=True)
+def _fail_if_tests_open_the_real_db():
+    """테스트가 **운영 DB 파일을 여는 순간** 실패시킨다.
+
+    ⭐️ 처음에는 세션 끝에서 파일의 크기·수정시각만 비교했다. 그것만으로는
+       부족했다 — 스키마가 이미 최신이면 `bootstrap()` 이 운영 DB 를 열고도
+       아무것도 바꾸지 않아 검사를 그대로 통과한다. 즉 **운이 좋았을 때만**
+       조용하고, 다음에 스키마가 한 칸이라도 뒤처지면 그때 진짜로 마이그레이션이
+       돈다. 손상이 아니라 '접근'을 막아야 한다.
+    """
+    real = os.path.abspath(_REAL_DB_FILE)
+    original_connect = sqlite3.connect
+
+    def guarded_connect(database, *args, **kwargs):
+        try:
+            target = os.path.abspath(str(database))
+        except (TypeError, ValueError):
+            target = None
+        if target == real:
+            raise AssertionError(
+                f"테스트가 운영 DB 를 열려고 했습니다: {real}\n"
+                f"  → DB 를 건드리는 테스트는 반드시 `app` 픽스처를 받아야 합니다."
+                f" (app 이 config.DB_FILE 을 임시 경로로 돌립니다)")
+        return original_connect(database, *args, **kwargs)
+
+    sqlite3.connect = guarded_connect
+    try:
+        yield
+    finally:
+        sqlite3.connect = original_connect
+
+
+def _db_fingerprint():
+    """실제 DB 파일의 (존재여부, 크기, 수정시각). 없으면 None."""
+    try:
+        st = os.stat(_REAL_DB_FILE)
+    except OSError:
+        return None
+    return (st.st_size, st.st_mtime_ns)
+
+
+@pytest.fixture(scope='session', autouse=True)
 def _fail_if_tests_touch_real_data_dirs():
-    """테스트가 끝난 뒤 실제 데이터 폴더에 새 흔적이 생겼는지 확인한다.
+    """테스트가 끝난 뒤 실제 데이터 폴더·DB 에 손을 댔는지 확인한다.
 
     위 샌드박스를 우회하는 경로가 새로 생기면 여기서 드러난다. 조용히 운영
-    폴더를 더럽히는 것보다 테스트가 실패해서 알려주는 편이 낫다.
+    데이터를 건드리는 것보다 테스트가 실패해서 알려주는 편이 낫다.
+
+    ⭐️ DB 검사를 나중에 덧붙였다. 폴더만 보던 시절, `app` 픽스처를 받지 않고
+       `backend_app.bootstrap()` 을 부르는 테스트를 실수로 하나 넣었는데
+       (bootstrap 은 스키마 적용과 1회성 이관을 수행한다) 아무도 알려주지
+       않았다. 스키마가 이미 최신이라 결과적으로 no-op 였을 뿐이고, 운이
+       나빴다면 운영 DB 에 마이그레이션이 돌았을 것이다.
     """
     def snapshot():
         return {d: set(os.listdir(d)) for d in _REAL_DIRS if os.path.isdir(d)}
 
     before = snapshot()
+    db_before = _db_fingerprint()
     yield
     after = snapshot()
+    db_after = _db_fingerprint()
+
+    assert db_before == db_after, (
+        f"테스트가 실제 DB 를 건드렸습니다: {_REAL_DB_FILE}\n"
+        f"  이전={db_before} 이후={db_after}\n"
+        f"  → DB 를 여는 테스트는 반드시 `app` 픽스처를 받아야 합니다.")
 
     leaked = {
         base: sorted(names - before.get(base, set()))
