@@ -53,8 +53,8 @@ jobs:
         with:
           node-version: '20'
 
-      # ⭐️ calc.js 는 백엔드 stats.py 와 같은 결과를 내야 하는 계산 엔진이다.
-      #    파이썬 쪽 test_stats_parity.py 가 교차 검증하지만, 순수 JS 단위 테스트도
-      #    독립적으로 돌려 회귀를 조기에 잡는다.
+      # ⭐️ calc.js 는 화면이 보유 상태(평단·원가·실현손익)를 굴리는 유일한 경로다.
+      #    성과 지표는 stats.py 가 단독으로 갖고 있으므로(예전의 parity 검증은
+      #    사본을 지우면서 함께 사라졌다) 여기서는 상태전이 규칙만 본다.
       - name: calc.js 단위 테스트
         run: node --test tests/calc.test.js

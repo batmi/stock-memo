@@ -28,6 +28,8 @@ import json
 import os
 import re
 
+from db import db_conn
+
 EMPTY_MAPPINGS = {"brokers": {}, "accounts": {}}
 
 # 백업 ZIP 안에서 계좌 매핑이 담기는 파일명 (구버전 백업과의 호환을 위해 고정)
@@ -102,6 +104,18 @@ def load(conn, username):
         return normalize(json.loads(row[0]))
     except (ValueError, TypeError):
         return empty_mappings()
+
+
+def load_for(username):
+    """연결까지 직접 열어 사용자 매핑을 읽는다.
+
+    ⭐️ 예전에는 이 3줄이 api.py 안에 있었고, 봇 API(trading_api)는 그걸 쓰려고
+       backend_app 에서 함수를 **주입**받았다. 라우트 모듈에 도메인 조회가 있으니
+       다른 도메인 모듈이 그걸 참조할 방법이 주입밖에 없었던 것이다. 매핑을 아는
+       모듈이 갖고 있으면 양쪽 다 그냥 임포트하면 된다.
+    """
+    with db_conn() as conn:
+        return load(conn, username)
 
 
 class UnknownUserError(LookupError):

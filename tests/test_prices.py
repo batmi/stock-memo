@@ -412,7 +412,7 @@ def test_fetch_price_empty_code():
 
 
 def test_fetch_price_success(conn):
-    with patch.object(prices, '_get_db', return_value=conn), \
+    with patch.object(prices, 'get_db', return_value=conn), \
          patch.object(prices, '_fetch_price_uncached', return_value=95000.0):
         code, price = prices.fetch_price('005930')
     assert code == '005930'
@@ -420,7 +420,7 @@ def test_fetch_price_success(conn):
 
 
 def test_fetch_price_db_error_returns_none():
-    with patch.object(prices, '_get_db', side_effect=Exception("no db")):
+    with patch.object(prices, 'get_db', side_effect=Exception("no db")):
         code, price = prices.fetch_price('005930')
     assert code == '005930'
     assert price is None
@@ -428,7 +428,7 @@ def test_fetch_price_db_error_returns_none():
 
 def test_fetch_price_closes_connection():
     fake_conn = MagicMock()
-    with patch.object(prices, '_get_db', return_value=fake_conn), \
+    with patch.object(prices, 'get_db', return_value=fake_conn), \
          patch.object(prices, '_fetch_price_uncached', return_value=1.0):
         prices.fetch_price('005930')
     fake_conn.close.assert_called_once()
@@ -601,7 +601,7 @@ def test_fetch_price_uses_mem_cache_only_when_allowed():
     # 자동 폴링: 캐시 사용 → DB 접근 없음
     assert prices.fetch_price('005930', 'KRX', allow_cached=True) == ('005930', 95000.0)
     # 수동 새로고침: 캐시 우회 → 라이브 조회
-    with patch.object(prices, '_get_db', return_value=MagicMock()), \
+    with patch.object(prices, 'get_db', return_value=MagicMock()), \
          patch.object(prices, '_fetch_price_uncached', return_value=96000.0):
         assert prices.fetch_price('005930', 'KRX', allow_cached=False) == ('005930', 96000.0)
     prices._price_mem_cache.clear()

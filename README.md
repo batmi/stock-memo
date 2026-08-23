@@ -113,7 +113,7 @@ http://127.0.0.1:5000
 *   **운영 환경(HTTPS)**: 로컬망에서는 `waitress`를 통해 안정적으로 구동되지만, 본격적으로 웹에 퍼블리싱 하시려면 Nginx 등의 리버스 프록시(Reverse Proxy)를 연동하여 HTTPS(SSL) 인증서를 적용하는 것을 적극 권장합니다. HTTPS 로 서비스할 때는 환경변수 `SESSION_COOKIE_SECURE=1` 을 주어 세션 쿠키가 평문 경로로 나가지 않게 하세요.
 *   **정적 파일 노출 범위**: 웹으로 서빙되는 것은 `static/` 폴더와 본인 소유의 `uploads/<계정>/` 뿐입니다. DB·백업·로그·소스·`.secret_key` 는 로그인한 사용자라도 URL 로 접근할 수 없습니다. (예전에는 프로젝트 루트 전체가 열려 있었습니다 — [설계 규칙](#6-프로젝트-구조-project-structure) 참고)
 *   **응답 헤더**: 모든 응답에 CSP(Content-Security-Policy), `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` 가 붙습니다. HTTPS 요청에는 HSTS 도 함께 적용됩니다. 새 CDN 을 쓰려면 `middleware.py` 의 CSP 목록에 출처를 추가해야 합니다 — 추가하지 않으면 브라우저가 조용히 차단합니다.
-*   **무차별 대입 방어**: IP 단위 요청 제한과 계정 단위 로그인 잠금이 함께 걸려 있습니다(`ratelimit.py`). 상태가 프로세스 메모리에 있으므로 **단일 프로세스로 구동**해야 의도한 한도가 지켜집니다.
+*   **무차별 대입 방어**: IP 단위 요청 제한과 계정 단위 로그인 잠금이 함께 걸려 있습니다(`ratelimit.py` 가 슬라이딩 윈도우·실패 잠금 두 원시 타입을 단독으로 소유하고, 로그인·가입·재설정·봇 API 가 모두 그것을 씁니다). 상태가 프로세스 메모리에 있으므로 **단일 프로세스로 구동**해야 의도한 한도가 지켜집니다.
 
 ### 로그인 복구 (Password Recovery)
 웹의 관리자 초기화 기능은 **관리자가 이미 로그인해 있을 때만** 쓸 수 있어, 정작 관리자 본인이 잠기면 소용이 없습니다. 이때는 서버에 접속해 복구 도구를 실행하세요. 앱이 떠 있지 않아도, 계정이 잠겨 있어도 동작하며, 변경 사항은 서버 재시작 없이 즉시 반영됩니다.
@@ -142,7 +142,14 @@ stock-memo/
 ├── admin.py            # 관리자 — 계정 승인·삭제·비밀번호 초기화
 ├── api.py              # 화면 API — 기록 CRUD, 통계, 시세, 뉴스, 봇 조작
 ├── backup_api.py       # 전체 백업 ZIP 내보내기·복원
-├── trading_api.py      # 시스템 트레이딩 연동 REST API (/api/v1/*) — 인증·멱등·정규화
+├── trading_api/        # 시스템 트레이딩 연동 REST API (/api/v1/*)
+│   ├── common.py       #   블루프린트·상수·시각 유틸 (의존 없음 — 나머지가 여기에 기댄다)
+│   ├── keys.py         #   API 키 해시 저장·발급·폐기
+│   ├── security.py     #   토큰 서명/검증·스코프·레이트리밋
+│   ├── validation.py   #   입력 정규화와 형태 검증
+│   ├── entries.py      #   입력 → entries 행 → 응답, 멱등 INSERT
+│   ├── bots.py         #   봇 등록·상태 판정·하행 명령 큐
+│   └── routes.py       #   HTTP 핸들러 (위의 것들을 조립만 한다)
 ├── middleware.py       # 보안/캐시 헤더, CSP, gzip 압축, 전역 예외 처리
 │
 │  ── 도메인 계층 (Flask 비의존, 단위 테스트 용이) ────────────────
@@ -150,6 +157,7 @@ stock-memo/
 ├── entry_logic.py      # 매매 기록 저장/무결성 검증 + INSERT 컬럼 단일 소스
 ├── stats.py            # 매매 성과 분석(통계) 계산 로직 (순수 함수)
 ├── prices.py           # 현재가(시세) 조회 서비스 (provider별 분해 + 폴백)
+├── news.py             # 종목 뉴스 조회 (구글 뉴스 RSS + 캐시)
 ├── backups.py          # 백업 ZIP 무결성 검증 로직 (순수 함수)
 ├── images.py           # 본문 내장 base64 이미지 추출·첨부 저장
 ├── users.py            # 사용자명 규칙, 비밀번호 정책, 세션 epoch, 폴더 경로
@@ -159,7 +167,7 @@ stock-memo/
 ├── schema.py           # DB 스키마 단일 소스 — 모든 테이블·컬럼·인덱스
 ├── db.py               # SQLite 연결 (PRAGMA 일괄 적용)
 ├── applog.py           # 로깅 설정 (일자별 로테이션 + 한 줄 포맷)
-├── ratelimit.py        # IP 요청 제한 + 계정 로그인 잠금
+├── ratelimit.py        # 요청 제한·잠금의 단일 소스 (슬라이딩 윈도우 / 실패 잠금)
 ├── statscache.py       # 통계 캐시와 데이터 버전(ETag)
 ├── jobs.py             # 백그라운드 스레드 (자동 백업, NXT 종가 캐싱)
 │
@@ -168,7 +176,7 @@ stock-memo/
 │   └── stock-memo.html #   메인 화면 구조
 ├── static/
 │   ├── style.css       #   화면 디자인 및 레이아웃
-│   ├── calc.js         #   매매 계산 단일 소스 (백엔드 stats.py 와 동일 알고리즘)
+│   ├── calc.js         #   보유 상태(평단·원가·실현손익) 계산 엔진
 │   └── js/             #   화면 동작 — 기능별로 나뉜 조각들 (01-…, 02-… 순서대로 로드)
 │
 ├── run.sh              # 자동화 실행 쉘 스크립트 (Mac/Linux)
@@ -192,7 +200,7 @@ stock-memo/
 한 일반 사용자도 `/.secret_key`·`/db/journal.db`·`/backup/*.zip`·`/json/<타인>/…` 를
 그대로 내려받을 수 있었습니다. 시크릿 키가 새면 세션 쿠키를 위조해 관리자를 사칭할 수
 있으므로, 이는 정보 유출이 아니라 **권한 상승 경로**였습니다.
-(`tests/test_backend_app.py` 의 `test_sensitive_files_are_not_served` 가 회귀를 막습니다)
+(`tests/test_middleware.py` 의 `test_sensitive_files_are_not_served` 가 회귀를 막습니다)
 
 **2. DB 스키마는 `schema.py` 만 정의한다.**
 새 컬럼은 `ADDED_COLUMNS` 에 한 줄 추가하고 `CREATE TABLE` 문에도 함께 적습니다.
@@ -222,11 +230,12 @@ stock-memo/
     단위이므로, 뒤 파일의 함수를 앞 파일의 최상위 코드에서 참조하면 `ReferenceError`
     입니다. 이벤트 핸들러로 넘길 때는 `() => fn()` 으로 감싸 호출 시점에 찾게 합니다.
 
-> 손익 계산은 프론트엔드 `static/calc.js` 와 백엔드 `stats.py` 가 **동일한 이동평균단가
-> 알고리즘**을 사용하도록 단일화되어 있습니다. `tests/test_stats_parity.py` 가 두 엔진에
-> 같은 픽스처(`tests/fixtures/parity_fixtures.json`)를 실제로 통과시켜 값을 직접
-> 비교합니다. 단, 주간 집계(`granularity='weekly'`)와 기간 필터는 `stats.py` 에만
-> 있으므로 그 두 기능은 `/api/stats` 를 호출해야 합니다.
+> 성과 지표(승률·손익비·월별 집계)의 정본은 백엔드 `stats.py` **하나**입니다.
+> 예전에는 `static/calc.js` 에도 같은 알고리즘의 사본이 있었지만 앱에서 호출되지
+> 않았으므로(분석 화면은 처음부터 `/api/stats` 를 씁니다) 삭제했습니다.
+> `static/calc.js` 에는 화면이 보유 상태(평단·원가)를 굴리는 상태전이 함수만 남습니다.
+> 계산식의 회귀는 `tests/test_stats.py` 가 골든 스냅샷
+> (`tests/fixtures/stats_expected.json`)으로 고정합니다.
 
 ### 운영 형태 (Deployment Shape)
 
@@ -343,16 +352,15 @@ pytest
 pytest --ignore=tests/test_frontend.py
 ```
 
-프론트엔드 계산 엔진(`static/calc.js`)은 Node 내장 테스트 러너로 검증합니다.
-프론트=백엔드 결과 일치(parity)는 `tests/test_stats_parity.py` 가 두 엔진을 모두
-실행해 값을 직접 비교하는 방식으로 보장합니다. (node 가 없으면 자동 skip)
+프론트엔드 보유 상태 엔진(`static/calc.js`)은 Node 내장 테스트 러너로 검증합니다.
+백엔드 성과 지표는 `tests/test_stats.py` 가 골든 스냅샷으로 고정합니다.
 
 ```bash
 # 프론트엔드 계산 단위 테스트 (Node 18+)
 node --test tests/calc.test.js
 
-# 프론트=백엔드 계산 일치 검증
-pytest tests/test_stats_parity.py
+# 백엔드 성과 지표 회귀
+pytest tests/test_stats.py
 ```
 
 ### 린트 (Lint)
@@ -373,8 +381,8 @@ ruff check .
 
 | 파일 | 지키는 것 |
 |---|---|
-| `test_backend_app.py::test_sensitive_files_are_not_served` | `.secret_key`·DB·백업이 정적 경로로 새지 않는다 |
-| `test_backend_app.py::test_every_app_script_is_listed_and_served` | `static/js` 조각이 하나도 빠지지 않고 순서대로 실린다 |
+| `test_middleware.py::test_sensitive_files_are_not_served` | `.secret_key`·DB·백업이 정적 경로로 새지 않는다 |
+| `test_middleware.py::test_every_app_script_is_listed_and_served` | `static/js` 조각이 하나도 빠지지 않고 순서대로 실린다 |
 | `test_schema.py::test_migrated_legacy_db_matches_fresh_db` | 새 DB 와 마이그레이션된 옛 DB 의 스키마가 같다 |
 | `test_admin.py::test_every_admin_route_is_permission_checked` | 모든 관리자 라우트가 비관리자에게 403 |
 | `test_startup.py::test_importing_backend_app_has_no_side_effects` | 임포트만으로 DB·스레드가 생기지 않는다 |

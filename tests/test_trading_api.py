@@ -12,14 +12,14 @@ from datetime import datetime, timedelta
 import pytest
 
 import backend_app
-import auth
+import ratelimit
 import trading_api
 
 
 @pytest.fixture
 def api(app):
     """봇 사용자 + API 키 + 인증 헤더를 준비한다."""
-    trading_api._limiter.reset()
+    ratelimit.reset_all()
     with backend_app.db_conn() as conn:
         conn.cursor().execute(
             "INSERT INTO users (username, password_hash, is_allowed) VALUES ('bot', 'x', 1)")
@@ -87,7 +87,7 @@ def test_revoking_key_invalidates_existing_token(api):
 
 
 def test_insufficient_scope_is_forbidden(app):
-    trading_api._limiter.reset()
+    ratelimit.reset_all()
     with backend_app.db_conn() as conn:
         conn.cursor().execute(
             "INSERT INTO users (username, password_hash, is_allowed) VALUES ('ro', 'x', 1)")
@@ -106,7 +106,7 @@ def test_insufficient_scope_is_forbidden(app):
 
 def test_token_endpoint_is_rate_limited(client):
     """API 키 무차별 대입 차단."""
-    trading_api._limiter.reset()
+    ratelimit.reset_all()
     limit = trading_api.TOKEN_RATE_LIMIT[0]
     for _ in range(limit):
         client.post('/api/v1/auth/token', headers={'X-API-KEY': 'skm_wrong'})
@@ -548,7 +548,7 @@ def test_api_me_exposes_server_computed_state(api):
 
 def test_legacy_plaintext_key_is_migrated_and_erased(app):
     """평문으로 저장돼 있던 기존 키는 해시로 옮기고 원문을 지운다 (키는 계속 사용 가능)."""
-    trading_api._limiter.reset()
+    ratelimit.reset_all()
     legacy = 'legacy-uuid-key'
     with backend_app.db_conn() as conn:
         c = conn.cursor()
@@ -661,7 +661,7 @@ def test_stopping_bot_is_not_given_new_work(api):
 def test_expired_command_is_not_delivered(api, monkeypatch):
     """봇이 오래 꺼져 있었다면, 뒤늦게 켜졌을 때 옛 지시가 튀어나오면 안 된다."""
     trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'})
-    monkeypatch.setattr(trading_api, 'BOT_COMMAND_TTL_SECONDS', -1)
+    monkeypatch.setattr(trading_api.common, 'BOT_COMMAND_TTL_SECONDS', -1)
 
     assert _ping(api)['command'] == 'none'
     assert trading_api.latest_bot_command('bot', 'resync')['state'] == 'expired'

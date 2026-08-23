@@ -9,7 +9,6 @@ provider 단위로 분해하고, 다음 성능 개선을 적용합니다.
 폴백 우선순위 등 기존 동작 자체는 그대로 보존합니다. (장애 시 마지막 가격
 유지는 DB price_cache 가 담당하므로 별도 메모리 캐시는 두지 않아 실패를 즉시
 표면화합니다.)
-get_db 는 순환 임포트를 피하기 위해 backend_app 에서 주입(set_db_provider)합니다.
 
 ⭐️ 조회 실패는 화면에 "조회 실패" 로만 드러나 원인 추적이 불가능했으므로,
    단계별 실패는 debug, 종목 전체 실패는 warning 으로 남긴다. (logger 'prices')
@@ -23,6 +22,8 @@ import threading
 import datetime as _dt
 import concurrent.futures
 from urllib.parse import urlsplit
+
+from db import get_db
 
 logger = logging.getLogger('prices')
 
@@ -69,15 +70,6 @@ _PC_HEADERS = {'User-Agent': 'Mozilla/5.0'}
 _YAHOO_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 }
-
-# get_db 주입 지점 (backend_app 에서 설정) — 순환 임포트 방지
-_get_db = None
-
-
-def set_db_provider(fn):
-    global _get_db
-    _get_db = fn
-
 
 # ─────────────────────────────────────────────────────────────
 # HTTP Keep-Alive 커넥션 풀 (표준 라이브러리 http.client 기반)
@@ -512,7 +504,7 @@ def fetch_price(code, market_mode='AUTO', allow_cached=False):
 
     conn = None
     try:
-        conn = _get_db()
+        conn = get_db()
         price = _fetch_price_uncached(conn, code_str, market_mode)
         if price is not None:
             now_ts = time.time()

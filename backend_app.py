@@ -24,12 +24,10 @@ from flask import (Flask)
 import config
 import applog
 import middleware
-import prices
 import trading_api
 import accounts
 import images
 import schema
-import statscache
 import jobs
 import auth
 import admin
@@ -51,6 +49,7 @@ applog.setup(app)
 middleware.register(app)
 auth.register(app)
 admin.register(app)
+trading_api.register(app)
 backup_api.register(app)
 api.register(app)
 
@@ -66,10 +65,6 @@ def _count_users():
             return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     except Exception as e:
         return f"조회 실패: {e}"
-
-
-# ⭐️ 시세 모듈에 DB 연결 공급자 주입 (순환 임포트 회피)
-prices.set_db_provider(get_db)
 
 
 def init_db():
@@ -162,18 +157,6 @@ def inject_get_mtime():
         return [(f'js/{n}', int(os.path.getmtime(os.path.join(js_dir, n)))) for n in names]
 
     return {'get_mtime': get_mtime, 'app_scripts': app_scripts}
-
-# ⭐️ 시스템 트레이딩 API(/api/v1/*) 블루프린트 등록.
-#    db_conn / get_user_mappings / statscache.invalidate 가 모두 정의된 뒤여야 하므로
-#    모듈 최하단에서 주입한다. (순환 임포트 없이 의존성만 넘긴다)
-trading_api.init_app(
-    app,
-    db_conn=db_conn,
-    get_user_mappings=api.get_user_mappings,
-    invalidate_cache=statscache.invalidate,
-    logger=app.logger,
-)
-
 
 # ---------------------------------------------------------------------------
 # 기동

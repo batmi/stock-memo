@@ -7,16 +7,11 @@
 `/api/me/bot/*` 는 **웹 화면이** 봇에게 지시를 내리거나 상태를 읽는 쪽이라 다르다.
 """
 
-import concurrent.futures
 import json
 import logging
 import shutil
 import os
-import threading
 import time
-import urllib.parse
-import urllib.request
-import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
 from flask import (Blueprint, current_app, jsonify, render_template, request,
@@ -27,6 +22,7 @@ import accounts
 import config
 import entry_logic
 import images
+import news
 import prices
 import stats
 import statscache
@@ -218,13 +214,9 @@ def get_bot_resync_status():
                                                               bot_id=bot_id)})
 
 
-def get_user_mappings(username):
-    """사용자 계좌 매핑을 DB(users.account_mappings)에서 읽는다.
-
-    trading_api 에도 이 함수가 주입되므로 봇 API 와 웹 화면이 같은 값을 본다.
-    """
-    with db_conn() as conn:
-        return accounts.load(conn, username)
+# ⭐️ 매핑 조회의 정본은 accounts 모듈이다. 봇 API 와 웹 화면이 같은 값을 보도록
+#    양쪽이 같은 함수를 임포트한다. (여기 별칭은 기존 호출부 호환용)
+get_user_mappings = accounts.load_for
 
 @bp.route('/api/mappings', methods=['GET'])
 def get_mappings_frontend():
@@ -653,89 +645,11 @@ def save_preferences():
     return jsonify({"status": "success"})
 
 
-# ⭐️ 뉴스 검색 결과를 임시 보관할 캐시 딕셔너리와 유효 시간(초) 설정
-news_cache = {}
-NEWS_CACHE_TTL = 600  # 10분(600초) 동안 캐시 유지
-NEWS_CACHE_MAX = 300  # ⭐️ 종목명이 키라 상시 구동 시 무한히 쌓인다. 넘으면 만료분부터 정리.
-_news_cache_lock = threading.Lock()
-
-
-def _prune_news_cache(now_ts):
-    """만료된 뉴스 캐시 항목 정리. (상한을 넘었을 때만 훑는다)"""
-    with _news_cache_lock:
-        if len(news_cache) <= NEWS_CACHE_MAX:
-            return
-        for key in [k for k, v in news_cache.items()
-                    if (now_ts - v[1]) >= NEWS_CACHE_TTL]:
-            news_cache.pop(key, None)
-
-
 @bp.route('/api/news', methods=['POST'])
 def get_news():
+    """보유 종목의 최근 뉴스. 조회·캐시·병렬 처리는 news 모듈이 갖는다."""
     data = request.json or {}
-    stocks = data.get('stocks', [])
-    force_refresh = data.get('force_refresh', False)
-
-    # 보유 종목이 없을 경우 기본 검색어 사용
-    if not stocks:
-        stocks = ['국내 증시']
-
-    def fetch_news_for_stock(stock):
-        current_time = time.time()
-
-        # ⭐️ 1. 수동 새로고침이 아니고, 캐시에 데이터가 유효 시간(10분) 내에 있다면 구글에 요청하지 않고 캐시 반환
-        if not force_refresh and stock in news_cache:
-            cached_data, timestamp = news_cache[stock]
-            if current_time - timestamp < NEWS_CACHE_TTL:
-                return cached_data
-
-        news_list = []
-        fetch_failed = False
-        try:
-            # ⭐️ 네이버 RSS 서비스 전면 종료(404)에 따라 안정적인 구글 뉴스 RSS로 복귀
-            query = urllib.parse.quote(f"{stock} when:7d")
-            ts = int(time.time() * 1000)
-            url = f"https://news.google.com/rss/search?q={query}&hl=ko&gl=KR&ceid=KR:ko&_={ts}"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=3) as response:
-                xml_data = response.read()
-                root = ET.fromstring(xml_data)
-                for idx, item in enumerate(root.findall('.//item')):
-                    if idx >= 5:
-                        break
-
-                    title_elem = item.find('title')
-                    link_elem = item.find('link')
-                    pub_elem = item.find('pubDate')
-
-                    news_list.append({
-                        'stock': stock,
-                        'title': title_elem.text if title_elem is not None else '',
-                        'link': link_elem.text if link_elem is not None else '',
-                        'pubDate': pub_elem.text if pub_elem is not None else ''
-                    })
-        except Exception as e:
-            fetch_failed = True
-            log.error(f"Error fetching Google news for {stock}: {e}")
-
-        # ⭐️ 2. 성공한 결과만 캐시에 저장한다.
-        #    구글 RSS 가 3초 타임아웃 한 번만 나도 빈 결과를 캐시하면, 그 종목 뉴스가
-        #    10분 동안 빈 화면으로 굳어 수동 새로고침 전까지 회복되지 않았다.
-        #    실패했으면 캐시를 건드리지 않아 다음 요청이 곧바로 다시 시도하게 둔다.
-        if not fetch_failed:
-            news_cache[stock] = (news_list, current_time)
-            _prune_news_cache(current_time)
-        elif stock in news_cache:
-            # 실패 시에는 만료됐더라도 마지막으로 성공했던 뉴스를 보여주는 편이 낫다.
-            return news_cache[stock][0]
-
-        return news_list
-
-    all_news = []
-    # ⭐️ 보유 종목이 많을 경우를 대비해 스레드 풀을 활용한 병렬(비동기) 처리 (최대 10개 동시 요청)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        results = executor.map(fetch_news_for_stock, stocks)
-        for res_list in results:
-            all_news.extend(res_list)
-
-    return jsonify(all_news)
+    return jsonify(news.fetch_many(
+        data.get('stocks', []),
+        force_refresh=bool(data.get('force_refresh', False)),
+    ))

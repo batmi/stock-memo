@@ -217,12 +217,13 @@ functions directly; switching to modules would break all of them.)
     per-file, so a top-level reference to a later file's function is a `ReferenceError`.
     Wrap event handlers as `() => fn()` so the lookup happens when the event fires.
 
-> Profit calculation is unified: the frontend `static/calc.js` and the backend
-> `stats.py` use the exact same moving-average cost algorithm.
-> `tests/test_stats_parity.py` runs both engines over the same fixtures
-> (`tests/fixtures/parity_fixtures.json`) and compares the values directly.
-> Note that weekly granularity and period filters exist only in `stats.py`, so those
-> two features must go through `/api/stats`.
+> Performance metrics (win rate, profit factor, monthly aggregates) live in exactly
+> one place: the backend `stats.py`. `static/calc.js` used to carry a copy of the same
+> algorithm, but the app never called it — the analysis screen has always used
+> `/api/stats` — so it was deleted. What remains in `static/calc.js` is only the
+> state-transition function the screens use to roll up holdings (average cost, basis).
+> Regressions are pinned by `tests/test_stats.py` against a golden snapshot
+> (`tests/fixtures/stats_expected.json`).
 
 ### Deployment Shape
 
@@ -341,14 +342,14 @@ pytest
 pytest --ignore=tests/test_frontend.py
 ```
 
-The frontend calculation engine (`static/calc.js`) is verified by the built-in Node test runner. `tests/test_stats_parity.py` runs both engines over the same fixtures and compares the values directly (skipped automatically when node is unavailable).
+The frontend holdings engine (`static/calc.js`) is verified by the built-in Node test runner. Backend performance metrics are pinned by `tests/test_stats.py` against a golden snapshot.
 
 ```bash
 # Run frontend calculation unit tests (Node 18+)
 node --test tests/calc.test.js
 
-# Verify frontend/backend calculation parity
-pytest tests/test_stats_parity.py
+# Backend performance-metric regressions
+pytest tests/test_stats.py
 ```
 
 ### Lint
@@ -369,8 +370,8 @@ from quietly eroding during refactors.
 
 | Test | What it protects |
 |---|---|
-| `test_backend_app.py::test_sensitive_files_are_not_served` | `.secret_key`, DB, and backups never leak through static routes |
-| `test_backend_app.py::test_every_app_script_is_listed_and_served` | No `static/js` fragment is dropped from the page, and order holds |
+| `test_middleware.py::test_sensitive_files_are_not_served` | `.secret_key`, DB, and backups never leak through static routes |
+| `test_middleware.py::test_every_app_script_is_listed_and_served` | No `static/js` fragment is dropped from the page, and order holds |
 | `test_schema.py::test_migrated_legacy_db_matches_fresh_db` | A fresh DB and a migrated legacy DB have identical schemas |
 | `test_admin.py::test_every_admin_route_is_permission_checked` | Every admin route returns 403 to non-admins |
 | `test_startup.py::test_importing_backend_app_has_no_side_effects` | Importing the module creates no DB and starts no threads |

@@ -35,10 +35,6 @@ PUBLIC_ENDPOINTS = frozenset({
     'auth.login', 'auth.signup', 'auth.logout', 'auth.request_password_reset',
 })
 
-# 로그인 시도 횟수 및 차단 시간 관리를 위한 전역 변수 (IP 기준)
-login_attempts = {}
-
-
 def register(app):
     """블루프린트 등록 + 앱 전역 세션 검사 연결."""
     app.register_blueprint(bp)
@@ -105,20 +101,9 @@ def login():
     client_ip = request.remote_addr
     current_time = time.time()
 
-    # ⭐️ 24시간 상시 구동 시 IP 별 기록이 무한히 쌓이는 것을 방지 —
-    #    1시간 이상 활동이 없고 차단도 풀린 IP 는 정리한다.
-    if len(login_attempts) > 50:
-        stale_cutoff = current_time - 3600
-        for ip in [ip for ip, r in login_attempts.items()
-                   if r.get('last_seen', 0) < stale_cutoff and r['lockout_until'] < current_time]:
-            del login_attempts[ip]
-
-    # 접속 IP별 시도 횟수 및 차단 시간 초기화
-    if client_ip not in login_attempts:
-        login_attempts[client_ip] = {'count': 0, 'lockout_until': 0}
-
-    record = login_attempts[client_ip]
-    record['last_seen'] = current_time
+    # ⭐️ IP 잠금·계정 잠금은 둘 다 ratelimit 모듈이 소유한다. 예전에는 IP 쪽만
+    #    이 함수 안에서 dict 를 직접 만지며 정리까지 했는데, 락이 없어 동시
+    #    로그인 시 순회 중 변경으로 터질 수 있었다.
     error_message = None
     timeout_message = None
 
@@ -130,9 +115,10 @@ def login():
         # ⭐️ IP 잠금은 IP 를 바꾸면 우회된다. 계정 단위 잠금을 함께 걸어
         #    한 계정을 표적으로 삼은 무차별 대입을 늦춘다.
         user_locked_for = ratelimit.user_lockout_remaining(typed_username, current_time)
-        if current_time < record['lockout_until']:
-            remaining = int(record['lockout_until'] - current_time)
-            error_message = f"로그인 5회 실패로 차단되었습니다. {remaining}초 후에 다시 시도해주세요."
+        ip_locked_for = ratelimit.login_ip_lockout_remaining(client_ip, current_time)
+        if ip_locked_for:
+            error_message = (f"로그인 {ratelimit.LOGIN_IP_THRESHOLD}회 실패로 차단되었습니다. "
+                             f"{ip_locked_for}초 후에 다시 시도해주세요.")
         elif user_locked_for:
             error_message = (f"이 계정은 반복된 로그인 실패로 잠겨 있습니다. "
                              f"{user_locked_for}초 후에 다시 시도해주세요.")
@@ -159,8 +145,7 @@ def login():
                         c.execute("UPDATE users SET last_login_at = ? WHERE username = ?", (current_time_str, username))
                         conn.commit()
 
-                    record['count'] = 0
-                    record['lockout_until'] = 0
+                    ratelimit.clear_login_ip_failures(client_ip)
                     ratelimit.clear_user_failures(username)
                     # ⭐️ 이전 세션에 남아 있던 값을 물려받지 않도록 비우고 시작한다.
                     session.clear()
@@ -177,7 +162,7 @@ def login():
                     session['epoch'] = current_session_epoch(username)
                     return redirect(url_for('api.index'))
             else:
-                record['count'] += 1
+                fail_count = ratelimit.record_login_ip_failure(client_ip)
                 ratelimit.record_user_failure(username)
                 # ⭐️ 화면에는 "아이디 또는 비밀번호" 로 뭉뚱그려 계정 존재 여부를 감추되,
                 #    서버 로그에는 실제 사유를 남긴다. 두 경우가 같은 문구로 보이는 탓에
@@ -186,13 +171,14 @@ def login():
                 reason = "비밀번호 불일치" if user_record else "존재하지 않는 계정"
                 log.warning(
                     f"로그인 실패({reason}): username='{username}' ip={client_ip} "
-                    f"시도={record['count']}/5 db={config.DB_FILE}"
+                    f"시도={fail_count}/{ratelimit.LOGIN_IP_THRESHOLD} db={config.DB_FILE}"
                 )
-                if record['count'] >= 5:
-                    record['lockout_until'] = current_time + 60
-                    error_message = "비밀번호 5회 연속 실패! 1분 동안 로그인이 차단됩니다."
+                if fail_count >= ratelimit.LOGIN_IP_THRESHOLD:
+                    error_message = (f"비밀번호 {ratelimit.LOGIN_IP_THRESHOLD}회 연속 실패! "
+                                     f"{ratelimit.LOGIN_IP_LOCKOUT_SECONDS}초 동안 로그인이 차단됩니다.")
                 else:
-                    error_message = f"아이디 또는 비밀번호가 일치하지 않습니다. (실패 횟수: {record['count']}/5)"
+                    error_message = ("아이디 또는 비밀번호가 일치하지 않습니다. "
+                                     f"(실패 횟수: {fail_count}/{ratelimit.LOGIN_IP_THRESHOLD})")
 
     return render_template('login.html', error_message=error_message, timeout_message=timeout_message)
 

@@ -1,0 +1,672 @@
+{
+  "13개월_이상": {
+    "avgHoldingDays": 1.0,
+    "avgLoss": 7.5,
+    "avgWin": 15.0,
+    "buyCount": 5,
+    "dividendCount": 0,
+    "lossCount": 2,
+    "maxDrawdown": 10.0,
+    "maxSingleLoss": -10.0,
+    "maxSingleWin": 20.0,
+    "monthly": [
+      {
+        "buyAmount": 100.0,
+        "dividend": 0.0,
+        "month": "2024-01",
+        "realized": 10.0,
+        "sellAmount": 110.0
+      },
+      {
+        "buyAmount": 100.0,
+        "dividend": 0.0,
+        "month": "2024-04",
+        "realized": -10.0,
+        "sellAmount": 90.0
+      },
+      {
+        "buyAmount": 100.0,
+        "dividend": 0.0,
+        "month": "2024-08",
+        "realized": 15.0,
+        "sellAmount": 115.0
+      },
+      {
+        "buyAmount": 100.0,
+        "dividend": 0.0,
+        "month": "2024-12",
+        "realized": -5.0,
+        "sellAmount": 95.0
+      },
+      {
+        "buyAmount": 100.0,
+        "dividend": 0.0,
+        "month": "2025-03",
+        "realized": 20.0,
+        "sellAmount": 120.0
+      }
+    ],
+    "perStock": [
+      {
+        "dividend": 0.0,
+        "lossCount": 2,
+        "realized": 30.0,
+        "sellCount": 5,
+        "stock": "A",
+        "stockCode": "",
+        "total": 30.0,
+        "winCount": 3,
+        "winRate": 60.0
+      }
+    ],
+    "profitFactor": 3.0,
+    "sellCount": 5,
+    "totalBuyAmount": 500.0,
+    "totalDividend": 0.0,
+    "totalPnl": 30.0,
+    "totalRealized": 30.0,
+    "totalSellAmount": 530.0,
+    "winCount": 3,
+    "winRate": 60.0
+  },
+  "같은이름_다른코드": {
+    "avgHoldingDays": 31.0,
+    "avgLoss": 500.0,
+    "avgWin": 500.0,
+    "buyCount": 2,
+    "dividendCount": 0,
+    "lossCount": 1,
+    "maxDrawdown": 500.0,
+    "maxSingleLoss": -500.0,
+    "maxSingleWin": 500.0,
+    "monthly": [
+      {
+        "buyAmount": 1000.0,
+        "dividend": 0.0,
+        "month": "2024-01",
+        "realized": 0.0,
+        "sellAmount": 0.0
+      },
+      {
+        "buyAmount": 0.0,
+        "dividend": 0.0,
+        "month": "2024-02",
+        "realized": 500.0,
+        "sellAmount": 1500.0
+      },
+      {
+        "buyAmount": 1000.0,
+        "dividend": 0.0,
+        "month": "2024-03",
+        "realized": 0.0,
+        "sellAmount": 0.0
+      },
+      {
+        "buyAmount": 0.0,
+        "dividend": 0.0,
+        "month": "2024-04",
+        "realized": -500.0,
+        "sellAmount": 500.0
+      }
+    ],
+    "perStock": [
+      {
+        "dividend": 0.0,
+        "lossCount": 0,
+        "realized": 500.0,
+        "sellCount": 1,
+        "stock": "우리금융",
+        "stockCode": "316140",
+        "total": 500.0,
+        "winCount": 1,
+        "winRate": 100.0
+      },
+      {
+        "dividend": 0.0,
+        "lossCount": 1,
+        "realized": -500.0,
+        "sellCount": 1,
+        "stock": "우리금융",
+        "stockCode": "999999",
+        "total": -500.0,
+        "winCount": 0,
+        "winRate": 0.0
+      }
+    ],
+    "profitFactor": 1.0,
+    "sellCount": 2,
+    "totalBuyAmount": 2000.0,
+    "totalDividend": 0.0,
+    "totalPnl": 0.0,
+    "totalRealized": 0.0,
+    "totalSellAmount": 2000.0,
+    "winCount": 1,
+    "winRate": 50.0
+  },
+  "같은코드_다른표기": {
+    "avgHoldingDays": 44.5,
+    "avgLoss": 0.0,
+    "avgWin": 2000.0,
+    "buyCount": 2,
+    "dividendCount": 0,
+    "lossCount": 0,
+    "maxDrawdown": 0.0,
+    "maxSingleLoss": 0.0,
+    "maxSingleWin": 2000.0,
+    "monthly": [
+      {
+        "buyAmount": 1000.0,
+        "dividend": 0.0,
+        "month": "2024-01",
+        "realized": 0.0,
+        "sellAmount": 0.0
+      },
+      {
+        "buyAmount": 2000.0,
+        "dividend": 0.0,
+        "month": "2024-02",
+        "realized": 0.0,
+        "sellAmount": 0.0
+      },
+      {
+        "buyAmount": 0.0,
+        "dividend": 0.0,
+        "month": "2024-03",
+        "realized": 2000.0,
+        "sellAmount": 5000.0
+      }
+    ],
+    "perStock": [
+      {
+        "dividend": 0.0,
+        "lossCount": 0,
+        "realized": 2000.0,
+        "sellCount": 1,
+        "stock": "삼성전자",
+        "stockCode": "005930",
+        "total": 2000.0,
+        "winCount": 1,
+        "winRate": 100.0
+      }
+    ],
+    "profitFactor": null,
+    "sellCount": 1,
+    "totalBuyAmount": 3000.0,
+    "totalDividend": 0.0,
+    "totalPnl": 2000.0,
+    "totalRealized": 2000.0,
+    "totalSellAmount": 5000.0,
+    "winCount": 1,
+    "winRate": 100.0
+  },
+  "기본_승패혼합": {
+    "avgHoldingDays": 45.5,
+    "avgLoss": 100.0,
+    "avgWin": 100.0,
+    "buyCount": 1,
+    "dividendCount": 0,
+    "lossCount": 1,
+    "maxDrawdown": 100.0,
+    "maxSingleLoss": -100.0,
+    "maxSingleWin": 100.0,
+    "monthly": [
+      {
+        "buyAmount": 1000.0,
+        "dividend": 0.0,
+        "month": "2024-01",
+        "realized": 0.0,
+        "sellAmount": 0.0
+      },
+      {
+        "buyAmount": 0.0,
+        "dividend": 0.0,
+        "month": "2024-02",
+        "realized": 100.0,
+        "sellAmount": 600.0
+      },
+      {
+        "buyAmount": 0.0,
+        "dividend": 0.0,
+        "month": "2024-03",
+        "realized": -100.0,
+        "sellAmount": 400.0
+      }
+    ],
+    "perStock": [
+      {
+        "dividend": 0.0,
+        "lossCount": 1,
+        "realized": 0.0,
+        "sellCount": 2,
+        "stock": "A",
+        "stockCode": "",
+        "total": 0.0,
+        "winCount": 1,
+        "winRate": 50.0
+      }
+    ],
+    "profitFactor": 1.0,
+    "sellCount": 2,
+    "totalBuyAmount": 1000.0,
+    "totalDividend": 0.0,
+    "totalPnl": 0.0,
+    "totalRealized": 0.0,
+    "totalSellAmount": 1000.0,
+    "winCount": 1,
+    "winRate": 50.0
+  },
+  "매도만_보유없음": {
+    "avgHoldingDays": 0.0,
+    "avgLoss": 0.0,
+    "avgWin": 500.0,
+    "buyCount": 0,
+    "dividendCount": 0,
+    "lossCount": 0,
+    "maxDrawdown": 0.0,
+    "maxSingleLoss": 0.0,
+    "maxSingleWin": 500.0,
+    "monthly": [
+      {
+        "buyAmount": 0.0,
+        "dividend": 0.0,
+        "month": "2024-01",
+        "realized": 500.0,
+        "sellAmount": 500.0
+      }
+    ],
+    "perStock": [
+      {
+        "dividend": 0.0,
+        "lossCount": 0,
+        "realized": 500.0,
+        "sellCount": 1,
+        "stock": "C",
+        "stockCode": "",
+        "total": 500.0,
+        "winCount": 1,
+        "winRate": 100.0
+      }
+    ],
+    "profitFactor": null,
+    "sellCount": 1,
+    "totalBuyAmount": 0.0,
+    "totalDividend": 0.0,
+    "totalPnl": 500.0,
+    "totalRealized": 500.0,
+    "totalSellAmount": 500.0,
+    "winCount": 1,
+    "winRate": 100.0
+  },
+  "배당_포함": {
+    "avgHoldingDays": 60.0,
+    "avgLoss": 0.0,
+    "avgWin": 100.0,
+    "buyCount": 1,
+    "dividendCount": 1,
+    "lossCount": 0,
+    "maxDrawdown": 0.0,
+    "maxSingleLoss": 0.0,
+    "maxSingleWin": 100.0,
+    "monthly": [
+      {
+        "buyAmount": 1000.0,
+        "dividend": 0.0,
+        "month": "2024-01",
+        "realized": 0.0,
+        "sellAmount": 0.0
+      },
+      {
+        "buyAmount": 0.0,
+        "dividend": 30.0,
+        "month": "2024-02",
+        "realized": 0.0,
+        "sellAmount": 0.0
+      },
+      {
+        "buyAmount": 0.0,
+        "dividend": 0.0,
+        "month": "2024-03",
+        "realized": 100.0,
+        "sellAmount": 1100.0
+      }
+    ],
+    "perStock": [
+      {
+        "dividend": 30.0,
+        "lossCount": 0,
+        "realized": 100.0,
+        "sellCount": 1,
+        "stock": "B",
+        "stockCode": "",
+        "total": 130.0,
+        "winCount": 1,
+        "winRate": 100.0
+      }
+    ],
+    "profitFactor": null,
+    "sellCount": 1,
+    "totalBuyAmount": 1000.0,
+    "totalDividend": 30.0,
+    "totalPnl": 130.0,
+    "totalRealized": 100.0,
+    "totalSellAmount": 1100.0,
+    "winCount": 1,
+    "winRate": 100.0
+  },
+  "빈_기록": {
+    "avgHoldingDays": 0.0,
+    "avgLoss": 0.0,
+    "avgWin": 0.0,
+    "buyCount": 0,
+    "dividendCount": 0,
+    "lossCount": 0,
+    "maxDrawdown": 0.0,
+    "maxSingleLoss": 0.0,
+    "maxSingleWin": 0.0,
+    "monthly": [],
+    "perStock": [],
+    "profitFactor": null,
+    "sellCount": 0,
+    "totalBuyAmount": 0.0,
+    "totalDividend": 0.0,
+    "totalPnl": 0.0,
+    "totalRealized": 0.0,
+    "totalSellAmount": 0.0,
+    "winCount": 0,
+    "winRate": 0.0
+  },
+  "소수점_전량매도_잔여없음": {
+    "avgHoldingDays": 1.4615384615384615,
+    "avgLoss": 0.0,
+    "avgWin": 8.000000000000002,
+    "buyCount": 4,
+    "dividendCount": 0,
+    "lossCount": 0,
+    "maxDrawdown": 0.0,
+    "maxSingleLoss": 0.0,
+    "maxSingleWin": 10.0,
+    "monthly": [
+      {
+        "buyAmount": 230.0,
+        "dividend": 0.0,
+        "month": "2024-01",
+        "realized": 16.000000000000004,
+        "sellAmount": 246.0
+      }
+    ],
+    "perStock": [
+      {
+        "dividend": 0.0,
+        "lossCount": 0,
+        "realized": 16.000000000000004,
+        "sellCount": 2,
+        "stock": "A",
+        "stockCode": "",
+        "total": 16.000000000000004,
+        "winCount": 2,
+        "winRate": 100.0
+      }
+    ],
+    "profitFactor": null,
+    "sellCount": 2,
+    "totalBuyAmount": 230.0,
+    "totalDividend": 0.0,
+    "totalPnl": 16.000000000000004,
+    "totalRealized": 16.000000000000004,
+    "totalSellAmount": 246.0,
+    "winCount": 2,
+    "winRate": 100.0
+  },
+  "손실0건_손익비_정의불가": {
+    "avgHoldingDays": 31.0,
+    "avgLoss": 0.0,
+    "avgWin": 300.0,
+    "buyCount": 1,
+    "dividendCount": 0,
+    "lossCount": 0,
+    "maxDrawdown": 0.0,
+    "maxSingleLoss": 0.0,
+    "maxSingleWin": 300.0,
+    "monthly": [
+      {
+        "buyAmount": 1000.0,
+        "dividend": 0.0,
+        "month": "2024-01",
+        "realized": 0.0,
+        "sellAmount": 0.0
+      },
+      {
+        "buyAmount": 0.0,
+        "dividend": 0.0,
+        "month": "2024-02",
+        "realized": 300.0,
+        "sellAmount": 1300.0
+      }
+    ],
+    "perStock": [
+      {
+        "dividend": 0.0,
+        "lossCount": 0,
+        "realized": 300.0,
+        "sellCount": 1,
+        "stock": "A",
+        "stockCode": "",
+        "total": 300.0,
+        "winCount": 1,
+        "winRate": 100.0
+      }
+    ],
+    "profitFactor": null,
+    "sellCount": 1,
+    "totalBuyAmount": 1000.0,
+    "totalDividend": 0.0,
+    "totalPnl": 300.0,
+    "totalRealized": 300.0,
+    "totalSellAmount": 1300.0,
+    "winCount": 1,
+    "winRate": 100.0
+  },
+  "손익0_매도_포함": {
+    "avgHoldingDays": 45.5,
+    "avgLoss": 0.0,
+    "avgWin": 100.0,
+    "buyCount": 1,
+    "dividendCount": 0,
+    "lossCount": 0,
+    "maxDrawdown": 0.0,
+    "maxSingleLoss": 0.0,
+    "maxSingleWin": 100.0,
+    "monthly": [
+      {
+        "buyAmount": 1000.0,
+        "dividend": 0.0,
+        "month": "2024-01",
+        "realized": 0.0,
+        "sellAmount": 0.0
+      },
+      {
+        "buyAmount": 0.0,
+        "dividend": 0.0,
+        "month": "2024-02",
+        "realized": 0.0,
+        "sellAmount": 500.0
+      },
+      {
+        "buyAmount": 0.0,
+        "dividend": 0.0,
+        "month": "2024-03",
+        "realized": 100.0,
+        "sellAmount": 600.0
+      }
+    ],
+    "perStock": [
+      {
+        "dividend": 0.0,
+        "lossCount": 0,
+        "realized": 100.0,
+        "sellCount": 2,
+        "stock": "A",
+        "stockCode": "",
+        "total": 100.0,
+        "winCount": 1,
+        "winRate": 100.0
+      }
+    ],
+    "profitFactor": null,
+    "sellCount": 2,
+    "totalBuyAmount": 1000.0,
+    "totalDividend": 0.0,
+    "totalPnl": 100.0,
+    "totalRealized": 100.0,
+    "totalSellAmount": 1100.0,
+    "winCount": 1,
+    "winRate": 100.0
+  },
+  "이익0건_손실만": {
+    "avgHoldingDays": 31.0,
+    "avgLoss": 300.0,
+    "avgWin": 0.0,
+    "buyCount": 1,
+    "dividendCount": 0,
+    "lossCount": 1,
+    "maxDrawdown": 300.0,
+    "maxSingleLoss": -300.0,
+    "maxSingleWin": 0.0,
+    "monthly": [
+      {
+        "buyAmount": 1000.0,
+        "dividend": 0.0,
+        "month": "2024-01",
+        "realized": 0.0,
+        "sellAmount": 0.0
+      },
+      {
+        "buyAmount": 0.0,
+        "dividend": 0.0,
+        "month": "2024-02",
+        "realized": -300.0,
+        "sellAmount": 700.0
+      }
+    ],
+    "perStock": [
+      {
+        "dividend": 0.0,
+        "lossCount": 1,
+        "realized": -300.0,
+        "sellCount": 1,
+        "stock": "A",
+        "stockCode": "",
+        "total": -300.0,
+        "winCount": 0,
+        "winRate": 0.0
+      }
+    ],
+    "profitFactor": 0.0,
+    "sellCount": 1,
+    "totalBuyAmount": 1000.0,
+    "totalDividend": 0.0,
+    "totalPnl": -300.0,
+    "totalRealized": -300.0,
+    "totalSellAmount": 700.0,
+    "winCount": 0,
+    "winRate": 0.0
+  },
+  "코드_대소문자": {
+    "avgHoldingDays": 31.0,
+    "avgLoss": 0.0,
+    "avgWin": 200.0,
+    "buyCount": 1,
+    "dividendCount": 0,
+    "lossCount": 0,
+    "maxDrawdown": 0.0,
+    "maxSingleLoss": 0.0,
+    "maxSingleWin": 200.0,
+    "monthly": [
+      {
+        "buyAmount": 1000.0,
+        "dividend": 0.0,
+        "month": "2024-01",
+        "realized": 0.0,
+        "sellAmount": 0.0
+      },
+      {
+        "buyAmount": 0.0,
+        "dividend": 0.0,
+        "month": "2024-02",
+        "realized": 200.0,
+        "sellAmount": 1200.0
+      }
+    ],
+    "perStock": [
+      {
+        "dividend": 0.0,
+        "lossCount": 0,
+        "realized": 200.0,
+        "sellCount": 1,
+        "stock": "ETN상품",
+        "stockCode": "0162Z0",
+        "total": 200.0,
+        "winCount": 1,
+        "winRate": 100.0
+      }
+    ],
+    "profitFactor": null,
+    "sellCount": 1,
+    "totalBuyAmount": 1000.0,
+    "totalDividend": 0.0,
+    "totalPnl": 200.0,
+    "totalRealized": 200.0,
+    "totalSellAmount": 1200.0,
+    "winCount": 1,
+    "winRate": 100.0
+  },
+  "코드없는_레거시": {
+    "avgHoldingDays": 31.0,
+    "avgLoss": 0.0,
+    "avgWin": 300.0,
+    "buyCount": 1,
+    "dividendCount": 0,
+    "lossCount": 0,
+    "maxDrawdown": 0.0,
+    "maxSingleLoss": 0.0,
+    "maxSingleWin": 300.0,
+    "monthly": [
+      {
+        "buyAmount": 1000.0,
+        "dividend": 0.0,
+        "month": "2024-01",
+        "realized": 0.0,
+        "sellAmount": 0.0
+      },
+      {
+        "buyAmount": 0.0,
+        "dividend": 0.0,
+        "month": "2024-02",
+        "realized": 300.0,
+        "sellAmount": 1300.0
+      }
+    ],
+    "perStock": [
+      {
+        "dividend": 0.0,
+        "lossCount": 0,
+        "realized": 300.0,
+        "sellCount": 1,
+        "stock": "옛날종목",
+        "stockCode": "",
+        "total": 300.0,
+        "winCount": 1,
+        "winRate": 100.0
+      }
+    ],
+    "profitFactor": null,
+    "sellCount": 1,
+    "totalBuyAmount": 1000.0,
+    "totalDividend": 0.0,
+    "totalPnl": 300.0,
+    "totalRealized": 300.0,
+    "totalSellAmount": 1300.0,
+    "winCount": 1,
+    "winRate": 100.0
+  }
+}

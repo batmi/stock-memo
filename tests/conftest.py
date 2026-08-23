@@ -6,10 +6,12 @@ import pytest
 
 # 테스트 실행 시 backend_app 모듈을 찾을 수 있도록 시스템 경로 추가
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# tests/helpers.py 를 `from helpers import ...` 로 부를 수 있게 한다
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import auth  # noqa: E402
 import backend_app  # noqa: E402
 import config  # noqa: E402
+import news  # noqa: E402
 import ratelimit  # noqa: E402
 import statscache  # noqa: E402
 import users  # noqa: E402
@@ -43,10 +45,10 @@ def app(tmp_path):
     for path in (config.UPLOAD_FOLDER, config.BACKUP_DIR, config.JSON_DIR):
         os.makedirs(path, exist_ok=True)
 
-    # 테스트 간 전역 상태(로그인 차단, 레이트리밋, 세션 epoch, 통계 캐시)가
+    # 테스트 간 전역 상태(레이트리밋·잠금, 세션 epoch, 통계 캐시, 뉴스 캐시)가
     # 겹치지 않도록 초기화한다. 모두 모듈 전역이라 앞 테스트의 상태가 새어 들어간다.
-    auth.login_attempts.clear()
     ratelimit.reset_all()
+    news.clear_cache()
     users.clear_epoch_cache()
     statscache.clear_all()
 

@@ -1,16 +1,26 @@
-"""stats.py ↔ calc.js 결과 일치(parity) 교차 검증.
+"""stats.py — 성과 지표 계산의 회귀 고정.
 
-기존 tests/calc.test.js 는 calc.js 만 실행하고 기대값을 하드코딩해 두었기 때문에,
-백엔드와 정의가 갈려도(승률 분모, 손익비 정의불가 구간, monthly 길이) 통과했다.
-여기서는 같은 픽스처를 양쪽 엔진에 실제로 통과시켜 값을 직접 비교한다.
+⭐️ 예전 이름은 test_stats_parity.py 였고, 같은 픽스처를 stats.py 와 calc.js 양쪽에
+   통과시켜 값을 비교했다. calc.js 의 computeTradeStats 는 앱에서 호출되지 않는
+   사본이었으므로 삭제했고(성과 지표의 정본은 stats.py 하나), 그 자리를 **골든
+   스냅샷**이 대신한다.
 
-node 가 없는 환경에서는 skip 한다.
+   fixtures/stats_expected.json 은 parity 가 통과하던 시점의 stats.py 출력이다.
+   즉 예전 calc.js 와 값이 일치함이 확인된 결과이며, 앞으로 어떤 지표든 값이
+   바뀌면 여기서 걸린다. 계산식을 의도적으로 고쳤다면 스냅샷을 함께 갱신한다:
+
+       python -c "import json,sys; sys.path.insert(0,'.'); import stats; \
+         fx=json.load(open('tests/fixtures/parity_fixtures.json',encoding='utf-8')); \
+         json.dump({k:stats.compute_trade_stats(v) for k,v in fx.items()}, \
+           open('tests/fixtures/stats_expected.json','w',encoding='utf-8'), \
+           ensure_ascii=False, indent=2, sort_keys=True)"
+
+   그 아래 명시적 테스트들은 '왜 그 값이어야 하는가'를 문장으로 남긴 것이다.
+   스냅샷만 있으면 잘못된 값도 그대로 굳으므로 둘 다 둔다.
 """
 import os
 import sys
 import json
-import shutil
-import subprocess
 
 import pytest
 
@@ -20,11 +30,14 @@ sys.path.insert(0, ROOT)
 import stats  # noqa: E402
 
 FIXTURE_PATH = os.path.join(ROOT, 'tests', 'fixtures', 'parity_fixtures.json')
+EXPECTED_PATH = os.path.join(ROOT, 'tests', 'fixtures', 'stats_expected.json')
 
 with open(FIXTURE_PATH, encoding='utf-8') as f:
     FIXTURES = json.load(f)
+with open(EXPECTED_PATH, encoding='utf-8') as f:
+    EXPECTED = json.load(f)
 
-# 양쪽이 모두 산출하며 정의가 일치해야 하는 지표
+# 스냅샷으로 고정하는 스칼라 지표
 SCALAR_KEYS = [
     'totalRealized', 'totalDividend', 'totalPnl',
     'buyCount', 'sellCount', 'dividendCount',
@@ -33,26 +46,6 @@ SCALAR_KEYS = [
     'maxDrawdown', 'maxSingleWin', 'maxSingleLoss',
     'totalBuyAmount', 'totalSellAmount',
 ]
-
-_NODE = shutil.which('node')
-pytestmark = pytest.mark.skipif(_NODE is None, reason="node 실행 파일이 없어 parity 검증을 건너뜁니다")
-
-_RUNNER = r"""
-const { computeTradeStats } = require(process.argv[1]);
-const fixtures = require(process.argv[2]);
-const out = {};
-for (const [name, rows] of Object.entries(fixtures)) out[name] = computeTradeStats(rows);
-process.stdout.write(JSON.stringify(out));
-"""
-
-
-@pytest.fixture(scope='module')
-def js_results():
-    proc = subprocess.run(
-        [_NODE, '-e', _RUNNER, os.path.join(ROOT, 'static', 'calc.js'), FIXTURE_PATH],
-        capture_output=True, text=True, timeout=60)
-    assert proc.returncode == 0, f"calc.js 실행 실패: {proc.stderr}"
-    return json.loads(proc.stdout)
 
 
 def _close(a, b):
@@ -63,37 +56,35 @@ def _close(a, b):
 
 @pytest.mark.parametrize('name', sorted(FIXTURES))
 @pytest.mark.parametrize('key', SCALAR_KEYS)
-def test_scalar_parity(js_results, name, key):
-    py = stats.compute_trade_stats(FIXTURES[name])
-    js = js_results[name]
-    assert key in py, f"stats.py 에 {key} 가 없습니다"
-    assert key in js, f"calc.js 에 {key} 가 없습니다"
-    assert _close(py[key], js[key]), (
-        f"[{name}] {key} 불일치 — stats.py={py[key]!r} / calc.js={js[key]!r}")
+def test_scalar_matches_snapshot(name, key):
+    got = stats.compute_trade_stats(FIXTURES[name])
+    assert key in got, f"stats.py 에 {key} 가 없습니다"
+    assert _close(got[key], EXPECTED[name][key]), (
+        f"[{name}] {key} 가 스냅샷과 다릅니다 — 지금={got[key]!r} / 스냅샷={EXPECTED[name][key]!r}")
 
 
 @pytest.mark.parametrize('name', sorted(FIXTURES))
-def test_monthly_parity(js_results, name):
-    py = stats.compute_trade_stats(FIXTURES[name])['monthly']
-    js = js_results[name]['monthly']
-    assert [m['month'] for m in py] == [m['month'] for m in js], f"[{name}] monthly 구간 불일치"
-    for pm, jm in zip(py, js, strict=True):
+def test_monthly_matches_snapshot(name):
+    got = stats.compute_trade_stats(FIXTURES[name])['monthly']
+    want = EXPECTED[name]['monthly']
+    assert [m['month'] for m in got] == [m['month'] for m in want], f"[{name}] monthly 구간 불일치"
+    for gm, wm in zip(got, want, strict=True):
         for k in ('realized', 'dividend', 'buyAmount', 'sellAmount'):
-            assert _close(pm[k], jm[k]), f"[{name}] monthly[{pm['month']}].{k} 불일치"
+            assert _close(gm[k], wm[k]), f"[{name}] monthly[{gm['month']}].{k} 불일치"
 
 
 @pytest.mark.parametrize('name', sorted(FIXTURES))
-def test_per_stock_parity(js_results, name):
-    py = stats.compute_trade_stats(FIXTURES[name])['perStock']
-    js = js_results[name]['perStock']
-    assert [p['stock'] for p in py] == [j['stock'] for j in js], f"[{name}] perStock 종목/정렬 불일치"
-    for pp, jj in zip(py, js, strict=True):
-        assert pp['stockCode'] == jj['stockCode'], f"[{name}] perStock 종목코드 불일치"
+def test_per_stock_matches_snapshot(name):
+    got = stats.compute_trade_stats(FIXTURES[name])['perStock']
+    want = EXPECTED[name]['perStock']
+    assert [p['stock'] for p in got] == [p['stock'] for p in want], f"[{name}] perStock 종목/정렬 불일치"
+    for gp, wp in zip(got, want, strict=True):
+        assert gp['stockCode'] == wp['stockCode'], f"[{name}] perStock 종목코드 불일치"
         for k in ('realized', 'dividend', 'total', 'sellCount', 'winCount', 'lossCount', 'winRate'):
-            assert _close(pp[k], jj[k]), f"[{name}] perStock[{pp['stock']}].{k} 불일치"
+            assert _close(gp[k], wp[k]), f"[{name}] perStock[{gp['stock']}].{k} 불일치"
 
 
-# ── 회귀 방지: 이번에 고친 정의를 명시적으로 못 박는다 ──────────────
+# ── 정의를 문장으로 못 박는다 (스냅샷만으로는 "왜"가 남지 않는다) ──
 def test_win_rate_excludes_break_even_sells():
     """손익 0 매도는 승률 분모에서 빠진다. (예전엔 승/전체매도건수 라 '50% (1승 0패)')"""
     s = stats.compute_trade_stats(FIXTURES['손익0_매도_포함'])
