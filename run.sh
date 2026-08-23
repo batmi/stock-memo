@@ -19,7 +19,7 @@ fi
 # ---------------------------------------------------------
 # 필수 라이브러리 목록
 # ---------------------------------------------------------
-REQUIRED_LIBS="flask werkzeug waitress"
+REQUIRED_LIBS="flask werkzeug waitress holidays"
 MISSING_LIBS=""
 
 # 2. 운영체제 확인 (macOS vs Linux)

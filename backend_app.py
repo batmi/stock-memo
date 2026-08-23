@@ -25,6 +25,7 @@ import config
 import applog
 import memcache
 import middleware
+import prices
 import trading_api
 import accounts
 import images
@@ -185,6 +186,15 @@ def bootstrap(start_jobs=True):
     # ⭐️ 어느 DB 를 붙잡고 떴는지 시작 시점에 못박아 둔다. 계정이 통째로 사라진 것처럼
     #    보이는 사고는 대부분 '다른 파일을 보고 있었다' 가 원인이었다.
     app.logger.info(f"📁 사용 중인 DB: {config.DB_FILE} (계정 {_count_users()}개)")
+
+    # ⭐️ 휴장일 판정 상태도 기동 때마다 못박는다. 어느 달력(패키지 버전)으로
+    #    판정하고 있는지가 로그에 남아야, 임시공휴일이 반영됐는지를 나중에 되짚을
+    #    수 있다. 라이브러리가 없으면 모든 평일이 정규장으로 보이는데 화면·동작은
+    #    멀쩡해서 아무도 모른다 — 그 경우는 ERROR 로 올린다.
+    coverage, severity = prices.holiday_coverage()
+    {'ok': app.logger.info,
+     'warn': app.logger.warning,
+     'error': app.logger.error}[severity](f"📅 {coverage}")
 
     # ⭐️ 같은 이유로, 이 프로세스에만 존재하는 상태도 시작 시점에 적어 둔다.
     #    멀티 워커로 띄웠을 때 나타나는 증상(레이트리밋이 헐거워지고, 저장했는데

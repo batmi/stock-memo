@@ -23,11 +23,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # 레거시 단일 JSON 저장소 (최초 관리자 가입 시 1회 이관에만 쓰인다)
 DATA_FILE = os.path.join(BASE_DIR, 'my_stock_trading_journal.json')
 
-# ⭐️ 코드가 아니라 '데이터'인 것들 — 갱신에 배포가 필요하지 않아야 하는 값.
-#    KRX 휴장일이 대표적이다. 매년 바뀌는데 소스에 박혀 있으면 갱신이 코드 수정이 된다.
-DATA_DIR = os.path.join(BASE_DIR, 'data')
-KRX_HOLIDAYS_FILE = os.path.join(DATA_DIR, 'krx_holidays.json')
-
 DB_DIR = os.path.join(BASE_DIR, 'db')
 DB_FILE = os.path.join(DB_DIR, 'journal.db')
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')

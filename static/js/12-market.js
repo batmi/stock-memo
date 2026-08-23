@@ -16,10 +16,12 @@ window.loadMarketCalendar = async function() {
         if (!res.ok) return;
         const data = await res.json();
         if (Array.isArray(data.holidays)) krxHolidaySet = new Set(data.holidays);
-        // 목록이 만료된 해에는 휴장일 판정이 무의미해지므로 콘솔에 남긴다.
-        const thisYear = new Date().getFullYear();
-        if (data.maxYear && thisYear > data.maxYear) {
-            console.warn(`[MarketCalendar] 휴장일 목록이 ${data.maxYear}년까지만 등록되어 있습니다.`);
+        // ⭐️ 서버가 휴장일을 계산하지 못하면(holidays 패키지 미설치 등) 공휴일에도
+        //    '장중'으로 보이고 60초마다 시세를 폴링한다. 조용히 그러면 안 되므로 남긴다.
+        //    (예전에는 '목록이 몇 년까지 등록됐는가'를 봤는데, 손으로 관리하던 시절의
+        //     축이라 지금은 서버가 임의의 연도를 계산한다)
+        if (data.available === false) {
+            console.warn('[MarketCalendar] 서버가 휴장일을 계산하지 못했습니다 — 휴장일 판정이 비활성화됩니다.');
         }
     } catch (e) {
         console.warn('[MarketCalendar] 휴장일 목록을 가져오지 못했습니다:', e);

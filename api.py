@@ -522,15 +522,22 @@ def get_stats():
 
 @bp.route('/api/market_calendar', methods=['GET'])
 def get_market_calendar():
-    """KRX 휴장일 목록을 프론트에 내려준다.
+    """KRX 휴장일 목록을 프론트에 내려준다 (오늘 기준 앞뒤 1년).
 
     ⭐️ 프론트의 getMarketStatus() 가 휴장일을 몰라 공휴일에도 60초마다 시세를
-       폴링하던 문제를 막는다. 판정 기준을 서버 한 곳에서만 관리하기 위해
-       prices.KRX_HOLIDAYS 를 그대로 공유한다.
+       폴링하던 문제를 막는다. 판정 기준은 서버(prices) 한 곳이 소유한다.
+
+    ⭐️ maxYear 는 '목록이 몇 년까지 등록됐는가' 였다. 휴장일을 손으로 관리하던
+       시절의 축이라 지금은 의미가 없다(holidays 패키지가 임의의 연도를 계산한다).
+       대신 판정이 **가능한지**를 available 로 알린다 — 라이브러리가 없으면 모든
+       평일이 정규장으로 보이므로 화면도 그 사실을 알아야 한다.
+       (구버전 화면 호환을 위해 maxYear 는 내려보낸 범위의 마지막 해로 채운다)
     """
+    days = prices.holiday_list()
     return jsonify({
-        'holidays': prices.holiday_list(),
-        'maxYear': prices.max_holiday_year(),
+        'holidays': days,
+        'available': prices.holidays_available(),
+        'maxYear': int(days[-1][:4]) if days else 0,
     })
 
 

@@ -472,104 +472,123 @@ def test_holiday_list_is_sorted_iso_strings():
     assert all(len(d) == 10 and d.count('-') == 2 for d in lst)
 
 
-def test_holidays_outdated_warns_once_per_day(caplog):
+# ─────────────────────────────────────────────────────────────
+# 휴장일 — holidays 패키지가 계산한다 (사람이 목록을 관리하지 않는다)
+#
+# ⭐️ 예전에는 소스에 박힌 집합이었고, 다음엔 data/krx_holidays.json 이었다.
+#    둘 다 연초마다 사람이 손으로 채워야 한다는 점에서 같은 물건이었고, 실제로
+#    미뤄지다 잊히면 공휴일을 정규장으로 오판했다. 이제 라이브러리가 음력 환산과
+#    대체공휴일 규칙을 계산하고, 거래소 고유 휴장일 2건만 얹는다.
+# ─────────────────────────────────────────────────────────────
+def test_lunar_and_substitute_holidays_are_computed():
+    """손으로 넣을 수 없던 것들 — 음력 기반 설날·추석과 대체공휴일."""
+    assert prices.is_market_holiday(_dt.date(2026, 2, 17))   # 설날 (음력)
+    assert prices.is_market_holiday(_dt.date(2026, 9, 25))   # 추석 (음력)
+    assert prices.is_market_holiday(_dt.date(2026, 3, 2))    # 삼일절 대체공휴일
+    assert prices.is_market_holiday(_dt.date(2026, 8, 17))   # 광복절 대체공휴일
+    assert not prices.is_market_holiday(_dt.date(2026, 2, 19))
+
+
+def test_future_years_need_no_manual_entry():
+    """다음 해도 손대지 않고 나온다 — 이게 라이브러리로 옮긴 이유다."""
+    assert prices.is_market_holiday(_dt.date(2027, 1, 1))    # 신정
+    assert prices.is_market_holiday(_dt.date(2027, 2, 6))    # 설날 (음력)
+    assert prices.holidays_for(2028), "2028년도 계산돼야 한다"
+
+
+def test_krx_only_holidays_are_added_on_top():
+    """근로자의 날·연말 폐장일은 국가 공휴일이 아니지만 KRX 는 쉰다."""
+    for year in (2026, 2027):
+        assert prices.is_market_holiday(_dt.date(year, 5, 1)), f"{year} 근로자의 날"
+        assert prices.is_market_holiday(_dt.date(year, 12, 31)), f"{year} 연말 폐장일"
+
+
+def test_holiday_list_covers_a_window_around_today():
+    """프런트에 내려보내는 목록은 오늘 기준 앞뒤 1년."""
+    today = _dt.date(2026, 6, 15)
+    days = prices.holiday_list(today)
+    years = {d[:4] for d in days}
+    assert years == {'2025', '2026', '2027'}
+    assert days == sorted(days)
+    assert '2026-09-25' in days
+
+
+def test_holidays_are_cached_per_year(monkeypatch):
+    """연 단위로 한 번만 계산한다 (요청마다 라이브러리를 다시 돌리지 않는다)."""
+    prices._holiday_cache.clear()
+    calls = []
+    real = prices._compute_holidays
+    monkeypatch.setattr(prices, '_compute_holidays',
+                        lambda y: (calls.append(y), real(y))[1])
+    for _ in range(50):
+        prices.is_market_holiday(_dt.date(2026, 9, 25))
+    assert calls == [2026], f"연 단위 캐시가 동작하지 않습니다: {calls}"
+
+
+def test_missing_library_degrades_without_crashing(monkeypatch):
+    """라이브러리가 없어도 기동을 막지 않는다 — 휴장일을 모를 뿐이다."""
+    prices._holiday_cache.clear()
+    monkeypatch.setattr(prices, '_compute_holidays', lambda year: {})
+    assert prices.is_market_holiday(_dt.date(2026, 9, 25)) is False
+    assert prices.holiday_list(_dt.date(2026, 6, 15)) == []
+    prices._holiday_cache.clear()
+
+
+def test_broken_library_call_is_logged_not_raised(monkeypatch, caplog):
+    """라이브러리가 예외를 던져도 조회 경로가 터지면 안 된다."""
+    prices._holiday_cache.clear()
+    import holidays as pkg
+    monkeypatch.setattr(pkg, 'KR', lambda **kw: (_ for _ in ()).throw(RuntimeError('boom')))
+    with caplog.at_level('ERROR', logger='prices'):
+        assert prices._compute_holidays(2026) == {}
+    assert any('휴장일 계산에 실패' in r.getMessage() for r in caplog.records)
+    prices._holiday_cache.clear()
+
+
+# ── 판정 불가 상태를 조용히 넘기지 않는다 ──────────────────────────
+def test_coverage_is_ok_when_the_library_works():
+    msg, severity = prices.holiday_coverage(_dt.date(2026, 6, 15))
+    assert severity == 'ok'
+    assert 'holidays' in msg and '2026' in msg
+
+
+def test_coverage_is_an_error_when_the_library_is_missing(monkeypatch):
+    monkeypatch.setattr(prices, 'holiday_version', lambda: None)
+    msg, severity = prices.holiday_coverage(_dt.date(2026, 6, 15))
+    assert severity == 'error'
+    assert '설치되지 않았습니다' in msg
+
+
+def test_coverage_is_an_error_when_nothing_is_computed(monkeypatch):
+    prices._holiday_cache.clear()
+    monkeypatch.setattr(prices, '_compute_holidays', lambda year: {})
+    msg, severity = prices.holiday_coverage(_dt.date(2026, 6, 15))
+    assert severity == 'error'
+    assert '하나도 계산하지 못했습니다' in msg
+    prices._holiday_cache.clear()
+
+
+def test_unavailable_holidays_warn_once_per_day(monkeypatch, caplog):
+    """판정이 불가능하면 하루 1회 경고 — 조용히 틀리게 두지 않는다."""
+    prices._holiday_cache.clear()
     prices._holiday_warn_date = None
-    future = _dt.datetime(prices.KRX_HOLIDAYS_MAX_YEAR + 1, 3, 4, 10, 0)
+    monkeypatch.setattr(prices, '_compute_holidays', lambda year: {})
+    when = _dt.datetime(2026, 3, 4, 10, 0)
     with caplog.at_level('WARNING', logger='prices'):
-        prices.is_kr_out_of_hours(future)
-        prices.is_kr_out_of_hours(future)  # 같은 날 재호출은 침묵
-    warnings = [r for r in caplog.records if 'KRX_HOLIDAYS' in r.getMessage()]
+        prices.is_kr_out_of_hours(when)
+        prices.is_kr_out_of_hours(when)      # 같은 날 재호출은 침묵
+    warnings = [r for r in caplog.records if '휴장일을 계산하지 못했습니다' in r.getMessage()]
     assert len(warnings) == 1
     prices._holiday_warn_date = None
+    prices._holiday_cache.clear()
 
 
-# ─────────────────────────────────────────────────────────────
-# 휴장일 데이터 파일 로딩
-#   ⭐️ 휴장일은 코드가 아니라 data/krx_holidays.json 이 갖는다. 파일이 없거나
-#      깨져도 서버 기동을 막아서는 안 된다 — 휴장일을 모르는 것은 성능·표시
-#      문제이지 데이터 무결성 문제가 아니다.
-# ─────────────────────────────────────────────────────────────
-def test_holidays_are_loaded_from_the_data_file(tmp_path, monkeypatch):
-    f = tmp_path / 'h.json'
-    f.write_text(json.dumps({'holidays': {'2030-01-01': '신정', '2030-12-25': '성탄절'}}),
-                 encoding='utf-8')
-    monkeypatch.setattr(config, 'KRX_HOLIDAYS_FILE', str(f))
-    assert prices._load_holidays() == {(2030, 1, 1), (2030, 12, 25)}
-
-
-def test_missing_holiday_file_does_not_crash(tmp_path, monkeypatch, caplog):
-    monkeypatch.setattr(config, 'KRX_HOLIDAYS_FILE', str(tmp_path / '없는파일.json'))
-    with caplog.at_level('WARNING', logger='prices'):
-        assert prices._load_holidays() == set()
-    assert any('휴장일 파일이 없습니다' in r.getMessage() for r in caplog.records)
-
-
-def test_broken_holiday_file_does_not_crash(tmp_path, monkeypatch, caplog):
-    f = tmp_path / 'h.json'
-    f.write_text('{ 이건 JSON 이 아니다', encoding='utf-8')
-    monkeypatch.setattr(config, 'KRX_HOLIDAYS_FILE', str(f))
-    with caplog.at_level('ERROR', logger='prices'):
-        assert prices._load_holidays() == set()
-    assert any('읽지 못했습니다' in r.getMessage() for r in caplog.records)
-
-
-def test_malformed_dates_are_skipped_not_fatal(tmp_path, monkeypatch, caplog):
-    """한 줄이 잘못됐다고 나머지 휴장일까지 버리면 안 된다."""
-    f = tmp_path / 'h.json'
-    f.write_text(json.dumps({'holidays': {
-        '2030-01-01': '신정', '2030/05/05': '형식 오류', '엉망': '형식 오류',
-    }}), encoding='utf-8')
-    monkeypatch.setattr(config, 'KRX_HOLIDAYS_FILE', str(f))
-    with caplog.at_level('WARNING', logger='prices'):
-        assert prices._load_holidays() == {(2030, 1, 1)}
-    assert len([r for r in caplog.records if '형식이 올바르지 않아' in r.getMessage()]) == 2
-
-
-def test_holiday_file_change_is_picked_up_without_restart(tmp_path, monkeypatch):
-    """파일을 고치면 재시작 없이 반영돼야 한다.
-
-    ⭐️ 코드에서 데이터 파일로 옮겨 놓고 재시작을 요구하면 "갱신에 배포가 필요
-       없다" 가 반쪽이 된다. 연초에 목록을 채우는 것이 이 파일의 유일한 용도인데
-       그때 서버를 내렸다 올려야 한다면 결국 미루게 된다.
-    """
-    f = tmp_path / 'h.json'
-    f.write_text(json.dumps({'holidays': {'2030-01-01': '신정'}}), encoding='utf-8')
-    monkeypatch.setattr(config, 'KRX_HOLIDAYS_FILE', str(f))
-    prices.reload_holidays()
-    assert prices.holidays() == {(2030, 1, 1)}
-    assert prices.max_holiday_year() == 2030
-
-    # 파일 갱신 (연초에 다음 해 목록을 채워 넣는 상황)
-    f.write_text(json.dumps({'holidays': {'2030-01-01': '신정', '2031-01-01': '신정'}}),
-                 encoding='utf-8')
-    prices._holiday_state['checked_at'] = 0        # 확인 간격 경과
-    assert prices.holidays() == {(2030, 1, 1), (2031, 1, 1)}
-    assert prices.max_holiday_year() == 2031
-    assert '2031-01-01' in prices.holiday_list()
-
-
-def test_holiday_file_is_not_stat_ed_on_every_call(tmp_path, monkeypatch):
-    """확인 간격 안에서는 파일을 다시 보지 않는다 (요청마다 stat 하지 않도록)."""
-    f = tmp_path / 'h.json'
-    f.write_text(json.dumps({'holidays': {'2030-01-01': '신정'}}), encoding='utf-8')
-    monkeypatch.setattr(config, 'KRX_HOLIDAYS_FILE', str(f))
-    prices.reload_holidays()
-
-    calls = []
-    real_getmtime = os.path.getmtime
-    monkeypatch.setattr(os.path, 'getmtime',
-                        lambda p: (calls.append(p), real_getmtime(p))[1])
-    for _ in range(50):
-        prices.holidays()
-    assert calls == [], "확인 간격 안인데도 파일을 다시 조회했습니다"
-
-
-def test_holidays_within_range_does_not_warn(caplog):
+def test_working_holidays_do_not_warn(caplog):
     prices._holiday_warn_date = None
-    inside = _dt.datetime(prices.KRX_HOLIDAYS_MAX_YEAR, 3, 4, 10, 0)
     with caplog.at_level('WARNING', logger='prices'):
-        prices.is_kr_out_of_hours(inside)
-    assert not [r for r in caplog.records if 'KRX_HOLIDAYS' in r.getMessage()]
+        prices.is_kr_out_of_hours(_dt.datetime(2026, 3, 4, 10, 0))
+    assert not [r for r in caplog.records if '계산하지 못했습니다' in r.getMessage()]
+
 
 
 # ─────────────────────────────────────────────────────────────

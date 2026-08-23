@@ -130,7 +130,7 @@ def auto_fetch_nxt_close_job():
             if not (0 <= day_of_week <= 4 and 1530 <= time_num <= 1830):
                 continue
             # 휴장일에는 시간외 단일가도 없다 (prices 의 휴장일 목록과 판정을 공유)
-            if (kst_now.year, kst_now.month, kst_now.day) in prices.holidays():
+            if prices.is_market_holiday(kst_now):
                 continue
 
             log.info("🔄 백그라운드: 시간외 단일가(NXT) 자동 캐싱을 시작합니다...")

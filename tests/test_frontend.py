@@ -79,6 +79,33 @@ def _wait_for_login_form(page: Page):
     expect(page.locator('input[name="password"]')).to_be_visible()
 
 
+
+def _server_account_state(username):
+    """로그인이 거부됐을 때 서버 쪽 사실을 함께 보고한다.
+
+    ⭐️ 화면 문구는 계정 존재 여부를 일부러 감춘다(보안). 그래서 "아이디 또는
+       비밀번호가 일치하지 않습니다" 만으로는 **계정이 없는 것**과 **비밀번호가
+       다른 것**을 구분할 수 없고, 간헐적 실패의 원인도 좁힐 수 없다.
+       테스트 프로세스는 라이브 서버와 같은 프로세스이므로 DB 를 직접 볼 수 있다.
+    """
+    import sqlite3
+
+    import config
+    try:
+        conn = sqlite3.connect(config.DB_FILE)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT username, is_allowed FROM users ORDER BY username").fetchall()
+        conn.close()
+    except Exception as e:                                   # noqa: BLE001
+        return f"    [서버] DB 조회 실패: {e!r} (DB={config.DB_FILE})"
+
+    me = [r for r in rows if r['username'] == username]
+    return (f"    [서버] DB={config.DB_FILE}\n"
+            f"    [서버] 계정 {len(rows)}개: {[r['username'] for r in rows]}\n"
+            f"    [서버] '{username}' 존재={bool(me)}"
+            + (f", is_allowed={me[0]['is_allowed']}" if me else " ← 계정이 없다"))
+
 def _login(page: Page, username='admin', password='admin123', *, navigate=True):
     """로그인해서 대시보드가 뜰 때까지 기다린다.
 
@@ -104,7 +131,7 @@ def _login(page: Page, username='admin', password='admin123', *, navigate=True):
     if banner.count() and not dashboard.count():
         raise AssertionError(
             f"'{username}' 로그인이 거부되었습니다 — 화면 문구: "
-            f"{banner.inner_text().strip()!r}")
+            f"{banner.inner_text().strip()!r}\n{_server_account_state(username)}")
     expect(dashboard).to_be_visible(timeout=5000)
 
 

@@ -13,7 +13,6 @@ provider 단위로 분해하고, 다음 성능 개선을 적용합니다.
 ⭐️ 조회 실패는 화면에 "조회 실패" 로만 드러나 원인 추적이 불가능했으므로,
    단계별 실패는 debug, 종목 전체 실패는 warning 으로 남긴다. (logger 'prices')
 """
-import os
 import re
 import json
 import time
@@ -24,116 +23,155 @@ import datetime as _dt
 import concurrent.futures
 from urllib.parse import urlsplit
 
-import config
 from db import get_db
 from memcache import TTLCache
 
 logger = logging.getLogger('prices')
 
-# ⭐️ 한국거래소(KRX) 휴장일 — 목록은 data/krx_holidays.json 이 갖는다.
-#    예전에는 이 집합이 소스에 그대로 박혀 있었다. 매년 연초에 반드시 갱신해야
-#    하는 순수한 '데이터'인데 코드에 있으면 갱신이 곧 코드 수정 + 재배포가 되고,
-#    그래서 미뤄지다가 잊힌다. 잊히면 조용히 틀린다 — 공휴일에 정규장으로 판정해
-#    쉬는 날 내내 외부 API 를 두드리고, 화면은 '장중'으로 표시된다.
-def _load_holidays():
-    """휴장일 파일을 (연,월,일) 집합으로 읽는다.
+# ══════════════════════════════════════════════════════════════════════
+# 한국거래소(KRX) 휴장일
+# ══════════════════════════════════════════════════════════════════════
+#
+# ⭐️ 목록을 사람이 관리하지 않는다. `holidays` 패키지가 계산한다.
+#
+#    처음에는 이 집합이 소스에 박혀 있었고, 다음엔 data/krx_holidays.json 으로
+#    옮겼다. 둘 다 **연초마다 사람이 손으로 채워 넣어야 한다**는 점에서 같은
+#    물건이었다. 설날·추석은 음력 환산이 필요하고 대체공휴일 규칙도 매년 따져야
+#    하니, 실제로는 미뤄지다 잊히고 그러면 공휴일을 정규장으로 오판한다.
+#
+#    holidays.KR() 은 음력 환산과 대체공휴일 규칙을 모두 계산한다. 다만 그것은
+#    '국가 공휴일'이고 **거래소 휴장일과는 다르다** — 근로자의 날(5/1)은 법정
+#    공휴일이 아니지만 KRX 는 쉬고, 연말 폐장일(12/31)도 공휴일이 아니지만 쉰다.
+#    그 둘만 얹는다. (같은 규약을 my-stock-hts 의 api/market_calendar.py 가 쓴다)
+#
+# ⚠️ 임시공휴일은 패키지가 새 버전을 내야 반영된다. 기동할 때마다 자동
+#    업그레이드하지는 않는다 — 휴장 판정 라이브러리가 매 기동 조용히 바뀌면
+#    장 운영시간 판단이 사람 모르게 달라진다. 갱신은 tools/update_holidays.sh 를
+#    주기 작업(주 1회 cron)으로 분리해 둔다.
 
-    파일이 없거나 깨져도 서버 기동을 막지 않는다 — 휴장일을 모르는 것은
-    성능·표시 문제이지 데이터 무결성 문제가 아니다. 대신 경고를 남긴다.
-    """
+# 국가 공휴일이 아니지만 KRX 가 쉬는 날 (월, 일) -> 이름
+KRX_EXTRA_HOLIDAYS = {
+    (5, 1): '근로자의 날',
+    (12, 31): '연말 폐장일',
+}
+
+# 프런트엔드에 내려보낼 연도 범위 (오늘 기준 앞뒤로 이만큼)
+HOLIDAY_YEARS_BACK = 1
+HOLIDAY_YEARS_AHEAD = 1
+
+_holiday_cache = {}          # year -> {(y, m, d): 이름}
+_holiday_cache_lock = threading.Lock()
+_holiday_warn_date = None
+
+
+def _compute_holidays(year):
+    """그 해의 KRX 휴장일 {(y,m,d): 이름}. 라이브러리가 없으면 빈 dict."""
     try:
-        with open(config.KRX_HOLIDAYS_FILE, encoding='utf-8') as f:
-            raw = json.load(f).get('holidays') or {}
-    except FileNotFoundError:
-        logger.warning("⚠️ 휴장일 파일이 없습니다: %s (모든 평일을 정규장으로 봅니다)",
-                       config.KRX_HOLIDAYS_FILE)
-        return set()
-    except (ValueError, OSError) as e:
-        logger.error("⚠️ 휴장일 파일을 읽지 못했습니다: %s (%r)", config.KRX_HOLIDAYS_FILE, e)
-        return set()
-
-    days = set()
-    for key in raw:
-        try:
-            y, m, d = (int(part) for part in str(key).split('-'))
-        except ValueError:
-            logger.warning("⚠️ 휴장일 형식이 올바르지 않아 건너뜁니다: %r (YYYY-MM-DD)", key)
-            continue
-        days.add((y, m, d))
-    return days
-
-
-def _holidays_file_mtime():
+        import holidays as _holidays_pkg
+    except ImportError:
+        return {}
     try:
-        return os.path.getmtime(config.KRX_HOLIDAYS_FILE)
-    except OSError:
+        cal = _holidays_pkg.KR(years=year)
+        for (month, day), name in KRX_EXTRA_HOLIDAYS.items():
+            cal[_dt.date(year, month, day)] = name
+        return {(d.year, d.month, d.day): str(nm)
+                for d, nm in cal.items() if d.year == year}
+    except Exception as e:
+        logger.error("⚠️ %d년 휴장일 계산에 실패했습니다: %r", year, e)
+        return {}
+
+
+def holidays_for(year):
+    """그 해의 휴장일 (연 단위 캐시). 프로세스가 사는 동안 유지된다."""
+    with _holiday_cache_lock:
+        cached = _holiday_cache.get(year)
+    if cached is not None:
+        return cached
+    computed = _compute_holidays(year)
+    with _holiday_cache_lock:
+        _holiday_cache[year] = computed
+    return computed
+
+
+def holidays_available():
+    """휴장일 라이브러리를 쓸 수 있는지."""
+    try:
+        import holidays  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def holiday_version():
+    try:
+        import holidays
+        return getattr(holidays, '__version__', '(버전 미상)')
+    except ImportError:
         return None
 
 
-def _apply_holidays(days):
-    """읽어들인 휴장일을 모듈 전역에 반영한다."""
-    global KRX_HOLIDAYS, KRX_HOLIDAYS_MAX_YEAR
-    KRX_HOLIDAYS = days
-    # 목록이 커버하는 마지막 연도. 이 연도를 넘기면 휴장일을 "정규장"으로 오판하므로,
-    # 조용히 틀리는 대신 하루 1회 경고 로그를 남긴다.
-    # (목록이 비면 0 — 그 경우 매일 경고가 나가는 편이 맞다)
-    KRX_HOLIDAYS_MAX_YEAR = max((y for (y, _m, _d) in days), default=0)
+def is_market_holiday(date_obj):
+    """그 날짜가 KRX 휴장일인지 (주말은 보지 않는다 — 호출자가 따로 판정한다)."""
+    return (date_obj.year, date_obj.month, date_obj.day) in holidays_for(date_obj.year)
 
 
-KRX_HOLIDAYS = set()
-KRX_HOLIDAYS_MAX_YEAR = 0
-_holiday_warn_date = None
-
-# ⭐️ 파일을 고치면 **재시작 없이** 반영되게 한다.
-#    코드에서 데이터 파일로 옮겨 놓고 재시작을 요구하면 "갱신에 배포가 필요 없다"는
-#    말이 반쪽이 된다. 연초에 목록을 채워 넣는 것이 이 파일의 유일한 용도인데,
-#    그때 서버를 내렸다 올려야 한다면 결국 미루게 된다.
-#    매 호출마다 stat 하지 않도록 확인 간격을 두고, mtime 이 바뀐 경우에만 다시 읽는다.
-HOLIDAY_RELOAD_CHECK_SECONDS = 60
-_holiday_state = {'mtime': None, 'checked_at': 0.0}
-_holiday_lock = threading.Lock()
+def _holiday_years(today=None):
+    today = today or _dt.date.today()
+    return range(today.year - HOLIDAY_YEARS_BACK, today.year + HOLIDAY_YEARS_AHEAD + 1)
 
 
-def _refresh_holidays_if_changed(now_ts=None):
-    """파일이 바뀌었으면 다시 읽는다. 확인은 최대 60초에 한 번."""
-    now_ts = now_ts if now_ts is not None else time.time()
-    with _holiday_lock:
-        if now_ts - _holiday_state['checked_at'] < HOLIDAY_RELOAD_CHECK_SECONDS:
-            return
-        _holiday_state['checked_at'] = now_ts
-        mtime = _holidays_file_mtime()
-        if mtime == _holiday_state['mtime']:
-            return
-        _holiday_state['mtime'] = mtime
-        days = _load_holidays()
-        if days != KRX_HOLIDAYS:
-            logger.info("🔄 휴장일 목록을 다시 읽었습니다: %d건 (~%d년)",
-                        len(days), max((y for (y, _m, _d) in days), default=0))
-        _apply_holidays(days)
+def holiday_list(today=None):
+    """프런트엔드에 내려보낼 휴장일 (YYYY-MM-DD 문자열, 정렬됨).
+
+    화면의 getMarketStatus() 가 이 목록으로 공휴일 폴링을 멈춘다. 라이브러리가
+    임의의 연도를 계산할 수 있으므로 '등록된 마지막 해' 개념은 사라졌고,
+    오늘 기준 앞뒤 1년만 내려보낸다 (응답 크기와 실용성의 절충).
+    """
+    days = []
+    for year in _holiday_years(today):
+        days.extend(holidays_for(year))
+    return ['%04d-%02d-%02d' % ymd for ymd in sorted(days)]
 
 
-def reload_holidays():
-    """휴장일을 즉시 다시 읽는다 (확인 간격 무시). 테스트·수동 갱신용."""
-    with _holiday_lock:
-        _holiday_state['mtime'] = _holidays_file_mtime()
-        _holiday_state['checked_at'] = time.time()
-        _apply_holidays(_load_holidays())
-    return KRX_HOLIDAYS
+def holiday_coverage(today=None):
+    """휴장일 판정 상태 요약 — (요약문, 심각도). bootstrap 이 기동 로그에 남긴다.
+
+    심각도: 'ok' | 'error'. 예전에는 '목록이 몇 년까지 등록됐는가'를 봤지만,
+    이제 그 축은 없어졌다. 대신 **라이브러리가 실제로 있는가**를 본다 —
+    없으면 모든 평일이 정규장으로 판정되므로 조용히 틀린다.
+    """
+    today = today or _dt.date.today()
+    version = holiday_version()
+    if version is None:
+        return ("휴장일 라이브러리(holidays)가 설치되지 않았습니다 — 모든 평일을 "
+                "정규장으로 봅니다. `pip install -r requirements.txt` 를 실행하세요."), 'error'
+
+    this_year = holidays_for(today.year)
+    if not this_year:
+        return (f"holidays {version} 이 {today.year}년 휴장일을 하나도 계산하지 "
+                f"못했습니다 — 패키지 상태를 확인하세요."), 'error'
+
+    upcoming = sum(1 for ymd in this_year if _dt.date(*ymd) >= today)
+    return (f"휴장일 판정: holidays {version} "
+            f"({today.year}년 {len(this_year)}건, 앞으로 {upcoming}일 남음)"), 'ok'
 
 
-def holidays():
-    """최신 휴장일 집합. 파일이 바뀌었으면 여기서 반영된다."""
-    _refresh_holidays_if_changed()
-    return KRX_HOLIDAYS
+def _warn_if_holidays_unavailable(kst):
+    """휴장일 판정이 불가능하면 하루 1회만 경고한다.
 
-
-def max_holiday_year():
-    """목록이 커버하는 마지막 연도 (최신 파일 기준)."""
-    _refresh_holidays_if_changed()
-    return KRX_HOLIDAYS_MAX_YEAR
-
-
-reload_holidays()   # 기동 시 1회
+    라이브러리가 없으면 모든 공휴일이 '정규장'으로 판정되므로, 갱신을 잊으면
+    실시간 시세를 무의미하게 호출하면서도 아무도 알아채지 못한다.
+    """
+    global _holiday_warn_date
+    if holidays_for(kst.year):
+        return
+    today = (kst.year, kst.month, kst.day)
+    if _holiday_warn_date == today:
+        return
+    _holiday_warn_date = today
+    logger.warning(
+        "⚠️ %d년 휴장일을 계산하지 못했습니다 (holidays 패키지 상태를 확인하세요). "
+        "공휴일이 정규장으로 오판됩니다.", kst.year)
 
 
 HTTP_TIMEOUT = 2.5      # 단계별 외부 API 호출 제한시간(초)
@@ -264,38 +302,14 @@ def detect_market(code_str):
     return "UNKNOWN"
 
 
-def _warn_if_holidays_outdated(kst):
-    """휴장일 목록이 만료됐으면 하루 1회만 경고한다.
-
-    목록에 없는 연도는 모든 공휴일이 '정규장'으로 판정되므로, 갱신을 잊으면
-    실시간 시세를 무의미하게 호출하면서도 아무도 알아채지 못한다.
-    """
-    global _holiday_warn_date
-    if kst.year <= max_holiday_year():
-        return
-    today = (kst.year, kst.month, kst.day)
-    if _holiday_warn_date == today:
-        return
-    _holiday_warn_date = today
-    logger.warning(
-        "⚠️ KRX_HOLIDAYS 휴장일 목록이 %d년까지만 등록되어 있습니다. "
-        "%d년 휴장일이 정규장으로 오판되니 prices.py 의 목록을 갱신하세요.",
-        KRX_HOLIDAYS_MAX_YEAR, kst.year)
-
-
 def is_kr_out_of_hours(now_kst=None):
     """KRX 정규장(평일 09:00~15:30, 공휴일 제외) 시간 밖인지 판정."""
     kst = now_kst or (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=9))
-    _warn_if_holidays_outdated(kst)
+    _warn_if_holidays_unavailable(kst)
     time_num = kst.hour * 100 + kst.minute
     day_of_week = kst.weekday()
-    is_holiday = (kst.year, kst.month, kst.day) in holidays()
+    is_holiday = is_market_holiday(kst)
     return (day_of_week >= 5) or is_holiday or not (900 <= time_num < 1530)
-
-
-def holiday_list():
-    """휴장일을 'YYYY-MM-DD' 문자열로 정렬해 반환. (프론트 공유용)"""
-    return ['%04d-%02d-%02d' % ymd for ymd in sorted(holidays())]
 
 
 def is_nxt_mode(market_mode):
