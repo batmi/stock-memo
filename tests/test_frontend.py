@@ -5,7 +5,13 @@ import os
 from werkzeug.serving import make_server
 from playwright.sync_api import Page, expect
 
+import ratelimit
+
 BASE_URL = "http://127.0.0.1:5001"
+
+# ⭐️ 관리자 계정은 테스트의 '부작용'이 아니라 '전제'다. 아래 live_server 참고.
+ADMIN_ID = 'admin'
+ADMIN_PW = 'admin123'
 
 class LiveServerThread(threading.Thread):
     def __init__(self, app):
@@ -47,6 +53,33 @@ def live_server(tmp_path_factory):
     with flask_app.app_context():
         backend_app.init_db()
 
+    # ⭐️ 레이트리밋·잠금 상태는 프로세스 전역인데, 이 모듈은 conftest 의 app
+    #    픽스처를 쓰지 않으므로 **아무도 초기화해 주지 않는다.** 그래서 앞 모듈들이
+    #    남긴 가입·초기화요청 카운터를 그대로 물려받았고, 이 모듈의 결과가
+    #    "직전에 어떤 테스트가 무엇을 했는가"에 좌우됐다.
+    #
+    #    실제로 이렇게 무너진다 — 가입은 IP 당 5회/시간이다. 잔량이 차 있으면
+    #    회원가입이 조용히 거부되고(429 가 아니라 가입 화면 재렌더링), _signup 은
+    #    오지 않는 리다이렉트를 기본 30초 동안 기다리다 죽는다. 계정이 만들어지지
+    #    않았으므로 뒤따르는 로그인 테스트가 전부 "아이디 또는 비밀번호가 일치하지
+    #    않습니다" 로 실패한다 — 제품 버그처럼 보이지만 계정이 아예 없는 것이다.
+    #    잔량 5로 채워 재현하면 11개가 실패하고 모듈 실행 시간이 30초 → 95초가 된다.
+    ratelimit.reset_all()
+
+    # ⭐️ 관리자 계정을 **여기서** 만든다. 예전에는 test_user_login_and_dashboard_render
+    #    가 _signup 으로 만들었고, 그래서 뒤따르는 8개 테스트가 그 테스트 하나의
+    #    성공에 매달려 있었다. 순서가 바뀌거나 -k 로 걸러내거나 그 테스트가 어떤
+    #    이유로든 실패하면 나머지가 줄줄이 무너지는데, 남는 단서는 로그인 실패
+    #    문구뿐이라 원인을 찾을 수 없다. (테스트 하나만 따로 실행해도 실패했다)
+    #
+    #    비밀번호 해시와 '최초 가입자 = 최고 관리자' 규칙을 테스트가 흉내 내지
+    #    않도록 실제 가입 경로를 그대로 태운다.
+    signup = flask_app.test_client().post('/signup', data={
+        'username': ADMIN_ID, 'password': ADMIN_PW, 'password_confirm': ADMIN_PW})
+    assert '최고 관리자' in signup.get_data(as_text=True), (
+        "관리자 계정 준비에 실패했습니다 — 이 모듈의 로그인 테스트가 모두 무너집니다. "
+        f"(status={signup.status_code})")
+
     server = LiveServerThread(flask_app)
     server.start()
     yield
@@ -71,7 +104,12 @@ def live_server(tmp_path_factory):
 #    검증 대상 자체는 그대로다.
 #
 #    ⚠️ 1번은 예방적 조치다. 폼이 준비되지 않는 경우를 30회 반복 계측했으나
-#       0회였으므로, 그 실패의 원인이라고 단정하지는 않는다.
+#       0회였으므로, 그 실패의 원인이 아니다.
+#
+#    그 실패의 진짜 원인은 계정이 **없었던** 것이고, 원인은 live_server 픽스처의
+#    주석에 적어 두었다 (전역 레이트리밋 잔량 + 테스트 간 순서 의존). 화면 문구는
+#    계정 없음과 비밀번호 불일치를 일부러 구분해 주지 않으므로, 아래 진단이
+#    서버 쪽 사실을 함께 싣는다.
 # ─────────────────────────────────────────────────────────────
 def _wait_for_login_form(page: Page):
     """로그인 폼이 조작 가능한 상태가 될 때까지 기다린다."""
@@ -106,7 +144,7 @@ def _server_account_state(username):
             f"    [서버] '{username}' 존재={bool(me)}"
             + (f", is_allowed={me[0]['is_allowed']}" if me else " ← 계정이 없다"))
 
-def _login(page: Page, username='admin', password='admin123', *, navigate=True):
+def _login(page: Page, username=ADMIN_ID, password=ADMIN_PW, *, navigate=True):
     """로그인해서 대시보드가 뜰 때까지 기다린다.
 
     navigate=False 는 이미 로그인 화면에 와 있을 때(가입 직후 리다이렉트 등).
@@ -143,7 +181,17 @@ def _signup(page: Page, username, password='Passw0rd!'):
     page.fill('input[name="password"]', password)
     page.fill('input[name="password_confirm"]', password)
     page.click('button[type="submit"]')
-    page.wait_for_url('**/login')
+
+    # ⭐️ 가입이 거부되면(중복 아이디·약한 비밀번호·가입 횟수 제한) 서버는 오류를
+    #    담아 가입 화면을 다시 그릴 뿐 리다이렉트하지 않는다. 그대로 두면 기본
+    #    30초를 기다리다 "URL 이 안 바뀐다" 로만 죽어, 정작 화면에 적혀 있는
+    #    이유가 실패 메시지에 남지 않는다.
+    try:
+        page.wait_for_url('**/login', timeout=10000)
+    except Exception:                                    # noqa: BLE001
+        raise AssertionError(
+            f"'{username}' 가입이 완료되지 않았습니다 — 화면 문구: "
+            f"{page.locator('body').inner_text().strip()[:300]!r}") from None
     _wait_for_login_form(page)
 
 
@@ -165,15 +213,14 @@ def test_login_page_ui(page: Page):
     expect(page.locator('button[type="submit"]')).to_be_visible()
 
 def test_user_login_and_dashboard_render(page: Page):
-    """
-    실제로 폼에 값을 입력하고 로그인을 수행한 뒤,
-    메인 대시보드(stock-memo.html) 화면으로 넘어가는지 테스트합니다.
-    """
-    # 1. 먼저 회원가입 (최고 관리자 생성) → 로그인 화면으로 자동 이동
-    _signup(page, 'admin', 'admin123')
+    """폼에 값을 입력해 로그인하면 메인 대시보드로 넘어가는지 테스트합니다.
 
-    # 2. 그 계정으로 로그인하면 대시보드(백업 버튼)가 떠야 한다
-    _login(page, navigate=False)
+    계정은 live_server 픽스처가 미리 만들어 둔다. 예전에는 이 테스트가 직접
+    가입시켜서, 뒤따르는 로그인 테스트 8개가 이 테스트의 성공에 매달려 있었다.
+    (브라우저 가입 폼 자체는 아래 _signup 을 쓰는 테스트들이, '최초 가입자 =
+    최고 관리자' 규칙은 tests/test_auth.py 가 검증한다)
+    """
+    _login(page)
 
 def _seed_entries(page: Page, entries):
     """로그인된 세션으로 기록을 심는다 (브라우저 fetch 사용)."""
@@ -469,10 +516,17 @@ def test_admin_table_has_no_horizontal_scroll(page: Page):
     long_name = 'z' * 32
     _signup(page, long_name)
 
-    # 초기화 요청을 여러 번 넣어 '×N' 배지까지 붙인 상태로 만든다
+    # 초기화 요청을 여러 번 넣어 '×N' 배지까지 붙인 상태로 만든다.
+    #
+    # ⭐️ 초기화 요청은 IP 당 5회/시간인데, 이 모듈의 요청 테스트 2건 + 여기 3건
+    #    = 정확히 5로 여유가 0이었다. 요청을 쓰는 테스트가 하나만 늘어도 여기서
+    #    429 를 받아 배지가 조용히 안 붙고, 실패는 엉뚱하게 "표에 '요청' 이 없다"
+    #    로 나타난다. 응답을 버리고 있어 원인이 남지도 않았다.
+    ratelimit.reset_requests.reset()
     for _ in range(3):
-        page.request.post(BASE_URL + '/request_password_reset',
-                          data={'username': long_name})
+        res = page.request.post(BASE_URL + '/request_password_reset',
+                                data={'username': long_name})
+        assert res.ok, f"초기화 요청이 거부됐습니다: {res.status} {res.text()}"
 
     _login(page, navigate=False)
 
