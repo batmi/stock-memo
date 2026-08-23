@@ -96,6 +96,17 @@ def is_admin():
     return session.get('is_admin', False)
 
 
+def _humanize_seconds(seconds):
+    """잠금 시간을 사람이 읽는 표현으로. 60초 → "1분", 90초 → "90초".
+
+    ⭐️ 상수를 그대로 끼워 넣으면 "60초 동안" 이 되어 원래 문구("1분 동안")보다
+       어색해진다. 값은 상수에서 오되 표현은 자연스럽게 유지한다.
+    """
+    if seconds >= 60 and seconds % 60 == 0:
+        return f"{seconds // 60}분"
+    return f"{seconds}초"
+
+
 @bp.route('/login', methods=['GET', 'POST'])
 def login():
     client_ip = request.remote_addr
@@ -175,7 +186,8 @@ def login():
                 )
                 if fail_count >= ratelimit.LOGIN_IP_THRESHOLD:
                     error_message = (f"비밀번호 {ratelimit.LOGIN_IP_THRESHOLD}회 연속 실패! "
-                                     f"{ratelimit.LOGIN_IP_LOCKOUT_SECONDS}초 동안 로그인이 차단됩니다.")
+                                     f"{_humanize_seconds(ratelimit.LOGIN_IP_LOCKOUT_SECONDS)} "
+                                     f"동안 로그인이 차단됩니다.")
                 else:
                     error_message = ("아이디 또는 비밀번호가 일치하지 않습니다. "
                                      f"(실패 횟수: {fail_count}/{ratelimit.LOGIN_IP_THRESHOLD})")

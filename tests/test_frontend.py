@@ -55,6 +55,71 @@ def live_server(tmp_path_factory):
     for name, value in original.items():
         setattr(config, name, value)
 
+# ─────────────────────────────────────────────────────────────
+# 로그인·가입 조작 헬퍼
+#
+# ⭐️ 예전에는 12곳이 각자 `fill → fill → click → expect(대시보드)` 를 적어 두었다.
+#    한 번은 그중 하나(admin 표 테스트)가 전체 스위트 직후 실행에서 실패했는데,
+#    남은 단서가 "아이디 또는 비밀번호가 일치하지 않습니다" 뿐이라 원인을 좁힐 수
+#    없었다. 로그인이 왜 거부됐는지(계정 없음/비번 불일치/IP 차단/계정 잠금)는
+#    화면 문구에 다 나와 있었는데, 단언이 "#btnDataManagement 가 안 보인다" 로만
+#    끝나서 그 문구가 실패 메시지에 담기지 않았던 것이다.
+#
+#    그래서 두 가지를 한다.
+#      1. 입력 전에 폼이 실제로 조작 가능한지 기다린다 (리다이렉트 직후 대비).
+#      2. 로그인이 실패하면 **화면의 오류 문구를 그대로 실패 메시지에 싣는다.**
+#    검증 대상 자체는 그대로다.
+#
+#    ⚠️ 1번은 예방적 조치다. 폼이 준비되지 않는 경우를 30회 반복 계측했으나
+#       0회였으므로, 그 실패의 원인이라고 단정하지는 않는다.
+# ─────────────────────────────────────────────────────────────
+def _wait_for_login_form(page: Page):
+    """로그인 폼이 조작 가능한 상태가 될 때까지 기다린다."""
+    expect(page.locator('input[name="username"]')).to_be_visible(timeout=10000)
+    expect(page.locator('input[name="password"]')).to_be_visible()
+
+
+def _login(page: Page, username='admin', password='admin123', *, navigate=True):
+    """로그인해서 대시보드가 뜰 때까지 기다린다.
+
+    navigate=False 는 이미 로그인 화면에 와 있을 때(가입 직후 리다이렉트 등).
+    """
+    if navigate:
+        page.goto(BASE_URL + '/login')
+    _wait_for_login_form(page)
+    page.fill('input[name="username"]', username)
+    page.fill('input[name="password"]', password)
+    page.click('button[type="submit"]')
+
+    # 대시보드가 뜨거나, 로그인 화면에 오류 배너가 뜨거나 — 둘 중 하나는 반드시 온다.
+    dashboard = page.locator('#btnDataManagement')
+    banner = page.locator('#errorBanner')
+    try:
+        page.wait_for_function(
+            "() => document.querySelector('#btnDataManagement')"
+            " || document.querySelector('#errorBanner')",
+            timeout=10000)
+    except Exception:                                    # noqa: BLE001
+        pass                                             # 아래 단언이 상황을 설명한다
+    if banner.count() and not dashboard.count():
+        raise AssertionError(
+            f"'{username}' 로그인이 거부되었습니다 — 화면 문구: "
+            f"{banner.inner_text().strip()!r}")
+    expect(dashboard).to_be_visible(timeout=5000)
+
+
+def _signup(page: Page, username, password='Passw0rd!'):
+    """가입하고 로그인 화면으로 돌아올 때까지 기다린다."""
+    page.goto(BASE_URL + '/signup')
+    expect(page.locator('input[name="username"]')).to_be_visible(timeout=10000)
+    page.fill('input[name="username"]', username)
+    page.fill('input[name="password"]', password)
+    page.fill('input[name="password_confirm"]', password)
+    page.click('button[type="submit"]')
+    page.wait_for_url('**/login')
+    _wait_for_login_form(page)
+
+
 def test_login_page_ui(page: Page):
     """
     브라우저를 열고 메인 페이지에 접속했을 때 
@@ -77,25 +142,11 @@ def test_user_login_and_dashboard_render(page: Page):
     실제로 폼에 값을 입력하고 로그인을 수행한 뒤,
     메인 대시보드(stock-memo.html) 화면으로 넘어가는지 테스트합니다.
     """
-    # 1. 먼저 회원가입 (최고 관리자 생성)
-    page.goto(BASE_URL + '/signup')
-    page.fill('input[name="username"]', 'admin')
-    page.fill('input[name="password"]', 'admin123')
-    page.fill('input[name="password_confirm"]', 'admin123')
-    page.click('button[type="submit"]')
-    
-    # 로그인 화면으로 자동 이동될 때까지 대기
-    page.wait_for_url('**/login')
-    
-    # 2. 관리자 계정 정보 자동 타이핑
-    page.fill('input[name="username"]', 'admin')
-    page.fill('input[name="password"]', 'admin123')
-    
-    # 3. 로그인 버튼 클릭
-    page.click('button[type="submit"]')
-    
-    # 4. 로그인이 완료되어 메인 대시보드의 특정 요소(예: 백업 버튼)가 뜨는지 확인
-    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+    # 1. 먼저 회원가입 (최고 관리자 생성) → 로그인 화면으로 자동 이동
+    _signup(page, 'admin', 'admin123')
+
+    # 2. 그 계정으로 로그인하면 대시보드(백업 버튼)가 떠야 한다
+    _login(page, navigate=False)
 
 def _seed_entries(page: Page, entries):
     """로그인된 세션으로 기록을 심는다 (브라우저 fetch 사용)."""
@@ -114,11 +165,7 @@ def _seed_entries(page: Page, entries):
 
 def test_simulated_trades_show_as_card_but_excluded_from_totals(page: Page):
     """모의투자는 카드로만 보이고, 도넛·총 투자금액·보유 종목 수에서는 빠져야 한다."""
-    page.goto(BASE_URL + '/login')
-    page.fill('input[name="username"]', 'admin')
-    page.fill('input[name="password"]', 'admin123')
-    page.click('button[type="submit"]')
-    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+    _login(page)
 
     assert _seed_entries(page, [
         # 실거래: 1,000원 × 10주 = 10,000원
@@ -153,11 +200,7 @@ def test_simulated_trades_show_as_card_but_excluded_from_totals(page: Page):
 
 def test_simulated_trade_does_not_pollute_real_average_price(page: Page):
     """같은 종목을 실거래·모의로 함께 들고 있어도 카드가 합쳐지면 안 된다."""
-    page.goto(BASE_URL + '/login')
-    page.fill('input[name="username"]', 'admin')
-    page.fill('input[name="password"]', 'admin123')
-    page.click('button[type="submit"]')
-    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+    _login(page)
 
     assert _seed_entries(page, [
         # 동일 종목명 '겹침종목' 을 실거래 100원, 모의 9,900원에 매수
@@ -196,11 +239,7 @@ def _chart_realized(page: Page, month_label):
 
 def test_chart_excludes_simulated_and_flagged_accounts(page: Page):
     """차트 뷰(실현손익)도 모의투자·'금액 계산 제외' 계좌를 빼고 그려야 한다."""
-    page.goto(BASE_URL + '/login')
-    page.fill('input[name="username"]', 'admin')
-    page.fill('input[name="password"]', 'admin123')
-    page.click('button[type="submit"]')
-    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+    _login(page)
 
     # '연습계좌'(99998888-01)를 금액 계산 제외로 등록한다
     assert page.evaluate("""async () => {
@@ -257,11 +296,7 @@ def test_chart_excludes_simulated_and_flagged_accounts(page: Page):
 
 def test_account_form_switches_to_edit_mode(page: Page):
     """'수정'을 누르면 폼이 펼쳐지고 문구가 '계좌 수정 / 수정하기'로 바뀌어야 한다."""
-    page.goto(BASE_URL + '/login')
-    page.fill('input[name="username"]', 'admin')
-    page.fill('input[name="password"]', 'admin123')
-    page.click('button[type="submit"]')
-    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+    _login(page)
 
     assert page.evaluate("""async () => {
         const res = await fetch('/api/mappings', {
@@ -310,11 +345,7 @@ def test_account_list_escapes_quotes_and_html(page: Page):
     예전에는 값을 그대로 innerHTML 과 onclick 에 끼워 넣어서, 별칭에 작은따옴표가
     하나만 있어도 핸들러 문자열이 끊겨 버튼이 먹통이 됐다.
     """
-    page.goto(BASE_URL + '/login')
-    page.fill('input[name="username"]', 'admin')
-    page.fill('input[name="password"]', 'admin123')
-    page.click('button[type="submit"]')
-    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+    _login(page)
 
     tricky_alias = "John's <img src=x onerror=window.__xss=1> 계좌"
     assert page.evaluate("""async (alias) => {
@@ -352,17 +383,9 @@ def test_gear_button_shows_badge_when_admin_has_notifications(page: Page):
     알림이 있는지 알 수 없다.
     """
     # 승인 대기 사용자를 만들어 관리자에게 알림이 생기게 한다
-    page.goto(BASE_URL + '/signup')
-    page.fill('input[name="username"]', 'pendinguser')
-    page.fill('input[name="password"]', 'Passw0rd!')
-    page.fill('input[name="password_confirm"]', 'Passw0rd!')
-    page.click('button[type="submit"]')
-    page.wait_for_url('**/login')
+    _signup(page, 'pendinguser')
 
-    page.fill('input[name="username"]', 'admin')
-    page.fill('input[name="password"]', 'admin123')
-    page.click('button[type="submit"]')
-    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+    _login(page, navigate=False)
 
     gear_badge = page.locator('.header-action-group > .admin-notification-badge')
     expect(gear_badge).to_be_visible(timeout=5000)
@@ -417,22 +440,14 @@ def test_admin_table_has_no_horizontal_scroll(page: Page):
     긴 아이디(32자)와 요청 횟수 배지까지 붙은 최악 조건으로 검증한다.
     """
     long_name = 'z' * 32
-    page.goto(BASE_URL + '/signup')
-    page.fill('input[name="username"]', long_name)
-    page.fill('input[name="password"]', 'Passw0rd!')
-    page.fill('input[name="password_confirm"]', 'Passw0rd!')
-    page.click('button[type="submit"]')
-    page.wait_for_url('**/login')
+    _signup(page, long_name)
 
     # 초기화 요청을 여러 번 넣어 '×N' 배지까지 붙인 상태로 만든다
     for _ in range(3):
         page.request.post(BASE_URL + '/request_password_reset',
                           data={'username': long_name})
 
-    page.fill('input[name="username"]', 'admin')
-    page.fill('input[name="password"]', 'admin123')
-    page.click('button[type="submit"]')
-    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+    _login(page, navigate=False)
 
     page.click('.header-action-icon')
     page.click('#btnAdmin')
@@ -465,11 +480,7 @@ def test_amount_mask_hides_money_but_keeps_prices_flowing(page: Page):
     죽었다. 대체 기능은 그러면 안 된다 — 값은 그대로 계산되고 화면에만 블러가
     걸려야 하며, 종목명·현재가·손익률은 남아 상황 판단이 계속 가능해야 한다.
     """
-    page.goto(BASE_URL + '/login')
-    page.fill('input[name="username"]', 'admin')
-    page.fill('input[name="password"]', 'admin123')
-    page.click('button[type="submit"]')
-    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+    _login(page)
 
     assert _seed_entries(page, [
         {"type": "trade", "tradeType": "매수", "stockName": "가림종목",
@@ -540,11 +551,7 @@ def test_broker_dropdown_is_built_from_the_single_source(page: Page):
     예전에는 같은 매핑이 script.js 네 곳 + HTML <option> 에 복붙돼 있었다.
     증권사를 추가할 때 한 곳을 빠뜨리면 화면에 코드('243')가 그대로 노출된다.
     """
-    page.goto(BASE_URL + '/login')
-    page.fill('input[name="username"]', 'admin')
-    page.fill('input[name="password"]', 'admin123')
-    page.click('button[type="submit"]')
-    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+    _login(page)
     # ⭐️ script.js 는 defer 라 대시보드 요소가 보인 뒤에야 실행이 끝난다.
     #    전역이 준비되기 전에 evaluate 하면 ReferenceError 로 깨진다.
     page.wait_for_function("() => window.BROKER_CHOICES !== undefined", timeout=5000)
@@ -571,11 +578,7 @@ def test_broker_dropdown_is_built_from_the_single_source(page: Page):
 
 def test_broker_map_accepts_both_hts_code_forms(page: Page):
     """HTS 는 증권사 코드를 표준 3자리로도, 축약 1자리로도 보낸다. 둘 다 같은 이름."""
-    page.goto(BASE_URL + '/login')
-    page.fill('input[name="username"]', 'admin')
-    page.fill('input[name="password"]', 'admin123')
-    page.click('button[type="submit"]')
-    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+    _login(page)
     page.wait_for_function("() => window.BROKER_CHOICES !== undefined", timeout=5000)
 
     pairs = page.evaluate("""() => ([
