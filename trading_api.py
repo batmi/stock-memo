@@ -18,7 +18,6 @@ backend_app 에 직접 의존하지 않고 init_app() 으로 주입받은 공급
 
 import hashlib
 import json
-import re
 import secrets
 import sqlite3
 import threading
@@ -29,6 +28,7 @@ from functools import wraps
 from flask import Blueprint, jsonify, request
 
 import entry_logic
+import accounts
 
 try:  # 표준 tz 데이터베이스 (거래소 현지 거래일 산출용)
     from zoneinfo import ZoneInfo
@@ -127,156 +127,20 @@ def _log():
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 스키마
+# 스키마 / 데이터 이관
 # ══════════════════════════════════════════════════════════════════════
-
-# entries 확장 컬럼 (컬럼명 -> 타입). init_db 에서 ALTER TABLE 로 안전 추가.
-ENTRY_COLUMN_DDL = [
-    ('isSimulated', 'INTEGER DEFAULT 0'),
-    ('tradeStatus', 'TEXT'),
-    ('confidence', 'TEXT'),
-    ('orderOrigin', 'TEXT'),
-    ('source', 'TEXT'),
-    ('orderId', 'TEXT'),
-    ('originalOrderId', 'TEXT'),
-    ('realizedPnl', 'REAL'),
-    ('realizedPnlRate', 'REAL'),
-    ('fee', 'REAL'),
-    ('tax', 'REAL'),
-    ('strategyScore', 'REAL'),
-    ('stopLossRate', 'REAL'),
-    ('executedAtUtc', 'TEXT'),
-    ('tradeDate', 'TEXT'),
-    ('needsReview', 'INTEGER DEFAULT 0'),
-    # ⭐️ 시스템 트레이딩이 낸 주문인가. **DEFAULT 를 두지 않는다** — 0/1 만으로는
-    #    '시스템이 아니다'와 '봇이 알려주지 않았다'가 구분되지 않는데, 분류 폴백이
-    #    바로 그 구분에 걸려 있다. 모르면 NULL 로 남아야 한다.
-    ('isSystem', 'INTEGER'),
-]
+#
+# ⭐️ 테이블·컬럼·인덱스 정의는 이 모듈이 갖지 않는다. `schema.py` 가 단독으로
+#    소유한다. 예전에는 여기서 entries 확장 컬럼과 인덱스를 따로 만들었는데,
+#    같은 테이블을 backend_app.init_db() 와 둘이 나눠 손대는 구조라 "새 컬럼을
+#    어디에 추가하는가"에 답이 없었다.
+#
+#    여기에는 값의 의미를 알아야만 할 수 있는 **데이터** 이관만 남긴다.
 
 
-def migrate_schema(conn):
-    """entries 확장 컬럼 / api_keys 테이블 / 멱등 UNIQUE 인덱스를 준비합니다.
-
-    backend_app.init_db() 에서 호출합니다. 이미 적용된 경우 아무 일도 하지 않습니다.
-    """
-    c = conn.cursor()
-
-    for name, coltype in ENTRY_COLUMN_DDL:
-        try:
-            c.execute(f"ALTER TABLE entries ADD COLUMN {name} {coltype}")
-        except sqlite3.OperationalError:
-            pass  # 이미 존재
-
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS api_keys (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            key_hash TEXT NOT NULL UNIQUE,
-            key_prefix TEXT NOT NULL,
-            label TEXT,
-            scopes TEXT NOT NULL,
-            created_at TEXT,
-            last_used_at TEXT,
-            revoked_at TEXT
-        )
-    ''')
-    c.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(username)")
-
-    # 웹에서 누른 지시를 봇이 가져갈 때까지 보관하는 큐.
-    #  이벤트가 아니라 '행'으로 남겨야 한다 — 버튼을 누른 순간 봇이 꺼져 있어도
-    #  다시 켜졌을 때 전달되어야 하고, 처리 결과를 웹에 보여줘야 하기 때문이다.
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS bot_commands (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            command TEXT NOT NULL,
-            params_json TEXT,
-            requested_at TEXT NOT NULL,
-            delivered_at TEXT,
-            acked_at TEXT,
-            result TEXT,
-            result_count INTEGER,
-            result_message TEXT
-        )
-    ''')
-    # ⭐️ 명령을 받을 봇. NULL 은 '봇을 지정하지 않은 구버전 요청'이라 봇이 한 대일
-    #    때만 전달한다 (_take_pending_command 참고). 여러 대가 붙어 있는데 대상을
-    #    모르는 명령을 아무 봇에게나 주면, 엉뚱한 계좌가 재동기화되고 그 봇이 ack 까지
-    #    보내 웹에는 '완료'로 뜬다 — 운용자가 알아챌 수 없는 실패다.
-    try:
-        c.execute("ALTER TABLE bot_commands ADD COLUMN bot_id TEXT")
-    except sqlite3.OperationalError:
-        pass  # 이미 존재
-
-    # 봇 인스턴스별 하트비트. users.bot_status 는 사용자당 한 칸뿐이라 봇이 여러
-    # 대면 마지막에 Ping 한 놈이 앞의 상태를 덮어썼다.
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS bots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            bot_id TEXT NOT NULL,
-            label TEXT,
-            status TEXT,
-            last_seen TEXT,
-            is_simulated INTEGER DEFAULT 0,
-            message TEXT,
-            first_seen TEXT,
-            UNIQUE(username, bot_id)
-        )
-    ''')
-    c.execute("CREATE INDEX IF NOT EXISTS idx_bots_user ON bots(username)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_bot_commands_pending "
-              "ON bot_commands(username, acked_at, id)")
-    conn.commit()
-
-    # ⭐️ 멱등키 UNIQUE 제약. 기존 idx_entries_exec_id 는 비유니크라 동시 요청이
-    #    check-then-insert 사이를 파고들면 중복이 그대로 들어갔다.
-    #    빈 문자열/NULL(수동 입력 기록)은 제약 대상에서 제외한다.
-    try:
-        c.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_exec_unique "
-            "ON entries(username, brokerExecutionId) "
-            "WHERE brokerExecutionId IS NOT NULL AND brokerExecutionId != ''"
-        )
-    except sqlite3.OperationalError as e:
-        # 이미 중복 데이터가 있어 UNIQUE 를 걸 수 없는 경우 — 정리 후 재시도
-        _dedupe_execution_ids(conn)
-        try:
-            c.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_exec_unique "
-                "ON entries(username, brokerExecutionId) "
-                "WHERE brokerExecutionId IS NOT NULL AND brokerExecutionId != ''"
-            )
-        except sqlite3.OperationalError:
-            if _deps['logger']:
-                _deps['logger'].error(f"⚠️ brokerExecutionId UNIQUE 인덱스 생성 실패: {e}")
-
-    # 확장 컬럼 조회 성능
-    c.execute("CREATE INDEX IF NOT EXISTS idx_entries_user_src ON entries(username, source)")
-    conn.commit()
-
+def migrate_data(conn):
+    """봇 도메인 지식이 필요한 데이터 이관. init_db() 가 스키마 적용 뒤 호출한다."""
     _migrate_legacy_api_keys(conn)
-
-
-def _dedupe_execution_ids(conn):
-    """UNIQUE 인덱스 적용 전에 남아 있던 중복 멱등키를 정리합니다 (가장 오래된 1건만 보존)."""
-    c = conn.cursor()
-    c.execute('''
-        DELETE FROM entries WHERE id IN (
-            SELECT id FROM (
-                SELECT id, ROW_NUMBER() OVER (
-                    PARTITION BY username, brokerExecutionId ORDER BY id
-                ) AS rn
-                FROM entries
-                WHERE brokerExecutionId IS NOT NULL AND brokerExecutionId != ''
-            ) WHERE rn > 1
-        )
-    ''')
-    removed = c.rowcount
-    conn.commit()
-    if removed and _deps['logger']:
-        _deps['logger'].info(f"🔄 중복 brokerExecutionId 기록 {removed}건을 정리했습니다.")
 
 
 def _migrate_legacy_api_keys(conn):
@@ -718,8 +582,8 @@ def _num(value, field, *, allow_none=True, minimum=None, exclusive_min=None):
         raise ValidationError('INVALID_FIELD', f'{field} 은(는) 숫자여야 합니다.', field)
     try:
         num = float(value)
-    except (TypeError, ValueError):
-        raise ValidationError('INVALID_FIELD', f'{field} 은(는) 숫자여야 합니다.', field)
+    except (TypeError, ValueError) as e:
+        raise ValidationError('INVALID_FIELD', f'{field} 은(는) 숫자여야 합니다.', field) from e
     if num != num or num in (float('inf'), float('-inf')):
         raise ValidationError('INVALID_FIELD', f'{field} 값이 유효하지 않습니다.', field)
     if minimum is not None and num < minimum:
@@ -798,31 +662,11 @@ def _normalize_enum(value, valid, default, field):
     return text
 
 
-def _account_key(value):
-    """계좌번호 비교용 정규화 키. 하이픈·공백은 표기 차이일 뿐이므로 모두 지운다.
-
-    등록은 '44048158-01' 로 해 두고 HTS 는 '4404815801' 로 보내는(또는 그 반대의)
-    경우가 흔하다. 양쪽을 같은 규칙으로 접어서 비교해야 매핑이 어긋나지 않는다.
-    """
-    return re.sub(r'[\s-]', '', str(value or ''))
-
-
-def _find_account_mapping(accounts, raw_sub):
-    """등록된 계좌 매핑에서 계좌번호를 찾아 (등록키, 매핑값) 을 돌려줍니다.
-
-    정확히 일치하는 키를 먼저 보고, 없으면 하이픈을 무시한 키로 다시 찾는다.
-    """
-    if not isinstance(accounts, dict) or not raw_sub:
-        return None, None
-    if raw_sub in accounts:
-        return raw_sub, accounts[raw_sub]
-    target = _account_key(raw_sub)
-    if not target:
-        return None, None
-    for key, info in accounts.items():
-        if _account_key(key) == target:
-            return key, info
-    return None, None
+# ⭐️ 계좌번호 정규화·조회는 공용 도메인 규칙이므로 accounts 모듈이 소유한다.
+#    (예전에는 이 두 함수가 여기 비공개로 있었고 backend_app 이 밑줄 이름을 직접
+#     불러 썼다. 봇 연동 모듈이 웹 화면 통계의 의존 대상이 되는 건 계층이 뒤집힌 것이다)
+_account_key = accounts.account_key
+_find_account_mapping = accounts.find_account_mapping
 
 
 def _resolve_account(username, data, mappings):

@@ -69,9 +69,9 @@ if [ -n "$MISSING_LIBS" ]; then
 
     if [[ "$confirm" == [yY] || "$confirm" == "yes" ]]; then
         echo "[진행] 설치를 시작합니다..."
-        for lib in $MISSING_LIBS; do
-            $PIP_PATH install $lib $PIP_FLAGS
-        done
+        # ⭐️ 개별 라이브러리를 이름만으로 설치하면 버전이 매번 달라져 재현이 깨진다.
+        #    requirements.txt 의 버전 범위를 그대로 따르게 한다.
+        $PIP_PATH install -r requirements.txt $PIP_FLAGS
         echo "[완료] 모든 라이브러리 설치가 끝났습니다."
     else
         echo "[중단] 사용자가 설치를 거절했습니다. 프로그램을 종료합니다."

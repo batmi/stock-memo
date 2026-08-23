@@ -49,7 +49,7 @@ process.stdout.write(JSON.stringify(out));
 @pytest.fixture(scope='module')
 def js_results():
     proc = subprocess.run(
-        [_NODE, '-e', _RUNNER, os.path.join(ROOT, 'calc.js'), FIXTURE_PATH],
+        [_NODE, '-e', _RUNNER, os.path.join(ROOT, 'static', 'calc.js'), FIXTURE_PATH],
         capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0, f"calc.js 실행 실패: {proc.stderr}"
     return json.loads(proc.stdout)
@@ -77,7 +77,7 @@ def test_monthly_parity(js_results, name):
     py = stats.compute_trade_stats(FIXTURES[name])['monthly']
     js = js_results[name]['monthly']
     assert [m['month'] for m in py] == [m['month'] for m in js], f"[{name}] monthly 구간 불일치"
-    for pm, jm in zip(py, js):
+    for pm, jm in zip(py, js, strict=True):
         for k in ('realized', 'dividend', 'buyAmount', 'sellAmount'):
             assert _close(pm[k], jm[k]), f"[{name}] monthly[{pm['month']}].{k} 불일치"
 
@@ -87,7 +87,7 @@ def test_per_stock_parity(js_results, name):
     py = stats.compute_trade_stats(FIXTURES[name])['perStock']
     js = js_results[name]['perStock']
     assert [p['stock'] for p in py] == [j['stock'] for j in js], f"[{name}] perStock 종목/정렬 불일치"
-    for pp, jj in zip(py, js):
+    for pp, jj in zip(py, js, strict=True):
         assert pp['stockCode'] == jj['stockCode'], f"[{name}] perStock 종목코드 불일치"
         for k in ('realized', 'dividend', 'total', 'sellCount', 'winCount', 'lossCount', 'winRate'):
             assert _close(pp[k], jj[k]), f"[{name}] perStock[{pp['stock']}].{k} 불일치"

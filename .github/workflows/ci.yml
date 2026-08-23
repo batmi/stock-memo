@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: 의존성 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt ruff
+
+      - name: 린트 (ruff)
+        run: ruff check .
+
+      # ⭐️ 브라우저 E2E(tests/test_frontend.py)는 Chromium 이 있어야 돈다.
+      #    설치 실패로 전체 CI 가 죽지 않도록 별도 단계로 두고, 실패해도 이어간다.
+      - name: Playwright Chromium 설치
+        id: playwright
+        continue-on-error: true
+        run: python -m playwright install --with-deps chromium
+
+      - name: 백엔드·계산 테스트
+        run: pytest -q --ignore=tests/test_frontend.py
+
+      - name: 브라우저 E2E
+        if: steps.playwright.outcome == 'success'
+        run: pytest -q tests/test_frontend.py
+
+  calc-js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # ⭐️ calc.js 는 백엔드 stats.py 와 같은 결과를 내야 하는 계산 엔진이다.
+      #    파이썬 쪽 test_stats_parity.py 가 교차 검증하지만, 순수 JS 단위 테스트도
+      #    독립적으로 돌려 회귀를 조기에 잡는다.
+      - name: calc.js 단위 테스트
+        run: node --test tests/calc.test.js

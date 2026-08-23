@@ -62,9 +62,10 @@ Beyond simple recording, it aims to maximize investment review and strategy form
 
 ## 3. Prerequisites
 
-*   Python 3.x or higher
+*   Python 3.11 or higher
 *   Modern web browser (Chrome, Safari, Edge, etc. recommended)
 *   (Optional) `ngrok`, `Cloudflare Tunnels`, or `tmux` for external access
+*   (Development) Node 18+ to run the tests — used by the `calc.js` unit tests and the frontend/backend parity check
 
 ---
 
@@ -72,7 +73,7 @@ Beyond simple recording, it aims to maximize investment review and strategy form
 
 ### Running the Server
 Navigate to the project folder and start the local server using the provided script.
-If required packages (`Flask`, `Werkzeug`, `waitress`) are missing when the script runs, it will automatically ask to install them.
+If required packages are missing, the script asks to install them using the version ranges in `requirements.txt`.
 
 **Mac / Linux Environment**
 Grant execution permission once, then run it conveniently as a shell script:
@@ -107,7 +108,10 @@ This application handles sensitive personal financial and investment data, so ex
 *   **Super Admin Account**: The very first account registered after installing the app is automatically designated as the super admin. Any subsequent users must be approved by this admin to log in.
 *   **Session Security**: Internally implements security cookies to prevent session hijacking (XSS) and cross-site request forgery (CSRF). It also features automatic logout after 1 hour of inactivity to prevent data leaks on public devices.
 *   **External Access Caution**: Direct external network (HTTP) exposure via router port forwarding is not recommended. For secure external access (e.g., from a smartphone), please use encrypted security tunneling services like `ngrok`, `Cloudflare Tunnels`, or `Tailscale`.
-*   **Production Environment (HTTPS)**: While it runs stably on a local network via `waitress`, integrating a reverse proxy (e.g., Nginx) to apply HTTPS (SSL) certificates is highly recommended for proper web publishing.
+*   **Production Environment (HTTPS)**: While it runs stably on a local network via `waitress`, integrating a reverse proxy (e.g., Nginx) to apply HTTPS (SSL) certificates is highly recommended for proper web publishing. When serving over HTTPS, set `SESSION_COOKIE_SECURE=1` so the session cookie never travels over plaintext.
+*   **Static file exposure**: Only `static/` and your own `uploads/<username>/` are web-reachable. The database, backups, logs, source files, and `.secret_key` cannot be fetched by URL even by a logged-in user. (The project root used to be fully exposed — see [Design Rules](#6-project-structure).)
+*   **Response headers**: Every response carries a CSP (Content-Security-Policy), `X-Frame-Options`, `X-Content-Type-Options`, and `Referrer-Policy`; HTTPS requests also get HSTS. Adding a new CDN requires adding its origin to the CSP list in `middleware.py` — otherwise the browser blocks it silently.
+*   **Brute-force defense**: Per-IP request limits and per-account login lockout work together (`ratelimit.py`). Their state lives in process memory, so **run a single process** for the intended limits to hold.
 
 ### Password Recovery
 The web-based admin reset only works **while an admin is already logged in**, which is useless when the admin themselves is locked out. In that case, log into the server and run the recovery tool. It works even when the app is not running and even when the account is locked; changes take effect immediately, without restarting the server.
@@ -128,31 +132,109 @@ The password is never echoed and never lands in shell history. Only the fact of 
 
 ```text
 stock-memo/
-├── backend_app.py      # App execution, routes, DB helpers, background threads (Flask)
-├── prices.py           # Real-time price inquiry service (modularized by provider + fallback)
-├── stats.py            # Trading performance analytics & statistics calculation (pure functions)
-├── entry_logic.py      # Trading record saving/integrity validation + INSERT column single source
-├── trading_api.py      # System-trading REST API (/api/v1/*) — auth, idempotency, normalization
-├── backups.py          # Backup ZIP integrity validation logic (pure functions)
-├── templates/          # HTML templates for login & sign-up
-├── stock-memo.html     # Frontend main screen structure (HTML)
-├── style.css           # Screen design and layout (CSS)
-├── calc.js             # Trading calculation single source (same algorithm as stats.py)
-├── script.js           # Screen behavior, data communication, chart logic (JavaScript)
-├── run.sh              # Automation execution shell script (Mac/Linux)
-├── tools/              # Operational and recovery tools, run directly on the server
-│   └── reset_password.py  # CLI to restore a lost password (never exposed to the web)
-├── UniversalTradingHistoryAPI.json  # Trading-bot integration API contract (OpenAPI 3.1)
-├── backup/             # Daily auto-generated user backup files (ZIP) folder
-├── db/                 # Database folder
-│   └── journal.db      # Auto-generated trading record database file (SQLite)
-├── logs/               # System and error logs folder
-│   └── backend_app.log # Debug/Error/Warning server execution log file
-└── uploads/            # Attached image files folder
+├── backend_app.py      # App assembly — wires modules, initializes schema, bootstrap()
+├── wsgi.py             # gunicorn/uwsgi entrypoint (calls bootstrap)
+│
+│  ── Request layer (Flask blueprints) ────────────────────────────
+├── auth.py             # Login, signup, logout, reset requests + session checks
+├── admin.py            # Admin — approve/delete accounts, reset passwords
+├── api.py              # Screen API — entry CRUD, stats, prices, news, bot controls
+├── backup_api.py       # Full backup ZIP export / restore
+├── trading_api.py      # Trading bot REST API (/api/v1/*) — auth, idempotency
+├── middleware.py       # Security/cache headers, CSP, gzip, global error handling
+│
+│  ── Domain layer (Flask-independent, easy to unit test) ─────────
+├── accounts.py         # Account-number normalization + account mapping storage
+├── entry_logic.py      # Entry persistence / integrity checks + INSERT column source
+├── stats.py            # Trade performance analytics (pure functions)
+├── prices.py           # Price lookup service (per-provider with fallbacks)
+├── backups.py          # Backup ZIP integrity verification (pure functions)
+├── images.py           # Inline base64 image extraction / attachment storage
+├── users.py            # Username rules, password policy, session epoch, paths
+│
+│  ── Foundation ─────────────────────────────────────────────────
+├── config.py           # Paths, constants, secret key (single source of settings)
+├── schema.py           # DB schema single source — every table, column, index
+├── db.py               # SQLite connections (PRAGMAs applied consistently)
+├── applog.py           # Logging setup (daily rotation, single-line format)
+├── ratelimit.py        # IP request limits + account login lockout
+├── statscache.py       # Stats cache and data version (ETag)
+├── jobs.py             # Background threads (auto backup, NXT close caching)
+│
+│  ── Frontend ───────────────────────────────────────────────────
+├── templates/          # Login, signup, and main screen HTML
+├── static/
+│   ├── style.css       #   Screen design and layout
+│   ├── calc.js         #   Trading calculation single source (matches stats.py)
+│   └── js/             #   Screen behavior, split by feature (loaded 01-, 02-, …)
+│
+├── run.sh              # Automated launch script (Mac/Linux)
+├── requirements.txt    # Runtime dependencies (version ranges pinned)
+├── requirements-dev.txt#  Test and lint dependencies
+├── tools/reset_password.py  # CLI to recover a locked-out login (never web-exposed)
+├── UniversalTradingHistoryAPI.json  # Trading bot API contract (OpenAPI 3.1)
+├── backup/             # Daily per-user backup archives
+├── db/journal.db       # Trading journal database (SQLite, auto-created)
+├── logs/               # Application logs
+└── uploads/            # Attached image files
 ```
 
-> The backend is separated into domain-specific modules (`prices`/`stats`/`entry_logic`/`backups`).
-> The profit calculation uses the **exact same moving average cost algorithm** across the frontend (`calc.js`) and backend (`stats.py`), unified to ensure consistency (verified by `tests/calc.test.js`).
+### Design Rules
+
+Four rules keep this structure intact. Each one marks a place where something
+actually went wrong before.
+
+**1. Serve static files only from `static/`.**
+The app used to run with `static_folder='.'`, which exposed the entire project root.
+Any logged-in user could download `/.secret_key`, `/db/journal.db`, `/backup/*.zip`,
+and other users' account mappings. A leaked secret key lets anyone forge a session
+cookie and impersonate the admin, so this was privilege escalation, not just
+information disclosure. Guarded by `test_sensitive_files_are_not_served`.
+
+**2. `schema.py` is the only place that defines the DB schema.**
+Add a new column to `ADDED_COLUMNS` *and* to the `CREATE TABLE` statement — the
+first serves existing databases, the second serves fresh ones. `test_schema.py`
+checks that a freshly created DB and a migrated legacy DB end up identical.
+
+**3. Read paths as `config.<name>` at the point of use.**
+Importing the name directly (`from config import UPLOAD_FOLDER`) captures a copy, so
+tests that patch the path silently verify nothing.
+
+**4. `import backend_app` must have no side effects.**
+Schema setup, data migration, and background threads happen only when `bootstrap()`
+is called explicitly. Guarded by `test_startup.py`.
+
+### Frontend script load order
+
+The files in `static/js/` are **ordered classic scripts, not ES modules**. Top-level
+`let`/`const`/`function` share one global lexical environment, so execution semantics
+match the old single `script.js`. (Inline `onclick` handlers in the HTML call global
+functions directly; switching to modules would break all of them.)
+
+*   Load order is filename order, and `backend_app.app_scripts()` builds the list from
+    the folder — the template never hardcodes `<script>` tags.
+*   ⚠️ Never reference another file's function **at load time**. Function hoisting is
+    per-file, so a top-level reference to a later file's function is a `ReferenceError`.
+    Wrap event handlers as `() => fn()` so the lookup happens when the event fires.
+
+> Profit calculation is unified: the frontend `static/calc.js` and the backend
+> `stats.py` use the exact same moving-average cost algorithm.
+> `tests/test_stats_parity.py` runs both engines over the same fixtures
+> (`tests/fixtures/parity_fixtures.json`) and compares the values directly.
+> Note that weekly granularity and period filters exist only in `stats.py`, so those
+> two features must go through `/api/stats`.
+
+### Deployment Shape
+
+**This app assumes a single process.** The stats cache, rate limits, account lockout,
+and price cache all live in process memory, so running multiple workers
+(`gunicorn -w 2` or more) loosens the rate limits proportionally and desynchronizes
+the caches.
+
+*   The default (`python backend_app.py`) runs waitress with 16 threads in one process.
+*   To use a WSGI server directly, point it at `wsgi:application` with a single worker.
+*   If you must run multiple workers, let only one run the background jobs by setting
+    `START_BACKGROUND_JOBS=0` on the others, and run the backup from cron instead.
 
 ---
 
@@ -248,16 +330,54 @@ Backend APIs, data integrity validations, backup restorations (round-trip), and 
 Test codes are located in the `tests/` folder and use a temporary DB, ensuring the actual operational data (`db/journal.db`) remains unaffected.
 
 ```bash
-# Run all backend tests
+# Install test dependencies (once)
+pip install -r requirements-dev.txt
+playwright install chromium      # for the browser E2E tests
+
+# Run everything
 pytest
 
-# Run in concise output mode
-pytest -q
+# Fast run without browser E2E (about 5 seconds)
+pytest --ignore=tests/test_frontend.py
 ```
 
-The frontend calculation engine (`calc.js`) is verified by the built-in Node test runner. It uses the exact same fixtures as the backend statistical tests to guarantee consistent results between the front and back ends.
+The frontend calculation engine (`static/calc.js`) is verified by the built-in Node test runner. `tests/test_stats_parity.py` runs both engines over the same fixtures and compares the values directly (skipped automatically when node is unavailable).
 
 ```bash
 # Run frontend calculation unit tests (Node 18+)
 node --test tests/calc.test.js
+
+# Verify frontend/backend calculation parity
+pytest tests/test_stats_parity.py
 ```
+
+### Lint
+
+```bash
+pip install ruff
+ruff check .
+```
+
+Rules live in `pyproject.toml`. Only the checks that catch real defects are enabled
+(undefined/unused names, syntax errors, common traps) — turning everything on at once
+would bury the signal under hundreds of style findings.
+
+### Tests that protect the structure
+
+Beyond ordinary feature tests, a few tests exist purely to keep the design rules above
+from quietly eroding during refactors.
+
+| Test | What it protects |
+|---|---|
+| `test_backend_app.py::test_sensitive_files_are_not_served` | `.secret_key`, DB, and backups never leak through static routes |
+| `test_backend_app.py::test_every_app_script_is_listed_and_served` | No `static/js` fragment is dropped from the page, and order holds |
+| `test_schema.py::test_migrated_legacy_db_matches_fresh_db` | A fresh DB and a migrated legacy DB have identical schemas |
+| `test_admin.py::test_every_admin_route_is_permission_checked` | Every admin route returns 403 to non-admins |
+| `test_startup.py::test_importing_backend_app_has_no_side_effects` | Importing the module creates no DB and starts no threads |
+| `test_accounts.py::test_trading_api_shares_the_same_rule` | Bot API and web UI use the same account-normalization rule |
+| `test_frontend.py::test_broker_dropdown_is_built_from_the_single_source` | The broker list is defined in exactly one place |
+
+### CI
+
+`.github/workflows/ci.yml` runs lint → backend tests → browser E2E → `calc.js` unit
+tests on every push and pull request.

@@ -194,7 +194,9 @@ def test_http_get_raises_after_two_failures():
     bad_conn.request.side_effect = Exception("down")
 
     with patch.object(prices, '_make_conn', return_value=bad_conn):
-        with pytest.raises(Exception):
+        # 연결 자체가 죽었을 때 _http_get 이 조용히 None 을 돌려주면
+        # 호출부가 "가격 없음"으로 오해한다. 반드시 예외로 터져야 한다.
+        with pytest.raises(Exception, match='down'):
             prices._http_get('https://example.com/x', {})
 
 

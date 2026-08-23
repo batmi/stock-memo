@@ -2,7 +2,6 @@ import pytest
 import threading
 import datetime
 import os
-import tempfile
 from werkzeug.serving import make_server
 from playwright.sync_api import Page, expect
 
@@ -23,23 +22,38 @@ class LiveServerThread(threading.Thread):
         self.ctx.pop()
 
 @pytest.fixture(scope="module", autouse=True)
-def live_server():
-    """테스트 실행 시 백그라운드에서 자동으로 테스트용 Flask 서버를 켜고 끕니다."""
+def live_server(tmp_path_factory):
+    """테스트 실행 시 백그라운드에서 자동으로 테스트용 Flask 서버를 켜고 끕니다.
+
+    ⭐️ DB 뿐 아니라 첨부·백업·계좌 매핑 경로까지 전부 임시 폴더로 돌린다.
+       예전에는 DB 만 임시로 두어, 브라우저 테스트가 실제 uploads/ 와 json/ 에
+       계정 폴더를 만들고 그대로 남겼다. (conftest 의 app 픽스처와 같은 이유)
+    """
     from backend_app import app as flask_app
     import backend_app
-    
-    db_fd, db_path = tempfile.mkstemp()
-    backend_app.DB_FILE = db_path
+    import config
+
+    sandbox = tmp_path_factory.mktemp('e2e')
+    original = {name: getattr(config, name)
+                for name in ('DB_FILE', 'UPLOAD_FOLDER', 'BACKUP_DIR', 'JSON_DIR', 'DATA_FILE')}
+    config.DB_FILE = str(sandbox / 'journal.db')
+    config.UPLOAD_FOLDER = str(sandbox / 'uploads')
+    config.BACKUP_DIR = str(sandbox / 'backup')
+    config.JSON_DIR = str(sandbox / 'json')
+    config.DATA_FILE = str(sandbox / 'legacy.json')
+    for path in (config.UPLOAD_FOLDER, config.BACKUP_DIR, config.JSON_DIR):
+        os.makedirs(path, exist_ok=True)
+
     with flask_app.app_context():
         backend_app.init_db()
-        
+
     server = LiveServerThread(flask_app)
     server.start()
     yield
     server.shutdown()
     server.join()
-    os.close(db_fd)
-    os.unlink(db_path)
+    for name, value in original.items():
+        setattr(config, name, value)
 
 def test_login_page_ui(page: Page):
     """
@@ -180,15 +194,7 @@ def _chart_realized(page: Page, month_label):
     }""", month_label)
 
 
-@pytest.fixture
-def cleanup_admin_mappings():
-    """/api/mappings 는 json/<username>/ 에 실제 파일을 남기므로 테스트 후 지운다."""
-    yield
-    import shutil
-    shutil.rmtree(os.path.join('json', 'admin'), ignore_errors=True)
-
-
-def test_chart_excludes_simulated_and_flagged_accounts(page: Page, cleanup_admin_mappings):
+def test_chart_excludes_simulated_and_flagged_accounts(page: Page):
     """차트 뷰(실현손익)도 모의투자·'금액 계산 제외' 계좌를 빼고 그려야 한다."""
     page.goto(BASE_URL + '/login')
     page.fill('input[name="username"]', 'admin')
@@ -249,7 +255,7 @@ def test_chart_excludes_simulated_and_flagged_accounts(page: Page, cleanup_admin
     assert '연습계좌' not in options
 
 
-def test_account_form_switches_to_edit_mode(page: Page, cleanup_admin_mappings):
+def test_account_form_switches_to_edit_mode(page: Page):
     """'수정'을 누르면 폼이 펼쳐지고 문구가 '계좌 수정 / 수정하기'로 바뀌어야 한다."""
     page.goto(BASE_URL + '/login')
     page.fill('input[name="username"]', 'admin')
@@ -298,7 +304,7 @@ def test_account_form_switches_to_edit_mode(page: Page, cleanup_admin_mappings):
     expect(page.locator('#unifiedAccountCode')).to_have_value('')
 
 
-def test_account_list_escapes_quotes_and_html(page: Page, cleanup_admin_mappings):
+def test_account_list_escapes_quotes_and_html(page: Page):
     """별칭에 따옴표·HTML 이 들어가도 수정/삭제 버튼이 살아있고 마크업이 깨지지 않는다.
 
     예전에는 값을 그대로 innerHTML 과 onclick 에 끼워 넣어서, 별칭에 작은따옴표가
@@ -526,3 +532,59 @@ def test_amount_mask_hides_money_but_keeps_prices_flowing(page: Page):
     assert filter_of('#centerTotalInvested') == 'none'
     page.reload()
     expect(page.locator('#btnToggleAmountMask')).to_have_text('금액 가리기', timeout=10000)
+
+
+def test_broker_dropdown_is_built_from_the_single_source(page: Page):
+    """증권사 목록이 JS 의 BROKER_NAMES 하나에서 만들어져야 한다.
+
+    예전에는 같은 매핑이 script.js 네 곳 + HTML <option> 에 복붙돼 있었다.
+    증권사를 추가할 때 한 곳을 빠뜨리면 화면에 코드('243')가 그대로 노출된다.
+    """
+    page.goto(BASE_URL + '/login')
+    page.fill('input[name="username"]', 'admin')
+    page.fill('input[name="password"]', 'admin123')
+    page.click('button[type="submit"]')
+    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+    # ⭐️ script.js 는 defer 라 대시보드 요소가 보인 뒤에야 실행이 끝난다.
+    #    전역이 준비되기 전에 evaluate 하면 ReferenceError 로 깨진다.
+    page.wait_for_function("() => window.BROKER_CHOICES !== undefined", timeout=5000)
+
+    result = page.evaluate("""() => {
+        const opts = [...document.querySelectorAll('#unifiedBrokerCode option')]
+            .filter(o => o.value);
+        return {
+            options: opts.map(o => ({code: o.value, name: o.textContent, data: o.dataset.name})),
+            choices: window.BROKER_CHOICES.map(b => ({code: b.code, name: b.name})),
+            // 표시 이름 조회가 드롭다운과 같은 소스를 보는지
+            mapped: opts.map(o => getMappedBroker(o.value)),
+        };
+    }""")
+
+    assert result['options'], "증권사 드롭다운이 비어 있다"
+    assert [o['code'] for o in result['options']] == [c['code'] for c in result['choices']]
+    assert [o['name'] for o in result['options']] == [c['name'] for c in result['choices']]
+    # data-name 속성(계좌 등록 시 별칭 기본값으로 쓰인다)도 같은 값이어야 한다
+    assert [o['data'] for o in result['options']] == [c['name'] for c in result['choices']]
+    # getMappedBroker 가 드롭다운의 모든 코드를 이름으로 바꿀 수 있어야 한다
+    assert result['mapped'] == [c['name'] for c in result['choices']]
+
+
+def test_broker_map_accepts_both_hts_code_forms(page: Page):
+    """HTS 는 증권사 코드를 표준 3자리로도, 축약 1자리로도 보낸다. 둘 다 같은 이름."""
+    page.goto(BASE_URL + '/login')
+    page.fill('input[name="username"]', 'admin')
+    page.fill('input[name="password"]', 'admin123')
+    page.click('button[type="submit"]')
+    expect(page.locator('#btnDataManagement')).to_be_visible(timeout=5000)
+    page.wait_for_function("() => window.BROKER_CHOICES !== undefined", timeout=5000)
+
+    pairs = page.evaluate("""() => ([
+        [getMappedBroker('264'), getMappedBroker('1')],
+        [getMappedBroker('243'), getMappedBroker('4')],
+        [getMappedBroker('271'), getMappedBroker('6')],
+    ])""")
+    for standard, short in pairs:
+        assert standard == short, f"{standard} != {short}"
+    # 모르는 코드는 그대로 돌려준다 (임의 문자열을 삼키지 않는다)
+    assert page.evaluate("() => getMappedBroker('999')") == '999'
+    assert page.evaluate("() => getMappedBroker('')") == ''

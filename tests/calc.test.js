@@ -8,7 +8,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert');
-const { computeTradeStats, applyTradeToHolding } = require('../calc.js');
+const { computeTradeStats, applyTradeToHolding } = require('../static/calc.js');
 
 function buy({ stock = 'A', qty, price, rawDate, id }) {
     return { type: 'trade', tradeType: '매수', stockName: stock, quantity: qty, price, rawDate, id };

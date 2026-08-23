@@ -1,0 +1,9 @@
+# 개발·테스트 의존성 (운영 배포에는 필요 없다)
+-r requirements.txt
+
+pytest>=9.1.0,<10.0
+pytest-cov>=7.1.0,<8.0
+
+# 브라우저 E2E (tests/test_frontend.py). 설치 후 `playwright install chromium` 필요.
+playwright>=1.60.0,<2.0
+pytest-playwright>=0.8.0,<1.0

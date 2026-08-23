@@ -10,6 +10,8 @@ venv/
 coverage.json
 
 # Data, Logs & Caches
+# json/ 은 계좌 매핑을 DB 로 옮기기 전의 레거시 저장소다. 서버 기동 시 자동
+# 이관되며 원본은 *.migrated 로 남는다. (accounts.migrate_json_files 참고)
 json/
 db/
 logs/
@@ -24,3 +26,4 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.ruff_cache/

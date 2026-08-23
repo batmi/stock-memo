@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import pytest
 
 import backend_app
+import auth
 import trading_api
 
 
@@ -841,7 +842,7 @@ def test_opening_balance_is_not_system(api):
 
 def _as_web_user(api):
     # check_login 은 username 만으로는 통과하지 않는다 — logged_in 과 절대 만료 시각까지
-    # 있어야 세션으로 인정한다(backend_app.check_login).
+    # 있어야 세션으로 인정한다(auth.check_login).
     with api['client'].session_transaction() as sess:
         sess['username'] = 'bot'
         sess['logged_in'] = True
@@ -991,7 +992,6 @@ def test_last_used_at_updates_after_interval(api):
     """간격이 지나면 정상적으로 갱신된다."""
     api['client'].post('/api/v1/bot/status', headers=api['headers'],
                        json={'status': 'running'})
-    first = _stored_last_used(api['key_id'])
 
     stale = (trading_api._now_kst()
              - timedelta(seconds=trading_api.LAST_USED_WRITE_INTERVAL_SECONDS + 5)

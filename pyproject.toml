@@ -1,0 +1,26 @@
+# 도구 설정 모음. 패키지로 배포하는 프로젝트가 아니므로 [project] 섹션은 두지 않는다.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# 브라우저 E2E 는 playwright 설치가 필요하므로 별도 마커로 골라낼 수 있게 한다.
+markers = [
+    "e2e: 실제 브라우저(Playwright)가 필요한 테스트",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [".venv", "venv", "logs", "backup", "uploads", "db", "json", "static"]
+
+[tool.ruff.lint]
+# ⭐️ 처음부터 규칙을 넓게 켜면 기존 코드가 수백 건 걸려 아무도 안 보게 된다.
+#    실제 버그로 이어지는 것들(F: 미사용/미정의, E9: 문법, B: 흔한 함정)부터 켠다.
+select = ["E4", "E7", "E9", "F", "B", "UP032", "C4"]
+ignore = [
+    "E741",  # ambiguous variable name (l, I) — 기존 코드에 다수
+    "B008",  # 기본 인자에서 함수 호출 — Flask 관용구와 충돌
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 테스트는 픽스처 주입 때문에 미사용 인자처럼 보이는 경우가 많다.
+"tests/*" = ["F811", "F401"]

@@ -4,7 +4,16 @@ import time
 import zipfile
 import json
 import os
+import re
 import backend_app
+import users
+import ratelimit
+import images
+import backups
+import jobs
+import api
+import config
+import middleware
 import entry_logic
 import trading_api
 from unittest.mock import patch, MagicMock
@@ -425,7 +434,7 @@ def test_restore_rejects_oversized_uncompressed_zip(client, monkeypatch):
         sess['expires_at'] = time.time() + 3600
 
     # 상한을 낮춰, 압축이 잘 되는 큰 데이터를 작은 업로드로 재현한다.
-    monkeypatch.setattr(backend_app, 'MAX_RESTORE_UNCOMPRESSED_BYTES', 1024 * 1024)
+    monkeypatch.setattr(config, 'MAX_RESTORE_UNCOMPRESSED_BYTES', 1024 * 1024)
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -530,7 +539,7 @@ def test_json_migration(app, client):
         "id": 9999, "type": "buy", "stockName": "JSON_MIGRATION_TEST", 
         "attachedImage": "http://example.com/img.jpg"
     }]
-    with open(backend_app.DATA_FILE, 'w', encoding='utf-8') as f:
+    with open(config.DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(dummy_json, f)
         
     with app.app_context():
@@ -547,13 +556,13 @@ def test_json_migration(app, client):
         assert row['attachedImage'] == "http://example.com/img.jpg"
         conn.close()
         
-    if os.path.exists(backend_app.DATA_FILE):
-        os.remove(backend_app.DATA_FILE)
+    if os.path.exists(config.DATA_FILE):
+        os.remove(config.DATA_FILE)
 
 def test_process_image_edge_cases():
     """process_image 함수의 예외(None 입력, URL 직접 입력) 케이스를 테스트합니다."""
-    assert backend_app.process_image(None, 1) is None
-    assert backend_app.process_image("http://example.com/test.png", 1) == "http://example.com/test.png"
+    assert images.process_image(None, 1) is None
+    assert images.process_image("http://example.com/test.png", 1) == "http://example.com/test.png"
 
 def test_signup_edge_cases(client):
     """회원가입 시 입력값이 누락되거나 비밀번호가 일치하지 않는 경우를 테스트합니다."""
@@ -594,7 +603,7 @@ def test_uploaded_file_success(client):
         sess['username'] = 'admin'
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
-    user_dir = os.path.join(backend_app.UPLOAD_FOLDER, 'admin')
+    user_dir = os.path.join(config.UPLOAD_FOLDER, 'admin')
     os.makedirs(user_dir, exist_ok=True)
     test_file_path = os.path.join(user_dir, 'test_download.txt')
     with open(test_file_path, 'w') as f:
@@ -736,7 +745,7 @@ def test_auto_backup_job(mock_sleep, client, app, tmp_path, monkeypatch):
     # ⭐️ 백업 폴더를 임시 경로로 격리한다. 예전에는 실제 backup/ 에 쓰는 바람에
     #    이전 실행이 남긴 zip 이 다음 실행의 '새 백업 1개' 단언을 깨뜨렸고,
     #    사용자의 백업 폴더에도 테스트 찌꺼기가 계속 쌓였다.
-    monkeypatch.setattr(backend_app, 'BACKUP_DIR', str(tmp_path / 'backup'))
+    monkeypatch.setattr(config, 'BACKUP_DIR', str(tmp_path / 'backup'))
 
     # 1. 테스트 유저 및 매매 기록 생성
     client.post('/signup', data={'username': 'autobackupuser', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
@@ -747,7 +756,7 @@ def test_auto_backup_job(mock_sleep, client, app, tmp_path, monkeypatch):
         
     client.post('/api/entry', json={"type": "buy", "stockName": "자동백업테스트", "price": 10000, "quantity": 1})
 
-    backup_dir = os.path.join(backend_app.BACKUP_DIR, 'autobackupuser')
+    backup_dir = os.path.join(config.BACKUP_DIR, 'autobackupuser')
     os.makedirs(backup_dir, exist_ok=True)
     
     # 2. 7일이 지난 가짜 백업 파일 생성 (os.utime으로 수정 시간 조작)
@@ -771,7 +780,7 @@ def test_auto_backup_job(mock_sleep, client, app, tmp_path, monkeypatch):
     # 4. 백업 작업 1회 실행
     with app.app_context():
         try:
-            backend_app.auto_backup_job()
+            jobs.auto_backup_job()
         except RuntimeError:
             pass
 
@@ -808,6 +817,23 @@ def _login(client, username='trader'):
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         # before_request 가 절대 만료(expires_at)를 검사하므로 없으면 전부 401 이 된다.
         sess['expires_at'] = time.time() + 3600
+
+
+def _ensure_user(username):
+    """users 테이블에 계정 행을 만든다.
+
+    _login() 은 세션만 조작하므로 users 행이 없다. 계좌 매핑처럼 users 행에
+    저장되는 기능을 테스트하려면 실제 계정이 있어야 한다.
+    """
+    conn = backend_app.get_db()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO users (username, password_hash, is_allowed) VALUES (?, ?, 1)",
+            (username, 'x'),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _buy(stock='삼성전자', qty=10, price=80000, **kw):
@@ -882,18 +908,18 @@ def test_verify_backup_zip(tmp_path):
     good = tmp_path / "good.zip"
     with zipfile.ZipFile(good, 'w') as zf:
         zf.writestr('data.json', json.dumps([{"id": 1}, {"id": 2}]))
-    ok, _ = backend_app.verify_backup_zip(str(good), 2)
+    ok, _ = backups.verify_backup_zip(str(good), 2)
     assert ok is True
 
     # 레코드 수 불일치
-    ok, msg = backend_app.verify_backup_zip(str(good), 5)
+    ok, msg = backups.verify_backup_zip(str(good), 5)
     assert ok is False and '불일치' in msg
 
     # data.json 누락
     nojson = tmp_path / "nojson.zip"
     with zipfile.ZipFile(nojson, 'w') as zf:
         zf.writestr('other.txt', 'hello')
-    ok, msg = backend_app.verify_backup_zip(str(nojson), 0)
+    ok, msg = backups.verify_backup_zip(str(nojson), 0)
     assert ok is False
 
 
@@ -998,13 +1024,13 @@ def test_extract_inline_images(monkeypatch, tmp_path):
     """base64 이미지가 파일로 저장되고 src 가 /uploads/ URL 로 치환된다."""
     import base64 as b64
     import re
-    monkeypatch.setattr(backend_app, 'UPLOAD_FOLDER', str(tmp_path))
+    monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path))
 
     raw = b'\x89PNG-fake-image-bytes'
     encoded = b64.b64encode(raw).decode()
     entry = {'thoughts': f'<p>메모</p><img src="data:image/png;base64,{encoded}"><p>끝</p>'}
 
-    out = backend_app.extract_inline_images('tester', entry)
+    out = images.extract_inline_images('tester', entry)
 
     assert 'data:image' not in out['thoughts']
     m = re.search(r'src="/uploads/tester/(qimg_\w+\.png)"', out['thoughts'])
@@ -1017,25 +1043,25 @@ def test_extract_inline_images(monkeypatch, tmp_path):
 
 def test_extract_inline_images_edge_cases(monkeypatch, tmp_path):
     """이미지 없음/사용자 없음/손상된 base64 는 원본을 그대로 보존한다."""
-    monkeypatch.setattr(backend_app, 'UPLOAD_FOLDER', str(tmp_path))
+    monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path))
 
     no_img = {'thoughts': '<p>이미지 없음</p>'}
-    assert backend_app.extract_inline_images('u', no_img) is no_img
+    assert images.extract_inline_images('u', no_img) is no_img
 
-    assert backend_app.extract_inline_images('u', {'thoughts': None}) == {'thoughts': None}
+    assert images.extract_inline_images('u', {'thoughts': None}) == {'thoughts': None}
     with_img = {'thoughts': '<img src="data:image/png;base64,AAAA">'}
-    assert backend_app.extract_inline_images('', with_img) is with_img
+    assert images.extract_inline_images('', with_img) is with_img
 
     # 패딩이 깨진 base64 → 디코딩 실패 시 원본 유지
     broken = {'thoughts': '<img src="data:image/png;base64,A">'}
-    out = backend_app.extract_inline_images('u', broken)
+    out = images.extract_inline_images('u', broken)
     assert out['thoughts'] == broken['thoughts']
 
 
 def test_create_entry_extracts_inline_images(client, monkeypatch, tmp_path):
     """POST /api/entry 로 저장된 본문의 base64 이미지가 URL 로 치환되어 조회된다."""
     import base64 as b64
-    monkeypatch.setattr(backend_app, 'UPLOAD_FOLDER', str(tmp_path))
+    monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path))
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'imgentry'
@@ -1057,10 +1083,10 @@ def test_create_entry_extracts_inline_images(client, monkeypatch, tmp_path):
 def test_migrate_inline_images(app, monkeypatch, tmp_path):
     """기존 DB 의 base64 본문이 일괄 추출되고, 사전 DB 백업본이 생성된다."""
     import base64 as b64
-    monkeypatch.setattr(backend_app, 'UPLOAD_FOLDER', str(tmp_path / 'up'))
+    monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path / 'up'))
     backup_dir = tmp_path / 'bak'
     backup_dir.mkdir()
-    monkeypatch.setattr(backend_app, 'BACKUP_DIR', str(backup_dir))
+    monkeypatch.setattr(config, 'BACKUP_DIR', str(backup_dir))
 
     encoded = b64.b64encode(b'legacy-image').decode()
     conn = backend_app.get_db()
@@ -1153,24 +1179,14 @@ def test_simulated_entries_are_still_returned_to_dashboard(client):
     assert data[0]['isSimulated'] == 1
 
 
-@pytest.fixture
-def cleanup_user_json():
-    """/api/mappings 는 json/<username>/ 에 실제 파일을 남기므로 테스트 후 지운다."""
-    names = []
-    yield names
-    import shutil
-    for name in names:
-        shutil.rmtree(os.path.join('json', name), ignore_errors=True)
-
-
-def test_stats_exclude_flagged_account(client, cleanup_user_json):
+def test_stats_exclude_flagged_account(client):
     """계좌 관리에서 '금액 계산 제외'로 체크한 계좌는 통계에서 빠져야 한다.
 
     계좌 별칭은 언제든 바꿀 수 있으므로 이름이 아니라 계좌번호(exclude_from_stats)로 판정한다.
     """
     _login(client, 'excacct')
-    cleanup_user_json.append('excacct')
-    client.post('/api/mappings', json={
+    _ensure_user('excacct')
+    assert client.post('/api/mappings', json={
         "brokers": {},
         "accounts": {
             "11112222-01": {"broker_code": "243", "broker_name": "한국투자증권",
@@ -1178,7 +1194,7 @@ def test_stats_exclude_flagged_account(client, cleanup_user_json):
             "33334444-01": {"broker_code": "243", "broker_name": "한국투자증권",
                             "alias": "연습계좌", "exclude_from_stats": True},
         }
-    })
+    }).status_code == 200
     # 실거래 계좌: 100원 10주 매수 → 120원 10주 매도 = +200
     _insert_raw('excacct', id=1, stockName='A', tradeType='매수', price=100,
                 quantity=10, rawDate='2024-01-10T09:00', subAccount='11112222-01')
@@ -1267,7 +1283,7 @@ def test_unhandled_exception_does_not_leak_internals(client, monkeypatch):
     def boom(_username):
         raise RuntimeError('내부 경로 /var/secret/journal.db')
 
-    monkeypatch.setattr(backend_app, 'get_user_mappings', boom)
+    monkeypatch.setattr(api, 'get_user_mappings', boom)
 
     res = client.get('/api/mappings')
     assert res.status_code == 500
@@ -1283,14 +1299,14 @@ def test_restore_keeps_existing_uploads_when_copy_fails(client, monkeypatch, tmp
     예전에는 기존 폴더를 먼저 rmtree 하고 복사해서, 복사가 실패하면 첨부파일이
     영구 소실되고 되돌릴 방법이 없었다.
     """
-    monkeypatch.setattr(backend_app, 'UPLOAD_FOLDER', str(tmp_path / 'uploads'))
+    monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path / 'uploads'))
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'restoreuser'
         sess['expires_at'] = time.time() + 3600
 
     # 기존 첨부파일을 심어 둔다
-    user_folder = os.path.join(backend_app.UPLOAD_FOLDER, 'restoreuser')
+    user_folder = os.path.join(config.UPLOAD_FOLDER, 'restoreuser')
     os.makedirs(user_folder, exist_ok=True)
     keep = os.path.join(user_folder, 'important.png')
     with open(keep, 'w') as f:
@@ -1322,13 +1338,13 @@ def test_restore_keeps_existing_uploads_when_copy_fails(client, monkeypatch, tmp
 
 def test_restore_replaces_uploads_on_success(client, monkeypatch, tmp_path):
     """정상 복원 시에는 첨부파일 폴더가 백업 내용으로 교체된다."""
-    monkeypatch.setattr(backend_app, 'UPLOAD_FOLDER', str(tmp_path / 'uploads'))
+    monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path / 'uploads'))
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'restoreuser2'
         sess['expires_at'] = time.time() + 3600
 
-    user_folder = os.path.join(backend_app.UPLOAD_FOLDER, 'restoreuser2')
+    user_folder = os.path.join(config.UPLOAD_FOLDER, 'restoreuser2')
     os.makedirs(user_folder, exist_ok=True)
     with open(os.path.join(user_folder, 'old.png'), 'w') as f:
         f.write('old')
@@ -1360,7 +1376,7 @@ def test_large_json_response_is_still_compressed(client, monkeypatch):
         sess['expires_at'] = time.time() + 3600
 
     # 상한을 낮춰서 '큰 응답' 상황을 작은 데이터로 재현한다
-    monkeypatch.setattr(backend_app, 'MAX_COMPRESS_BYTES', 96 * 1024 * 1024)
+    monkeypatch.setattr(middleware, 'MAX_COMPRESS_BYTES', 96 * 1024 * 1024)
 
     body = '<p>' + ('메모 ' * 400) + '</p>'
     with backend_app.db_conn() as conn:
@@ -1386,7 +1402,7 @@ def test_response_above_cap_is_not_compressed(client, monkeypatch):
         sess['username'] = 'compressuser2'
         sess['expires_at'] = time.time() + 3600
 
-    monkeypatch.setattr(backend_app, 'MAX_COMPRESS_BYTES', 1024)  # 1KB 로 낮춤
+    monkeypatch.setattr(middleware, 'MAX_COMPRESS_BYTES', 1024)  # 1KB 로 낮춤
     with backend_app.db_conn() as conn:
         c = conn.cursor()
         entry_logic.insert_entry(c, 'compressuser2', {
@@ -1407,9 +1423,9 @@ def test_is_valid_username_rules():
     bad = ['ab', '', None, '../../etc', 'a/b', 'a\\b', 'a..b', '한글이름',
            'A' * 33, '_lead', '.lead', '-lead', 'has space', 'null\x00byte']
     for n in ok:
-        assert backend_app.is_valid_username(n) is True, n
+        assert users.is_valid_username(n) is True, n
     for n in bad:
-        assert backend_app.is_valid_username(n) is False, n
+        assert users.is_valid_username(n) is False, n
 
 
 def test_signup_rejects_path_traversal_username(client):
@@ -1426,15 +1442,15 @@ def test_signup_rejects_path_traversal_username(client):
 def test_user_dir_blocks_escape(tmp_path):
     """경로 조합 헬퍼가 상위 탈출을 막고 None 을 돌려준다."""
     base = str(tmp_path)
-    assert backend_app.user_dir(base, 'batmi') == os.path.join(base, 'batmi')
-    assert backend_app.user_dir(base, '../../etc') is None
-    assert backend_app.user_dir(base, 'a/b') is None
-    assert backend_app.user_dir(base, '') is None
+    assert users.user_dir(base, 'batmi') == os.path.join(base, 'batmi')
+    assert users.user_dir(base, '../../etc') is None
+    assert users.user_dir(base, 'a/b') is None
+    assert users.user_dir(base, '') is None
 
 
 def test_backup_job_skips_unsafe_username(client, tmp_path, monkeypatch):
     """규칙 이전에 만들어진 이상한 이름의 계정은 백업 잡이 파일을 건드리지 않는다."""
-    monkeypatch.setattr(backend_app, 'BACKUP_DIR', str(tmp_path / 'backup'))
+    monkeypatch.setattr(config, 'BACKUP_DIR', str(tmp_path / 'backup'))
     # 검증을 우회해 DB 에 직접 심는다 (레거시 데이터 상황 재현)
     with backend_app.db_conn() as conn:
         conn.execute("INSERT INTO users (username, password_hash, is_allowed) "
@@ -1456,7 +1472,7 @@ def test_backup_job_skips_unsafe_username(client, tmp_path, monkeypatch):
     with patch('time.sleep', side_effect=side_effect):
         with backend_app.app.app_context():
             try:
-                backend_app.auto_backup_job()
+                jobs.auto_backup_job()
             except RuntimeError:
                 pass
 
@@ -1467,12 +1483,12 @@ def test_backup_job_skips_unsafe_username(client, tmp_path, monkeypatch):
 # 보안: 비밀번호 정책
 # ══════════════════════════════════════════════════════════════
 def test_validate_password_rules():
-    assert backend_app.validate_password('Passw0rd!') is None
-    assert backend_app.validate_password('abcd1234') is None          # 소문자+숫자
-    assert '8자' in backend_app.validate_password('Ab1!')             # 너무 짧음
-    assert '두 종류' in backend_app.validate_password('abcdefghij')   # 소문자만
-    assert '너무 깁니다' in backend_app.validate_password('Ab1' + 'x' * 300)
-    assert '아이디와' in backend_app.validate_password('Testuser1', 'testuser1')
+    assert users.validate_password('Passw0rd!') is None
+    assert users.validate_password('abcd1234') is None          # 소문자+숫자
+    assert '8자' in users.validate_password('Ab1!')             # 너무 짧음
+    assert '두 종류' in users.validate_password('abcdefghij')   # 소문자만
+    assert '너무 깁니다' in users.validate_password('Ab1' + 'x' * 300)
+    assert '아이디와' in users.validate_password('Testuser1', 'testuser1')
 
 
 def test_signup_rejects_weak_password(client):
@@ -1503,14 +1519,14 @@ def test_change_password_enforces_policy(client):
 def test_signup_is_rate_limited(client):
     """가입 시도를 IP 당 시간 제한한다 (계정 대량 생성 방지)."""
     made = 0
-    for i in range(backend_app.SIGNUP_MAX_PER_HOUR + 2):
+    for i in range(ratelimit.SIGNUP_MAX_PER_HOUR + 2):
         res = client.post('/signup', data={
             'username': f'ratelimit{i}', 'password': 'Passw0rd!',
             'password_confirm': 'Passw0rd!'})
         if '너무 잦' in res.get_data(as_text=True):
             break
         made += 1
-    assert made == backend_app.SIGNUP_MAX_PER_HOUR
+    assert made == ratelimit.SIGNUP_MAX_PER_HOUR
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1567,7 +1583,7 @@ def test_account_lockout_after_repeated_failures(app, client):
     """IP 를 바꿔도 계정 단위로 잠긴다."""
     client.post('/signup', data={'username': 'lockme', 'password': 'Passw0rd!',
                                  'password_confirm': 'Passw0rd!'})
-    for i in range(backend_app.USER_LOCKOUT_THRESHOLD):
+    for i in range(ratelimit.USER_LOCKOUT_THRESHOLD):
         c = app.test_client()   # 매번 다른 세션
         c.post('/login', data={'username': 'lockme', 'password': 'Wr0ngPass!'},
                environ_overrides={'REMOTE_ADDR': f'10.0.0.{i + 1}'})
@@ -1604,8 +1620,8 @@ def test_admin_reset_issues_strong_temp_password(client):
 
 
 def test_generate_temp_password_is_random():
-    a = backend_app.generate_temp_password()
-    b = backend_app.generate_temp_password()
+    a = users.generate_temp_password()
+    b = users.generate_temp_password()
     assert a != b and len(a) == 12
 
 
@@ -1653,7 +1669,7 @@ def test_reset_request_is_rate_limited(client):
     client.post('/signup', data={'username': 'spamtarget', 'password': 'Passw0rd!',
                                  'password_confirm': 'Passw0rd!'})
     codes = [client.post('/request_password_reset', json={'username': 'spamtarget'}).status_code
-             for _ in range(backend_app.RESET_REQUEST_MAX_PER_HOUR + 2)]
+             for _ in range(ratelimit.RESET_REQUEST_MAX_PER_HOUR + 2)]
     assert 429 in codes
 
 
@@ -1887,3 +1903,165 @@ def test_admin_list_exposes_reset_note_for_display(client):
     assert row['reset_note'] == '폰을 바꿔서 비밀번호를 잊었습니다'
     assert row['reset_requested_at']
     assert row['reset_request_count'] == 1
+
+
+# ---------------------------------------------------------------------------
+# 정적 서빙 격리 (static_folder='.' 로 루트 전체가 열려 있던 회귀 방지)
+# ---------------------------------------------------------------------------
+
+SENSITIVE_PATHS = [
+    '/.secret_key',
+    '/db/journal.db',
+    '/backend_app.py',
+    '/trading_api.py',
+    '/logs/backend_app.log',
+    '/json/someuser/account_info.json',
+    '/.git/config',
+    '/templates/login.html',
+    '/tests/conftest.py',
+    '/backup/journal.db',
+    '/README.md',
+]
+
+
+@pytest.mark.parametrize('path', SENSITIVE_PATHS)
+def test_sensitive_files_are_not_served(client, path):
+    """로그인한 사용자라도 프로젝트 파일을 정적 경로로 내려받을 수 없어야 한다.
+
+    예전에는 static_folder='.' 라서 .secret_key(→세션 위조로 관리자 사칭)와
+    db/journal.db(→전 사용자 기록·비밀번호 해시)가 그대로 노출됐다.
+    """
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600
+
+    assert client.get(path).status_code != 200
+
+
+def test_static_assets_are_served(client):
+    """반대로 static/ 안의 프런트 자산은 정상 서빙돼야 한다."""
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600
+
+    for path in ('/static/calc.js', '/static/style.css',
+                 '/static/js/01-core.js'):
+        assert client.get(path).status_code == 200, path
+
+
+def test_every_app_script_is_listed_and_served(client, app):
+    """static/js 의 모든 조각이 페이지에 실리고 실제로 내려와야 한다.
+
+    조각들은 ES 모듈이 아니라 전역을 공유하는 클래식 스크립트다. 하나가 빠지면
+    화면 일부만 조용히 죽으므로(에러 하나 없이 버튼이 반응하지 않는다) 목록을
+    손으로 관리하지 않고 폴더에서 만든다 — 그 자동 생성이 도는지 확인한다.
+    """
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'testuser'
+        sess['expires_at'] = time.time() + 3600
+
+    js_dir = os.path.join(app.static_folder, 'js')
+    on_disk = sorted(f for f in os.listdir(js_dir) if f.endswith('.js'))
+    assert on_disk, 'static/js 에 스크립트가 없다'
+
+    html = client.get('/').get_data(as_text=True)
+    listed = re.findall(r'/static/js/([^?"]+)', html)
+    assert listed == on_disk, f"페이지에 실린 순서/목록이 폴더와 다르다\n{listed}\n{on_disk}"
+
+    for name in on_disk:
+        assert client.get(f'/static/js/{name}').status_code == 200, name
+
+
+def test_app_scripts_are_loaded_in_filename_order(app):
+    """번호 접두사 순서가 곧 실행 순서다 — 정렬이 깨지면 전역 참조가 어긋난다."""
+    with app.test_request_context('/'):
+        scripts = backend_app.inject_get_mtime()['app_scripts']()
+    paths = [p for p, _ in scripts]
+    assert paths == sorted(paths)
+    assert all(p.startswith('js/') for p in paths)
+    # 모든 조각의 mtime 이 실제 값이어야 캐시 버스팅이 동작한다
+    assert all(m > 0 for _, m in scripts)
+
+
+def test_get_mtime_resolves_static_assets(app):
+    """템플릿의 ?v= 캐시 버스팅이 실제 mtime 을 읽어야 한다 (0 이면 캐시가 안 깨진다)."""
+    with app.test_request_context('/'):
+        get_mtime = backend_app.inject_get_mtime()['get_mtime']
+        assert get_mtime('calc.js') > 0
+        assert get_mtime('style.css') > 0
+        assert get_mtime('js/01-core.js') > 0
+        assert get_mtime('없는파일.js') == 0
+
+
+# ---------------------------------------------------------------------------
+# 계좌 매핑 DB 이관 (예전에는 json/<username>/account_info.json 파일이었다)
+# ---------------------------------------------------------------------------
+
+def test_mappings_persist_in_db_not_files(client, tmp_path, monkeypatch):
+    """매핑 저장이 json/ 폴더에 파일을 남기지 않아야 한다."""
+    monkeypatch.setattr(config, 'JSON_DIR', str(tmp_path))
+    _login(client, 'mapuser')
+    _ensure_user('mapuser')
+
+    payload = {"brokers": {"243": "한국투자증권"},
+               "accounts": {"1111-2222": {"alias": "주계좌"}}}
+    assert client.post('/api/mappings', json=payload).status_code == 200
+
+    assert client.get('/api/mappings').json == payload
+    assert not os.path.exists(os.path.join(str(tmp_path), 'mapuser'))
+
+
+def test_mappings_rejects_unknown_account(client):
+    """계정 행이 없으면 저장된 척하지 말고 404 로 알려야 한다."""
+    _login(client, 'ghostuser')
+    res = client.post('/api/mappings', json={"brokers": {}, "accounts": {}})
+    assert res.status_code == 404
+
+
+def test_backup_roundtrip_carries_account_mappings(client, tmp_path, monkeypatch):
+    """백업 ZIP 은 DB 의 매핑을 담고, 복원은 그것을 DB 로 되돌려야 한다."""
+    monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path / 'uploads'))
+    _login(client, 'bkuser')
+    _ensure_user('bkuser')
+
+    payload = {"brokers": {}, "accounts": {"9999-8888": {"alias": "연습계좌",
+                                                         "exclude_from_stats": True}}}
+    client.post('/api/mappings', json=payload)
+
+    zip_bytes = client.get('/api/backup').data
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        # 구버전 백업과 같은 파일명을 유지해야 예전 ZIP 도 계속 복원된다
+        assert 'account_info.json' in zf.namelist()
+        assert json.loads(zf.read('account_info.json')) == payload
+
+    # 매핑을 지운 뒤 복원하면 되살아나야 한다
+    client.post('/api/mappings', json={"brokers": {}, "accounts": {}})
+    assert client.get('/api/mappings').json['accounts'] == {}
+
+    res = client.post('/api/restore',
+                      data={'file': (io.BytesIO(zip_bytes), 'b.zip')},
+                      content_type='multipart/form-data')
+    assert res.status_code == 200
+    assert client.get('/api/mappings').json == payload
+
+
+def test_restore_accepts_legacy_zip_with_account_info(client, tmp_path, monkeypatch):
+    """파일 저장 시절에 만들어진 ZIP 도 그대로 복원돼야 한다."""
+    monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path / 'uploads'))
+    _login(client, 'legacyuser')
+    _ensure_user('legacyuser')
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr('data.json', '[]')
+        zf.writestr('account_info.json',
+                    json.dumps({"brokers": {}, "accounts": {"7777": {"alias": "옛계좌"}}}))
+    buf.seek(0)
+
+    res = client.post('/api/restore', data={'file': (buf, 'legacy.zip')},
+                      content_type='multipart/form-data')
+    assert res.status_code == 200
+    assert client.get('/api/mappings').json['accounts'] == {"7777": {"alias": "옛계좌"}}

@@ -1,3 +1,8 @@
-Flask
-Werkzeug
-waitress
+# 런타임 의존성.
+# ⭐️ 상한을 두는 이유: Flask 4 / Werkzeug 4 는 확실히 깨는 변경을 예고하고 있고,
+#    이 앱은 세션 쿠키(itsdangerous)·정적 서빙·에러 핸들러처럼 메이저 업그레이드에서
+#    동작이 바뀌는 지점을 직접 건드린다. 하한은 실제로 검증한 버전이다.
+#    올릴 때는 requirements-dev.txt 로 테스트를 돌린 뒤 상한을 넓힌다.
+Flask>=3.1.3,<4.0
+Werkzeug>=3.1.8,<4.0
+waitress>=3.0.2,<4.0

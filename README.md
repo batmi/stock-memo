@@ -62,9 +62,10 @@
 
 ## 3. 필수 요구 사항 (Prerequisites)
 
-*   Python 3.x 버전 이상
+*   Python 3.11 이상
 *   최신 웹 브라우저 (Chrome, Safari, Edge 등 권장)
 *   (선택) 외부 접속을 위한 `ngrok`, `Cloudflare Tunnels` 또는 `tmux`
+*   (개발) 테스트를 돌리려면 Node 18 이상 — `calc.js` 단위 테스트와 프론트=백엔드 일치 검증에 쓰입니다
 
 ---
 
@@ -72,7 +73,7 @@
 
 ### 서버 실행
 프로젝트 폴더로 이동한 뒤, 아래 제공되는 스크립트를 통해 로컬 서버를 실행합니다.
-스크립트 실행 시 필요한 필수 패키지(`Flask`, `Werkzeug`, `waitress`)가 없다면 자동으로 설치 여부를 묻고 진행합니다.
+필수 패키지가 없으면 설치 여부를 묻고 `requirements.txt` 의 버전 범위대로 설치합니다.
 
 **Mac / Linux 환경**
 최초 1회 실행 권한을 부여한 뒤, 쉘 스크립트 형태로 간편하게 실행할 수 있습니다.
@@ -86,6 +87,8 @@ chmod +x run.sh
 ```bash
 python backend_app.py
 ```
+
+포트를 바꾸려면 인자로 넘깁니다: `./run.sh 8080`
 
 ### 접속
 웹 브라우저를 열고 다음 주소로 접속합니다.
@@ -107,7 +110,10 @@ http://127.0.0.1:5000
 *   **최고 관리자 계정**: 앱을 최초로 설치한 후 가장 처음으로 가입하는 계정이 자동으로 최고 관리자로 지정되며, 이후 가입하는 사용자는 이 관리자의 승인이 있어야 로그인이 가능합니다.
 *   **세션 보안**: 내부적으로 세션 탈취(XSS) 및 크로스 사이트 요청 위조(CSRF) 방지 보안 쿠키 설정이 적용되어 있으며, 공용 기기에서의 데이터 유출을 막기 위해 1시간 동안 활동이 없으면 자동으로 로그아웃됩니다.
 *   **외부 접속 주의**: 공유기 포트포워딩을 통한 직접적인 외부망(HTTP) 노출은 권장하지 않습니다. 외부(스마트폰 등)에서 안전하게 접속하려면 `ngrok`, `Cloudflare Tunnels`, `Tailscale`과 같은 암호화된 보안 터널링 서비스를 이용하시기 바랍니다.
-*   **운영 환경(HTTPS)**: 로컬망에서는 `waitress`를 통해 안정적으로 구동되지만, 본격적으로 웹에 퍼블리싱 하시려면 Nginx 등의 리버스 프록시(Reverse Proxy)를 연동하여 HTTPS(SSL) 인증서를 적용하는 것을 적극 권장합니다.
+*   **운영 환경(HTTPS)**: 로컬망에서는 `waitress`를 통해 안정적으로 구동되지만, 본격적으로 웹에 퍼블리싱 하시려면 Nginx 등의 리버스 프록시(Reverse Proxy)를 연동하여 HTTPS(SSL) 인증서를 적용하는 것을 적극 권장합니다. HTTPS 로 서비스할 때는 환경변수 `SESSION_COOKIE_SECURE=1` 을 주어 세션 쿠키가 평문 경로로 나가지 않게 하세요.
+*   **정적 파일 노출 범위**: 웹으로 서빙되는 것은 `static/` 폴더와 본인 소유의 `uploads/<계정>/` 뿐입니다. DB·백업·로그·소스·`.secret_key` 는 로그인한 사용자라도 URL 로 접근할 수 없습니다. (예전에는 프로젝트 루트 전체가 열려 있었습니다 — [설계 규칙](#6-프로젝트-구조-project-structure) 참고)
+*   **응답 헤더**: 모든 응답에 CSP(Content-Security-Policy), `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` 가 붙습니다. HTTPS 요청에는 HSTS 도 함께 적용됩니다. 새 CDN 을 쓰려면 `middleware.py` 의 CSP 목록에 출처를 추가해야 합니다 — 추가하지 않으면 브라우저가 조용히 차단합니다.
+*   **무차별 대입 방어**: IP 단위 요청 제한과 계정 단위 로그인 잠금이 함께 걸려 있습니다(`ratelimit.py`). 상태가 프로세스 메모리에 있으므로 **단일 프로세스로 구동**해야 의도한 한도가 지켜집니다.
 
 ### 로그인 복구 (Password Recovery)
 웹의 관리자 초기화 기능은 **관리자가 이미 로그인해 있을 때만** 쓸 수 있어, 정작 관리자 본인이 잠기면 소용이 없습니다. 이때는 서버에 접속해 복구 도구를 실행하세요. 앱이 떠 있지 않아도, 계정이 잠겨 있어도 동작하며, 변경 사항은 서버 재시작 없이 즉시 반영됩니다.
@@ -128,35 +134,110 @@ cd ~/GitHub/stock-memo
 
 ```text
 stock-memo/
-├── backend_app.py      # 앱 구동·라우트·DB 헬퍼·백그라운드 스레드 (Flask)
-├── prices.py           # 현재가(시세) 조회 서비스 (provider별 분해 + 폴백)
-├── stats.py            # 매매 성과 분석(통계) 계산 로직 (순수 함수)
-├── entry_logic.py      # 매매 기록 저장/무결성 검증 + INSERT 컬럼 단일 소스
+├── backend_app.py      # 앱 조립 — 모듈 연결, 스키마 초기화, 기동(bootstrap)
+├── wsgi.py             # gunicorn/uwsgi 진입점 (bootstrap 을 호출한다)
+│
+│  ── 요청 처리 계층 (Flask 블루프린트) ───────────────────────────
+├── auth.py             # 로그인·가입·로그아웃·비밀번호 재설정 요청 + 세션 검사
+├── admin.py            # 관리자 — 계정 승인·삭제·비밀번호 초기화
+├── api.py              # 화면 API — 기록 CRUD, 통계, 시세, 뉴스, 봇 조작
+├── backup_api.py       # 전체 백업 ZIP 내보내기·복원
 ├── trading_api.py      # 시스템 트레이딩 연동 REST API (/api/v1/*) — 인증·멱등·정규화
+├── middleware.py       # 보안/캐시 헤더, CSP, gzip 압축, 전역 예외 처리
+│
+│  ── 도메인 계층 (Flask 비의존, 단위 테스트 용이) ────────────────
+├── accounts.py         # 계좌번호 정규화 규칙 + 계좌 매핑 저장소
+├── entry_logic.py      # 매매 기록 저장/무결성 검증 + INSERT 컬럼 단일 소스
+├── stats.py            # 매매 성과 분석(통계) 계산 로직 (순수 함수)
+├── prices.py           # 현재가(시세) 조회 서비스 (provider별 분해 + 폴백)
 ├── backups.py          # 백업 ZIP 무결성 검증 로직 (순수 함수)
-├── templates/          # 로그인·회원가입 HTML 템플릿
-├── stock-memo.html     # 프론트엔드 메인 화면 구조 (HTML)
-├── style.css           # 화면 디자인 및 레이아웃 (CSS)
-├── calc.js             # 매매 계산 단일 소스 (백엔드 stats.py 와 동일 알고리즘)
-├── script.js           # 화면 동작, 데이터 통신, 차트 로직 (JavaScript)
+├── images.py           # 본문 내장 base64 이미지 추출·첨부 저장
+├── users.py            # 사용자명 규칙, 비밀번호 정책, 세션 epoch, 폴더 경로
+│
+│  ── 기반 계층 ─────────────────────────────────────────────────
+├── config.py           # 경로·상수·시크릿 키 (설정의 단일 소스)
+├── schema.py           # DB 스키마 단일 소스 — 모든 테이블·컬럼·인덱스
+├── db.py               # SQLite 연결 (PRAGMA 일괄 적용)
+├── applog.py           # 로깅 설정 (일자별 로테이션 + 한 줄 포맷)
+├── ratelimit.py        # IP 요청 제한 + 계정 로그인 잠금
+├── statscache.py       # 통계 캐시와 데이터 버전(ETag)
+├── jobs.py             # 백그라운드 스레드 (자동 백업, NXT 종가 캐싱)
+│
+│  ── 프런트엔드 ────────────────────────────────────────────────
+├── templates/          # 로그인·회원가입·메인 화면 HTML
+│   └── stock-memo.html #   메인 화면 구조
+├── static/
+│   ├── style.css       #   화면 디자인 및 레이아웃
+│   ├── calc.js         #   매매 계산 단일 소스 (백엔드 stats.py 와 동일 알고리즘)
+│   └── js/             #   화면 동작 — 기능별로 나뉜 조각들 (01-…, 02-… 순서대로 로드)
+│
 ├── run.sh              # 자동화 실행 쉘 스크립트 (Mac/Linux)
+├── requirements.txt    # 런타임 의존성 (버전 범위 고정)
+├── requirements-dev.txt#  테스트·린트 의존성
 ├── tools/              # 서버에서 직접 실행하는 운영·복구 도구
 │   └── reset_password.py  # 로그인 불가 시 비밀번호를 되살리는 CLI (웹 노출 없음)
 ├── UniversalTradingHistoryAPI.json  # 트레이딩 봇 연동 API 계약 (OpenAPI 3.1)
 ├── backup/             # 매일 자동 생성되는 사용자별 백업 파일(ZIP) 저장 폴더
-├── db/                 # 데이터베이스 폴더
-│   └── journal.db      # 자동 생성되는 매매 기록 데이터베이스 파일 (SQLite)
-├── logs/               # 시스템 및 에러 로그가 저장되는 폴더
-│   └── backend_app.log # 디버깅/에러/경고 등 서버 실행 로그 파일
-└── uploads/            # 첨부된 이미지 파일이 저장되는 폴더
+├── db/journal.db       # 매매 기록 데이터베이스 (SQLite, 자동 생성)
+├── logs/               # 시스템 및 에러 로그
+└── uploads/            # 첨부된 이미지 파일
 ```
 
-> 백엔드는 도메인별 모듈(`prices`/`stats`/`entry_logic`/`backups`)로 분리되어 있으며,
-> 손익 계산은 프론트엔드 `calc.js` 와 백엔드 `stats.py` 가 **동일한 이동평균단가
+### 설계 규칙 (Design Rules)
+
+이 구조를 유지하려면 아래 네 가지를 지켜야 합니다. 각각은 실제로 사고가 났던 지점입니다.
+
+**1. 정적 파일은 `static/` 안에서만 서빙한다.**
+예전에는 `static_folder='.'` 로 프로젝트 루트 전체가 정적 경로에 열려 있어, 로그인만
+한 일반 사용자도 `/.secret_key`·`/db/journal.db`·`/backup/*.zip`·`/json/<타인>/…` 를
+그대로 내려받을 수 있었습니다. 시크릿 키가 새면 세션 쿠키를 위조해 관리자를 사칭할 수
+있으므로, 이는 정보 유출이 아니라 **권한 상승 경로**였습니다.
+(`tests/test_backend_app.py` 의 `test_sensitive_files_are_not_served` 가 회귀를 막습니다)
+
+**2. DB 스키마는 `schema.py` 만 정의한다.**
+새 컬럼은 `ADDED_COLUMNS` 에 한 줄 추가하고 `CREATE TABLE` 문에도 함께 적습니다.
+앞의 것은 기존 DB 를, 뒤의 것은 새 DB 를 위한 것이라 **둘 다** 필요합니다.
+`tests/test_schema.py` 가 "새로 만든 DB" 와 "옛 DB 를 마이그레이션한 DB" 가 같은 모양인지
+검사합니다.
+
+**3. 경로는 항상 `config.<이름>` 으로, 쓰는 순간에 읽는다.**
+`from config import UPLOAD_FOLDER` 처럼 이름만 떼어 오면 테스트가 경로를 바꿔치기해도
+복사본은 그대로라, **테스트가 통과하는데 실제로는 아무것도 검증하지 않는** 상태가 됩니다.
+
+**4. `import backend_app` 에는 부작용이 없어야 한다.**
+스키마 적용·데이터 이관·백그라운드 스레드는 `bootstrap()` 을 명시적으로 부를 때만
+일어납니다. 임포트만으로 실행되면 테스트나 CLI 도구가 운영 DB 를 건드리게 됩니다.
+(`tests/test_startup.py` 가 이를 검사합니다)
+
+### 프런트엔드 스크립트 로드 순서
+
+`static/js/` 의 조각들은 **ES 모듈이 아니라 순서대로 로드되는 클래식 스크립트**입니다.
+최상위 `let`/`const`/`function` 이 전역 렉시컬 환경을 공유하므로, 한 덩어리였던 예전
+`script.js` 와 실행 의미가 같습니다. (HTML 의 인라인 `onclick` 핸들러가 전역 함수를
+직접 부르고 있어 모듈로 바꾸면 그것들이 전부 깨집니다)
+
+*   로드 순서는 **파일명 번호 순서**이며, `backend_app.app_scripts()` 가 폴더를 읽어
+    자동으로 목록을 만듭니다. 템플릿에 `<script>` 를 손으로 나열하지 않습니다.
+*   ⚠️ **로드 시점에** 다른 조각의 함수를 참조하면 안 됩니다. 함수 호이스팅은 파일
+    단위이므로, 뒤 파일의 함수를 앞 파일의 최상위 코드에서 참조하면 `ReferenceError`
+    입니다. 이벤트 핸들러로 넘길 때는 `() => fn()` 으로 감싸 호출 시점에 찾게 합니다.
+
+> 손익 계산은 프론트엔드 `static/calc.js` 와 백엔드 `stats.py` 가 **동일한 이동평균단가
 > 알고리즘**을 사용하도록 단일화되어 있습니다. `tests/test_stats_parity.py` 가 두 엔진에
 > 같은 픽스처(`tests/fixtures/parity_fixtures.json`)를 실제로 통과시켜 값을 직접
 > 비교합니다. 단, 주간 집계(`granularity='weekly'`)와 기간 필터는 `stats.py` 에만
 > 있으므로 그 두 기능은 `/api/stats` 를 호출해야 합니다.
+
+### 운영 형태 (Deployment Shape)
+
+**이 앱은 단일 프로세스 구동을 전제로 합니다.** 통계 캐시·요청 제한·계정 잠금·시세
+캐시가 모두 프로세스 메모리에 있어서, 멀티 워커(`gunicorn -w 2` 이상)로 띄우면
+요청 제한이 워커 수만큼 느슨해지고 캐시가 워커마다 어긋납니다.
+
+*   기본 실행(`python backend_app.py`)은 waitress 를 16스레드 단일 프로세스로 띄웁니다.
+*   WSGI 서버를 직접 쓴다면 `wsgi:application` 을 가리키고 워커는 1개로 둡니다.
+*   부득이 멀티 워커라면 워커 하나만 백그라운드 작업을 돌리도록 나머지에
+    `START_BACKGROUND_JOBS=0` 을 주고, 자동 백업은 cron 으로 따로 돌립니다.
 
 ---
 
@@ -251,14 +332,18 @@ stock-memo/
 테스트 코드는 `tests/` 폴더에 위치하며, 임시 DB를 사용하므로 실제 구동 데이터(`db/journal.db`)에 영향을 주지 않습니다.
 
 ```bash
-# 백엔드 전체 테스트 실행
+# 개발·테스트 의존성 설치 (최초 1회)
+pip install -r requirements-dev.txt
+playwright install chromium      # 브라우저 E2E 테스트용
+
+# 전체 테스트 실행
 pytest
 
-# 간결한 출력 모드로 실행
-pytest -q
+# 브라우저 E2E 를 뺀 빠른 실행 (5초 내외)
+pytest --ignore=tests/test_frontend.py
 ```
 
-프론트엔드 계산 엔진(`calc.js`)은 Node 내장 테스트 러너로 검증합니다.
+프론트엔드 계산 엔진(`static/calc.js`)은 Node 내장 테스트 러너로 검증합니다.
 프론트=백엔드 결과 일치(parity)는 `tests/test_stats_parity.py` 가 두 엔진을 모두
 실행해 값을 직접 비교하는 방식으로 보장합니다. (node 가 없으면 자동 skip)
 
@@ -269,3 +354,34 @@ node --test tests/calc.test.js
 # 프론트=백엔드 계산 일치 검증
 pytest tests/test_stats_parity.py
 ```
+
+### 린트 (Lint)
+
+```bash
+pip install ruff
+ruff check .
+```
+
+규칙은 `pyproject.toml` 에 있습니다. 처음부터 넓게 켜면 기존 코드가 수백 건 걸려
+아무도 안 보게 되므로, **실제 버그로 이어지는 것**(미사용/미정의 이름, 문법 오류,
+흔한 함정)부터 켜 두었습니다.
+
+### 구조를 지키는 테스트
+
+일반적인 기능 테스트 외에, 위 "설계 규칙"이 무너지지 않도록 지키는 테스트가 있습니다.
+리팩터링 중에 조용히 되돌아가기 쉬운 것들입니다.
+
+| 파일 | 지키는 것 |
+|---|---|
+| `test_backend_app.py::test_sensitive_files_are_not_served` | `.secret_key`·DB·백업이 정적 경로로 새지 않는다 |
+| `test_backend_app.py::test_every_app_script_is_listed_and_served` | `static/js` 조각이 하나도 빠지지 않고 순서대로 실린다 |
+| `test_schema.py::test_migrated_legacy_db_matches_fresh_db` | 새 DB 와 마이그레이션된 옛 DB 의 스키마가 같다 |
+| `test_admin.py::test_every_admin_route_is_permission_checked` | 모든 관리자 라우트가 비관리자에게 403 |
+| `test_startup.py::test_importing_backend_app_has_no_side_effects` | 임포트만으로 DB·스레드가 생기지 않는다 |
+| `test_accounts.py::test_trading_api_shares_the_same_rule` | 봇 API 와 웹 화면이 같은 계좌 정규화 규칙을 쓴다 |
+| `test_frontend.py::test_broker_dropdown_is_built_from_the_single_source` | 증권사 목록이 한 곳에서만 정의된다 |
+
+### CI
+
+`.github/workflows/ci.yml` 이 push·PR 마다 린트 → 백엔드 테스트 → 브라우저 E2E →
+`calc.js` 단위 테스트를 순서대로 돌립니다.
