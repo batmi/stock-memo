@@ -14,7 +14,7 @@ import backend_app
 import backups
 import config
 import entry_logic
-from helpers import _buy, _ensure_user, _login, _sell
+from .helpers import _buy, _ensure_user, _login, _sell
 
 
 def test_backup_endpoint_requires_auth(client):

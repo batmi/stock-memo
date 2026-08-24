@@ -611,6 +611,7 @@ def test_delivered_but_unacked_command_shows_as_running(api):
     _ping(api)
 
     latest = trading_api.latest_bot_command('bot', 'resync')
+    assert latest is not None
     assert latest['state'] == 'running'
     assert latest['delivered_at'] and not latest['acked_at']
 
@@ -621,7 +622,9 @@ def test_result_is_still_recorded_after_single_delivery(api):
     assert _ping(api)['commandId'] == cmd_id
 
     _ping(api, commandAck={'id': cmd_id, 'result': 'queued', 'count': 42})
-    assert trading_api.latest_bot_command('bot', 'resync')['state'] == 'done'
+    latest = trading_api.latest_bot_command('bot', 'resync')
+    assert latest is not None
+    assert latest['state'] == 'done'
 
 
 def test_ack_is_recorded_for_the_web_view(api):
@@ -631,6 +634,7 @@ def test_ack_is_recorded_for_the_web_view(api):
                            'message': '로컬 체결 1284건 확인'})
 
     latest = trading_api.latest_bot_command('bot', 'resync')
+    assert latest is not None
     assert latest['state'] == 'done'
     assert latest['result'] == 'queued'
     assert latest['result_count'] == 42
@@ -664,7 +668,9 @@ def test_expired_command_is_not_delivered(api, monkeypatch):
     monkeypatch.setattr(trading_api.common, 'BOT_COMMAND_TTL_SECONDS', -1)
 
     assert _ping(api)['command'] == 'none'
-    assert trading_api.latest_bot_command('bot', 'resync')['state'] == 'expired'
+    latest = trading_api.latest_bot_command('bot', 'resync')
+    assert latest is not None
+    assert latest['state'] == 'expired'
 
 
 def test_unsupported_command_is_refused_at_the_source(api):
@@ -685,7 +691,9 @@ def test_completed_command_is_never_sent_again(api):
     cmd_id = trading_api.request_bot_command('bot', 'resync', {'from': '2026-05-01'})
     assert _ping(api)['commandId'] == cmd_id
     _ping(api, commandAck={'id': cmd_id, 'result': 'queued', 'count': 42})
-    assert trading_api.latest_bot_command('bot', 'resync')['state'] == 'done'
+    latest = trading_api.latest_bot_command('bot', 'resync')
+    assert latest is not None
+    assert latest['state'] == 'done'
 
     # 봇이 재시작해 처리 이력을 잊은 상태로 계속 Ping 해도 다시 받지 않는다.
     for _ in range(30):

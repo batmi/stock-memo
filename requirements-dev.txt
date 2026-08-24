@@ -7,3 +7,4 @@ pytest-cov>=7.1.0,<8.0
 # 브라우저 E2E (tests/test_frontend.py). 설치 후 `playwright install chromium` 필요.
 playwright>=1.60.0,<2.0
 pytest-playwright>=0.8.0,<1.0
+types-ratelimit>=2.2.0,<3.0
