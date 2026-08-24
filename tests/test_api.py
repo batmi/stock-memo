@@ -210,13 +210,11 @@ def test_current_price_edge_cases(mock_http_get, client, app):
             if test_state['gold_fail_all']:
                 raise Exception("All Fail")
             return b"<th>\xed\x98\x84\xec\x9e\xac\xea\xb0\x80</th><td><strong>88,000</strong></td>"
-        elif 'siseJson' in url:
-            if test_state['all_fail']:
-                raise Exception("All APIs Fail")
-            return b'var u_js= { "result": { "nowVal": 95000 } };'
         elif '005930' in url:
             if test_state['all_fail']:
                 raise Exception("All APIs Fail")
+            if 'siseJson' in url:
+                return b'var u_js= { "result": { "nowVal": 95000 } };'
             return b'{"closePrice": "95000"}'
         elif 'ABCDEF' in url:
             return b'{"chart": {"result": [{"meta": {"regularMarketPrice": 250.5}}]}}'
@@ -226,6 +224,10 @@ def test_current_price_edge_cases(mock_http_get, client, app):
             raise Exception("Naver API Fail")
         elif 'AAPL' in url:
             raise Exception("All APIs Fail")
+        elif 'siseJson' in url:
+            if test_state['all_fail']:
+                raise Exception("All APIs Fail")
+            return b'var u_js= { "result": { "nowVal": 95000 } };'
         return b''
 
     mock_http_get.side_effect = http_get_side_effect
