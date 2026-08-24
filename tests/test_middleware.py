@@ -10,11 +10,11 @@ import time
 
 import pytest
 
-import api
+from app.routes import api
 import backend_app
 import config
-import entry_logic
-import middleware
+from app.database import entry_logic
+from app.routes import middleware
 
 
 # ── 전역 예외 핸들러가 정상 HTTP 응답을 삼키지 않는지 ──────────────

@@ -42,7 +42,7 @@ def test_bootstrap_applies_schema_without_starting_jobs(tmp_path, monkeypatch):
     import threading
 
     import config
-    import jobs
+    from app.services import jobs
 
     monkeypatch.setattr(config, 'DB_FILE', str(tmp_path / 'j.db'))
     monkeypatch.setattr(config, 'JSON_DIR', str(tmp_path / 'json'))
@@ -64,7 +64,7 @@ def test_bootstrap_applies_schema_without_starting_jobs(tmp_path, monkeypatch):
 
 def test_bootstrap_starts_jobs_when_asked(tmp_path, monkeypatch):
     import config
-    import jobs
+    from app.services import jobs
 
     monkeypatch.setattr(config, 'DB_FILE', str(tmp_path / 'j2.db'))
     monkeypatch.setattr(config, 'JSON_DIR', str(tmp_path / 'json2'))
@@ -78,7 +78,7 @@ def test_bootstrap_starts_jobs_when_asked(tmp_path, monkeypatch):
 def test_bootstrap_is_idempotent(tmp_path, monkeypatch):
     """두 번 불러도 터지지 않아야 한다 (재기동·워커 재시작)."""
     import config
-    import jobs
+    from app.services import jobs
 
     monkeypatch.setattr(config, 'DB_FILE', str(tmp_path / 'j3.db'))
     monkeypatch.setattr(config, 'JSON_DIR', str(tmp_path / 'json3'))

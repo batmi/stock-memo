@@ -11,9 +11,9 @@ import zipfile
 
 
 import backend_app
-import backups
+from app.services import backups
 import config
-import entry_logic
+from app.database import entry_logic
 from helpers import _buy, _ensure_user, _login, _sell
 
 
@@ -390,7 +390,7 @@ def test_restore_accepts_legacy_zip_with_account_info(client, tmp_path, monkeypa
 
 def test_verify_backup_zip_exceptions(tmp_path):
     """verify_backup_zip 의 예외 및 손상 상황을 검증한다."""
-    import backups
+    from app.services import backups
     import zipfile
     
     # 1. 파일 자체가 zip 파일이 아니거나 손상된 경우 -> Exception 발생

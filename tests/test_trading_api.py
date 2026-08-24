@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import pytest
 
 import backend_app
-import ratelimit
+from app.utils import ratelimit
 import trading_api
 
 

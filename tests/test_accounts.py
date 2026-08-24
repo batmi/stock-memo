@@ -6,7 +6,7 @@ import sqlite3
 
 import pytest
 
-import accounts
+from app.services import accounts
 import backend_app
 import trading_api
 

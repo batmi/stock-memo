@@ -9,7 +9,7 @@
 import sqlite3
 from datetime import timezone
 
-import entry_logic
+from app.database import entry_logic
 
 from .common import KST, _now_kst_str
 from .validation import (

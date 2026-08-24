@@ -23,8 +23,8 @@ import datetime as _dt
 import concurrent.futures
 from urllib.parse import urlsplit
 
-from db import get_db
-from memcache import TTLCache
+from app.database.db import get_db
+from app.utils.memcache import TTLCache
 
 logger = logging.getLogger('prices')
 

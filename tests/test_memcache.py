@@ -6,7 +6,7 @@
 """
 import threading
 
-from memcache import TTLCache
+from app.utils.memcache import TTLCache
 
 
 def test_returns_what_was_put():
@@ -111,7 +111,7 @@ def test_process_local_state_names_real_modules():
     """목록이 실제 모듈과 어긋나면 기동 로그가 거짓말을 하게 된다."""
     import importlib
 
-    import memcache
+    from app.utils import memcache
 
     for name, why in memcache.PROCESS_LOCAL_STATE:
         importlib.import_module(name)      # 없는 모듈이면 여기서 실패한다
@@ -125,7 +125,7 @@ def test_process_local_state_is_logged_at_startup(app, caplog):
        수행하므로, 픽스처 없이 부르면 **운영 DB** 를 건드린다.
     """
     import backend_app
-    import memcache
+    from app.utils import memcache
 
     with caplog.at_level('INFO'):
         backend_app.bootstrap(start_jobs=False)

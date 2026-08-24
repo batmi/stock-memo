@@ -28,7 +28,7 @@ import json
 import os
 import re
 
-from db import db_conn
+from app.database.db import db_conn
 
 EMPTY_MAPPINGS = {"brokers": {}, "accounts": {}}
 

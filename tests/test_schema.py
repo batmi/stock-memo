@@ -9,7 +9,7 @@ import sqlite3
 
 import pytest
 
-import schema
+from app.database import schema
 
 
 def _dump(conn):

@@ -2,11 +2,12 @@
 """앱 구동·라우트·백그라운드 작업.
 
 도메인 로직과 공통 처리는 각각 별도 모듈이 소유한다.
-  config     경로·상수·시크릿 키          applog    로깅 설정
-  middleware 보안/캐시 헤더·gzip·예외      schema    DB 스키마
-  accounts   계좌 매핑                     prices    시세 조회
-  stats      성과 계산                     entry_logic  기록 저장·무결성
-  backups    백업 ZIP 검증                 trading_api  봇 연동 API(/api/v1)
+  config                경로·상수·시크릿 키
+  app.routes.*          웹 라우팅 (api/auth/admin/backup_api) 과 미들웨어
+  app.services.*        도메인 로직 (accounts/prices/stats/news/images/jobs/backups/users)
+  app.database.*        DB 접근·스키마·기록 무결성 (db/schema/entry_logic)
+  app.utils.*           로깅·레이트리밋·캐시 (applog/ratelimit/memcache/statscache)
+  trading_api           봇 연동 API(/api/v1)
 """
 
 import sys
@@ -21,21 +22,15 @@ import shutil
 from flask import (Flask)
 
 # ⭐️ 추출된 도메인 모듈 (순수 로직 — 단위 테스트 용이)
+#    `import app.x` 대신 `from app.x import y` 형태만 쓴다. 전자는 이 모듈의
+#    `app` (Flask 인스턴스) 이름을 패키지로 덮어써 버린다.
 import config
-import applog
-import memcache
-import middleware
-import prices
 import trading_api
-import accounts
-import images
-import schema
-import jobs
-import auth
-import admin
-import backup_api
-import api
-from db import get_db, db_conn
+from app.routes import admin, api, auth, backup_api, middleware
+from app.services import accounts, images, jobs, prices
+from app.database import schema
+from app.database.db import get_db, db_conn
+from app.utils import applog, memcache
 
 # ⭐️ 정적 자산은 반드시 static/ 안에서만 서빙한다.
 #    예전에는 static_folder='.' 로 프로젝트 루트 전체를 정적 경로에 열어 두었는데,

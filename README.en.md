@@ -110,8 +110,8 @@ This application handles sensitive personal financial and investment data, so ex
 *   **External Access Caution**: Direct external network (HTTP) exposure via router port forwarding is not recommended. For secure external access (e.g., from a smartphone), please use encrypted security tunneling services like `ngrok`, `Cloudflare Tunnels`, or `Tailscale`.
 *   **Production Environment (HTTPS)**: While it runs stably on a local network via `waitress`, integrating a reverse proxy (e.g., Nginx) to apply HTTPS (SSL) certificates is highly recommended for proper web publishing. When serving over HTTPS, set `SESSION_COOKIE_SECURE=1` so the session cookie never travels over plaintext.
 *   **Static file exposure**: Only `static/` and your own `uploads/<username>/` are web-reachable. The database, backups, logs, source files, and `.secret_key` cannot be fetched by URL even by a logged-in user. (The project root used to be fully exposed — see [Design Rules](#6-project-structure).)
-*   **Response headers**: Every response carries a CSP (Content-Security-Policy), `X-Frame-Options`, `X-Content-Type-Options`, and `Referrer-Policy`; HTTPS requests also get HSTS. Adding a new CDN requires adding its origin to the CSP list in `middleware.py` — otherwise the browser blocks it silently.
-*   **Brute-force defense**: Per-IP request limits and per-account login lockout work together (`ratelimit.py`). Their state lives in process memory, so **run a single process** for the intended limits to hold.
+*   **Response headers**: Every response carries a CSP (Content-Security-Policy), `X-Frame-Options`, `X-Content-Type-Options`, and `Referrer-Policy`; HTTPS requests also get HSTS. Adding a new CDN requires adding its origin to the CSP list in `app/routes/middleware.py` — otherwise the browser blocks it silently.
+*   **Brute-force defense**: Per-IP request limits and per-account login lockout work together (`app/utils/ratelimit.py`). Their state lives in process memory, so **run a single process** for the intended limits to hold.
 
 ### Password Recovery
 The web-based admin reset only works **while an admin is already logged in**, which is useless when the admin themselves is locked out. In that case, log into the server and run the recovery tool. It works even when the app is not running and even when the account is locked; changes take effect immediately, without restarting the server.
@@ -134,38 +134,56 @@ The password is never echoed and never lands in shell history. Only the fact of 
 stock-memo/
 ├── backend_app.py      # App assembly — wires modules, initializes schema, bootstrap()
 ├── wsgi.py             # gunicorn/uwsgi entrypoint (calls bootstrap)
-│
-│  ── Request layer (Flask blueprints) ────────────────────────────
-├── auth.py             # Login, signup, logout, reset requests + session checks
-├── admin.py            # Admin — approve/delete accounts, reset passwords
-├── api.py              # Screen API — entry CRUD, stats, prices, news, bot controls
-├── backup_api.py       # Full backup ZIP export / restore
-├── trading_api.py      # Trading bot REST API (/api/v1/*) — auth, idempotency
-├── middleware.py       # Security/cache headers, CSP, gzip, global error handling
-│
-│  ── Domain layer (Flask-independent, easy to unit test) ─────────
-├── accounts.py         # Account-number normalization + account mapping storage
-├── entry_logic.py      # Entry persistence / integrity checks + INSERT column source
-├── stats.py            # Trade performance analytics (pure functions)
-├── prices.py           # Price lookup service (per-provider with fallbacks)
-├── backups.py          # Backup ZIP integrity verification (pure functions)
-├── images.py           # Inline base64 image extraction / attachment storage
-├── users.py            # Username rules, password policy, session epoch, paths
-│
-│  ── Foundation ─────────────────────────────────────────────────
 ├── config.py           # Paths, constants, secret key (single source of settings)
-├── schema.py           # DB schema single source — every table, column, index
-├── db.py               # SQLite connections (PRAGMAs applied consistently)
-├── applog.py           # Logging setup (daily rotation, single-line format)
-├── ratelimit.py        # IP request limits + account login lockout
-├── statscache.py       # Stats cache and data version (ETag)
-├── jobs.py             # Background threads (auto backup, NXT close caching)
+│
+├── app/                # Application code, grouped by role
+│   │
+│   │  ── routes: request layer (Flask blueprints) ───────────────
+│   ├── routes/
+│   │   ├── auth.py         # Login, signup, logout, reset requests + session checks
+│   │   ├── admin.py        # Admin — approve/delete accounts, reset passwords
+│   │   ├── api.py          # Screen API — entry CRUD, stats, prices, news, bot controls
+│   │   ├── backup_api.py   # Full backup ZIP export / restore
+│   │   └── middleware.py   # Security/cache headers, CSP, gzip, global error handling
+│   │
+│   │  ── services: domain layer (Flask-independent, unit-testable) ─
+│   ├── services/
+│   │   ├── accounts.py     # Account-number normalization + account mapping storage
+│   │   ├── stats.py        # Trade performance analytics (pure functions)
+│   │   ├── prices.py       # Price lookup service (per-provider with fallbacks)
+│   │   ├── news.py         # Ticker news lookup (Google News RSS + cache)
+│   │   ├── backups.py      # Backup ZIP integrity verification (pure functions)
+│   │   ├── images.py       # Inline base64 image extraction / attachment storage
+│   │   ├── users.py        # Username rules, password policy, session epoch, paths
+│   │   └── jobs.py         # Background threads (auto backup, NXT close caching)
+│   │
+│   │  ── database: data access and schema ───────────────────────
+│   ├── database/
+│   │   ├── db.py           # SQLite connections (PRAGMAs applied consistently)
+│   │   ├── schema.py       # DB schema single source — every table, column, index
+│   │   └── entry_logic.py  # Entry persistence / integrity checks + INSERT column source
+│   │
+│   │  ── utils: cross-cutting concerns ──────────────────────────
+│   └── utils/
+│       ├── applog.py       # Logging setup (daily rotation, single-line format)
+│       ├── ratelimit.py    # IP request limits + account login lockout
+│       ├── memcache.py     # TTL in-memory cache (prices/news) + process-local state list
+│       └── statscache.py   # Stats cache and data version (ETag)
+│
+├── trading_api/        # Trading bot REST API (/api/v1/*) — auth, idempotency
+│   ├── common.py       #   Blueprint, constants, time utils (no deps — others lean on it)
+│   ├── keys.py         #   API key hashing, issuance, revocation
+│   ├── security.py     #   Token signing/verification, scopes, rate limits
+│   ├── validation.py   #   Input normalization and shape validation
+│   ├── entries.py      #   Input → entries row → response, idempotent INSERT
+│   ├── bots.py         #   Bot registration, status, downstream command queue
+│   └── routes.py       #   HTTP handlers (assembly only)
 │
 │  ── Frontend ───────────────────────────────────────────────────
 ├── templates/          # Login, signup, and main screen HTML
 ├── static/
 │   ├── style.css       #   Screen design and layout
-│   ├── calc.js         #   Trading calculation single source (matches stats.py)
+│   ├── calc.js         #   Trading calculation single source (matches app/services/stats.py)
 │   └── js/             #   Screen behavior, split by feature (loaded 01-, 02-, …)
 │
 ├── run.sh              # Automated launch script (Mac/Linux)
@@ -191,7 +209,7 @@ and other users' account mappings. A leaked secret key lets anyone forge a sessi
 cookie and impersonate the admin, so this was privilege escalation, not just
 information disclosure. Guarded by `test_sensitive_files_are_not_served`.
 
-**2. `schema.py` is the only place that defines the DB schema.**
+**2. `app/database/schema.py` is the only place that defines the DB schema.**
 Add a new column to `ADDED_COLUMNS` *and* to the `CREATE TABLE` statement — the
 first serves existing databases, the second serves fresh ones. `test_schema.py`
 checks that a freshly created DB and a migrated legacy DB end up identical.
@@ -218,7 +236,7 @@ functions directly; switching to modules would break all of them.)
     Wrap event handlers as `() => fn()` so the lookup happens when the event fires.
 
 > Performance metrics (win rate, profit factor, monthly aggregates) live in exactly
-> one place: the backend `stats.py`. `static/calc.js` used to carry a copy of the same
+> one place: the backend `app/services/stats.py`. `static/calc.js` used to carry a copy of the same
 > algorithm, but the app never called it — the analysis screen has always used
 > `/api/stats` — so it was deleted. What remains in `static/calc.js` is only the
 > state-transition function the screens use to roll up holdings (average cost, basis).

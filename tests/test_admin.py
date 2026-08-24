@@ -9,11 +9,11 @@ import time
 
 import pytest
 
-import auth
+from app.routes import auth
 import backend_app
-import entry_logic
+from app.database import entry_logic
 import trading_api
-import users
+from app.services import users
 
 
 def _admin_routes(app):

@@ -8,8 +8,8 @@ from functools import wraps
 
 from flask import request
 
-import ratelimit
-from db import db_conn
+from app.utils import ratelimit
+from app.database.db import db_conn
 
 from .common import TOKEN_TTL_SECONDS, _err
 from .keys import _now_kst_str, _should_touch_last_used

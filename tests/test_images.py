@@ -10,7 +10,7 @@ import time
 
 import backend_app
 import config
-import images
+from app.services import images
 
 
 def test_image_upload_and_access(client):

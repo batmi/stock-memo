@@ -7,7 +7,7 @@
 
 from datetime import datetime
 
-import accounts
+from app.services import accounts
 
 from .common import KST, ZoneInfo
 

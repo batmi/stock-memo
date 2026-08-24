@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-from memcache import TTLCache
+from app.utils.memcache import TTLCache
 
 logger = logging.getLogger('news')
 

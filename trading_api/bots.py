@@ -8,7 +8,7 @@
 import json
 from datetime import timedelta
 
-from db import db_conn
+from app.database.db import db_conn
 
 from . import common
 from .common import (

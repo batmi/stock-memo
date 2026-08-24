@@ -5,7 +5,7 @@ import os
 from werkzeug.serving import make_server
 from playwright.sync_api import Page, expect
 
-import ratelimit
+from app.utils import ratelimit
 
 BASE_URL = "http://127.0.0.1:5001"
 

@@ -30,7 +30,7 @@ UniversalTradingHistoryAPI.json 의 계약을 그대로 구현합니다.
 DB·계좌 매핑·통계 캐시는 각 도메인 모듈을 직접 임포트합니다 (순환 없음).
 """
 
-import accounts
+from app.services import accounts
 
 # ⚠️ 아래는 **값 복사**다. 상수를 런타임에 바꿔치기하려면(테스트 등) 이 이름이
 #    아니라 그 값을 실제로 읽는 모듈(trading_api.common)을 패치해야 한다.

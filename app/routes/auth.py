@@ -19,12 +19,12 @@ from flask import (Blueprint, jsonify, redirect, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import config
-import entry_logic
-import images
+from app.database import entry_logic
+from app.services import images
 import logging
-import ratelimit
-from db import db_conn
-from users import current_session_epoch, is_valid_username, validate_password
+from app.utils import ratelimit
+from app.database.db import db_conn
+from app.services.users import current_session_epoch, is_valid_username, validate_password
 
 log = logging.getLogger('auth')
 

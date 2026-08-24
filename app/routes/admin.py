@@ -14,11 +14,11 @@ from flask import Blueprint, jsonify, session
 from werkzeug.security import generate_password_hash
 
 import config
-import ratelimit
-import statscache
-from auth import admin_required
-from db import db_conn
-from users import bump_session_epoch, generate_temp_password
+from app.utils import ratelimit
+from app.utils import statscache
+from app.routes.auth import admin_required
+from app.database.db import db_conn
+from app.services.users import bump_session_epoch, generate_temp_password
 
 log = logging.getLogger('admin')
 

@@ -10,10 +10,10 @@ import zipfile
 from unittest.mock import patch
 
 
-import accounts
+from app.services import accounts
 import backend_app
 import config
-import jobs
+from app.services import jobs
 
 
 @patch('time.sleep')
@@ -206,7 +206,7 @@ def test_auto_backup_job_with_uploads_and_errors(mock_sleep, client, app, tmp_pa
     mock_sleep.side_effect = side_effect
 
     # 검증 실패 상황을 위해 verify_backup_zip 모킹
-    with patch('jobs.verify_backup_zip', return_value=(False, "Verification failed test")):
+    with patch('app.services.jobs.verify_backup_zip', return_value=(False, "Verification failed test")):
         with app.app_context():
             try:
                 jobs.auto_backup_job()
@@ -221,7 +221,7 @@ def test_auto_backup_job_with_uploads_and_errors(mock_sleep, client, app, tmp_pa
 
     # 에러 블록 커버를 위해 DB 연결 오류 모킹
     sleep_calls[0] = 0
-    with patch('jobs.db_conn', side_effect=Exception("DB Error test")):
+    with patch('app.services.jobs.db_conn', side_effect=Exception("DB Error test")):
         with app.app_context():
             try:
                 jobs.auto_backup_job()
@@ -229,7 +229,7 @@ def test_auto_backup_job_with_uploads_and_errors(mock_sleep, client, app, tmp_pa
                 pass
 
 
-@patch('jobs.datetime')
+@patch('app.services.jobs.datetime')
 @patch('time.sleep')
 def test_auto_fetch_nxt_close_job(mock_sleep, mock_datetime, client, app):
     """
@@ -256,8 +256,8 @@ def test_auto_fetch_nxt_close_job(mock_sleep, mock_datetime, client, app):
         sess['expires_at'] = time.time() + 3600
     client.post('/api/entry', json={"type": "buy", "stockName": "삼성전자", "stockCode": "005930", "price": 10000, "quantity": 1})
     
-    with patch('prices.fetch_nxt_close', return_value=11000) as mock_fetch:
-        with patch('prices.is_market_holiday', return_value=False):
+    with patch('app.services.prices.fetch_nxt_close', return_value=11000) as mock_fetch:
+        with patch('app.services.prices.is_market_holiday', return_value=False):
             with app.app_context():
                 try:
                     jobs.auto_fetch_nxt_close_job()

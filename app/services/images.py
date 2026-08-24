@@ -11,7 +11,7 @@ import re
 import uuid
 
 import config
-from users import user_dir
+from app.services.users import user_dir
 
 # ⭐️ 본문(thoughts) HTML 에 내장된 base64 이미지 패턴
 #    Quill 에디터가 이미지를 base64 로 본문에 심으면 기록 1건이 수백 KB 가 되어

@@ -15,7 +15,7 @@ import threading
 from flask import jsonify, request, session
 from werkzeug.exceptions import HTTPException
 
-import applog
+from app.utils import applog
 
 # ⭐️ 텍스트 응답 gzip 압축: 초기 로딩 전송량 절감
 #    (/api/data 수 MB JSON, script.js 350KB→60KB 등)

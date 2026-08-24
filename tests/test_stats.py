@@ -27,7 +27,7 @@ import pytest
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, ROOT)
 
-import stats  # noqa: E402
+from app.services import stats  # noqa: E402
 
 FIXTURE_PATH = os.path.join(ROOT, 'tests', 'fixtures', 'parity_fixtures.json')
 EXPECTED_PATH = os.path.join(ROOT, 'tests', 'fixtures', 'stats_expected.json')

@@ -6,8 +6,8 @@
 """
 import threading
 
-import ratelimit
-from ratelimit import FailureLockout, SlidingWindow
+from app.utils import ratelimit
+from app.utils.ratelimit import FailureLockout, SlidingWindow
 
 
 # ── SlidingWindow ─────────────────────────────────────────────────────

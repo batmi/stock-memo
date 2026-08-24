@@ -25,12 +25,12 @@ import time
 #    "그래서 지금 무엇이 깨지는가"에 답하려면 세 파일을 열어야 했다.
 #    bootstrap() 이 기동 로그에 이 목록을 남긴다 — 운영 중에 눈에 보여야 한다.
 PROCESS_LOCAL_STATE = (
-    ('ratelimit',  '요청 제한·로그인 잠금 (워커 수만큼 한도가 늘어난다)'),
-    ('statscache', '통계 캐시·데이터 버전 (한쪽에서 무효화해도 다른 쪽은 옛 값)'),
-    ('users',      '세션 epoch 캐시 (비밀번호 변경 반영이 워커마다 늦을 수 있다)'),
-    ('prices',     '시세 단기 캐시 (외부 API 중복 호출 흡수 효과가 줄어든다)'),
-    ('news',       '뉴스 캐시 (같음)'),
-    ('middleware', '정적 자산 gzip 캐시 (워커마다 한 번씩 압축한다)'),
+    ('app.utils.ratelimit',  '요청 제한·로그인 잠금 (워커 수만큼 한도가 늘어난다)'),
+    ('app.utils.statscache', '통계 캐시·데이터 버전 (한쪽에서 무효화해도 다른 쪽은 옛 값)'),
+    ('app.services.users',   '세션 epoch 캐시 (비밀번호 변경 반영이 워커마다 늦을 수 있다)'),
+    ('app.services.prices',  '시세 단기 캐시 (외부 API 중복 호출 흡수 효과가 줄어든다)'),
+    ('app.services.news',    '뉴스 캐시 (같음)'),
+    ('app.routes.middleware', '정적 자산 gzip 캐시 (워커마다 한 번씩 압축한다)'),
 )
 
 _MISS = object()

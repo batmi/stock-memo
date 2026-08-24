@@ -22,13 +22,13 @@ import zipfile
 
 from flask import Blueprint, jsonify, request, send_file, session
 
-import accounts
+from app.services import accounts
 import config
-import entry_logic
-import images
-import statscache
-from db import db_conn
-from users import user_dir
+from app.database import entry_logic
+from app.services import images
+from app.utils import statscache
+from app.database.db import db_conn
+from app.services.users import user_dir
 
 log = logging.getLogger('backup_api')
 

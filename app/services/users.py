@@ -13,7 +13,7 @@ import secrets
 import string
 import threading
 
-from db import db_conn
+from app.database.db import db_conn
 
 log = logging.getLogger('users')
 

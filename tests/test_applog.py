@@ -18,7 +18,7 @@ import re
 
 import pytest
 
-import applog
+from app.utils import applog
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -33,10 +33,11 @@ def _project_py_files():
     applog.py 자신은 제외한다 — 거기 있는 getLogger 는 로그를 남기려는 것이 아니라
     서드파티 로거(werkzeug)를 침묵시키는 **설정**이다.
     """
+    applog_path = os.path.join(ROOT, 'app', 'utils', 'applog.py')
     for dirpath, dirnames, filenames in os.walk(ROOT):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
         for f in filenames:
-            if f.endswith('.py') and os.path.join(dirpath, f) != os.path.join(ROOT, 'applog.py'):
+            if f.endswith('.py') and os.path.join(dirpath, f) != applog_path:
                 yield os.path.join(dirpath, f)
 
 
@@ -126,7 +127,7 @@ def test_module_logger_output_reaches_the_log_file(name, tmp_path, monkeypatch):
 
 
 def test_custom_daily_rotating_file_handler(tmp_path):
-    from applog import CustomDailyRotatingFileHandler
+    from app.utils.applog import CustomDailyRotatingFileHandler
     import os
     
     log_file = tmp_path / "backend_app.log"
@@ -150,7 +151,7 @@ def test_custom_daily_rotating_file_handler(tmp_path):
 
 
 def test_console_filter():
-    from applog import ConsoleFilter, QUIET_CONSOLE_FUNCS
+    from app.utils.applog import ConsoleFilter, QUIET_CONSOLE_FUNCS
     import logging
     
     f = ConsoleFilter()

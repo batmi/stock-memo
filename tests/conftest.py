@@ -22,10 +22,10 @@ import config  # noqa: E402
 config.LOG_DIR = tempfile.mkdtemp(prefix='stock-memo-test-logs-')
 
 import backend_app  # noqa: E402
-import news  # noqa: E402
-import ratelimit  # noqa: E402
-import statscache  # noqa: E402
-import users  # noqa: E402
+from app.services import news  # noqa: E402
+from app.utils import ratelimit  # noqa: E402
+from app.utils import statscache  # noqa: E402
+from app.services import users  # noqa: E402
 from backend_app import app as flask_app  # noqa: E402
 
 # ⭐️ 테스트가 건드리면 안 되는 실제 데이터 경로. app 픽스처가 전부 임시 폴더로 돌린다.

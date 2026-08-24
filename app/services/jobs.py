@@ -16,12 +16,12 @@ import zipfile
 import json
 from datetime import datetime, timedelta, timezone
 
-import accounts
+from app.services import accounts
 import config
-import prices
-from backups import verify_backup_zip
-from db import db_conn, get_db
-from users import user_dir
+from app.services import prices
+from app.services.backups import verify_backup_zip
+from app.database.db import db_conn, get_db
+from app.services.users import user_dir
 
 log = logging.getLogger('jobs')
 

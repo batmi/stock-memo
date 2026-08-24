@@ -158,7 +158,7 @@ def test_ping_and_timeout(client):
     assert res_logout.status_code == 302
     assert 'timeout=1' in res_logout.location
 
-@patch('prices._http_get')
+@patch('app.services.prices._http_get')
 @patch('urllib.request.urlopen')
 def test_mock_external_apis(mock_urlopen, mock_http_get, client):
     """
@@ -190,7 +190,7 @@ def test_mock_external_apis(mock_urlopen, mock_http_get, client):
     assert len(res_news.json) > 0
     assert res_news.json[0]['title'] == 'Mock News'
 
-@patch('prices._http_get')
+@patch('app.services.prices._http_get')
 def test_current_price_edge_cases(mock_http_get, client, app):
     """현재 주가 API(/api/current_price)의 다양한 파싱 폴백 및 네트워크 에러 처리를 검증합니다."""
     with client.session_transaction() as sess:

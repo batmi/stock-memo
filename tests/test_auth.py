@@ -8,7 +8,7 @@ import time
 
 
 import backend_app
-import ratelimit
+from app.utils import ratelimit
 import trading_api
 from helpers import _signup_and_login
 

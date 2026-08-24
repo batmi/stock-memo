@@ -8,7 +8,7 @@ import hashlib
 import secrets
 import sqlite3
 
-from db import db_conn
+from app.database.db import db_conn
 
 from .common import (
     API_KEY_PREFIX, DEFAULT_SCOPES, LAST_USED_WRITE_INTERVAL_SECONDS,
