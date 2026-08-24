@@ -534,6 +534,7 @@ window.renderMonthlyProfitChart = function() {
 
         if (!portfolio[ident]) portfolio[ident] = { qty: 0, totalCost: 0, avgPrice: 0, stockCode: entry.stockCode || '' };
         if (entry.stockCode) portfolio[ident].stockCode = entry.stockCode; // 최신 종목코드 갱신
+        portfolio[ident].displayName = stock; // 평가손익 분해에서 코드 대신 부를 이름
         if (!stockRemainingBuys[ident]) stockRemainingBuys[ident] = [];
         
         if (!allProfitByMonth[dateKey]) allProfitByMonth[dateKey] = 0;
@@ -601,12 +602,15 @@ window.renderMonthlyProfitChart = function() {
     //    종목이 캐시에 없을 수 있다. 예전엔 그런 종목이 소리 없이 0으로 빠져 평가손익이
     //    실제보다 작게 나왔다 → 빠진 종목을 모아 화면에 알린다.
     const evalMissingStocks = [];
-    for (const stock in stockRemainingBuys) {
-        const lots = stockRemainingBuys[stock];
+    for (const ident in stockRemainingBuys) {
+        const lots = stockRemainingBuys[ident];
         // 지금 보고 있는 구간 안에 남은 매수건이 있는 종목만 평가 대상이다
         if (!lots.some(buy => monthlyData[buy.dateKey])) continue;
 
-        const stockCode = portfolio[stock]?.stockCode;
+        //  이 표의 키는 동일성(대개 종목코드)이다. 사람이 읽는 자리(상세 내역·경고)에는
+        //  다른 집계와 똑같이 '최신 종목명'으로 바꿔 넣는다 — 코드가 그대로 나오면 안 된다.
+        const stock = portfolio[ident]?.displayName || displayNameForIdentity(ident) || ident;
+        const stockCode = portfolio[ident]?.stockCode;
         const currentPrice = stockCode ? window.currentPriceCache[stockCode] : undefined;
         if (currentPrice === undefined || currentPrice === null) {
             evalMissingStocks.push(stock);
