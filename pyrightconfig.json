@@ -1,6 +1,0 @@
-{
-    "venvPath": ".",
-    "venv": ".venv",
-    "extraPaths": ["tests"],
-    "reportMissingTypeStubs": false
-}
