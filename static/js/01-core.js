@@ -124,6 +124,8 @@ let isAmountMasked = document.documentElement.classList.contains('amount-masked'
 let currentMarketMode = 'NXT'; // ⭐️ KRX/NXT 토글 상태 (기본값 NXT)
 let currentPortfolioArrayForPrice = []; // 현재가 계산용 임시 배열
 let showHistoryClosedPositions = false; // ⭐️ 히스토리도 포트폴리오와 동일하게 청산·숨김 종목을 기본 숨김 처리
+let stockIdentityByName = {};  // ⭐️ 종목명 → 동일성(코드) 표. recomputeHiddenStocks 가 채운다
+let stockNameByIdentity = {};  // ⭐️ 동일성(코드) → 표시 이름(가장 최근 기록의 이름). 같은 표가 함께 만들어진다
 let hiddenStocks = new Set();  // ⭐️ 숨김 처리된 종목명 집합 — 각 종목의 최신 기록(updatedAt→createdAt→id)의 isHidden 으로 판정
 
 // ══════════════════════════════════════════════════════════════════════
@@ -173,6 +175,61 @@ function exclusionBadgeLabel(entry) {
 
 function portfolioKey(stockName, isSim) {
     return isSim ? stockName + SIM_KEY_SUFFIX : stockName;
+}
+
+// ⭐️ 종목 동일성 키 — 코드가 있으면 코드, 없으면 이름 (calc.js 가 정본, 백엔드
+//    stats.stock_identity 와 같은 기준). 화면 전역에서 '같은 종목인가'는 이걸로 판정한다.
+function identityOf(entry) {
+    return window.stockIdentity ? window.stockIdentity(entry) : ((entry && entry.stockName) || '');
+}
+
+// 보유 칸 키 = 종목 동일성 + 실거래/모의·제외 구분.
+//  같은 종목이라도 모의·제외 계좌 물량은 실거래 평단·실현손익에 섞이면 안 되므로 칸을 나눈다.
+function portfolioKeyFor(entry) {
+    return portfolioKey(identityOf(entry), isExcludedFromTotals(entry));
+}
+
+// ⭐️ 화면에 남아 있는 '이름으로 지정된 것들'(카드 클릭·필터 드롭다운·달력 링크·레거시 메모)을
+//    동일성으로 옮긴다. 이름만 비교하면 표기가 갈린 같은 종목의 기록이 필터에서 빠진다.
+//    표는 recomputeHiddenStocks 가 목록을 훑을 때 함께 만든다(여기서 다시 훑지 않는다).
+function identityForStockName(name) {
+    const target = (name == null ? '' : String(name)).trim();
+    if (!target) return '';
+    if (stockIdentityByName[target]) return stockIdentityByName[target];
+    //  표가 아직 안 만들어진 시점(첫 렌더 순서에 따라)에도 답은 나와야 한다 — 그때만 훑는다.
+    const entries = (typeof cloudEntries !== 'undefined' && cloudEntries) ? cloudEntries : [];
+    const hit = entries.find(e => e && (e.type || 'trade') === 'trade'
+        && (e.stockName || '').trim() === target);
+    return hit ? identityOf(hit) : target;
+}
+
+// ⭐️ 동일성 → 화면에 보여 줄 종목명. 표기가 갈린 같은 종목은 **가장 최근 기록의 이름**
+//    하나로 부른다 — 백엔드 stats.display_names 와 같은 규칙이다.
+//    표가 아직 없으면(첫 렌더 순서) 동일성 자체를 돌려준다. 호출부가 원래 이름으로 받아 준다.
+function displayNameForIdentity(identity) {
+    const key = (identity == null ? '' : String(identity)).trim();
+    if (!key) return '';
+    return stockNameByIdentity[key] || key;
+}
+
+// 기록 하나를 화면에 부를 이름. 이름이 갈려도 카드·달력·차트가 같은 이름으로 부르게 한다.
+function displayNameForEntry(entry) {
+    if (!entry) return '';
+    //  표가 아직 없으면(첫 렌더 순서) 그 기록의 이름을 그대로 쓴다 — 코드가 이름 자리에
+    //  튀어나오지 않게 한다.
+    return stockNameByIdentity[identityOf(entry)] || (entry.stockName || '');
+}
+
+// ⭐️ 종목 드롭다운(<select>)에 세울 값 고르기. 저장된 필터 값이 **옛 표기**일 수 있으므로
+//    이름이 그대로 없으면 동일성이 같은 옵션으로 옮겨 준다. 없으면 빈 문자열.
+//    (필터 자체는 동일성으로 대조하니 결과는 이미 맞다 — 어긋나는 건 드롭다운 표시뿐이다)
+function resolveStockOptionValue(options, value) {
+    const target = (value == null ? '' : String(value)).trim();
+    if (!target || target === 'all') return '';
+    if (options.indexOf(target) !== -1) return target;
+    const ident = identityForStockName(target);
+    if (!ident) return '';
+    return options.find(name => identityForStockName(name) === ident) || '';
 }
 
 // HTML 속성값·속성 선택자에 문자열을 안전하게 넣기 위한 최소 이스케이프

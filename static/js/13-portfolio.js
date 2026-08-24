@@ -39,7 +39,9 @@ function updatePortfolioSummary() {
         // ⭐️ 대시보드 투자 분류 필터 적용
         if (currentDashboardAccount !== 'all' && (entry.tradeClass || '') !== currentDashboardAccount) return;
 
-        const stock = entry.stockName;
+        // 표시 이름은 표기가 갈린 같은 종목을 **한 이름**으로 부르기 위한 공용 규칙을 따른다
+        //  (가장 최근 체결의 이름 — 드롭다운·달력·백엔드 stats.display_names 와 같다).
+        const stock = displayNameForEntry(entry);
         const qty = Number(entry.quantity) || 0;
         const price = Number(entry.price) || 0;
 
@@ -48,9 +50,14 @@ function updatePortfolioSummary() {
         const isSim = isExcludedFromTotals(entry);
         const excludeLabel = isSim ? exclusionBadgeLabel(entry) : '';
 
-        const key = portfolioKey(stock, isSim);
+        // ⭐️ 칸은 **종목코드**로 가른다(identityOf). 이름으로 가르면 표기가 갈린 같은 종목이
+        //    카드 두 장으로 쪼개진다 — 봇이 보내는 증권사 정식 명칭과 손으로 적어 둔 이름이
+        //    다를 때가 그렇다(2026-08-24: 'KODEX 삼성그룹' vs 'KODEX 삼성그룹 ETF', 코드는 둘 다 102780).
+        const identity = identityOf(entry);
+        const key = portfolioKeyFor(entry);
 
-        if (!portfolio[key]) portfolio[key] = { stock, isSim, excludeLabel, qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, realizedCost: 0, accountName: '', tradeClass: '', traded: false, stockCode: '' };
+        if (!portfolio[key]) portfolio[key] = { stock, identity, isSim, excludeLabel, qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, realizedCost: 0, accountName: '', tradeClass: '', traded: false, stockCode: '' };
+        if (stock) portfolio[key].stock = stock;
         if (entry.tradeClass) portfolio[key].tradeClass = entry.tradeClass; // 가장 최근 거래의 투자 분류 기록
         if (entry.stockCode) portfolio[key].stockCode = entry.stockCode; // 종목코드 기록
 
@@ -99,7 +106,7 @@ function updatePortfolioSummary() {
         //    총 투자금액·총 평가금액·누적 실현 손익은 숨김 여부와 관계없이 계속 반영해야 하고,
         //    현재가 조회 대상(currentPortfolioArrayForPrice)에도 포함돼야 하기 때문이다.
         //    실제 카드 노출 여부는 아래 렌더 루프에서 걸러낸다.
-        const isHiddenStock = hiddenStocks.has(stock);
+        const isHiddenStock = hiddenStocks.has(p.identity || stock);
         if (!isClosed) {
             portfolioArray.push({ key, ...p, isClosed: false, isHiddenStock });
         } else if (showClosedPositions && (p.traded || isHiddenStock)) {
@@ -614,6 +621,25 @@ window.updateDashboardFilterStyle = function(element) {
     }
 };
 
+// ⭐️ 종목 드롭다운에 세울 이름 목록 — **동일성(코드) 하나당 한 줄**, 이름은 가장 최근 기록의 것.
+//    (2026-08-24: 봇이 보낸 'KODEX 삼성그룹'과 손으로 적은 'KODEX 삼성그룹 ETF'가 코드는 같은데
+//     두 줄로 섰다.) 표시 이름 규칙은 카드·백엔드(stats.display_names)와 같다.
+function stockFilterOptions() {
+    const latest = {}; // identity -> { name, ts, id }
+    cloudEntries.forEach(entry => {
+        const name = (entry.stockName || '').trim();
+        if (!name) return;
+        // 메모는 종목코드를 안 갖는 경우가 많아 이름 → 동일성 표를 거쳐 묶는다.
+        const ident = (entry.type || 'trade') === 'trade' ? identityOf(entry) : identityForStockName(name);
+        if (!ident) return;
+        const ts = entry.rawDate ? (new Date(entry.rawDate).getTime() || 0) : 0;
+        const id = Number(entry.id) || 0;
+        const prev = latest[ident];
+        if (!prev || ts > prev.ts || (ts === prev.ts && id > prev.id)) latest[ident] = { name, ts, id };
+    });
+    return Object.values(latest).map(v => v.name).sort();
+}
+
 // ⭐️ 드롭다운 필터에 종목명을 동적으로 추가하는 함수
 function updateFilterDropdown() {
     const stockSelect = document.getElementById('filterStockSelect');
@@ -627,15 +653,21 @@ function updateFilterDropdown() {
         window.updateDashboardFilterStyle(recordTypeSelect);
     }
 
-    const stocks = [...new Set(cloudEntries.map(e => e.stockName).filter(Boolean))].sort();
+    // ⭐️ 종목 목록은 이름이 아니라 **동일성(코드)** 하나당 한 줄이다. 이름으로 모으면 표기가
+    //    갈린 같은 종목이 두 줄로 서는데, 필터는 코드로 대조하므로 어느 줄을 골라도 결과가
+    //    같다 — 목록만 어지럽고 사용자는 둘 중 뭐가 다른지 알 수 없다.
+    const stocks = stockFilterOptions();
     if (stockSelect) {
         let html = '<option value="all">종목별</option>';
         stocks.forEach(stock => {
             html += `<option value="${stock.replace(/"/g, '&quot;')}">${stock}</option>`;
         });
         stockSelect.innerHTML = html;
-        if (stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) {
-            stockSelect.value = currentFilterStock;
+        // 저장해 둔 필터 값이 옛 표기여도 같은 종목의 현재 이름으로 옮겨 준다(값이 살아남는다).
+        const resolvedStock = resolveStockOptionValue(stocks, currentFilterStock);
+        if (resolvedStock) {
+            stockSelect.value = resolvedStock;
+            currentFilterStock = resolvedStock;
         } else {
             stockSelect.value = 'all';
             currentFilterStock = 'all';
@@ -776,8 +808,10 @@ function updateFilterDropdown() {
             });
         }
         chartStockFilter.innerHTML = stockHtml;
-        if (chartStockFilter.querySelector(`option[value="${currentStockVal.replace(/"/g, '\\"')}"]`)) {
-            chartStockFilter.value = currentStockVal;
+        const resolvedChartStock = resolveStockOptionValue(stocks, currentStockVal);
+        if (resolvedChartStock) {
+            chartStockFilter.value = resolvedChartStock;
+            currentChartStock = resolvedChartStock;
         } else {
             chartStockFilter.value = 'all';
             currentChartStock = 'all';

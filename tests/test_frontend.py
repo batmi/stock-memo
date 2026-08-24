@@ -257,7 +257,7 @@ def test_simulated_trades_show_as_card_but_excluded_from_totals(page: Page):
     expect(page.locator('#portfolioGrid .portfolio-card')).to_have_count(2, timeout=10000)
 
     # 1) 모의투자도 카드로는 보인다 (+ '모의' 배지)
-    sim_card = page.locator('#portfolioGrid .portfolio-card[data-id="모의종목::모의"]')
+    sim_card = page.locator('#portfolioGrid .portfolio-card[data-id="000002::모의"]')
     expect(sim_card).to_have_count(1)
     expect(sim_card).to_contain_text('모의')
 
@@ -288,8 +288,8 @@ def test_simulated_trade_does_not_pollute_real_average_price(page: Page):
     ]) == 'OK'
 
     page.reload()
-    real_card = page.locator('#portfolioGrid .portfolio-card[data-id="겹침종목"]')
-    sim_card = page.locator('#portfolioGrid .portfolio-card[data-id="겹침종목::모의"]')
+    real_card = page.locator('#portfolioGrid .portfolio-card[data-id="000003"]')
+    sim_card = page.locator('#portfolioGrid .portfolio-card[data-id="000003::모의"]')
     expect(real_card).to_have_count(1, timeout=10000)
     expect(sim_card).to_have_count(1)
 
@@ -570,7 +570,7 @@ def test_amount_mask_hides_money_but_keeps_prices_flowing(page: Page):
     ]) == 'OK'
 
     page.reload()
-    card = page.locator('#portfolioGrid .portfolio-card[data-id="가림종목"]')
+    card = page.locator('#portfolioGrid .portfolio-card[data-id="000101"]')
     expect(card).to_have_count(1, timeout=10000)
 
     btn = page.locator('#btnToggleAmountMask')
@@ -590,12 +590,12 @@ def test_amount_mask_hides_money_but_keeps_prices_flowing(page: Page):
 
     # 1) 자산 규모가 드러나는 값은 흐려진다
     for sel in ('#centerTotalInvested', '#centerTotalProfit',
-                '#portfolioGrid .portfolio-card[data-id="가림종목"] .cp-eval'):
+                '#portfolioGrid .portfolio-card[data-id="000101"] .cp-eval'):
         assert 'blur' in filter_of(sel), f'가려지지 않음: {sel}'
 
     # 2) 종목명·현재가는 남는다 (현재가는 공개 시세라 가릴 이유가 없다)
-    assert filter_of('#portfolioGrid .portfolio-card[data-id="가림종목"] .stock-name') == 'none'
-    assert filter_of('#portfolioGrid .portfolio-card[data-id="가림종목"] .cp-price') == 'none'
+    assert filter_of('#portfolioGrid .portfolio-card[data-id="000101"] .stock-name') == 'none'
+    assert filter_of('#portfolioGrid .portfolio-card[data-id="000101"] .cp-price') == 'none'
 
     # 3) 핵심: 가려도 값은 계속 계산된다 (예전 토글은 여기서 조회가 끊겼다)
     #    앞선 테스트가 심어 둔 기록도 함께 잡히므로 합계 대신 이 종목 카드로 확인한다.
@@ -672,3 +672,90 @@ def test_broker_map_accepts_both_hts_code_forms(page: Page):
     # 모르는 코드는 그대로 돌려준다 (임의 문자열을 삼키지 않는다)
     assert page.evaluate("() => getMappedBroker('999')") == '999'
     assert page.evaluate("() => getMappedBroker('')") == ''
+
+
+def test_same_code_different_names_is_one_position(page: Page):
+    """종목명 표기가 갈려도 **종목코드가 같으면 한 종목**이다.
+
+    [사고 · 2026-08-24] HTS 봇이 보낸 체결의 종목명은 증권사 정식 명칭
+    ('KODEX 삼성그룹')이고, 이미 들고 있던 기록은 사용자가 적어 둔 이름
+    ('KODEX 삼성그룹 ETF')이었다. 종목코드는 양쪽 다 102780 인데 화면이 이름으로
+    묶는 바람에 1주가 기존 보유 228주에 합쳐지지 않고 별도 카드로 섰다.
+    백엔드(stats.stock_identity)는 처음부터 코드 1순위였다 — 화면만 뒤처져 있었다.
+    """
+    _login(page)
+
+    assert _seed_entries(page, [
+        {"type": "trade", "tradeType": "매수", "stockName": "KODEX 삼성그룹 ETF",
+         "stockCode": "102780", "price": 20402, "quantity": 228,
+         "tradeClass": "중기투자", "rawDate": "2026-04-10T09:25", "id": 900601},
+        # 봇이 밀어 넣은 수동 체결 — 이름만 다르고 코드는 같다
+        {"type": "trade", "tradeType": "매수", "stockName": "KODEX 삼성그룹",
+         "stockCode": "102780", "price": 25500, "quantity": 1,
+         "tradeClass": "중기투자", "rawDate": "2026-08-24T12:00", "id": 900602},
+    ]) == 'OK'
+
+    page.reload()
+    card = page.locator('#portfolioGrid .portfolio-card[data-id="102780"]')
+    expect(card).to_have_count(1, timeout=10000)
+
+    # 카드가 하나뿐이어야 한다 — 이름으로 묶이면 여기서 2가 된다
+    expect(page.locator('#portfolioGrid .portfolio-card:has-text("KODEX")')).to_have_count(1)
+
+    # 수량은 228 + 1 = 229주로 합쳐진다
+    expect(card).to_contain_text('229주')
+
+    # 카드 클릭 → 히스토리 필터. 표기가 다른 기록까지 함께 나와야 한다
+    #  (이름으로 거르면 둘 중 하나만 남아 '카드는 합쳐졌는데 목록은 반만' 보인다)
+    matched = page.evaluate("""() => cloudEntries.filter(
+        e => e.type === 'trade' && identityOf(e) === identityForStockName('KODEX 삼성그룹')
+    ).length""")
+    assert matched == 2, f"이름이 갈린 기록이 필터에서 빠진다 (matched={matched})"
+
+
+def test_stock_filter_dropdown_lists_one_row_per_stock(page: Page):
+    """종목 드롭다운은 **한 종목당 한 줄**이다 — 표기가 갈려도.
+
+    카드가 코드로 합쳐진 뒤에도 드롭다운은 이름으로 모으고 있었다. 그래서 같은 종목이
+    '한화에어로스페이스'와 '한화에어로' 두 줄로 서는데, 필터는 동일성(코드)으로 대조하므로
+    **어느 줄을 골라도 결과가 같다** — 사용자는 둘의 차이를 알 수 없고 목록만 길어진다.
+    한 줄로 세우되 이름은 가장 최근 체결의 것을 쓴다(백엔드 stats.display_names 와 같은 규칙).
+    """
+    _login(page)
+
+    assert _seed_entries(page, [
+        {"type": "trade", "tradeType": "매수", "stockName": "한화에어로스페이스",
+         "stockCode": "012450", "price": 700000, "quantity": 3,
+         "tradeClass": "중기투자", "rawDate": "2026-05-02T09:10", "id": 900701},
+        # 나중에 들어온 봇 체결 — 코드는 같고 이름 표기만 짧다
+        {"type": "trade", "tradeType": "매수", "stockName": "한화에어로",
+         "stockCode": "012450", "price": 800000, "quantity": 1,
+         "tradeClass": "중기투자", "rawDate": "2026-08-20T13:30", "id": 900702},
+    ]) == 'OK'
+
+    page.reload()
+    expect(page.locator('#portfolioGrid .portfolio-card[data-id="012450"]')).to_have_count(1, timeout=10000)
+
+    options = page.evaluate(
+        "() => Array.from(document.querySelectorAll('#filterStockSelect option')).map(o => o.value)")
+    hanwha = [o for o in options if o.startswith('한화')]
+    assert hanwha == ['한화에어로'], f"드롭다운이 같은 종목을 여러 줄로 세운다: {hanwha}"
+
+    # 차트 필터 드롭다운도 같은 목록을 쓴다
+    chart_options = page.evaluate(
+        "() => Array.from(document.querySelectorAll('#chartStockFilter option')).map(o => o.value)")
+    assert [o for o in chart_options if o.startswith('한화')] == ['한화에어로']
+
+    # 표시 이름은 화면 어디서나 같은 규칙(가장 최근 체결의 이름)으로 정해진다 —
+    #  카드·달력 배지·월별 차트 분해 목록이 이 함수 하나를 본다.
+    assert page.evaluate(
+        "() => displayNameForEntry({type:'trade', stockName:'한화에어로스페이스', stockCode:'012450'})"
+    ) == '한화에어로'
+    expect(page.locator('#portfolioGrid .portfolio-card[data-id="012450"]')).to_contain_text('한화에어로')
+
+    # 옛 표기로 저장돼 있던 필터 값도 같은 종목의 현재 이름으로 옮겨 준다(필터가 풀리지 않는다).
+    resolved = page.evaluate("""() => {
+        const opts = Array.from(document.querySelectorAll('#filterStockSelect option')).map(o => o.value);
+        return resolveStockOptionValue(opts, '한화에어로스페이스');
+    }""")
+    assert resolved == '한화에어로', f"옛 이름이 현재 옵션으로 옮겨지지 않는다: {resolved!r}"

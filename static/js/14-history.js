@@ -9,10 +9,28 @@
 // ═══════════════════════════════════════════════════════════════════
 
 function recomputeHiddenStocks() {
-    const latest = {}; // stockName -> { ts, id, isHidden }
+    // ⭐️ 키는 종목명이 아니라 **종목 동일성**(코드 우선)이다. 이름으로 두면 봇이 보내는
+    //    증권사 정식 명칭과 손으로 적은 이름이 갈릴 때 숨김이 저절로 풀린다 —
+    //    새 이름의 기록이 '숨김 이력이 없는 별개 종목'으로 잡히기 때문이다.
+    const latest = {}; // identity -> { ts, id, isHidden }
+    const byName = {};  // 종목명 → 동일성 (이름으로 지정된 필터·레거시 메모를 옮길 때 쓴다)
+    // ⭐️ 동일성 → 표시 이름. 표기가 갈린 같은 종목을 화면 어디서나 **한 이름**으로 부르기 위한 표다.
+    //    규칙은 백엔드(stats.display_names)와 같다 — 가장 최근 체결의 이름이 이긴다.
+    const nameOfIdentity = {}; // identity -> { name, ts, id }
     cloudEntries.forEach(entry => {
         const stockName = entry.stockName;
         if (!stockName || (entry.type || 'trade') !== 'trade') return;
+        byName[stockName.trim()] = identityOf(entry);
+
+        // 표시 이름은 **거래 시각** 기준으로 고른다(숨김 판정의 updatedAt 기준과 다르다 —
+        //  이름은 '언제 산 종목이냐'의 문제이고, 숨김은 '언제 그렇게 정했냐'의 문제다).
+        const identForName = identityOf(entry);
+        const nameTs = entry.rawDate ? (new Date(entry.rawDate).getTime() || 0) : 0;
+        const nameId = Number(entry.id) || 0;
+        const prevName = nameOfIdentity[identForName];
+        if (!prevName || nameTs > prevName.ts || (nameTs === prevName.ts && nameId > prevName.id)) {
+            nameOfIdentity[identForName] = { name: stockName.trim(), ts: nameTs, id: nameId };
+        }
         // ⭐️ 숨김은 사용자가 실거래 종목에 대해 정한 의도다. 봇이 밀어 넣는 모의투자 기록은
         //    항상 isHidden=0 이고 가장 최신이라, 포함시키면 숨김이 저절로 풀려버린다.
         if (isSimulatedEntry(entry)) return;
@@ -20,18 +38,23 @@ function recomputeHiddenStocks() {
         const stamp = entry.updatedAt || entry.createdAt;
         const ts = stamp ? (new Date(stamp).getTime() || 0) : 0;
         const id = Number(entry.id) || 0;
-        const prev = latest[stockName];
+        const ident = identityOf(entry);
+        const prev = latest[ident];
         if (!prev || ts > prev.ts || (ts === prev.ts && id > prev.id)) {
-            latest[stockName] = { ts, id, isHidden: !!entry.isHidden };
+            latest[ident] = { ts, id, isHidden: !!entry.isHidden };
         }
     });
 
-    hiddenStocks = new Set(Object.keys(latest).filter(name => latest[name].isHidden));
+    stockIdentityByName = byName;
+    stockNameByIdentity = Object.fromEntries(
+        Object.entries(nameOfIdentity).map(([ident, v]) => [ident, v.name]));
+    hiddenStocks = new Set(Object.keys(latest).filter(k => latest[k].isHidden));
 }
 
 // ⭐️ 특정 종목이 현재 숨김 상태인지 조회 (입력 폼 프리필용)
+//    폼은 이름만 알고 있으므로 이름 → 동일성으로 옮겨 조회한다.
 function isStockHidden(stockName) {
-    return !!stockName && hiddenStocks.has(stockName.trim());
+    return !!stockName && hiddenStocks.has(identityForStockName(stockName));
 }
 
 // ⭐️ 입력 폼의 숨김 체크박스를 해당 종목의 현재 숨김 상태로 동기화한다.
@@ -66,6 +89,8 @@ function displayEntries(isFilterUpdate = false) {
     // ⭐️ 청산 종목 수량 계산 + 필터 연관 종목 추출을 단일 순회로 통합
     //   (기존: cloudEntries 를 최대 4회 반복 → 1회로 축소)
     const stockQtys = {};                              // 청산 종목 필터용 보유 수량 (portfolioKey 기준)
+    // ⭐️ 연관 종목 집합의 키는 이름이 아니라 **동일성(코드)** 이다. 이름으로 담으면 메모에
+    //    적힌 표기와 체결의 표기가 갈릴 때 그 메모가 모아보기에서 빠진다.
     const relatedStocksForAccountFilter = new Set();    // 분류별 모아보기 연관 종목
     const relatedStocksForBrokerFilter = new Set();     // 증권사별 모아보기 연관 종목
     const relatedStocksForSubAccountFilter = new Set(); // 증권계좌별 모아보기 연관 종목
@@ -76,22 +101,22 @@ function displayEntries(isFilterUpdate = false) {
     cloudEntries.forEach(entry => {
         const entryType = entry.type || 'trade';
         if (entryType !== 'trade' || !entry.stockName) return;
-        const stockName = entry.stockName;
 
         // ⭐️ 청산 판정 수량은 포트폴리오와 똑같이 (종목 + 모의/제외 여부)별로 나눠 쌓는다.
         //    한 칸에 합치면 모의·제외 계좌 물량이 실거래 잔량을 오염시키고,
         //    반대로 실거래만 세면 모의 전용 종목은 수량이 아예 안 잡혀 청산 판정에서 빠진다.
         if (entry.tradeType === '매수' || entry.tradeType === '매도') {
-            const qtyKey = portfolioKey(stockName, isExcludedFromTotals(entry));
+            const qtyKey = portfolioKeyFor(entry);   // 포트폴리오와 같은 기준(코드 우선)
             if (stockQtys[qtyKey] === undefined) stockQtys[qtyKey] = 0;
             if (entry.tradeType === '매수') stockQtys[qtyKey] += (Number(entry.quantity) || 0);
             else stockQtys[qtyKey] -= (Number(entry.quantity) || 0);
         }
 
-        // ⭐️ 분류별/증권사별 모아보기 시 연관된 일반 메모를 함께 보여주기 위해 종목명 추출
-        if (needAccount && entry.tradeClass === currentFilterAccount) relatedStocksForAccountFilter.add(stockName);
-        if (needBroker && getMappedBroker(entry.brokerAccount) === currentFilterBroker) relatedStocksForBrokerFilter.add(stockName);
-        if (needSubAccount && getMappedSubAccount(entry.subAccount, entry.accountName) === currentFilterSubAccount) relatedStocksForSubAccountFilter.add(stockName);
+        // ⭐️ 분류별/증권사별 모아보기 시 연관된 일반 메모를 함께 보여주기 위해 종목 동일성 추출
+        const relatedIdentity = identityOf(entry);
+        if (needAccount && entry.tradeClass === currentFilterAccount) relatedStocksForAccountFilter.add(relatedIdentity);
+        if (needBroker && getMappedBroker(entry.brokerAccount) === currentFilterBroker) relatedStocksForBrokerFilter.add(relatedIdentity);
+        if (needSubAccount && getMappedSubAccount(entry.subAccount, entry.accountName) === currentFilterSubAccount) relatedStocksForSubAccountFilter.add(relatedIdentity);
     });
     
     // ⭐️ 검색창에 입력 중인 텍스트가 있다면 다중 키워드 배열에 자동 등록하고 창 비움
@@ -103,6 +128,15 @@ function displayEntries(isFilterUpdate = false) {
         filterStockInput.value = '';
         if (clearFilterBtn) clearFilterBtn.style.display = 'none';
     }
+
+    // ⭐️ 이름으로 지정된 종목 필터를 동일성으로 옮겨 둔다(루프 밖에서 한 번만).
+    //    카드 클릭·드롭다운은 이름을 넘기는데, 표기가 갈린 같은 종목의 기록이 빠지면
+    //    '카드는 합쳐졌는데 목록은 반만 나오는' 상태가 된다.
+    const filterStockIdentity = currentFilterStock === 'all'
+        ? null : identityForStockName(currentFilterStock);
+    //  메모는 종목코드 없이 이름만 달고 있을 수 있다(레거시). 이름표로 동일성을 찾아 준다.
+    const identityOfEntry = (entry) => ((entry.type || 'trade') === 'trade'
+        ? identityOf(entry) : identityForStockName(entry.stockName));
 
     const filteredEntries = cloudEntries.filter(entry => {
         if (currentFilterKeywords.length > 0) {
@@ -134,37 +168,38 @@ function displayEntries(isFilterUpdate = false) {
             if (entryType !== currentFilterRecordType) return false;
         }
         if (currentFilterStock !== 'all') {
-            if ((entry.stockName || '') !== currentFilterStock) return false;
+            if (identityOfEntry(entry) !== filterStockIdentity) return false;
         }
         if (currentFilterAccount !== 'all') {
             const entryType = entry.type || 'trade';
             const isMatchTrade = entryType === 'trade' && (entry.tradeClass || '') === currentFilterAccount;
-            const isMatchMemo = entryType === 'memo' && relatedStocksForAccountFilter.has(entry.stockName);
+            const isMatchMemo = entryType === 'memo' && relatedStocksForAccountFilter.has(identityForStockName(entry.stockName));
             if (!isMatchTrade && !isMatchMemo) return false;
         }
         if (currentFilterBroker !== 'all') {
             const entryType = entry.type || 'trade';
             const isMatchTrade = entryType === 'trade' && getMappedBroker(entry.brokerAccount) === currentFilterBroker;
-            const isMatchMemo = entryType === 'memo' && relatedStocksForBrokerFilter.has(entry.stockName);
+            const isMatchMemo = entryType === 'memo' && relatedStocksForBrokerFilter.has(identityForStockName(entry.stockName));
             if (!isMatchTrade && !isMatchMemo) return false;
         }
         if (currentFilterSubAccount !== 'all') {
             const entryType = entry.type || 'trade';
             const isMatchTrade = entryType === 'trade' && getMappedSubAccount(entry.subAccount, entry.accountName) === currentFilterSubAccount;
-            const isMatchMemo = entryType === 'memo' && relatedStocksForSubAccountFilter.has(entry.stockName);
+            const isMatchMemo = entryType === 'memo' && relatedStocksForSubAccountFilter.has(identityForStockName(entry.stockName));
             if (!isMatchTrade && !isMatchMemo) return false;
         }
         
         // ⭐️ 청산종목 숨김 상태일 때 (보유 수량이 0인 종목과 숨김 종목을 검색 및 필터에서 제외)
         if (!showHistoryClosedPositions && entry.stockName) {
-            if (hiddenStocks.has(entry.stockName)) return false;
+            if (hiddenStocks.has(identityOfEntry(entry))) return false;
 
             // 매매 기록은 자기 칸(실거래/모의·제외)의 잔량으로만 판정한다.
             // 일반 메모는 어느 칸에 속하는지 알 수 없으므로, 그 종목의 칸이 모두 청산됐을 때만 숨긴다.
             const entryType = entry.type || 'trade';
+            const memoIdentity = identityForStockName(entry.stockName);
             const qtyKeys = entryType === 'trade'
-                ? [portfolioKey(entry.stockName, isExcludedFromTotals(entry))]
-                : [entry.stockName, portfolioKey(entry.stockName, true)];
+                ? [portfolioKeyFor(entry)]
+                : [memoIdentity, portfolioKey(memoIdentity, true)];
             const knownQtys = qtyKeys
                 .map(k => stockQtys[k])
                 .filter(q => q !== undefined);

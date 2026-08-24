@@ -25,7 +25,9 @@ function renderCalendar() {
         
         if (!dailyStats[dateKey]) dailyStats[dateKey] = { profit: 0, details: {} };
         
-        const stockKey = entry.stockName || '';
+        // ⭐️ 배지도 **한 종목이면 한 줄**이어야 한다. 이름으로 묶으면 같은 날 봇 체결과 수동
+        //    기록이 표기가 갈려 '매수 1건'짜리 배지가 두 줄로 선다. 라벨은 최신 이름 하나로.
+        const stockKey = (entry.type === 'trade' ? displayNameForEntry(entry) : entry.stockName) || '';
         if (!dailyStats[dateKey].details[stockKey]) dailyStats[dateKey].details[stockKey] = { buyCount: 0, sellCount: 0, watchCount: 0, memoCount: 0, dividendCount: 0 };
         
         if (entry.type === 'trade') {
@@ -37,7 +39,9 @@ function renderCalendar() {
             // ⭐️ 일별 실현손익은 실거래만 계산한다. 모의투자·제외 계좌 체결을 같은 종목 칸에 섞으면
             //    평균단가가 오염되어 실제 손익까지 틀어진다. (기록 자체는 달력에 그대로 표시)
             if (entry.stockName && !isExcludedFromTotals(entry)) {
-                const stock = entry.stockName, qty = Number(entry.quantity) || 0, price = Number(entry.price) || 0;
+                // ⭐️ 보유 상태(평단)는 **종목코드**로 굴린다. 이름으로 굴리면 표기가 갈린
+                //    같은 종목이 두 칸으로 쪼개져 평단이 갈리고 실현손익까지 틀어진다.
+                const stock = identityOf(entry), qty = Number(entry.quantity) || 0, price = Number(entry.price) || 0;
                 if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0 };
 
                 // ⭐️ 공용 계산 엔진(calc.js) — 일별 실현손익(매도 차익 + 배당)
@@ -109,6 +113,20 @@ function renderCalendar() {
     window.renderMonthlyProfitChart();
 }
 
+// ⭐️ 종목 드롭다운을 현재 필터 값에 맞춘다. 달력 배지·카드가 넘겨 준 이름이 **옛 표기**일 수
+//    있는데(같은 종목의 다른 이름), 그럴 때도 드롭다운은 같은 종목의 현재 이름을 가리켜야 한다.
+//    - 목록에 없으면 건드리지 않는다: 필터 자체는 동일성으로 대조하니 결과는 이미 맞다.
+function syncStockSelectValue() {
+    const stockSelect = document.getElementById('filterStockSelect');
+    if (!stockSelect) return;
+    const options = Array.from(stockSelect.options).map(o => o.value);
+    const resolved = resolveStockOptionValue(options, currentFilterStock);
+    if (!resolved) return;
+    stockSelect.value = resolved;
+    currentFilterStock = resolved;
+    window.updateDashboardFilterStyle(stockSelect);
+}
+
 window.showDetailsForDate = function(date, typeArg, event) {
     if (event) event.stopPropagation();
     clearAllFilters(false); // ⭐️ 전체 필터 및 UI 초기화 (렌더링은 중복 방지)
@@ -130,11 +148,7 @@ window.showDetailsForDate = function(date, typeArg, event) {
         typeSelect.value = currentFilterRecordType;
         window.updateDashboardFilterStyle(typeSelect);
     }
-    const stockSelect = document.getElementById('filterStockSelect');
-    if (stockSelect && stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) {
-        stockSelect.value = currentFilterStock;
-        window.updateDashboardFilterStyle(stockSelect);
-    }
+    syncStockSelectValue();
     
     document.getElementById('btnListView').click();
     displayEntries(true);
@@ -148,11 +162,7 @@ window.filterByStock = function(stockName, event) {
     currentFilterStock = stockName;
     window.saveFilterPreferences();
     
-    const stockSelect = document.getElementById('filterStockSelect');
-    if (stockSelect && stockSelect.querySelector(`option[value="${currentFilterStock.replace(/"/g, '\\"')}"]`)) {
-        stockSelect.value = currentFilterStock;
-        window.updateDashboardFilterStyle(stockSelect);
-    }
+    syncStockSelectValue();
     
     const btnListView = document.getElementById('btnListView');
     if (btnListView && !btnListView.classList.contains('active')) {
@@ -485,6 +495,9 @@ window.renderMonthlyProfitChart = function() {
         labels.push(key);
     }
     
+    //  종목 필터는 이름으로 지정되지만 대조는 동일성(코드)으로 한다 — 루프 밖에서 한 번만.
+    const chartStockIdentity = currentChartStock === 'all' ? null : identityForStockName(currentChartStock);
+
     const chronological = [...cloudEntries].sort((a, b) => {
         const timeA = a.rawDate ? new Date(a.rawDate).getTime() : a.id;
         const timeB = b.rawDate ? new Date(b.rawDate).getTime() : b.id;
@@ -502,8 +515,8 @@ window.renderMonthlyProfitChart = function() {
         //    (분석 탭 loadTradeStats / 캘린더 일별 손익과 동일한 규칙)
         if (isExcludedFromTotals(entry)) return;
 
-        // ⭐️ 차트 전용 필터 적용
-        if (currentChartStock !== 'all' && entry.stockName !== currentChartStock) return;
+        // ⭐️ 차트 전용 필터 적용 (종목은 이름으로 지정되지만 대조는 동일성으로 한다)
+        if (currentChartStock !== 'all' && identityOf(entry) !== chartStockIdentity) return;
         if (currentChartAccount !== 'all' && (entry.tradeClass || '') !== currentChartAccount) return;
         if (currentChartBroker !== 'all' && getMappedBroker(entry.brokerAccount) !== currentChartBroker) return;
         if (currentChartSubAccount !== 'all' && getMappedSubAccount(entry.subAccount, entry.accountName) !== currentChartSubAccount) return;
@@ -511,13 +524,17 @@ window.renderMonthlyProfitChart = function() {
         const dateKey = periodKeyOf(entry);
         if (!dateKey) return;
 
-        const stock = entry.stockName;
+        // ⭐️ 평단·FIFO 잔여수량 같은 **보유 상태**는 종목코드로 굴린다(이름은 표기가 갈린다).
+        //    월별 분해(breakdown)는 사람이 읽는 라벨이지만, 이름을 그대로 쓰면 표기가 갈린
+        //    같은 종목이 목록에 두 줄로 서므로 '최신 이름 하나'로 모은다.
+        const ident = identityOf(entry);
+        const stock = displayNameForEntry(entry);
         const qty = Number(entry.quantity) || 0;
         const price = Number(entry.price) || 0;
 
-        if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0, stockCode: entry.stockCode || '' };
-        if (entry.stockCode) portfolio[stock].stockCode = entry.stockCode; // 최신 종목코드 갱신
-        if (!stockRemainingBuys[stock]) stockRemainingBuys[stock] = [];
+        if (!portfolio[ident]) portfolio[ident] = { qty: 0, totalCost: 0, avgPrice: 0, stockCode: entry.stockCode || '' };
+        if (entry.stockCode) portfolio[ident].stockCode = entry.stockCode; // 최신 종목코드 갱신
+        if (!stockRemainingBuys[ident]) stockRemainingBuys[ident] = [];
         
         if (!allProfitByMonth[dateKey]) allProfitByMonth[dateKey] = 0;
         if (!allProfitByMonthStock[dateKey]) allProfitByMonthStock[dateKey] = {};
@@ -529,10 +546,10 @@ window.renderMonthlyProfitChart = function() {
 
         if (entry.tradeType === '매수') {
             // ⭐️ 공용 계산 엔진(calc.js) — 평균단가/포지션 갱신
-            applyTradeToHolding(portfolio[stock], qty, price, '매수');
+            applyTradeToHolding(portfolio[ident], qty, price, '매수');
 
             // ⭐️ 잔여 수량 큐에 삽입 및 거래대금(매매금액) 합산
-            stockRemainingBuys[stock].push({ dateKey, qty, price });
+            stockRemainingBuys[ident].push({ dateKey, qty, price });
             if (monthlyData[dateKey]) {
                 const vol = price * qty;
                 monthlyData[dateKey].buy_volume += vol;
@@ -541,7 +558,7 @@ window.renderMonthlyProfitChart = function() {
             
         } else if (entry.tradeType === '매도') {
             // ⭐️ 공용 계산 엔진(calc.js): 갱신 전 평단으로 실현손익 산출 + 포지션 즉시 갱신
-            const profit = applyTradeToHolding(portfolio[stock], qty, price, '매도').realized;
+            const profit = applyTradeToHolding(portfolio[ident], qty, price, '매도').realized;
             allProfitByMonth[dateKey] += profit; // ⭐️ 전체 기간 수익 누적용
             allProfitByMonthStock[dateKey][stock] += profit;
             
@@ -555,11 +572,11 @@ window.renderMonthlyProfitChart = function() {
 
             // ⭐️ 매도 시 과거 매수 기록부터 선입선출(FIFO)로 차감하여 현재 미청산 매수건 파악
             let sellQty = qty;
-            while(sellQty > 0 && stockRemainingBuys[stock].length > 0) {
-                let firstBuy = stockRemainingBuys[stock][0];
+            while(sellQty > 0 && stockRemainingBuys[ident].length > 0) {
+                let firstBuy = stockRemainingBuys[ident][0];
                 if (firstBuy.qty <= sellQty) {
                     sellQty -= firstBuy.qty;
-                    stockRemainingBuys[stock].shift(); // 전량 청산
+                    stockRemainingBuys[ident].shift(); // 전량 청산
                 } else {
                     firstBuy.qty -= sellQty;
                     sellQty = 0; // 일부만 청산

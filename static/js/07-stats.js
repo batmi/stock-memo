@@ -64,12 +64,15 @@ window.loadTradeStats = async function() {
     inlineStatsContainer.innerHTML = '<p style="text-align:center; padding: 20px; color: var(--text-muted-color);">불러오는 중...</p>';
     try {
         let entryIds = [];
+        //  종목 필터는 이름으로 지정되지만 대조는 동일성(코드)으로 한다 — 루프 밖에서 한 번만.
+        const chartStockIdentity = currentChartStock === 'all'
+            ? null : identityForStockName(currentChartStock);
         cloudEntries.forEach(entry => {
             if (entry.type !== 'trade' || !entry.stockName) return;
             // ⭐️ 모의투자·'금액 계산 제외' 계좌는 실제 성과가 아니므로 통계에서 제외한다.
             //    (모의투자는 백엔드에서도 한 번 더 거른다)
             if (isExcludedFromTotals(entry)) return;
-            if (currentChartStock !== 'all' && entry.stockName !== currentChartStock) return;
+            if (currentChartStock !== 'all' && identityOf(entry) !== chartStockIdentity) return;
             if (currentChartAccount !== 'all' && (entry.tradeClass || '') !== currentChartAccount) return;
             if (currentChartBroker !== 'all' && getMappedBroker(entry.brokerAccount) !== currentChartBroker) return;
             if (currentChartSubAccount !== 'all' && getMappedSubAccount(entry.subAccount, entry.accountName) !== currentChartSubAccount) return;

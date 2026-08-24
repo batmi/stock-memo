@@ -29,6 +29,26 @@
      */
     const EPS = 1e-9;
 
+    /**
+     * 종목 동일성 판정 키 — 종목코드가 있으면 코드, 없으면 종목명.
+     *
+     * ⭐️ 이름으로 묶으면 **같은 종목이 둘로 쪼개진다.** 표기가 갈리기 때문이다:
+     *    증권사가 주는 정식 명칭('KODEX 삼성그룹')과 사용자가 손으로 적어 둔 이름
+     *    ('KODEX 삼성그룹 ETF')이 다르면, 봇이 밀어 넣은 체결이 기존 보유에 합쳐지지
+     *    않고 별도 카드로 선다(2026-08-24 실제 사고, 종목코드는 양쪽 다 102780).
+     *    반대로 코드가 다른 동명이인 종목은 한 덩어리가 된다.
+     *
+     *    백엔드는 이미 코드 1순위다(stats.stock_identity · entry_logic.net_holding_for_stock).
+     *    화면만 이름으로 묶고 있었다 — 이 함수가 그 기준을 양쪽에 하나로 맞춘다.
+     *    코드가 비어 있는 레거시 수동 기록은 종전대로 이름으로 묶인다.
+     */
+    function stockIdentity(entry) {
+        if (!entry) return '';
+        const code = (entry.stockCode == null ? '' : String(entry.stockCode)).trim().toUpperCase();
+        if (code) return code;
+        return (entry.stockName == null ? '' : String(entry.stockName)).trim();
+    }
+
     /** 사실상 청산된 수량인지 여부. 화면의 isClosed 판정도 이 함수를 쓴다. */
     function isFlat(qty) {
         return !(Number(qty) > EPS);
@@ -71,18 +91,20 @@
     }
 
 
-    const api = { applyTradeToHolding, isFlat, EPS };
+    const api = { applyTradeToHolding, isFlat, stockIdentity, EPS };
 
     // 브라우저: window 전역 / Node: module.exports
     if (typeof window !== 'undefined') {
         window.StockCalc = api;
         window.applyTradeToHolding = applyTradeToHolding;
         window.isFlatQty = isFlat;
+        window.stockIdentity = stockIdentity;
     } else if (typeof module !== 'undefined' && module.exports) {
         module.exports = api;
     } else {
         root.StockCalc = api;
         root.applyTradeToHolding = applyTradeToHolding;
         root.isFlatQty = isFlat;
+        root.stockIdentity = stockIdentity;
     }
 })(typeof globalThis !== 'undefined' ? globalThis : this);
