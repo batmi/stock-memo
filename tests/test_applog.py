@@ -123,3 +123,47 @@ def test_module_logger_output_reaches_the_log_file(name, tmp_path, monkeypatch):
             probe_logger = logging.getLogger(logger_name)
             probe_logger.handlers.clear()
             probe_logger.propagate = True
+
+
+def test_custom_daily_rotating_file_handler(tmp_path):
+    from applog import CustomDailyRotatingFileHandler
+    import os
+    
+    log_file = tmp_path / "backend_app.log"
+    handler = CustomDailyRotatingFileHandler(str(log_file), when='midnight', backupCount=1)
+    
+    # Check rotation_filename
+    assert handler.rotation_filename("backend_app.log.20231027") == "backend_app_20231027.log"
+    
+    # Check getFilesToDelete
+    (tmp_path / "backend_app_20231026.log").touch()
+    (tmp_path / "backend_app_20231027.log").touch()
+    (tmp_path / "backend_app_20231028.log").touch()
+    (tmp_path / "other_file.txt").touch()
+    
+    files_to_delete = handler.getFilesToDelete()
+    assert len(files_to_delete) == 2
+    assert "backend_app_20231026.log" in files_to_delete[0]
+    assert "backend_app_20231027.log" in files_to_delete[1]
+    
+    handler.close()
+
+
+def test_console_filter():
+    from applog import ConsoleFilter, QUIET_CONSOLE_FUNCS
+    import logging
+    
+    f = ConsoleFilter()
+    record = logging.LogRecord(name="test", level=logging.INFO, pathname="", lineno=0, msg="test", args=(), exc_info=None)
+    
+    # Normal record
+    assert f.filter(record) is True
+    
+    # Filtered by funcName
+    record.funcName = list(QUIET_CONSOLE_FUNCS)[0]
+    assert f.filter(record) is False
+    
+    # Filtered by quiet_console attribute
+    record.funcName = "normal_func"
+    record.quiet_console = True
+    assert f.filter(record) is False

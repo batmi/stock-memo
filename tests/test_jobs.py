@@ -168,3 +168,113 @@ def test_backup_job_skips_unsafe_username(client, tmp_path, monkeypatch):
                 pass
 
     assert victim.exists(), '경로 탈출로 서버 파일이 삭제됐다'
+
+
+@patch('threading.Thread.start')
+def test_start_all(mock_start):
+    jobs.start_all()
+    assert mock_start.call_count == 2
+
+
+@patch('time.sleep')
+def test_auto_backup_job_with_uploads_and_errors(mock_sleep, client, app, tmp_path, monkeypatch):
+    """
+    업로드 파일이 있을 때 백업에 포함되는지 확인하고,
+    예외 상황(검증 실패, 내부 에러 등)에 대한 분기를 커버합니다.
+    """
+    monkeypatch.setattr(config, 'BACKUP_DIR', str(tmp_path / 'backup'))
+    monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path / 'uploads'))
+    
+    client.post('/signup', data={'username': 'fullbackupuser', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'fullbackupuser'
+        sess['expires_at'] = time.time() + 3600
+        
+    client.post('/api/entry', json={"type": "buy", "stockName": "풀업테스트", "price": 10000, "quantity": 1})
+    
+    upload_dir = os.path.join(config.UPLOAD_FOLDER, 'fullbackupuser')
+    os.makedirs(upload_dir, exist_ok=True)
+    with open(os.path.join(upload_dir, 'test_image.jpg'), 'w') as f:
+        f.write("fake image data")
+
+    sleep_calls = [0]
+    def side_effect(*args):
+        sleep_calls[0] += 1
+        if sleep_calls[0] > 1:
+            raise RuntimeError("Break Loop")
+    mock_sleep.side_effect = side_effect
+
+    # 검증 실패 상황을 위해 verify_backup_zip 모킹
+    with patch('jobs.verify_backup_zip', return_value=(False, "Verification failed test")):
+        with app.app_context():
+            try:
+                jobs.auto_backup_job()
+            except RuntimeError:
+                pass
+                
+    backup_dir = os.path.join(config.BACKUP_DIR, 'fullbackupuser')
+    zip_files = [f for f in os.listdir(backup_dir) if f.endswith('.zip')]
+    assert len(zip_files) == 1
+    with zipfile.ZipFile(os.path.join(backup_dir, zip_files[0]), 'r') as zf:
+        assert 'uploads/test_image.jpg' in zf.namelist()
+
+    # 에러 블록 커버를 위해 DB 연결 오류 모킹
+    sleep_calls[0] = 0
+    with patch('jobs.db_conn', side_effect=Exception("DB Error test")):
+        with app.app_context():
+            try:
+                jobs.auto_backup_job()
+            except RuntimeError:
+                pass
+
+
+@patch('jobs.datetime')
+@patch('time.sleep')
+def test_auto_fetch_nxt_close_job(mock_sleep, mock_datetime, client, app):
+    """
+    시간외 단일가 수집 스레드가 평일 동작 시간대/비동작 시간대에 따라 
+    각각 어떻게 동작하는지 테스트합니다.
+    """
+    from datetime import datetime, timezone
+    
+    # 1. 동작 시간대: UTC 7:00 => KST 16:00 (월요일 평일)
+    mock_datetime.now.return_value = datetime(2023, 1, 2, 7, 0, tzinfo=timezone.utc)
+    mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+    
+    sleep_calls = [0]
+    def side_effect_sleep(*args):
+        sleep_calls[0] += 1
+        if sleep_calls[0] > 1:
+            raise RuntimeError("Break")
+    mock_sleep.side_effect = side_effect_sleep
+    
+    client.post('/signup', data={'username': 'nxt_user', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
+    client.post('/api/entry', json={"type": "buy", "stockName": "삼성전자", "stockCode": "005930", "price": 10000, "quantity": 1})
+    
+    with patch('prices.fetch_nxt_close', return_value=11000) as mock_fetch:
+        with patch('prices.is_market_holiday', return_value=False):
+            with app.app_context():
+                try:
+                    jobs.auto_fetch_nxt_close_job()
+                except RuntimeError:
+                    pass
+        assert mock_fetch.called
+
+    # 2. 비동작 시간대: KST 19:00
+    mock_datetime.now.return_value = datetime(2023, 1, 2, 10, 0, tzinfo=timezone.utc)
+    sleep_calls[0] = 0
+    with app.app_context():
+        try:
+            jobs.auto_fetch_nxt_close_job()
+        except RuntimeError:
+            pass
+
+    # Exception catch 커버리지
+    sleep_calls[0] = 0
+    mock_datetime.now.side_effect = Exception("Time Error Test")
+    with app.app_context():
+        try:
+            jobs.auto_fetch_nxt_close_job()
+        except RuntimeError:
+            pass

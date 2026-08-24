@@ -386,3 +386,37 @@ def test_restore_accepts_legacy_zip_with_account_info(client, tmp_path, monkeypa
                       content_type='multipart/form-data')
     assert res.status_code == 200
     assert client.get('/api/mappings').json['accounts'] == {"7777": {"alias": "옛계좌"}}
+
+
+def test_verify_backup_zip_exceptions(tmp_path):
+    """verify_backup_zip 의 예외 및 손상 상황을 검증한다."""
+    import backups
+    import zipfile
+    
+    # 1. 파일 자체가 zip 파일이 아니거나 손상된 경우 -> Exception 발생
+    bad_zip = tmp_path / "bad.zip"
+    bad_zip.write_text("not a zip file")
+    ok, msg = backups.verify_backup_zip(str(bad_zip), 0)
+    assert ok is False
+    assert "File is not a zip file" in msg or "zipfile" in msg.lower() or "bad magic number" in msg.lower() or "not a zip" in msg.lower() or "file is not a zip" in msg.lower()
+
+    # 2. testzip() 이 에러를 리턴하는 경우
+    from unittest.mock import patch, MagicMock
+    with patch('zipfile.ZipFile') as mock_zip:
+        mock_instance = MagicMock()
+        mock_instance.__enter__.return_value = mock_instance
+        mock_instance.testzip.return_value = "corrupted_file.txt"
+        mock_zip.return_value = mock_instance
+        
+        ok, msg = backups.verify_backup_zip("dummy.zip", 0)
+        assert ok is False
+        assert "손상된 압축 항목: corrupted_file.txt" in msg
+
+    # 3. data.json 형식이 리스트가 아닌 경우
+    wrong_type_zip = tmp_path / "wrong_type.zip"
+    import json
+    with zipfile.ZipFile(wrong_type_zip, 'w') as zf:
+        zf.writestr('data.json', json.dumps({"not_a_list": True}))
+    ok, msg = backups.verify_backup_zip(str(wrong_type_zip), 0)
+    assert ok is False
+    assert "data.json 형식이 올바르지 않습니다." in msg

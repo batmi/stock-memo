@@ -1005,3 +1005,43 @@ def test_last_used_at_updates_after_interval(api):
                        json={'status': 'running'})
     updated = _stored_last_used(api['key_id'])
     assert updated != stale and updated is not None
+
+
+def test_positions_error_cases(client, api):
+    """
+    POST /api/v1/bot/positions 의 예외 처리(에러 반환) 분기를 커버합니다.
+    """
+    headers = api['headers']
+
+    # 1. 항목이 dict가 아닌 경우 (lines 501-505)
+    res_not_dict = client.post('/api/v1/positions/opening', headers=headers, json={
+        'asOf': '2023-10-31',
+        'isSimulated': False,
+        'positions': ["invalid_item"]
+    })
+    assert res_not_dict.status_code == 200
+    assert len(res_not_dict.json['results']) == 1
+    assert res_not_dict.json['results'][0]['status'] == 'failed'
+    assert res_not_dict.json['results'][0]['errorCode'] == 'INVALID_REQUEST'
+
+    # 2. ValidationError 발생 (lines 533-537)
+    res_validation = client.post('/api/v1/positions/opening', headers=headers, json={
+        'asOf': '2023-10-31',
+        'isSimulated': False,
+        'positions': [{'symbol': 'AAPL', 'avgPrice': -100, 'volume': 10}]
+    })
+    assert res_validation.status_code == 200
+    assert res_validation.json['results'][0]['status'] == 'failed'
+
+    # 3. sqlite3.Error 발생 (lines 538-542)
+    from unittest.mock import patch
+    import sqlite3
+    with patch('trading_api.routes._insert_trade', side_effect=sqlite3.Error("Mock DB Error")):
+        res_db_err = client.post('/api/v1/positions/opening', headers=headers, json={
+            'asOf': '2023-10-31',
+            'isSimulated': False,
+            'positions': [{'symbol': 'AAPL', 'avgPrice': 100, 'volume': 10}]
+        })
+        assert res_db_err.status_code == 200
+        assert res_db_err.json['results'][0]['status'] == 'failed'
+        assert res_db_err.json['results'][0]['errorCode'] == 'INTERNAL_ERROR'

@@ -135,3 +135,30 @@ def test_migrate_inline_images(app, monkeypatch, tmp_path):
 
     # 재실행 시 아무 것도 변경하지 않고 통과 (멱등성)
     backend_app.migrate_inline_images()
+
+
+def test_extract_inline_images_exception(monkeypatch, tmp_path):
+    from unittest.mock import patch
+    monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path))
+    with patch('base64.b64decode', side_effect=Exception("Decode Error")):
+        broken = {'thoughts': '<img src="data:image/png;base64,AAAA">'}
+        out = images.extract_inline_images('u', broken)
+        assert out['thoughts'] == broken['thoughts']
+
+
+def test_process_image_base64(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path))
+    
+    import base64
+    raw = b'fake-image'
+    encoded = base64.b64encode(raw).decode()
+    
+    # Test png
+    res = images.process_image(f"data:image/png;base64,{encoded}", 99)
+    assert res == "/uploads/img_99.png"
+    assert (tmp_path / "img_99.png").read_bytes() == raw
+    
+    # Test jpg
+    res2 = images.process_image(f"data:image/jpeg;base64,{encoded}", 100)
+    assert res2 == "/uploads/img_100.jpg"
+    assert (tmp_path / "img_100.jpg").read_bytes() == raw
