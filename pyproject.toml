@@ -24,3 +24,6 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # 테스트는 픽스처 주입 때문에 미사용 인자처럼 보이는 경우가 많다.
 "tests/*" = ["F811", "F401"]
+
+[tool.pyright]
+extraPaths = ["tests"]
