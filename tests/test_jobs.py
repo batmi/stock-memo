@@ -55,14 +55,14 @@ def test_auto_backup_job(mock_sleep, client, app, tmp_path, monkeypatch):
     def side_effect(*args):
         sleep_calls[0] += 1
         if sleep_calls[0] > 1:
-            raise RuntimeError("Break Loop")
+            raise KeyboardInterrupt("Break Loop")
     mock_sleep.side_effect = side_effect
 
     # 4. 백업 작업 1회 실행
     with app.app_context():
         try:
             jobs.auto_backup_job()
-        except RuntimeError:
+        except KeyboardInterrupt:
             pass
 
     # 5. 백업 결과 검증
@@ -119,13 +119,13 @@ def test_auto_backup_includes_account_mappings(mock_sleep, client, app, tmp_path
     def side_effect(*args):
         sleep_calls[0] += 1
         if sleep_calls[0] > 1:
-            raise RuntimeError("Break Loop")
+            raise KeyboardInterrupt("Break Loop")
     mock_sleep.side_effect = side_effect
 
     with app.app_context():
         try:
             jobs.auto_backup_job()
-        except RuntimeError:
+        except KeyboardInterrupt:
             pass
 
     backup_dir = os.path.join(config.BACKUP_DIR, 'mapbackup')
@@ -159,12 +159,12 @@ def test_backup_job_skips_unsafe_username(client, tmp_path, monkeypatch):
     def side_effect(*a):
         calls[0] += 1
         if calls[0] > 1:
-            raise RuntimeError('Break Loop')
+            raise KeyboardInterrupt('Break Loop')
     with patch('time.sleep', side_effect=side_effect):
         with backend_app.app.app_context():
             try:
                 jobs.auto_backup_job()
-            except RuntimeError:
+            except KeyboardInterrupt:
                 pass
 
     assert victim.exists(), '경로 탈출로 서버 파일이 삭제됐다'
@@ -202,7 +202,7 @@ def test_auto_backup_job_with_uploads_and_errors(mock_sleep, client, app, tmp_pa
     def side_effect(*args):
         sleep_calls[0] += 1
         if sleep_calls[0] > 1:
-            raise RuntimeError("Break Loop")
+            raise KeyboardInterrupt("Break Loop")
     mock_sleep.side_effect = side_effect
 
     # 검증 실패 상황을 위해 verify_backup_zip 모킹
@@ -210,7 +210,7 @@ def test_auto_backup_job_with_uploads_and_errors(mock_sleep, client, app, tmp_pa
         with app.app_context():
             try:
                 jobs.auto_backup_job()
-            except RuntimeError:
+            except KeyboardInterrupt:
                 pass
                 
     backup_dir = os.path.join(config.BACKUP_DIR, 'fullbackupuser')
@@ -225,7 +225,7 @@ def test_auto_backup_job_with_uploads_and_errors(mock_sleep, client, app, tmp_pa
         with app.app_context():
             try:
                 jobs.auto_backup_job()
-            except RuntimeError:
+            except KeyboardInterrupt:
                 pass
 
 
@@ -246,10 +246,14 @@ def test_auto_fetch_nxt_close_job(mock_sleep, mock_datetime, client, app):
     def side_effect_sleep(*args):
         sleep_calls[0] += 1
         if sleep_calls[0] > 1:
-            raise RuntimeError("Break")
+            raise KeyboardInterrupt("Break")
     mock_sleep.side_effect = side_effect_sleep
     
     client.post('/signup', data={'username': 'nxt_user', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'nxt_user'
+        sess['expires_at'] = time.time() + 3600
     client.post('/api/entry', json={"type": "buy", "stockName": "삼성전자", "stockCode": "005930", "price": 10000, "quantity": 1})
     
     with patch('prices.fetch_nxt_close', return_value=11000) as mock_fetch:
@@ -257,7 +261,7 @@ def test_auto_fetch_nxt_close_job(mock_sleep, mock_datetime, client, app):
             with app.app_context():
                 try:
                     jobs.auto_fetch_nxt_close_job()
-                except RuntimeError:
+                except KeyboardInterrupt:
                     pass
         assert mock_fetch.called
 
@@ -267,7 +271,7 @@ def test_auto_fetch_nxt_close_job(mock_sleep, mock_datetime, client, app):
     with app.app_context():
         try:
             jobs.auto_fetch_nxt_close_job()
-        except RuntimeError:
+        except KeyboardInterrupt:
             pass
 
     # Exception catch 커버리지
@@ -276,5 +280,5 @@ def test_auto_fetch_nxt_close_job(mock_sleep, mock_datetime, client, app):
     with app.app_context():
         try:
             jobs.auto_fetch_nxt_close_job()
-        except RuntimeError:
+        except KeyboardInterrupt:
             pass
