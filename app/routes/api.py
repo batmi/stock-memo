@@ -549,7 +549,11 @@ def get_current_price():
     # ⭐️ allow_cached: 자동 폴링(60초 주기)만 True 로 보내 서버측 단기(25초) 캐시 허용.
     #    수동 새로고침은 False(기본) → 항상 외부 API 라이브 조회로 "진짜 현재가"를 보장.
     allow_cached = bool(data.get('allow_cached', False))
-    return jsonify(prices.get_prices(codes, market_mode, allow_cached=allow_cached))
+    prices_dict, is_fallback = prices.get_prices(codes, market_mode, allow_cached=allow_cached)
+    resp = jsonify(prices_dict)
+    if is_fallback:
+        resp.headers['X-API-Fallback'] = 'true'
+    return resp
 
 
 @bp.route('/api/change_password', methods=['POST'])

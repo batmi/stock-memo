@@ -234,16 +234,6 @@ def test_fetch_gold_naver_success(conn):
     assert prices.load_price_cache(conn, 'KRXGOLD', 'KRX') == 88000.0
 
 
-def test_fetch_gold_krx_crawl_fallback(conn):
-    def side_effect(url, headers=None):
-        if 'M04020000' in url:
-            raise Exception("naver gold down")
-        return b"<th>\xed\x98\x84\xec\x9e\xac\xea\xb0\x80</th><td><strong>90,000</strong></td>"
-
-    with patch.object(prices, '_http_get', side_effect=side_effect):
-        assert prices._fetch_gold(conn, 'KRXGOLD') == 90000.0
-
-
 def test_fetch_gold_all_fail_returns_none(conn):
     with patch.object(prices, '_http_get', side_effect=Exception("all down")):
         assert prices._fetch_gold(conn, 'KRXGOLD') is None

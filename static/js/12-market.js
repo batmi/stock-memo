@@ -138,6 +138,17 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ codes: codesToFetch, market_mode: displayMarket, allow_cached: isAuto === true })
         }, 20000);
+        
+        // ⭐️ 서버가 외부 API 실패로 DB 캐시를 반환한 경우 알림 표시
+        if (res.headers.get('X-API-Fallback') === 'true') {
+            const banner = document.getElementById('apiFallbackBanner');
+            if (banner) {
+                banner.style.display = 'block';
+                // 10초 후 자동 숨김
+                setTimeout(() => { banner.style.display = 'none'; }, 10000);
+            }
+        }
+        
         const prices = await res.json();
         
         let totalEval = 0;

@@ -26,6 +26,10 @@ from urllib.parse import urlsplit
 from app.database.db import get_db
 from app.utils.memcache import TTLCache
 
+class FallbackPrice(float):
+    """API 통신 실패로 인해 DB 캐시에서 읽어온 가격임을 프시하기 위한 커스텀 float 클래스."""
+    pass
+
 logger = logging.getLogger('prices')
 
 # ══════════════════════════════════════════════════════════════════════
@@ -336,16 +340,13 @@ def _fetch_gold(conn, code_str):
             return price_val
     except Exception as e:
         logger.debug("금현물 네이버 조회 실패 (%s): %r", code_str, e)
-    try:
-        krx_url = "https://www.krx.co.kr/contents/COM/Finance/KRX_Gold_Market.jsp"
-        html = _http_get(krx_url, _PC_HEADERS).decode('utf-8', errors='ignore')
-        match = re.search(r'현재가</th>\s*<td[^>]*>\s*<strong>([\d,]+)</strong>', html)
-        if match:
-            price_val = float(match.group(1).replace(',', ''))
-            save_price_cache(conn, code_str, price_val)
-            return price_val
-    except Exception as e:
-        logger.debug("금현물 KRX 크롤링 실패 (%s): %r", code_str, e)
+    
+    # 2) 네이버 API 통신 실패 시, 캐시된 금현물 가격으로 최후 방어
+    cached_gold = load_price_cache(conn, code_str, 'KRX')
+    if cached_gold:
+        logger.info("ℹ️ 금현물 시세를 캐시로 대체합니다 (통신 오류).")
+        return FallbackPrice(cached_gold)
+        
     logger.warning("⚠️ 금현물 시세를 모든 경로에서 가져오지 못했습니다 (%s)", code_str)
     return None
 
@@ -447,11 +448,11 @@ def _fetch_kr(conn, code_str, market_mode):
             cached = load_price_cache(conn, code_str, 'NXT')
             if cached:
                 logger.info("ℹ️ %s 시세를 NXT 캐시로 대체합니다 (통신 오류).", code_str)
-                return cached
+                return FallbackPrice(cached)
         cached = load_price_cache(conn, code_str, 'KRX')
         if cached:
             logger.info("ℹ️ %s 시세를 KRX 캐시로 대체합니다 (통신 오류).", code_str)
-            return cached
+            return FallbackPrice(cached)
     return None
 
 
@@ -518,11 +519,11 @@ def _fetch_price_uncached(conn, code_str, market_mode):
         cached = load_price_cache(conn, code_str, 'NXT')
         if cached:
             logger.info("ℹ️ %s 시세를 NXT 캐시로 대체합니다 (라이브 조회 전부 실패).", code_str)
-            return cached
+            return FallbackPrice(cached)
     cached = load_price_cache(conn, code_str, DEFAULT_CACHE_MARKET)
     if cached:
         logger.info("ℹ️ %s 시세를 캐시로 대체합니다 (라이브 조회 전부 실패).", code_str)
-        return cached
+        return FallbackPrice(cached)
     logger.warning("⚠️ %s(%s) 시세를 모든 경로에서 가져오지 못했습니다 (mode=%s).",
                    code_str, market_type, market_mode)
     return None
@@ -580,8 +581,11 @@ def fetch_price(code, market_mode='AUTO', allow_cached=False):
 def get_prices(codes, market_mode='AUTO', allow_cached=False):
     """다수 종목 현재가를 상주 스레드 풀로 병렬 조회하여 {code: price} 반환."""
     prices = {}
+    is_fallback = False
     results = _executor.map(lambda c: fetch_price(c, market_mode, allow_cached), codes)
     for code, price in results:
         if code is not None:
             prices[code] = price
-    return prices
+            if type(price).__name__ == 'FallbackPrice':
+                is_fallback = True
+    return prices, is_fallback
