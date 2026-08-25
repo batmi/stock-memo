@@ -266,8 +266,8 @@ if (btnChangePassword && passwordModalOverlay) {
                         최근 사용: ${escapeHtml(k.last_used_at || '없음')}
                     </span>
                 </div>
-                <button type="button" data-key-id="${k.id}" class="btnRevokeApiKey"
-                        style="margin:0; padding:2px 6px; font-size:10px; width:auto; background:transparent;
+                <button type="button" data-key-id="${k.id}" class="btnRevokeApiKey modal-outline-btn"
+                        style="margin:0; padding:2px 6px; font-size:10px; width:auto;
                                border:1px solid var(--danger-color); color:var(--danger-color); border-radius:4px; flex-shrink:0; white-space:nowrap;">폐기</button>
             </div>`).join('');
 
