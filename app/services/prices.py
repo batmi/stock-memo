@@ -365,29 +365,11 @@ def _fetch_krx_realtime(code_str):
     return None
 
 
-def _fetch_nxt_pc_crawl(code_str):
-    """자정 이후 등 모바일 API가 비었을 때 PC 웹의 시간외단일가 크롤링."""
-    try:
-        pc_url = f"https://finance.naver.com/item/main.naver?code={code_str}"
-        html = _http_get(pc_url, _PC_HEADERS).decode('euc-kr', errors='ignore')
-        nxt_area_match = re.search(r'시간외단일가.*?</table>', html, re.DOTALL)
-        if nxt_area_match:
-            nxt_html = nxt_area_match.group(0)
-            if '거래 내역이 없습니다' not in nxt_html:
-                price_match = re.search(r'<span class="blind">([\d,]+)</span>', nxt_html)
-                if price_match:
-                    return float(price_match.group(1).replace(',', ''))
-    except Exception as e:
-        logger.debug("시간외단일가 PC 크롤링 실패 (%s): %r", code_str, e)
-    return None
-
-
 def fetch_nxt_close(code_str):
     """시간외단일가(NXT)만 조회한다. DB 를 건드리지 않고 가격만 반환.
 
     백그라운드 캐싱 잡이 쓰는 진입점. 모바일 API 의 overMarketPriceInfo 를
-    먼저 보고, 비어 있으면 PC 웹 크롤링으로 폴백한다. (_fetch_kr 의 NXT
-    단계와 같은 소스를 쓰므로 네이버 스펙 변경 시 고칠 곳이 한 군데다.)
+    우선 확인하며, 값이 없으면 (거래 없음 또는 심야 시간) None 을 반환한다.
     """
     try:
         ts = int(time.time() * 1000)
@@ -398,7 +380,7 @@ def fetch_nxt_close(code_str):
             return float(str(over_info.get('overPrice')).replace(',', ''))
     except Exception as e:
         logger.debug("시간외단일가 모바일 API 조회 실패 (%s): %r", code_str, e)
-    return _fetch_nxt_pc_crawl(code_str)
+    return None
 
 
 def _fetch_kr(conn, code_str, market_mode):
@@ -436,23 +418,17 @@ def _fetch_kr(conn, code_str, market_mode):
                 save_price_cache(conn, code_str, nxt_price, 'NXT')
                 return nxt_price
 
-            # 3) 모바일 API가 비었으면 PC 크롤링
-            nxt_price = _fetch_nxt_pc_crawl(code_str)
-            if nxt_price:
-                save_price_cache(conn, code_str, nxt_price, 'NXT')
-                return nxt_price
-
-            # 4) NXT 전용 캐시
+            # 3) NXT 전용 캐시
             cached_nxt = load_price_cache(conn, code_str, 'NXT')
             if cached_nxt:
                 return cached_nxt
 
-            # 5) KRX 기본 시세로 폴백 (NXT 슬롯을 오염시키지 않도록 KRX 로 저장)
+            # 4) KRX 기본 시세로 폴백 (NXT 슬롯을 오염시키지 않도록 KRX 로 저장)
             if current_krx_price:
                 save_price_cache(conn, code_str, current_krx_price, 'KRX')
                 return current_krx_price
 
-            # 6) KRX 캐시로 최종 방어
+            # 5) KRX 캐시로 최종 방어
             cached_krx = load_price_cache(conn, code_str, 'KRX')
             if cached_krx:
                 return cached_krx

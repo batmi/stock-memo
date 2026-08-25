@@ -126,8 +126,8 @@ def auto_fetch_nxt_close_job():
             time_num = kst_now.hour * 100 + kst_now.minute
             day_of_week = kst_now.weekday()  # 0: 월, 1: 화, ..., 4: 금, 5: 토, 6: 일
 
-            # 평일(월~금) 15:30 ~ 18:30 (장 종료 후 시간외 단일가 운영 및 마감 직후 시간)에만 캐시 갱신 수행
-            if not (0 <= day_of_week <= 4 and 1530 <= time_num <= 1830):
+            # 평일(월~금) 15:30 ~ 20:30 (NXT 장 종료 20:00 및 마감 직후 시간)에만 캐시 갱신 수행
+            if not (0 <= day_of_week <= 4 and 1530 <= time_num <= 2030):
                 continue
             # 휴장일에는 시간외 단일가도 없다 (prices 의 휴장일 목록과 판정을 공유)
             if prices.is_market_holiday(kst_now):

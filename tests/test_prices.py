@@ -224,32 +224,6 @@ def test_fetch_krx_realtime_exception_returns_none():
         assert prices._fetch_krx_realtime('005930') is None
 
 
-def test_fetch_nxt_pc_crawl_success():
-    html = (
-        '시간외단일가'
-        '<span class="blind">71,500</span>'
-        '</table>'
-    ).encode('euc-kr')
-    with patch.object(prices, '_http_get', return_value=html):
-        assert prices._fetch_nxt_pc_crawl('005930') == 71500.0
-
-
-def test_fetch_nxt_pc_crawl_no_trade_returns_none():
-    html = '시간외단일가 거래 내역이 없습니다 </table>'.encode('euc-kr')
-    with patch.object(prices, '_http_get', return_value=html):
-        assert prices._fetch_nxt_pc_crawl('005930') is None
-
-
-def test_fetch_nxt_pc_crawl_no_match_returns_none():
-    with patch.object(prices, '_http_get', return_value=b'no relevant area'):
-        assert prices._fetch_nxt_pc_crawl('005930') is None
-
-
-def test_fetch_nxt_pc_crawl_exception_returns_none():
-    with patch.object(prices, '_http_get', side_effect=Exception("net")):
-        assert prices._fetch_nxt_pc_crawl('005930') is None
-
-
 # ─────────────────────────────────────────────────────────────
 # _fetch_gold
 # ─────────────────────────────────────────────────────────────
@@ -325,22 +299,12 @@ def test_fetch_kr_nxt_mode_over_price(conn):
     assert prices.load_price_cache(conn, '005930', 'NXT') == 91200.0
 
 
-def test_fetch_kr_nxt_mode_pc_crawl_fallback(conn):
-    # NXT 모드 + 장외 + overPrice 없음 → PC 크롤링 폴백
-    body = b'{"closePrice": "90000"}'
-    with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
-         patch.object(prices, '_http_get', return_value=body), \
-         patch.object(prices, '_fetch_nxt_pc_crawl', return_value=71500.0):
-        assert prices._fetch_kr(conn, '005930', 'NXT') == 71500.0
-
-
 def test_fetch_kr_nxt_mode_cached_nxt_fallback(conn):
     # NXT 모드 + 모든 NXT 소스 실패 → NXT 캐시
     prices.save_price_cache(conn, '005930', 70000.0, 'NXT')
     body = b'{"closePrice": "0"}'  # close_price None 처리
     with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
-         patch.object(prices, '_http_get', return_value=body), \
-         patch.object(prices, '_fetch_nxt_pc_crawl', return_value=None):
+         patch.object(prices, '_http_get', return_value=body):
         assert prices._fetch_kr(conn, '005930', 'NXT') == 70000.0
 
 
@@ -659,15 +623,8 @@ def test_fetch_nxt_close_uses_over_price():
         assert prices.fetch_nxt_close('005930') == 91200.0
 
 
-def test_fetch_nxt_close_falls_back_to_pc_crawl():
-    with patch.object(prices, '_http_get', return_value=b'{}'), \
-         patch.object(prices, '_fetch_nxt_pc_crawl', return_value=71500.0):
-        assert prices.fetch_nxt_close('005930') == 71500.0
-
-
 def test_fetch_nxt_close_network_error_falls_back():
-    with patch.object(prices, '_http_get', side_effect=Exception('net')), \
-         patch.object(prices, '_fetch_nxt_pc_crawl', return_value=None):
+    with patch.object(prices, '_http_get', side_effect=Exception('net')):
         assert prices.fetch_nxt_close('005930') is None
 
 
