@@ -1458,6 +1458,19 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
     .admin-table td[data-label="관리"]::before {
         display: none;
     }
+    /* 사용자 뱃지 영역 - 모바일에서는 텍스트가 우측 정렬이므로 배치가 반전되도록 처리 */
+    .user-badge-wrapper {
+        flex-direction: row-reverse;
+        justify-content: flex-start; /* row-reverse 상태에서 우측 정렬 유지 */
+    }
+}
+
+/* 사용자 뱃지 (임시 비번, 초기화 요청 등) 정렬 래퍼 */
+.user-badge-wrapper {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
 }
 
 /* ⭐️ 관리자 대시보드 테이블 액션 버튼 */

@@ -84,7 +84,12 @@ window.renderAdminUsers = function() {
         tr.style.backgroundColor = 'var(--bg-color)';
         tr.style.borderBottom = '2px solid var(--primary-color)';
         tr.innerHTML = `
-            <td data-label="사용자명" style="padding: 10px; font-weight: bold; color: var(--primary-color); white-space: nowrap;">${adminUser.username} 👑 <span style="font-size:11px; font-weight:normal; color:var(--text-muted-color);">(최고 관리자)</span></td>
+            <td data-label="사용자명" style="padding: 10px; font-weight: bold; color: var(--primary-color); white-space: nowrap;">
+                <div class="user-badge-wrapper">
+                    <span class="user-name-text">${adminUser.username}</span>
+                    <span style="font-size:11px; font-weight:normal; color:var(--text-muted-color);">👑 (최고 관리자)</span>
+                </div>
+            </td>
             <td data-label="가입 일시" style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${createdStr}</td>
             <td data-label="최근 로그인" style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${lastLoginStr}</td>
             <td data-label="기록 수" style="padding: 10px; font-weight: bold; white-space: nowrap;">${adminUser.entry_count}건</td>
@@ -109,7 +114,7 @@ window.renderAdminUsers = function() {
             // ⭐️ 로그인 화면에서 접수된 비밀번호 재설정 요청을 한눈에 보이게 한다.
             const hasReset = !!u.reset_requested_at;
             const resetBadge = hasReset
-                ? `<span style="margin-left: 6px; font-size: 10px; background: var(--warning-color); color: #fff; padding: 1px 5px; border-radius: 3px; white-space: nowrap;">🔑 초기화 요청${u.reset_request_count > 1 ? ' ×' + u.reset_request_count : ''}</span>`
+                ? `<span style="font-size: 10px; background: var(--warning-color); color: #fff; padding: 1px 5px; border-radius: 3px; white-space: nowrap;">🔑 초기화 요청${u.reset_request_count > 1 ? ' ×' + u.reset_request_count : ''}</span>`
                 : '';
             // ⭐️ 사용자가 남긴 메모는 툴팁으로만 두면 아무도 보지 못한다. 표에 펼쳐 보여준다.
             const resetDetail = hasReset
@@ -120,14 +125,21 @@ window.renderAdminUsers = function() {
                 : '';
             // 임시 비밀번호를 아직 안 바꾼 계정도 표시한다.
             const mustChangeBadge = u.must_change_password
-                ? `<span title="임시 비밀번호 상태 — 다음 로그인에서 변경이 강제됩니다" style="margin-left: 6px; font-size: 10px; background: var(--neutral-color); color: #fff; padding: 1px 5px; border-radius: 3px;">임시 비번</span>`
+                ? `<span title="임시 비밀번호 상태 — 다음 로그인에서 변경이 강제됩니다" style="font-size: 10px; background: var(--neutral-color); color: #fff; padding: 1px 5px; border-radius: 3px; white-space: nowrap;">임시 비번</span>`
                 : '';
 
             const tr = document.createElement('tr');
             tr.style.borderBottom = '1px solid var(--border-light-color)';
             if (hasReset) tr.style.background = 'rgba(243, 156, 18, 0.08)';
             tr.innerHTML = `
-                <td data-label="사용자명" style="padding: 10px; font-weight: bold; color: var(--text-strong-color); word-break: break-all; min-width: 140px;">${escapeHtml(u.username)}${resetBadge}${mustChangeBadge}${resetDetail}</td>
+                <td data-label="사용자명" style="padding: 10px; font-weight: bold; color: var(--text-strong-color); word-break: break-all; min-width: 140px;">
+                    <div class="user-badge-wrapper">
+                        <span class="user-name-text">${escapeHtml(u.username)}</span>
+                        ${resetBadge}
+                        ${mustChangeBadge}
+                    </div>
+                    ${resetDetail}
+                </td>
                 <td data-label="가입 일시" style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${createdStr}</td>
                 <td data-label="최근 로그인" style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${lastLoginStr}</td>
                 <td data-label="기록 수" style="padding: 10px; white-space: nowrap;">${u.entry_count}건</td>
