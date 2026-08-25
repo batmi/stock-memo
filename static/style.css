@@ -1470,7 +1470,11 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 .admin-action-btn {
     background: transparent;
     padding: 0;
-    width: 84px; /* 여유 공간 확보를 위해 넓힘 */
+    width: 84px !important; 
+    min-width: 84px !important;
+    max-width: 84px !important;
+    flex-shrink: 0 !important;
+    flex-grow: 0 !important;
     border-radius: 4px;
     font-size: 11.5px;
     cursor: pointer;
