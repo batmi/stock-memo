@@ -1409,3 +1409,65 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
     -webkit-user-select: none;
     pointer-events: none;
 }
+
+/* ⭐️ 모바일 어드민 팝업 (관리자 대시보드) 반응형 카드 레이아웃 */
+@media (max-width: 600px) {
+    .admin-table, 
+    .admin-table thead, 
+    .admin-table tbody, 
+    .admin-table tr, 
+    .admin-table td {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    
+    .admin-table thead {
+        display: none; /* 표 헤더 숨김 */
+    }
+    
+    .admin-table tr {
+        margin-bottom: 12px;
+        background: var(--bg-color);
+        border: 1px solid var(--border-light-color);
+        border-radius: 8px;
+        padding: 10px;
+        position: relative;
+    }
+    
+    .admin-table td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        text-align: right !important;
+        padding: 6px 0 !important;
+        border-bottom: 1px dashed var(--border-light-color) !important;
+        white-space: normal !important;
+        word-break: break-all;
+    }
+    
+    .admin-table td:last-child {
+        border-bottom: none !important;
+        flex-direction: row;
+        justify-content: flex-end;
+        gap: 6px;
+        padding-top: 10px !important;
+        margin-top: 4px;
+        border-top: 1px solid var(--border-light-color);
+    }
+    
+    /* data-label 속성으로 셀 이름 자동 표시 */
+    .admin-table td::before {
+        content: attr(data-label);
+        font-weight: bold;
+        color: var(--text-muted-color);
+        margin-right: 15px;
+        white-space: nowrap;
+        font-size: 11px;
+    }
+    
+    /* 관리 탭 내용(버튼들)에서 label 안보이게 함 */
+    .admin-table td[data-label="관리"]::before {
+        display: none;
+    }
+}

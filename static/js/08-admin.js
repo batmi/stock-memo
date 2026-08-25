@@ -84,11 +84,11 @@ window.renderAdminUsers = function() {
         tr.style.backgroundColor = 'var(--bg-color)';
         tr.style.borderBottom = '2px solid var(--primary-color)';
         tr.innerHTML = `
-            <td style="padding: 10px; font-weight: bold; color: var(--primary-color); white-space: nowrap;">${adminUser.username} 👑 <span style="font-size:11px; font-weight:normal; color:var(--text-muted-color);">(최고 관리자)</span></td>
-            <td style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${createdStr}</td>
-            <td style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${lastLoginStr}</td>
-            <td style="padding: 10px; font-weight: bold; white-space: nowrap;">${adminUser.entry_count}건</td>
-            <td style="padding: 10px; text-align: right; white-space: nowrap;">
+            <td data-label="사용자명" style="padding: 10px; font-weight: bold; color: var(--primary-color); white-space: nowrap;">${adminUser.username} 👑 <span style="font-size:11px; font-weight:normal; color:var(--text-muted-color);">(최고 관리자)</span></td>
+            <td data-label="가입 일시" style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${createdStr}</td>
+            <td data-label="최근 로그인" style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${lastLoginStr}</td>
+            <td data-label="기록 수" style="padding: 10px; font-weight: bold; white-space: nowrap;">${adminUser.entry_count}건</td>
+            <td data-label="관리" style="padding: 10px; text-align: right; white-space: nowrap;">
                 <button onclick="resetUserPassword('${adminUser.username}')" style="background: var(--warning-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0; box-shadow: none;">비번 초기화</button>
             </td>
         `;
@@ -125,11 +125,11 @@ window.renderAdminUsers = function() {
             tr.style.borderBottom = '1px solid var(--border-light-color)';
             if (hasReset) tr.style.background = 'rgba(243, 156, 18, 0.08)';
             tr.innerHTML = `
-                <td style="padding: 10px; font-weight: bold; color: var(--text-strong-color); word-break: break-all; min-width: 140px;">${escapeHtml(u.username)}${resetBadge}${mustChangeBadge}${resetDetail}</td>
-                <td style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${createdStr}</td>
-                <td style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${lastLoginStr}</td>
-                <td style="padding: 10px; white-space: nowrap;">${u.entry_count}건</td>
-                <td style="padding: 10px; text-align: right; white-space: nowrap;">
+                <td data-label="사용자명" style="padding: 10px; font-weight: bold; color: var(--text-strong-color); word-break: break-all; min-width: 140px;">${escapeHtml(u.username)}${resetBadge}${mustChangeBadge}${resetDetail}</td>
+                <td data-label="가입 일시" style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${createdStr}</td>
+                <td data-label="최근 로그인" style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${lastLoginStr}</td>
+                <td data-label="기록 수" style="padding: 10px; white-space: nowrap;">${u.entry_count}건</td>
+                <td data-label="관리" style="padding: 10px; text-align: right; white-space: nowrap;">
                     <button onclick="toggleUserAllow('${escapeJsInAttr(u.username)}')" style="background: ${allowBtnBg}; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0 4px 0 0; box-shadow: none;">${allowBtnText}</button>
                     <button onclick="resetUserPassword('${escapeJsInAttr(u.username)}')" style="background: var(--warning-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0 4px 0 0; box-shadow: none;">비번 초기화</button>
                     ${hasReset ? `<button onclick="dismissResetRequest('${escapeJsInAttr(u.username)}')" title="비밀번호를 바꾸지 않고 요청만 내립니다" style="background: var(--neutral-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0 4px 0 0; box-shadow: none;">요청 해제</button>` : ''}
