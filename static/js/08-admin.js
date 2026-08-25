@@ -89,7 +89,9 @@ window.renderAdminUsers = function() {
             <td data-label="최근 로그인" style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${lastLoginStr}</td>
             <td data-label="기록 수" style="padding: 10px; font-weight: bold; white-space: nowrap;">${adminUser.entry_count}건</td>
             <td data-label="관리" style="padding: 10px; text-align: right; white-space: nowrap;">
-                <button onclick="resetUserPassword('${adminUser.username}')" style="background: var(--warning-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0; box-shadow: none;">비번 초기화</button>
+                <div style="display: inline-flex; gap: 4px; align-items: center; justify-content: flex-end;">
+                    <button onclick="resetUserPassword('${adminUser.username}')" style="background: transparent; border: 1px solid var(--warning-color); color: var(--warning-color); padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0; box-shadow: none; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">비번 초기화</button>
+                </div>
             </td>
         `;
         adminUserList.appendChild(tr);
@@ -130,10 +132,12 @@ window.renderAdminUsers = function() {
                 <td data-label="최근 로그인" style="padding: 10px; color: var(--text-muted-color); font-size: 12px; white-space: nowrap;">${lastLoginStr}</td>
                 <td data-label="기록 수" style="padding: 10px; white-space: nowrap;">${u.entry_count}건</td>
                 <td data-label="관리" style="padding: 10px; text-align: right; white-space: nowrap;">
-                    <button onclick="toggleUserAllow('${escapeJsInAttr(u.username)}')" style="background: ${allowBtnBg}; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0 4px 0 0; box-shadow: none;">${allowBtnText}</button>
-                    <button onclick="resetUserPassword('${escapeJsInAttr(u.username)}')" style="background: var(--warning-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0 4px 0 0; box-shadow: none;">비번 초기화</button>
-                    ${hasReset ? `<button onclick="dismissResetRequest('${escapeJsInAttr(u.username)}')" title="비밀번호를 바꾸지 않고 요청만 내립니다" style="background: var(--neutral-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0 4px 0 0; box-shadow: none;">요청 해제</button>` : ''}
-                    <button onclick="deleteUserAccount('${escapeJsInAttr(u.username)}')" style="background: var(--danger-color); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0; box-shadow: none;">삭제</button>
+                    <div style="display: inline-flex; gap: 4px; align-items: center; justify-content: flex-end;">
+                        <button onclick="toggleUserAllow('${escapeJsInAttr(u.username)}')" style="background: transparent; border: 1px solid ${allowBtnBg}; color: ${allowBtnBg}; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0; box-shadow: none; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">${allowBtnText}</button>
+                        <button onclick="resetUserPassword('${escapeJsInAttr(u.username)}')" style="background: transparent; border: 1px solid var(--warning-color); color: var(--warning-color); padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0; box-shadow: none; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">비번 초기화</button>
+                        ${hasReset ? `<button onclick="dismissResetRequest('${escapeJsInAttr(u.username)}')" title="비밀번호를 바꾸지 않고 요청만 내립니다" style="background: transparent; border: 1px solid var(--neutral-color); color: var(--neutral-color); padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0; box-shadow: none; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">요청 해제</button>` : ''}
+                        <button onclick="deleteUserAccount('${escapeJsInAttr(u.username)}')" style="background: transparent; border: 1px solid var(--danger-color); color: var(--danger-color); padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; width: auto; margin: 0; box-shadow: none; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">삭제</button>
+                    </div>
                 </td>
             `;
             adminUserList.appendChild(tr);
