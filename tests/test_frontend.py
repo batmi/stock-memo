@@ -9,6 +9,16 @@ from app.utils import ratelimit
 
 BASE_URL = "http://127.0.0.1:5001"
 
+# ⭐️ 페이지 전환(가입·로그인·최초 렌더)을 기다리는 예산.
+#    이 모듈은 전체 스위트와 함께 돌리면 소요 시간이 크게 흔들린다 — 같은 17개
+#    테스트가 28초에 끝나기도 하고 68초가 걸리기도 했다(실측). 그 편차 안에서
+#    10초 예산은 종종 모자라는데, 실패는 "가입이 완료되지 않았습니다" / "관리자
+#    표에 행이 없습니다" 처럼 **제품 버그의 모습**으로 나타나 원인을 엉뚱한
+#    곳에서 찾게 된다. 넉넉히 잡는다 — 통과하는 경우의 실행 시간은 늘지 않는다.
+#    (화면 안에서 이미 그려진 요소가 바뀌는 것을 기다리는 단언은 종전 값을 쓴다.
+#     그건 서버 응답이 아니라 스크립트 실행을 기다리는 것이라 편차가 작다.)
+NAV_TIMEOUT_MS = 30000
+
 # ⭐️ 관리자 계정은 테스트의 '부작용'이 아니라 '전제'다. 아래 live_server 참고.
 ADMIN_ID = 'admin'
 ADMIN_PW = 'admin123'
@@ -113,7 +123,7 @@ def live_server(tmp_path_factory):
 # ─────────────────────────────────────────────────────────────
 def _wait_for_login_form(page: Page):
     """로그인 폼이 조작 가능한 상태가 될 때까지 기다린다."""
-    expect(page.locator('input[name="username"]')).to_be_visible(timeout=10000)
+    expect(page.locator('input[name="username"]')).to_be_visible(timeout=NAV_TIMEOUT_MS)
     expect(page.locator('input[name="password"]')).to_be_visible()
 
 
@@ -163,7 +173,7 @@ def _login(page: Page, username=ADMIN_ID, password=ADMIN_PW, *, navigate=True):
         page.wait_for_function(
             "() => document.querySelector('#btnDataManagement')"
             " || document.querySelector('#errorBanner')",
-            timeout=10000)
+            timeout=NAV_TIMEOUT_MS)
     except Exception:                                    # noqa: BLE001
         pass                                             # 아래 단언이 상황을 설명한다
     if banner.count() and not dashboard.count():
@@ -176,7 +186,7 @@ def _login(page: Page, username=ADMIN_ID, password=ADMIN_PW, *, navigate=True):
 def _signup(page: Page, username, password='Passw0rd!'):
     """가입하고 로그인 화면으로 돌아올 때까지 기다린다."""
     page.goto(BASE_URL + '/signup')
-    expect(page.locator('input[name="username"]')).to_be_visible(timeout=10000)
+    expect(page.locator('input[name="username"]')).to_be_visible(timeout=NAV_TIMEOUT_MS)
     page.fill('input[name="username"]', username)
     page.fill('input[name="password"]', password)
     page.fill('input[name="password_confirm"]', password)
@@ -187,7 +197,7 @@ def _signup(page: Page, username, password='Passw0rd!'):
     #    30초를 기다리다 "URL 이 안 바뀐다" 로만 죽어, 정작 화면에 적혀 있는
     #    이유가 실패 메시지에 남지 않는다.
     try:
-        page.wait_for_url('**/login', timeout=10000)
+        page.wait_for_url('**/login', timeout=NAV_TIMEOUT_MS)
     except Exception:                                    # noqa: BLE001
         raise AssertionError(
             f"'{username}' 가입이 완료되지 않았습니다 — 화면 문구: "
@@ -494,7 +504,7 @@ def test_reset_request_submits_and_returns_to_login(page: Page):
     expect(page.locator('#resetSuccessBanner')).to_contain_text('접수')
 
     # 잠시 뒤 로그인 화면으로 복귀 → 아이디/비밀번호 입력칸이 다시 보인다
-    page.wait_for_url('**/login', timeout=8000)
+    page.wait_for_url('**/login', timeout=NAV_TIMEOUT_MS)
     expect(page.locator('input[name="username"]')).to_be_visible()
     expect(page.locator('input[name="password"]')).to_be_visible()
 
@@ -514,6 +524,12 @@ def test_admin_table_has_no_horizontal_scroll(page: Page):
     긴 아이디(32자)와 요청 횟수 배지까지 붙은 최악 조건으로 검증한다.
     """
     long_name = 'z' * 32
+    # ⭐️ 가입도 IP 당 5회/시간이다. 잔량은 모듈 시작 때 한 번만 비워지므로(live_server),
+    #    이 모듈에 가입하는 테스트가 하나만 늘어도 여기서 잔량이 바닥난다. 그러면
+    #    _signup 이 죽는 게 아니라 계정이 조용히 안 생기고, 실패는 30초 뒤 "관리자
+    #    표에 행이 안 뜬다" 로 나타난다 — 원인과 증상이 완전히 떨어져 있다.
+    #    아래 초기화 요청 잔량과 같은 이유로, 쓰기 직전에 비운다.
+    ratelimit.signups.reset()
     _signup(page, long_name)
 
     # 초기화 요청을 여러 번 넣어 '×N' 배지까지 붙인 상태로 만든다.
@@ -532,9 +548,24 @@ def test_admin_table_has_no_horizontal_scroll(page: Page):
 
     page.click('.header-action-icon')
     page.click('#btnAdmin')
-    page.wait_for_function(
-        "() => document.querySelectorAll('#adminUserList tr').length >= 2"
-        " && document.querySelector('#adminUserList tr').children.length >= 5")
+    # ⭐️ 예전에는 wait_for_function 한 줄이었다. 전체 스위트 실행에서 드물게 여기서
+    #    30초를 채우고 죽었는데, 남는 단서가 "함수가 true 를 돌려주지 않았다" 뿐이라
+    #    행이 아예 없는 건지, 이 계정만 없는 건지, 열이 모자란 건지 구분되지 않았다.
+    #    (11회 재현 시도 중 1회 — 원인 미확정. 다음에 터지면 여기서 갈린다)
+    #    세 조건을 따로 세워, 실패한 순간 서버가 뭐라고 답했는지까지 함께 싣는다.
+    try:
+        expect(page.locator('#adminUserList tr')).not_to_have_count(0, timeout=NAV_TIMEOUT_MS)
+        expect(page.locator(f'#adminUserList tr:has-text("{long_name}")')).to_have_count(1)
+    except AssertionError:
+        listed = page.request.get(BASE_URL + '/api/admin/users')
+        raise AssertionError(
+            f"관리자 표에 '{long_name}' 행이 뜨지 않았습니다.\n"
+            f"  화면 행 수: {page.locator('#adminUserList tr').count()}\n"
+            f"  /api/admin/users: {listed.status} {listed.text()[:400]}\n"
+            f"  표 본문: {page.locator('#adminUserList').inner_text()[:300]!r}") from None
+
+    columns = page.locator('#adminUserList tr').first.locator('td, th').count()
+    assert columns >= 5, f"관리자 표의 열이 {columns}개뿐입니다 — 관리 열이 그려지지 않았습니다."
 
     metrics = page.evaluate("""() => {
         const box = document.querySelector('#adminUserList').closest('div');

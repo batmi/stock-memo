@@ -143,6 +143,8 @@ stock-memo/
 │   │  ── routes: 요청 처리 계층 (Flask 블루프린트) ──────────────
 │   ├── routes/
 │   │   ├── auth.py         # 로그인·가입·로그아웃·비밀번호 재설정 요청 + 세션 검사
+│   │   ├── authz.py        # 권한 판정(admin_required) — 라우트가 없다. 라우트끼리
+│   │   │                   #   의존하지 않도록 규칙만 여기 둔다
 │   │   ├── admin.py        # 관리자 — 계정 승인·삭제·비밀번호 초기화
 │   │   ├── api.py          # 화면 API — 기록 CRUD, 통계, 시세, 뉴스, 봇 조작
 │   │   ├── backup_api.py   # 전체 백업 ZIP 내보내기·복원
@@ -189,14 +191,15 @@ stock-memo/
 │   ├── calc.js         #   보유 상태(평단·원가·실현손익) 계산 엔진
 │   └── js/             #   화면 동작 — 기능별로 나뉜 조각들 (01-…, 02-… 순서대로 로드)
 │
-├── tools/
-│   └── update_holidays.sh  # holidays 패키지 주기 갱신 (주 1회 cron 권장)
+├── tools/              # 서버에서 직접 실행하는 운영·복구 도구 (웹에 노출되지 않음)
+│   ├── reset_password.py   # 로그인 불가 시 비밀번호를 되살리는 CLI
+│   ├── update_holidays.sh  # holidays 패키지 주기 갱신 (주 1회 cron 권장)
+│   └── stock-memo          # 서버 기동·중지 래퍼 스크립트
 │
 ├── run.sh              # 자동화 실행 쉘 스크립트 (Mac/Linux)
+├── pyproject.toml      # 린트(ruff) 규칙 — 도구 기본값에 끌려다니지 않게 고정
 ├── requirements.txt    # 런타임 의존성 (버전 범위 고정)
 ├── requirements-dev.txt#  테스트·린트 의존성
-├── tools/              # 서버에서 직접 실행하는 운영·복구 도구
-│   └── reset_password.py  # 로그인 불가 시 비밀번호를 되살리는 CLI (웹 노출 없음)
 ├── UniversalTradingHistoryAPI.json  # 트레이딩 봇 연동 API 계약 (OpenAPI 3.1)
 ├── backup/             # 매일 자동 생성되는 사용자별 백업 파일(ZIP) 저장 폴더
 ├── db/journal.db       # 매매 기록 데이터베이스 (SQLite, 자동 생성)
@@ -206,7 +209,7 @@ stock-memo/
 
 ### 설계 규칙 (Design Rules)
 
-이 구조를 유지하려면 아래 일곱 가지를 지켜야 합니다. 각각은 실제로 사고가 났던 지점입니다.
+이 구조를 유지하려면 아래 아홉 가지를 지켜야 합니다. 각각은 실제로 사고가 났던 지점입니다.
 
 **1. 정적 파일은 `static/` 안에서만 서빙한다.**
 예전에는 `static_folder='.'` 로 프로젝트 루트 전체가 정적 경로에 열려 있어, 로그인만
@@ -270,6 +273,22 @@ KRX 휴장일이 그랬습니다. 처음엔 소스에 박힌 집합, 다음엔 `
 `backup_api` 의 로그가 전부 이 상태였습니다 — 로그인 실패 사유와 IP, 계정 잠금,
 자동 백업 성패처럼 사후에 되짚어야 하는 기록이 대상이었습니다.
 (`tests/test_applog.py` 가 소스를 훑어 강제합니다)
+
+**8. 종목 동일성은 코드가 1순위이고, 코드 표기는 저장할 때 대문자로 접는다.**
+정규화 규칙이 갈리면 **같은 종목이 화면에서는 하나, 검증에서는 둘**이 됩니다. 실제로
+통계·화면·시세 조회는 대문자로 접고 보유 매칭·매도 검증은 저장된 원본 그대로 비교하고
+있었습니다. 국내 6자리 숫자 코드에서는 드러나지 않지만, 봇이 `aapl` 을 보내고 사람이
+`AAPL` 로 적어 둔 해외 티커에서는 **화면에 보이는 보유가 팔리지 않습니다.**
+규칙은 `entry_logic.normalize_stock_code` 하나가 소유하고, 쓰기(`_value_for` → 모든
+INSERT/UPDATE)와 읽기(비교) 양쪽이 그것을 씁니다. 화면 쪽 정본은 `static/calc.js` 의
+`stockIdentity` 입니다. 이미 저장된 값은 기동 시 `migrate_stock_code_case` 가 접습니다.
+(`tests/test_entry_integrity.py`·`tests/test_trading_api.py` 가 회귀를 막습니다)
+
+**9. `import app.x` 를 쓰지 않는다 — 반드시 `from app.x import y` 로 쓴다.**
+패키지 이름(`app`)과 `backend_app` 의 Flask 인스턴스 이름(`app`)이 같습니다. 앞의 형태는
+그 이름을 패키지로 덮어써, 뒤이어 `app.logger` 나 `app.register_blueprint` 를 부르는
+코드를 무너뜨립니다. 임포트 순서에 따라 조용히 통과하기도 해서 더 나쁩니다.
+(`tests/test_startup.py` 가 소스를 훑어 형태 자체를 막습니다)
 
 ### 프런트엔드 스크립트 로드 순서
 
@@ -448,7 +467,18 @@ ruff check .
 | `test_accounts.py::test_trading_api_shares_the_same_rule` | 봇 API 와 웹 화면이 같은 계좌 정규화 규칙을 쓴다 |
 | `test_frontend.py::test_broker_dropdown_is_built_from_the_single_source` | 증권사 목록이 한 곳에서만 정의된다 |
 
-### CI
+### 검증은 손으로 돌립니다 (CI 없음)
 
-`.github/workflows/ci.yml` 이 push·PR 마다 린트 → 백엔드 테스트 → 브라우저 E2E →
-`calc.js` 단위 테스트를 순서대로 돌립니다.
+GitHub Actions 워크플로는 제거했습니다. **자동으로 돌아가는 것은 아무것도 없으므로,
+커밋 전에 아래 네 줄을 직접 돌립니다.** 순서는 빠르고 잘 깨지는 것부터입니다.
+
+```bash
+ruff check .                                # 린트  (규칙은 pyproject.toml)
+pytest -q --ignore=tests/test_frontend.py   # 백엔드·계산  (5초 내외)
+node --test tests/calc.test.js              # 보유 상태 엔진 (Node 18+)
+pytest -q tests/test_frontend.py            # 브라우저 E2E  (chromium 필요, 20초 내외)
+```
+
+⚠️ `node --test` 는 `package.json` 이 없어 이 문서 말고는 아무도 알려 주지 않습니다.
+   `static/calc.js` 는 화면이 평단·원가·실현손익을 굴리는 유일한 경로이므로,
+   그 파일을 고쳤다면 이 줄을 빠뜨리지 마십시오.

@@ -3,7 +3,6 @@
 대상: images.py 와 그 1회성 마이그레이션.
 """
 
-import json
 import re
 import time
 
@@ -50,7 +49,6 @@ def test_process_image_edge_cases():
 def test_extract_inline_images(monkeypatch, tmp_path):
     """base64 이미지가 파일로 저장되고 src 가 /uploads/ URL 로 치환된다."""
     import base64 as b64
-    import re
     monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path))
 
     raw = b'\x89PNG-fake-image-bytes'

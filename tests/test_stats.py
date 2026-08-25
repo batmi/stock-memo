@@ -9,11 +9,14 @@
    즉 예전 calc.js 와 값이 일치함이 확인된 결과이며, 앞으로 어떤 지표든 값이
    바뀌면 여기서 걸린다. 계산식을 의도적으로 고쳤다면 스냅샷을 함께 갱신한다:
 
-       python -c "import json,sys; sys.path.insert(0,'.'); import stats; \
+       python -c "import json,sys; sys.path.insert(0,'.'); \
+         from app.services import stats; \
          fx=json.load(open('tests/fixtures/parity_fixtures.json',encoding='utf-8')); \
          json.dump({k:stats.compute_trade_stats(v) for k,v in fx.items()}, \
            open('tests/fixtures/stats_expected.json','w',encoding='utf-8'), \
            ensure_ascii=False, indent=2, sort_keys=True)"
+
+   (모듈이 app/services/ 로 옮겨졌으므로 `import stats` 로는 더 이상 돌지 않는다.)
 
    그 아래 명시적 테스트들은 '왜 그 값이어야 하는가'를 문장으로 남긴 것이다.
    스냅샷만 있으면 잘못된 값도 그대로 굳으므로 둘 다 둔다.
@@ -151,3 +154,29 @@ def test_stock_identity_prefers_code():
     assert stats.stock_identity({'stockCode': '', 'stockName': ' 옛날종목 '}) == '옛날종목'
     assert stats.stock_identity({'stockName': '옛날종목'}) == '옛날종목'
     assert stats.stock_identity({'stockCode': '0162z0', 'stockName': 'x'}) == '0162Z0'
+
+
+def test_same_timestamp_trades_are_ordered_by_id():
+    """같은 시각의 체결은 id 가 큰 쪽(나중에 들어온 쪽)이 뒤에 온다.
+
+    ⭐️ 예전에는 정렬 키가 시각 하나뿐이었다. 파이썬 정렬이 안정적이라 동점의 순서가
+       'SQL 이 돌려준 순서'(api.py 의 조회에는 ORDER BY 가 없다)로 결정됐는데, 그
+       순서가 표시 이름(가장 최근 표기가 이긴다)을 좌우한다. 화면(14-history.js)은
+       동점을 id 로 가르므로, 백엔드가 DB 반환 순서에 기대면 같은 종목을 화면과
+       백엔드가 서로 다른 이름으로 부를 수 있다.
+    """
+    same_time = '2026-08-01T10:00'
+    rows = [
+        {'id': 1, 'type': 'trade', 'tradeType': '매수', 'stockName': '옛표기',
+         'stockCode': '005930', 'price': 100, 'quantity': 2, 'rawDate': '2026-08-01T09:00'},
+        # ↓ 시각이 같은 두 매도. id 가 큰 쪽의 표기가 이겨야 한다.
+        {'id': 3, 'type': 'trade', 'tradeType': '매도', 'stockName': '나중표기',
+         'stockCode': '005930', 'price': 120, 'quantity': 1, 'rawDate': same_time},
+        {'id': 2, 'type': 'trade', 'tradeType': '매도', 'stockName': '먼저표기',
+         'stockCode': '005930', 'price': 120, 'quantity': 1, 'rawDate': same_time},
+    ]
+    # DB 반환 순서가 어떻든 결과가 같아야 한다.
+    for ordered in (rows, list(reversed(rows))):
+        result = stats.compute_trade_stats(ordered)
+        assert len(result['perStock']) == 1
+        assert result['perStock'][0]['stock'] == '나중표기'

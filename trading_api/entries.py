@@ -44,7 +44,9 @@ def build_entry(c, username, data, mappings, *, default_source=None):
         if data.get(field) is None or data.get(field) == '':
             raise ValidationError('MISSING_FIELD', f'필수 파라미터가 누락되었습니다: {field}', field)
 
-    symbol = _text(data['symbol'], 'symbol', 32)
+    # ⭐️ 여기서 한 번 접어 두면 아래 세 쓰임(분류 상속·종목명 조회·stockCode 저장)이
+    #    모두 같은 표기를 쓴다. 봇마다 티커 대소문자가 갈려도 같은 종목으로 묶인다.
+    symbol = entry_logic.normalize_stock_code(_text(data['symbol'], 'symbol', 32))
     if not symbol:
         raise ValidationError('MISSING_FIELD', '필수 파라미터가 누락되었습니다: symbol', 'symbol')
 

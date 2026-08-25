@@ -6,6 +6,8 @@
 기동은 항상 `bootstrap()` 을 **명시적으로** 불러서만 일어나야 한다.
 """
 
+import ast
+import os
 import subprocess
 import sys
 import textwrap
@@ -86,3 +88,47 @@ def test_bootstrap_is_idempotent(tmp_path, monkeypatch):
 
     backend_app.bootstrap(start_jobs=False)
     backend_app.bootstrap(start_jobs=False)
+
+
+# ── 패키지 이름 `app` 과 Flask 인스턴스 `app` 의 충돌 ─────────────────────
+
+_SKIP_DIRS = {'.venv', 'venv', '.git', '__pycache__', 'node_modules',
+              'logs', 'backup', 'uploads', 'db', 'json', 'static'}
+
+
+def _project_py_files():
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        for f in filenames:
+            if f.endswith('.py'):
+                yield os.path.join(dirpath, f), os.path.relpath(os.path.join(dirpath, f), root)
+
+
+def test_no_module_imports_the_app_package_by_dotted_name():
+    """`import app.x` 형태를 쓰지 않는다. 반드시 `from app.x import y` 로 쓴다.
+
+    ⭐️ 패키지 이름(app)과 backend_app 의 Flask 인스턴스 이름(app)이 같다.
+       `import app.routes.api` 는 그 이름을 **패키지로 묶어** 버리므로, 뒤이어
+       `app.logger` / `app.register_blueprint` 를 부르는 코드가 AttributeError 로
+       무너진다. 임포트 순서에 따라 조용히 통과하기도 해서 더 나쁘다.
+
+       규칙은 backend_app 상단 주석과 리팩터링 커밋에 적혀 있었지만, 주석은
+       새 코드를 막지 못한다. 형태 자체를 여기서 막는다.
+       (이름을 바꾸는 것이 근본 해결이지만 backend_app.app 은 wsgi·테스트·
+        Flask 관례가 모두 기대하는 이름이라, 규칙을 고정하는 쪽을 택했다.)
+    """
+    offenders = []
+    for path, rel in _project_py_files():
+        with open(path, encoding='utf-8') as f:
+            tree = ast.parse(f.read(), filename=rel)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    # `import app.routes.api` 는 위험, `import app.x as y` 는 안전하다.
+                    if alias.name.split('.')[0] == 'app' and alias.asname is None:
+                        offenders.append(f"{rel}:{node.lineno}  import {alias.name}")
+
+    assert not offenders, (
+        "`import app.…` 형태가 발견됐습니다 — `from app.… import …` 로 바꾸십시오.\n  "
+        + "\n  ".join(offenders))

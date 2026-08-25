@@ -1,0 +1,49 @@
+# 도구 설정 모음. 패키지로 배포하는 프로젝트가 아니므로 [project] 섹션은 두지 않는다.
+#
+# ⭐️ 이 파일은 fb9ae66 에서 한 번 지워졌다. 지운 이유는 pyproject.toml 과
+#    pyrightconfig.json 이 공존해 설정이 파편화됐기 때문이었고, pyrightconfig.json
+#    은 지금 없다 — 파편화의 다른 한쪽이 사라졌으므로 되살린다.
+#
+#    되살려야 하는 이유는 따로 있다. 설정이 없는 동안 `ruff check .` 이 보는 규칙은
+#    **설치된 ruff 버전의 기본값**이었다. 기본값은 판올림마다 넓어지므로, 코드를
+#    한 줄도 건드리지 않았는데 어제 통과하던 린트가 오늘 158건을 뱉는다(ruff 0.16.4
+#    실측). 그러면 사람은 린트를 보지 않게 되고, 그 순간 게이트로서의 값어치가 0 이
+#    된다. "무엇을 위반으로 볼 것인가"는 도구가 아니라 이 저장소가 정한다.
+#
+#    pyright 설정은 되살리지 않는다. IDE 전용이라 CLI 검증과 무관하고, 지운 판단을
+#    되돌릴 근거가 없다.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"          # Dockerfile 의 python:3.11-slim 과 맞춘다
+exclude = [".venv", "venv", "logs", "backup", "uploads", "db", "json", "static"]
+
+[tool.ruff.lint]
+# ⭐️ 처음부터 규칙을 넓게 켜면 기존 코드가 수백 건 걸려 아무도 안 보게 된다.
+#    실제 버그로 이어지는 것들(F: 미사용/미정의, E9: 문법, B: 흔한 함정)부터 켠다.
+select = ["E4", "E7", "E9", "F", "B", "UP032", "C4"]
+ignore = [
+    "E741",  # ambiguous variable name (l, I) — 기존 코드에 다수
+    "B008",  # 기본 인자에서 함수 호출 — Flask 관용구와 충돌
+]
+
+# ⚠️ 아래는 **일부러** 켜지 않는다. 켜면 이 저장소에서는 전부 오탐이 된다.
+#   I001 (임포트 정렬)  자동 정렬이 trading_api/__init__.py 의 `from . import routes`
+#                       를 위로 끌어올린다. 그 줄은 "라우트는 임포트되는 것만으로
+#                       bp 에 등록되므로 반드시 마지막" 이라는 실행 순서 제약이다.
+#                       정렬하면 블루프린트가 빈 채로 등록된다.
+#   BLE001 (넓은 except) 기동·백그라운드 잡·이관은 실패해도 서버를 세우지 않는 것이
+#                       설계다(backend_app.migrate_account_mappings 참고).
+#   DTZ*  (naive datetime) 국내 장 시간은 KST 로 다루고 필요한 곳에서만 tz 를 붙인다
+#                       (prices.is_market_holiday / trading_api.common 참고).
+
+[tool.ruff.lint.per-file-ignores]
+# 테스트는 sys.path 를 세운 뒤에 임포트해야 한다(conftest 참고).
+#
+# ⚠️ 예전 설정은 여기서 F401/F811 도 함께 껐다. 그건 끄지 않는다 — 실제로 남아 있던
+#    16건은 오탐이 아니라 계층 분리(b26617c) 때 이름이 바뀌며 방치된 임포트였다.
+#    끄는 대신 지웠다.
+"tests/*" = ["E402"]

@@ -141,6 +141,8 @@ stock-memo/
 │   │  ── routes: request layer (Flask blueprints) ───────────────
 │   ├── routes/
 │   │   ├── auth.py         # Login, signup, logout, reset requests + session checks
+│   │   ├── authz.py        # Permission rule (admin_required) — registers no routes,
+│   │   │                   #   so route modules never depend on each other
 │   │   ├── admin.py        # Admin — approve/delete accounts, reset passwords
 │   │   ├── api.py          # Screen API — entry CRUD, stats, prices, news, bot controls
 │   │   ├── backup_api.py   # Full backup ZIP export / restore
@@ -186,10 +188,15 @@ stock-memo/
 │   ├── calc.js         #   Trading calculation single source (matches app/services/stats.py)
 │   └── js/             #   Screen behavior, split by feature (loaded 01-, 02-, …)
 │
+├── tools/              # Operator/recovery scripts, run on the server (never web-exposed)
+│   ├── reset_password.py   # CLI to recover a locked-out login
+│   ├── update_holidays.sh  # Refresh the `holidays` package (weekly cron recommended)
+│   └── stock-memo          # Server start/stop wrapper
+│
 ├── run.sh              # Automated launch script (Mac/Linux)
+├── pyproject.toml      # Lint (ruff) rules — pinned so tool defaults can't drift them
 ├── requirements.txt    # Runtime dependencies (version ranges pinned)
 ├── requirements-dev.txt#  Test and lint dependencies
-├── tools/reset_password.py  # CLI to recover a locked-out login (never web-exposed)
 ├── UniversalTradingHistoryAPI.json  # Trading bot API contract (OpenAPI 3.1)
 ├── backup/             # Daily per-user backup archives
 ├── db/journal.db       # Trading journal database (SQLite, auto-created)
@@ -221,6 +228,23 @@ tests that patch the path silently verify nothing.
 **4. `import backend_app` must have no side effects.**
 Schema setup, data migration, and background threads happen only when `bootstrap()`
 is called explicitly. Guarded by `test_startup.py`.
+
+**5. Stock identity is code-first, and codes are upper-cased on write.**
+When the folding rule differs between layers, one stock becomes **one position on screen
+and two in validation**. That is exactly what happened: stats, the UI, and quote lookups
+upper-cased the code, while holdings matching and sell validation compared the stored
+value verbatim. Invisible for 6-digit Korean codes — but for a foreign ticker the bot
+sends as `aapl` and the user typed as `AAPL`, **a position you can see refuses to sell.**
+`entry_logic.normalize_stock_code` owns the rule; both writes (`_value_for`, i.e. every
+INSERT/UPDATE) and reads (comparisons) go through it. `stockIdentity` in `static/calc.js`
+is the front-end counterpart. Rows already stored are folded at startup by
+`migrate_stock_code_case`. Guarded by `test_entry_integrity.py` and `test_trading_api.py`.
+
+**6. Never write `import app.x` — always `from app.x import y`.**
+The package (`app`) and the Flask instance in `backend_app` (`app`) share a name. The
+former form rebinds that name to the package and breaks any later `app.logger` or
+`app.register_blueprint`. Worse, it can pass silently depending on import order.
+`test_startup.py` scans the sources and rejects the form outright.
 
 ### Frontend script load order
 
@@ -396,7 +420,18 @@ from quietly eroding during refactors.
 | `test_accounts.py::test_trading_api_shares_the_same_rule` | Bot API and web UI use the same account-normalization rule |
 | `test_frontend.py::test_broker_dropdown_is_built_from_the_single_source` | The broker list is defined in exactly one place |
 
-### CI
+### Verification is manual (no CI)
 
-`.github/workflows/ci.yml` runs lint → backend tests → browser E2E → `calc.js` unit
-tests on every push and pull request.
+The GitHub Actions workflow has been removed. **Nothing runs automatically**, so run
+these four lines yourself before committing — ordered fastest-and-most-brittle first.
+
+```bash
+ruff check .                                # Lint (rules live in pyproject.toml)
+pytest -q --ignore=tests/test_frontend.py   # Backend + calculations (~5s)
+node --test tests/calc.test.js              # Holdings engine (Node 18+)
+pytest -q tests/test_frontend.py            # Browser E2E (needs chromium, ~20s)
+```
+
+⚠️ There is no `package.json`, so nothing but this document will remind you about
+   `node --test`. `static/calc.js` is the only path by which the UI computes average
+   cost, cost basis, and realized P&L — never skip that line after touching it.

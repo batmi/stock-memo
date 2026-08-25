@@ -28,7 +28,7 @@ import config
 import trading_api
 from app.routes import admin, api, auth, backup_api, middleware
 from app.services import accounts, images, jobs, prices
-from app.database import schema
+from app.database import entry_logic, schema
 from app.database.db import get_db, db_conn
 from app.utils import applog, memcache
 
@@ -73,6 +73,9 @@ def init_db():
         # 값의 의미를 알아야 하는 데이터 이관은 그 도메인을 아는 모듈이 맡는다.
         #   - 평문 API 키 → 해시 저장소 (봇 인증 규칙을 아는 trading_api)
         trading_api.migrate_data(conn)
+        #   - 종목코드 표기 → 대문자 정규형 (종목 동일성 규칙을 아는 entry_logic)
+        entry_logic.migrate_stock_code_case(conn.cursor(), app.logger)
+        conn.commit()
     finally:
         conn.close()
 

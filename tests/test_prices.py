@@ -3,10 +3,8 @@
 Flask 라우트를 거치지 않고 provider 함수들을 직접 호출하여
 시장 판정/장중 판정/DB 캐시/HTTP keep-alive/다단계 폴백 분기를 검증합니다.
 """
-import json
 import os
 import sys
-import time
 import sqlite3
 import datetime as _dt
 from unittest.mock import patch, MagicMock
@@ -16,7 +14,6 @@ import pytest
 # prices 모듈을 임포트할 수 있도록 상위 경로 추가
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import config
 from app.services import prices
 
 

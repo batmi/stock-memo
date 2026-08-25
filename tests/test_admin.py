@@ -9,11 +9,10 @@ import time
 
 import pytest
 
-from app.routes import auth
+from app.routes import authz
 import backend_app
 from app.database import entry_logic
 import trading_api
-from app.services import users
 
 
 def _admin_routes(app):
@@ -70,9 +69,9 @@ def test_admin_routes_reject_anonymous(app):
 def test_is_admin_reads_session(app):
     with app.test_request_context('/'):
         from flask import session
-        assert auth.is_admin() is False
+        assert authz.is_admin() is False
         session['is_admin'] = True
-        assert auth.is_admin() is True
+        assert authz.is_admin() is True
 
 
 @pytest.mark.parametrize('endpoint_prefix', ['admin.'])

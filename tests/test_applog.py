@@ -128,7 +128,6 @@ def test_module_logger_output_reaches_the_log_file(name, tmp_path, monkeypatch):
 
 def test_custom_daily_rotating_file_handler(tmp_path):
     from app.utils.applog import CustomDailyRotatingFileHandler
-    import os
     
     log_file = tmp_path / "backend_app.log"
     handler = CustomDailyRotatingFileHandler(str(log_file), when='midnight', backupCount=1)

@@ -16,7 +16,7 @@ from werkzeug.security import generate_password_hash
 import config
 from app.utils import ratelimit
 from app.utils import statscache
-from app.routes.auth import admin_required
+from app.routes.authz import admin_required
 from app.database.db import db_conn
 from app.services.users import bump_session_epoch, generate_temp_password
 

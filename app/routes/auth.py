@@ -12,7 +12,6 @@
 import json
 import os
 import time
-from functools import wraps
 
 from flask import (Blueprint, jsonify, redirect, render_template, request,
                    session, url_for)
@@ -82,19 +81,8 @@ def check_login():
 # ⭐️ 시스템 트레이딩 API(/api/v1/*)의 토큰 발급·검증은 trading_api 모듈이 담당한다.
 #    (키 해시 저장, 스코프 검사, 폐기 즉시 반영, 레이트 리밋이 함께 걸려 있다)
 
-# ⭐️ 관리자 권한 필요 라우트용 데코레이터
-def admin_required(f):
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        if not is_admin():
-            return jsonify({"error": "Unauthorized"}), 403
-        return f(*args, **kwargs)
-    return wrapper
-
-
-def is_admin():
-    return session.get('is_admin', False)
-
+# ⭐️ 관리자 권한 판정(is_admin / admin_required)은 authz 모듈이 소유한다.
+#    admin.py 가 데코레이터 하나 때문에 이 파일 전체에 의존하지 않게 하기 위해서다.
 
 def _humanize_seconds(seconds):
     """잠금 시간을 사람이 읽는 표현으로. 60초 → "1분", 90초 → "90초".

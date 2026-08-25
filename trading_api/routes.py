@@ -12,6 +12,7 @@ from flask import request, jsonify
 from app.services import accounts
 from app.utils import ratelimit
 from app.utils import statscache
+from app.database import entry_logic
 from app.database.db import db_conn
 
 from .bots import (
@@ -503,7 +504,10 @@ def create_opening_positions(username, scopes):
                                 'errorCode': 'INVALID_REQUEST',
                                 'error': '각 항목은 JSON 객체여야 합니다.'})
                 continue
-            symbol = str(pos.get('symbol') or '').strip()
+            # ⭐️ 멱등키(brokerExecutionId)에 티커가 그대로 박히므로 여기서도 접어야
+            #    한다. 'aapl' 과 'AAPL' 이 서로 다른 키가 되면 같은 기초잔고가 두 번
+            #    들어온다.
+            symbol = entry_logic.normalize_stock_code(pos.get('symbol'))
             trade_input = {
                 'symbol': symbol,
                 'side': 'BUY',

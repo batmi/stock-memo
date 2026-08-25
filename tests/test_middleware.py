@@ -12,7 +12,6 @@ import pytest
 
 from app.routes import api
 import backend_app
-import config
 from app.database import entry_logic
 from app.routes import middleware
 

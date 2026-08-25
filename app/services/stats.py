@@ -2,9 +2,14 @@
 
 DB에 의존하지 않는 순수 함수로 구성되어 단위 테스트가 용이합니다.
 백엔드 라우트(/api/stats)에서 조회한 기록 리스트를 받아 지표를 계산합니다.
+
+(entry_logic 에서 가져오는 것은 종목코드 표기 정규화 규칙 하나뿐입니다. DB 접근이
+ 아니라 '같은 종목인가'를 저장 쪽과 같은 기준으로 판정하기 위한 순수 함수입니다.)
 """
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
+
+from app.database.entry_logic import normalize_stock_code
 
 def parse_entry_dt(entry):
     """기록의 거래 일시를 datetime으로 파싱합니다. rawDate를 우선 사용하고,
@@ -24,6 +29,17 @@ def parse_entry_dt(entry):
 # 하위 호환을 위한 별칭 (기존 내부 명칭)
 _parse_entry_dt = parse_entry_dt
 
+
+def _entry_seq(entry):
+    """같은 시각의 체결을 가르는 보조 키 — 기록 id(입력 순서). 없으면 0.
+
+    id 는 밀리초 타임스탬프라 '나중에 들어온 것이 크다'가 성립한다.
+    """
+    try:
+        return int(entry.get('id'))
+    except (TypeError, ValueError):
+        return 0
+
 def stock_identity(entry):
     """종목 동일성 판정 키. 종목코드가 있으면 코드, 없으면 종목명.
 
@@ -32,8 +48,11 @@ def stock_identity(entry):
        덩어리가 된다. entry_logic.net_holding_for_stock 이 이미 코드를 1순위로
        쓰고 있으므로 통계도 같은 기준을 따른다.
        코드가 비어 있는 레거시 수동 기록은 종전대로 이름으로 묶는다.
+
+       표기 정규화(대문자 접기)는 entry_logic 이 단독으로 소유한다 — 저장·보유
+       매칭·통계가 같은 규칙을 써야 같은 종목이 같은 종목으로 보인다.
     """
-    code = (entry.get('stockCode') or '').strip().upper()
+    code = normalize_stock_code(entry.get('stockCode'))
     return code or (entry.get('stockName') or '').strip()
 
 
@@ -62,7 +81,12 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
     맞으므로 보유 상태는 전체 기록으로 갱신하고 '지표 누적'만 구간 안으로 제한합니다.
     """
     trades = [r for r in rows if r.get('type') == 'trade' and (r.get('stockName') or '').strip()]
-    trades.sort(key=lambda r: parse_entry_dt(r) or datetime.min)
+    # ⭐️ 같은 시각의 체결은 **id 가 큰 쪽(나중에 들어온 쪽)이 뒤**로 간다.
+    #    예전에는 정렬 키가 시각 하나뿐이었고, 파이썬 정렬이 안정적이라 동점의 순서가
+    #    'SQL 이 돌려준 순서'(api.py 의 조회에는 ORDER BY 가 없다)로 결정됐다. 이 순서가
+    #    ① 표시 이름(display_names — 마지막에 쓴 이름이 이긴다)과 ② 선입선출 청산 순서를
+    #    좌우하는데, 화면(14-history.js)은 동점을 id 로 가른다. 규칙을 화면과 맞춘다.
+    trades.sort(key=lambda r: (parse_entry_dt(r) or datetime.min, _entry_seq(r)))
 
     win_start = _parse_period_bound(period_start)
     win_end = _parse_period_bound(period_end)
@@ -109,7 +133,7 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
     for t in trades:
         stock = stock_identity(t)
         display_names[stock] = t['stockName'].strip()
-        display_codes[stock] = (t.get('stockCode') or '').strip().upper()
+        display_codes[stock] = normalize_stock_code(t.get('stockCode'))
         qty = float(t.get('quantity') or 0)
         price = float(t.get('price') or 0)
         ttype = t.get('tradeType')

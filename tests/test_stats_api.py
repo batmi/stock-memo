@@ -4,7 +4,6 @@
 (모의거래, 제외 표시한 계좌)를 API 레벨에서 확인한다.
 """
 
-import json
 
 
 from helpers import _buy, _ensure_user, _insert_raw, _login, _sell

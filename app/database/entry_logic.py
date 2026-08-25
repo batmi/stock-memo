@@ -27,6 +27,8 @@ entries 에 쓰는 곳은 네 군데이고, **매도 무결성 위반을 어떻�
       위와 같은 이유. 1회성 이관이며 원본을 손실 없이 옮기는 것이 목적이다.
 """
 
+import sqlite3
+
 # 시스템 트레이딩 API(v2)가 채우는 확장 컬럼.
 # ⚠️ 이 컬럼들은 INSERT 에만 포함하고 _UPDATE_COLUMNS 에는 넣지 않는다.
 #    웹 UI 의 수정(PUT /api/entry/<id>)은 화면 입력값으로 entry 를 새로 조립하므로
@@ -80,7 +82,30 @@ _UPDATE_SQL = (
 )
 
 
+def normalize_stock_code(value):
+    """종목코드 표기 정규화 — 앞뒤 공백을 떼고 **대문자로 접는다**.
+
+    ⭐️ 종목코드는 종목 동일성 판정의 1순위 키다(stats.stock_identity ·
+       calc.js stockIdentity · net_holding_for_stock). 그런데 접는 규칙이 갈려
+       있었다: 통계·화면·시세 조회는 대문자로 접고, 보유 매칭과 매도 검증은
+       저장된 원본 그대로 비교했다. 국내 6자리 숫자 코드에서는 차이가 없어
+       드러나지 않지만, 해외 티커는 봇이 'aapl' 을 보내고 사람이 'AAPL' 로
+       적어 둘 수 있다. 그러면 통계·화면은 한 종목으로 묶는데 매도 검증만
+       '보유 기록 없음'으로 거부한다 — 화면상 멀쩡한 보유가 팔리지 않는다.
+
+       쓰기(_value_for → INSERT/UPDATE)와 읽기(비교) 양쪽이 이 함수 하나를
+       쓴다. 저장된 값이 이미 정규형이므로 SQL 은 그대로 `=` 로 맞춰도 된다.
+    """
+    if value is None:
+        return ''
+    return str(value).strip().upper()
+
+
 def _value_for(entry, col):
+    if col == 'stockCode':
+        # ⭐️ 정규화는 여기 한 곳에서만 한다. 웹 입력·봇 체결·백업 복원·레거시 이관
+        #    네 쓰기 경로가 모두 INSERT/UPDATE 를 통해 이 함수를 지나간다.
+        return normalize_stock_code(entry.get(col))
     if col in ('isHidden', 'isSimulated', 'needsReview'):
         # 프론트엔드/API 가 true/false 로 보내므로 NULL 없이 항상 0/1 로 정규화한다.
         return 1 if entry.get(col) else 0
@@ -129,7 +154,7 @@ def net_holding_for_stock(c, username, stock_name, exclude_id=None, stock_code=N
     conditions = ["username = ?", "type = 'trade'", "COALESCE(isSimulated, 0) = ?"]
     params = [username, 1 if is_simulated else 0]
 
-    code = (stock_code or '').strip()
+    code = normalize_stock_code(stock_code)
     if code:
         # 코드 일치 OR (코드가 없는 레거시 기록 중 이름 일치)
         conditions.append("(stockCode = ? OR (COALESCE(stockCode, '') = '' AND stockName = ?))")
@@ -193,7 +218,7 @@ def check_sell_integrity(c, username, entry, exclude_id=None):
         return None
 
     stock_name = (entry.get('stockName') or '').strip()
-    stock_code = (entry.get('stockCode') or '').strip()
+    stock_code = normalize_stock_code(entry.get('stockCode'))
     if not stock_name and not stock_code:
         return None
 
@@ -226,3 +251,39 @@ def validate_trade_entry(c, username, entry, exclude_id=None):
     """
     result = check_sell_integrity(c, username, entry, exclude_id=exclude_id)
     return result[1] if result else None
+
+
+def migrate_stock_code_case(c, logger=None):
+    """저장된 종목코드를 정규형(대문자)으로 접는다. 고친 행 수를 돌려준다.
+
+    ⭐️ 정규화 규칙이 갈려 있던 시절에 들어온 기록이 남아 있다 — 통계·화면·시세
+       조회는 대문자로 접고, 보유 매칭과 매도 검증은 저장된 원본 그대로 비교했다.
+       이제 코드는 normalize_stock_code 하나로 모았지만, **이미 저장된 값까지
+       접어 두지 않으면 옛 기록만 계속 어긋난다**: 새 매도는 정규형으로 조회하는데
+       옛 매수는 소문자로 누워 있어 '매수 보유 기록이 없다'가 된다.
+
+       멱등하다 — 고칠 것이 없으면 UPDATE 자체가 나가지 않으므로 기동할 때마다
+       불러도 된다. 비교·치환을 SQL 의 upper() 가 아니라 Python 에서 하는 이유는
+       저장 시점(normalize_stock_code)과 글자 하나까지 같은 규칙을 쓰기 위해서다
+       (SQLite 의 upper() 는 ASCII 만 접는다).
+
+       스키마가 아니라 **값의 의미를 아는 이관**이라 schema 모듈이 아니라 여기 있다.
+    """
+    try:
+        c.execute("SELECT DISTINCT stockCode FROM entries "
+                  "WHERE stockCode IS NOT NULL AND stockCode != ''")
+        stored = [row[0] for row in c.fetchall()]
+    except sqlite3.OperationalError:
+        return 0  # entries 가 아직 없다 — 다음 기동 때 처리된다.
+
+    changed = [(normalize_stock_code(code), code) for code in stored
+               if normalize_stock_code(code) != code]
+    if not changed:
+        return 0
+
+    # BINARY 콜레이션이라 `= ?` 가 대소문자를 구분한다 — 옛 표기만 정확히 집힌다.
+    c.executemany("UPDATE entries SET stockCode = ? WHERE stockCode = ?", changed)
+    fixed = c.rowcount
+    if logger:
+        logger.info(f"🔄 종목코드 표기 {len(changed)}종({fixed}건)을 대문자로 정규화했습니다.")
+    return fixed

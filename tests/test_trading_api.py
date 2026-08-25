@@ -207,6 +207,38 @@ def test_holding_matched_by_code_not_name(api):
     assert res.get_json()['needsReview'] is False
 
 
+def test_holding_matched_regardless_of_symbol_case(api):
+    """티커 대소문자가 갈려도 같은 종목이다.
+
+    ⭐️ 봇마다 심볼 표기가 다르다('aapl' / 'AAPL'). 저장은 정규형(대문자)으로 접고
+       보유 매칭도 같은 규칙을 써야 한다. 갈려 있던 시절에는 통계·화면만 한 종목으로
+       묶고 매도 검증은 '보유 기록 없음'으로 봐서, 화면에 보이는 보유가 팔리지 않았다.
+    """
+    api['client'].post('/api/v1/trades', headers=api['headers'], json=_trade(
+        symbol='AAPL', name='Apple', exchange='NASDAQ', volume=10,
+        brokerExecutionId='REAL:1234:20260801:0010'))
+    res = api['client'].post('/api/v1/trades', headers=api['headers'], json=_trade(
+        symbol='aapl', side='SELL', name='Apple', exchange='NASDAQ', volume=10,
+        brokerExecutionId='REAL:1234:20260801:0011'))
+    body = res.get_json()
+    assert body['needsReview'] is False
+    assert body['symbol'] == 'AAPL'          # 응답도 정규형으로 돌려준다
+
+
+def test_opening_balance_idempotency_key_ignores_symbol_case(api):
+    """기초잔고 멱등키에 티커가 박히므로 표기가 갈리면 같은 잔고가 두 번 들어온다."""
+    for symbol in ('AAPL', 'aapl'):
+        res = api['client'].post('/api/v1/positions/opening', headers=api['headers'], json={
+            'asOf': '2026-08-01',
+            'positions': [{'symbol': symbol, 'name': 'Apple', 'volume': 5, 'avgPrice': 100}]})
+        assert res.status_code in (200, 201), res.get_json()
+
+    with backend_app.db_conn() as conn:
+        rows = conn.cursor().execute(
+            "SELECT stockCode FROM entries WHERE username = 'bot'").fetchall()
+    assert [r[0] for r in rows] == ['AAPL']
+
+
 def test_simulated_holdings_do_not_cover_real_sells(api):
     api['client'].post('/api/v1/trades', headers=api['headers'],
                        json=_trade(volume=10, isSimulated=True,

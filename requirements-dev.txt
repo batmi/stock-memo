@@ -4,6 +4,9 @@
 pytest>=9.1.0,<10.0
 pytest-cov>=7.1.0,<8.0
 
+# 린트. 규칙 선택은 pyproject.toml 이 고정한다 (버전 기본값에 끌려다니지 않도록).
+ruff>=0.16.0,<0.17
+
 # 브라우저 E2E (tests/test_frontend.py). 설치 후 `playwright install chromium` 필요.
 playwright>=1.60.0,<2.0
 pytest-playwright>=0.8.0,<1.0

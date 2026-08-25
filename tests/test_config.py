@@ -1,7 +1,5 @@
 import os
-import stat
 from unittest.mock import patch
-import pytest
 
 import config
 
