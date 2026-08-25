@@ -205,8 +205,11 @@ if (btnSaveAccountMappings) {
                 await customAlert('계좌정보가 저장되었습니다.');
                 accountMappingModalOverlay.style.display = 'none';
                 document.body.style.overflow = '';
-                // ⭐️ 새로 등록·수정한 별칭이 새로고침 없이 카드·필터에 바로 반영되도록 다시 그린다.
-                if (typeof renderPage === 'function') renderPage();
+                // ⭐️ 계좌 설정('금액 계산 제외' 포함)은 서버가 계산하는 통계 응답까지 바꾸므로
+                //    화면 일부만 다시 그리면 값이 어긋난다. 한 번 새로고침해 모든 화면을
+                //    저장된 설정과 같은 값으로 맞춘다.
+                window.location.reload();
+                return;
             } else {
                 await customAlert('저장 실패');
             }

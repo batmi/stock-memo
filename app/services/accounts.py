@@ -150,29 +150,57 @@ def dumps(mappings):
 # '금액 계산 제외' 판정
 # ---------------------------------------------------------------------------
 
+def _alias_of(info):
+    """매핑값에서 별칭만 꺼낸다 (구버전은 문자열 하나가 곧 별칭이었다)."""
+    if isinstance(info, dict):
+        return (info.get('alias') or '').strip()
+    return str(info).strip() if info else ''
+
+
+def known_account_keys(mappings):
+    """등록된 모든 계좌의 정규화된 계좌번호 집합 (제외 여부와 무관)."""
+    accounts = normalize(mappings).get('accounts') or {}
+    return {key for key in (account_key(code) for code in accounts) if key}
+
+
 def excluded_accounts(mappings):
     """'금액 계산 제외'로 체크한 계좌의 (정규화된 계좌번호 집합, 별칭 집합).
 
     계좌 별칭은 언제든 바꿀 수 있으므로 이름이 아니라 등록된 계좌번호로 판정하는
     것이 기본이다. 다만 계좌번호 없이 이름만 적힌 수기 기록도 있어 별칭도 함께 본다.
+
+    ⭐️ 단, 같은 별칭이 제외 계좌와 포함 계좌에 함께 쓰이면(증권사마다 '일반계좌'
+    처럼) 이름만으로는 어느 계좌인지 구별할 수 없다. 그 별칭은 이름 대조 대상에서
+    빼고 계좌번호로만 판정한다 — 그러지 않으면 토스증권 '일반계좌' 하나를 제외했을
+    때 한국투자증권 '일반계좌'까지 함께 빠진다.
     """
     accounts = normalize(mappings).get('accounts') or {}
-    codes, aliases = set(), set()
+    codes, aliases, kept_aliases = set(), set(), set()
     for code, info in accounts.items():
+        alias = _alias_of(info)
         if isinstance(info, dict) and info.get('exclude_from_stats'):
             key = account_key(code)
             if key:
                 codes.add(key)
-            if info.get('alias'):
-                aliases.add(info['alias'])
-    return codes, aliases
+            if alias:
+                aliases.add(alias)
+        elif alias:
+            kept_aliases.add(alias)
+    return codes, aliases - kept_aliases
 
 
-def is_excluded_row(row, codes, aliases):
-    """기록 한 건이 '금액 계산 제외' 계좌에 속하는지."""
+def is_excluded_row(row, codes, aliases, known_codes=None):
+    """기록 한 건이 '금액 계산 제외' 계좌에 속하는지.
+
+    `known_codes`(등록된 모든 계좌번호)를 주면, 계좌번호로 계좌가 특정되는 기록은
+    그 계좌의 설정만 따른다. 이름 대조는 계좌번호가 없거나 등록되지 않은 기록
+    (수기 입력 등)에만 쓰는 마지막 수단이다.
+    """
     sub = account_key(row.get('subAccount'))
     if sub and sub in codes:
         return True
+    if sub and known_codes and sub in known_codes:
+        return False
     name = (row.get('accountName') or '').strip()
     return bool(name and name in aliases)
 

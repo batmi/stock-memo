@@ -145,21 +145,39 @@ function isSimulatedEntry(entry) {
     return !!Number(entry && entry.isSimulated);
 }
 
+// ⭐️ 이름만으로 '제외 계좌'라고 단정할 수 있는 별칭 집합.
+//    같은 별칭이 제외 계좌와 포함 계좌에 함께 쓰이면(증권사마다 '일반계좌'처럼) 이름만으로는
+//    어느 계좌인지 구별할 수 없으므로 대조 대상에서 뺀다. 그러지 않으면 토스증권 '일반계좌'
+//    하나만 제외했는데 한국투자증권 '일반계좌'까지 함께 빠진다.
+//    (백엔드 app/services/accounts.py 의 excluded_accounts 와 같은 규칙)
+function excludedAccountAliases() {
+    const accounts = (currentAccountMappings && currentAccountMappings.accounts) || {};
+    const excluded = new Set(), kept = new Set();
+    Object.values(accounts).forEach(acc => {
+        const isObj = acc && typeof acc === 'object';
+        const alias = String((isObj ? acc.alias : acc) || '').trim();
+        if (!alias) return;
+        if (isObj && acc.exclude_from_stats) excluded.add(alias);
+        else kept.add(alias);
+    });
+    kept.forEach(alias => excluded.delete(alias));
+    return excluded;
+}
+
 // ⭐️ 계좌 관리에서 '금액 계산 제외'로 체크한 계좌(exclude_from_stats)의 기록인지 판정한다.
 //    별칭(계좌 이름)은 언제든 바꿀 수 있으므로 이름을 하드코딩하지 않고 등록된 계좌번호로 본다.
 //    다만 HTS 없이 손으로 적은 기록은 계좌번호 없이 이름만 있을 수 있어, 별칭도 함께 대조한다.
 function isExcludedAccountEntry(entry) {
     if (!entry) return false;
-    const accounts = (currentAccountMappings && currentAccountMappings.accounts) || {};
     const info = findAccountMapping(entry.subAccount);
-    if (info && typeof info === 'object' && info.exclude_from_stats) return true;
+    // 계좌번호로 계좌가 특정되면 그 계좌의 설정이 정답이다. 여기서 이름 대조로 넘어가면
+    // 별칭이 같은 다른 증권사 계좌의 기록까지 함께 제외된다.
+    if (info) return !!(typeof info === 'object' && info.exclude_from_stats);
 
-    // 계좌번호로 못 찾은 기록은 화면에 보이는 계좌 이름으로 한 번 더 대조한다.
-    const label = getMappedSubAccount(entry.subAccount, entry.accountName);
+    // 등록된 계좌번호로 찾지 못한 기록(수기 입력 등)만 화면에 보이는 계좌 이름으로 대조한다.
+    const label = String(getMappedSubAccount(entry.subAccount, entry.accountName) || '').trim();
     if (!label) return false;
-    return Object.values(accounts).some(acc =>
-        acc && typeof acc === 'object' && acc.exclude_from_stats && acc.alias === label
-    );
+    return excludedAccountAliases().has(label);
 }
 
 // ⭐️ 금액을 합산하는 모든 지표(도넛·총액·실현손익·차트·통계)에서 빼야 하는 기록인지.

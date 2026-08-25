@@ -166,3 +166,40 @@ def test_stats_exclude_flagged_account(client):
     })
     s4 = client.get('/api/stats').json
     assert round(s4['totalRealized']) < 0
+
+
+def test_stats_shared_alias_excludes_only_flagged_account(client):
+    """같은 별칭('일반계좌')을 쓰는 다른 증권사 계좌는 함께 제외되지 않는다.
+
+    봇 API 는 매핑된 계좌의 별칭을 accountName 으로 저장하므로, 이름만 대조하면
+    토스증권 '일반계좌' 하나를 제외했을 때 한국투자증권 '일반계좌'까지 빠졌다.
+    """
+    _login(client, 'excalias')
+    _ensure_user('excalias')
+    assert client.post('/api/mappings', json={
+        "brokers": {},
+        "accounts": {
+            "189-01-501685": {"broker_code": "271", "broker_name": "토스증권",
+                              "alias": "일반계좌", "exclude_from_stats": True},
+            "68029263-01": {"broker_code": "243", "broker_name": "한국투자증권",
+                            "alias": "일반계좌"},
+        }
+    }).status_code == 200
+    # 한국투자증권 일반계좌(포함): +200
+    _insert_raw('excalias', id=1, stockName='A', tradeType='매수', price=100,
+                quantity=10, rawDate='2024-01-10T09:00',
+                subAccount='68029263-01', accountName='일반계좌')
+    _insert_raw('excalias', id=2, stockName='A', tradeType='매도', price=120,
+                quantity=10, rawDate='2024-02-10T09:00',
+                subAccount='68029263-01', accountName='일반계좌')
+    # 토스증권 일반계좌(제외): 큰 손실 — 섞이면 총 실현손익이 음수가 된다
+    _insert_raw('excalias', id=101, stockName='B', tradeType='매수', price=1000,
+                quantity=100, rawDate='2024-01-11T09:00',
+                subAccount='189-01-501685', accountName='일반계좌')
+    _insert_raw('excalias', id=102, stockName='B', tradeType='매도', price=100,
+                quantity=100, rawDate='2024-02-11T09:00',
+                subAccount='189-01-501685', accountName='일반계좌')
+
+    s = client.get('/api/stats').json
+    assert round(s['totalRealized']) == 200
+    assert [p['stock'] for p in s['perStock']] == ['A']

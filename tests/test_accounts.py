@@ -79,6 +79,56 @@ def test_is_excluded_row_matches_by_number_then_alias():
     assert not accounts.is_excluded_row({}, codes, aliases)
 
 
+def test_shared_alias_is_not_used_for_name_matching():
+    """제외 계좌와 포함 계좌가 같은 별칭을 쓰면 이름 대조를 포기한다.
+
+    증권사마다 '일반계좌'가 있는 게 보통이라, 토스증권 '일반계좌' 하나를 제외했을 때
+    한국투자증권 '일반계좌'까지 함께 빠지면 안 된다.
+    """
+    codes, aliases = accounts.excluded_accounts({'accounts': {
+        '189-01-501685': {'broker_name': '토스증권', 'alias': '일반계좌',
+                          'exclude_from_stats': True},
+        '68029263-01': {'broker_name': '한국투자증권', 'alias': '일반계좌'},
+        '43399290-01': {'broker_name': '한국투자증권', 'alias': 'ISA계좌'},
+    }})
+    assert codes == {'18901501685'}
+    assert aliases == set()          # '일반계좌'는 양쪽에 있어 이름으로 판정 불가
+
+
+def test_registered_account_ignores_alias_match():
+    """계좌번호로 계좌가 특정되는 기록은 그 계좌의 설정만 따른다."""
+    mappings = {'accounts': {
+        '189-01-501685': {'alias': '일반계좌', 'exclude_from_stats': True},
+        '68029263-01': {'alias': '일반계좌'},
+    }}
+    codes, aliases = accounts.excluded_accounts(mappings)
+    known = accounts.known_account_keys(mappings)
+    assert known == {'18901501685', '6802926301'}
+
+    # 봇 API 는 매핑된 계좌의 별칭을 accountName 으로 저장한다 — 이름이 같아도 제외 대상이 아니다.
+    kis = {'subAccount': '68029263-01', 'accountName': '일반계좌'}
+    toss = {'subAccount': '189-01-501685', 'accountName': '일반계좌'}
+    assert not accounts.is_excluded_row(kis, codes, aliases, known)
+    assert accounts.is_excluded_row(toss, codes, aliases, known)
+
+
+def test_registered_account_wins_over_excluded_alias():
+    """별칭이 겹치지 않아도, 등록된 포함 계좌의 기록은 이름 대조로 넘어가지 않는다."""
+    mappings = {'accounts': {
+        '3333-4444': {'alias': '연습', 'exclude_from_stats': True},
+        '1111-2222': {'alias': '실거래'},
+    }}
+    codes, aliases = accounts.excluded_accounts(mappings)
+    known = accounts.known_account_keys(mappings)
+    assert aliases == {'연습'}
+    # 계좌번호는 포함 계좌인데 이름만 예전 별칭('연습')으로 남은 기록 → 계좌번호가 정답
+    row = {'subAccount': '1111-2222', 'accountName': '연습'}
+    assert not accounts.is_excluded_row(row, codes, aliases, known)
+    # 등록되지 않은 계좌번호라면 이름 대조는 그대로 동작한다
+    assert accounts.is_excluded_row({'subAccount': '9999-0000', 'accountName': '연습'},
+                                    codes, aliases, known)
+
+
 # ── DB 저장소 ──────────────────────────────────────────────────
 
 @pytest.fixture

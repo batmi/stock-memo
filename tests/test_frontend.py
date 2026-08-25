@@ -790,3 +790,86 @@ def test_stock_filter_dropdown_lists_one_row_per_stock(page: Page):
         return resolveStockOptionValue(opts, '한화에어로스페이스');
     }""")
     assert resolved == '한화에어로', f"옛 이름이 현재 옵션으로 옮겨지지 않는다: {resolved!r}"
+
+
+def test_shared_alias_excludes_only_flagged_account(page: Page):
+    """별칭이 같은 계좌가 여럿일 때, 제외 표시한 계좌의 기록만 빠져야 한다.
+
+    증권사마다 '일반계좌'가 있는 게 보통이다. 예전에는 계좌 이름으로 한 번 더
+    대조하는 단계에서 토스증권 '일반계좌'를 제외하면 한국투자증권 '일반계좌'까지
+    함께 빠졌다.
+    """
+    _login(page)
+
+    assert page.evaluate("""async () => {
+        const res = await fetch('/api/mappings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({brokers: {}, accounts: {
+                "189-01-501685": {broker_code: "271", broker_name: "토스증권",
+                                  alias: "일반계좌", exclude_from_stats: true},
+                "68029263-01": {broker_code: "243", broker_name: "한국투자증권",
+                                alias: "일반계좌", exclude_from_stats: false}
+            }})
+        });
+        return res.ok ? 'OK' : 'FAIL';
+    }""") == 'OK'
+
+    assert _seed_entries(page, [
+        # 한국투자증권 일반계좌(포함): 1,000원 × 10주
+        {"type": "trade", "tradeType": "매수", "stockName": "한투종목",
+         "stockCode": "000021", "price": 1000, "quantity": 10,
+         "rawDate": "2026-07-01T09:00", "id": 900201, "subAccount": "68029263-01"},
+        # 토스증권 일반계좌(제외): 50,000원 × 10주 — 합계에 섞이면 즉시 티가 난다
+        {"type": "trade", "tradeType": "매수", "stockName": "토스종목",
+         "stockCode": "000022", "price": 50000, "quantity": 10,
+         "rawDate": "2026-07-02T09:00", "id": 900202, "subAccount": "189-01-501685"},
+    ]) == 'OK'
+
+    page.reload()
+    #  앞선 테스트가 심어 둔 기록이 같은 계정에 남아 있으므로 개수가 아니라 이 두 장으로 본다.
+    expect(page.locator('#portfolioGrid .portfolio-card[data-id="000021"]')).to_have_count(1, timeout=10000)
+    #  제외 계좌 카드는 실거래와 섞이지 않도록 키에 접미사가 붙는다 (portfolioKey)
+    expect(page.locator('#portfolioGrid .portfolio-card[data-id="000022::모의"]')).to_have_count(1)
+
+    # 판정 함수 자체를 직접 확인한다 — 계좌번호가 특정되면 그 계좌의 설정만 따른다.
+    verdicts = page.evaluate("""() => {
+        const find = id => cloudEntries.find(e => Number(e.id) === id);
+        return {
+            kis: isExcludedFromTotals(find(900201)),
+            toss: isExcludedFromTotals(find(900202)),
+        };
+    }""")
+    assert verdicts == {'kis': False, 'toss': True}
+
+    # 도넛 차트에도 한국투자증권 기록만 들어가고, 제외한 토스증권 기록은 빠진다
+    labels = page.evaluate("() => portfolioChartInstance.data.labels")
+    assert '한투종목' in labels
+    assert '토스종목' not in labels
+
+
+def test_saving_accounts_reloads_page(page: Page):
+    """계좌 정보를 저장하면 화면이 한 번 새로고침돼 저장된 설정이 곧바로 반영돼야 한다.
+
+    '금액 계산 제외' 같은 설정은 서버가 계산하는 통계 응답까지 바꾸므로, 화면 일부만
+    다시 그리면 값이 어긋난다.
+    """
+    _login(page)
+    page.reload()
+    page.wait_for_load_state()
+
+    # 새로고침 여부를 판별할 표식 — 리로드되면 사라진다
+    page.evaluate("() => { window.__beforeAccountSave = true; }")
+    assert page.evaluate("() => window.__beforeAccountSave === true")
+
+    #  ⚙️ 설정 메뉴는 토글이라 실행 순서에 따라 접힘 상태가 달라진다. 여기서 확인할 것은
+    #  '저장 후 새로고침'이므로 메뉴 토글은 건너뛰고 계좌 관리 버튼의 핸들러를 직접 태운다.
+    page.dispatch_event('#btnAccountManagement', 'click')
+    expect(page.locator('#btnSaveAccountMappings')).to_be_visible()
+    with page.expect_navigation():
+        page.dispatch_event('#btnSaveAccountMappings', 'click')
+        expect(page.locator('#btnCustomModalOk')).to_be_visible()
+        page.dispatch_event('#btnCustomModalOk', 'click')  # '저장되었습니다' 확인
+
+    page.wait_for_load_state()
+    assert page.evaluate("() => window.__beforeAccountSave === undefined")

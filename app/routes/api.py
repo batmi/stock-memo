@@ -443,12 +443,18 @@ def delete_entry(entry_id):
 
 
 def _excluded_accounts(username):
-    """'금액 계산 제외'로 체크한 계좌의 (정규화된 계좌번호 집합, 별칭 집합)."""
-    return accounts.excluded_accounts(get_user_mappings(username))
+    """'금액 계산 제외' 판정에 필요한 (제외 계좌번호, 제외 별칭, 등록된 전체 계좌번호).
+
+    등록된 전체 계좌번호도 함께 넘겨야, 계좌번호로 계좌가 특정되는 기록에서는
+    이름 대조를 건너뛸 수 있다 (다른 증권사의 같은 별칭까지 제외되는 것 방지).
+    """
+    mappings = get_user_mappings(username)
+    codes, aliases = accounts.excluded_accounts(mappings)
+    return codes, aliases, accounts.known_account_keys(mappings)
 
 
-def _is_excluded_account_row(row, codes, aliases):
-    return accounts.is_excluded_row(row, codes, aliases)
+def _is_excluded_account_row(row, codes, aliases, known_codes=None):
+    return accounts.is_excluded_row(row, codes, aliases, known_codes)
 
 
 @bp.route('/api/stats', methods=['GET', 'POST'])
@@ -503,10 +509,11 @@ def get_stats():
 
     # ⭐️ 계좌 관리에서 '금액 계산 제외'로 지정한 계좌의 기록도 성과 분석에서 뺀다.
     #    프론트에서도 걸러 보내지만, 통계는 '실제 성과'를 말하는 화면이라 여기서도 막는다.
-    excluded_codes, excluded_aliases = _excluded_accounts(username)
+    excluded_codes, excluded_aliases, known_codes = _excluded_accounts(username)
     if excluded_codes or excluded_aliases:
         rows = [row for row in rows
-                if not _is_excluded_account_row(row, excluded_codes, excluded_aliases)]
+                if not _is_excluded_account_row(row, excluded_codes, excluded_aliases,
+                                                known_codes)]
 
     result = stats.compute_trade_stats(rows, granularity=granularity,
                                        period_start=period_start, period_end=period_end)
