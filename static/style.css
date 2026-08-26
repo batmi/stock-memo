@@ -161,6 +161,28 @@
     --flash-peak-color: rgba(59, 104, 140, 0.6);
 }
 
+/* ⭐️ 전역 스크롤바 커스텀 (Webkit) */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+    background: #4a4a4a;
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+    background: #5a5a5a;
+}
+
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     background-color: var(--bg-color);
