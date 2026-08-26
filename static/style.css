@@ -1,4 +1,5 @@
 :root {
+    color-scheme: light;
     --bg-color: #f4f7f6;
     --card-bg-color: #fff;
     --text-color: #333;
@@ -80,6 +81,7 @@
 }
 
 [data-theme="dark"] {
+    color-scheme: dark;
     --bg-color: #121212;
     --card-bg-color: #1e1e1e;
     --text-color: #aaaaaa;
