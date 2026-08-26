@@ -66,52 +66,7 @@ def test_stats_holding_period_and_dividend(client):
     assert round(s['totalDividend']) == 500
     assert round(s['totalPnl']) == round(s['totalRealized'] + 500)
 
-def test_stats_exclude_simulated_trades(client):
-    """모의투자 체결이 실현손익·승률 통계를 오염시키면 안 된다."""
-    _login(client, 'simstats')
-    # 실거래: 100원 10주 매수 → 120원 10주 매도 = +200
-    client.post('/api/entry', json=_buy(stock='A', qty=10, price=100,
-                                        rawDate='2024-01-10T09:00', id=1))
-    client.post('/api/entry', json=_sell(stock='A', qty=10, price=120,
-                                         rawDate='2024-02-10T09:00', id=2))
-    # 모의투자: 크게 손실 난 체결 — 통계에 섞이면 총 실현손익이 음수가 된다
-    _insert_raw('simstats', id=101, stockName='B', tradeType='매수', price=1000,
-                quantity=100, rawDate='2024-01-11T09:00', isSimulated=1)
-    _insert_raw('simstats', id=102, stockName='B', tradeType='매도', price=100,
-                quantity=100, rawDate='2024-02-11T09:00', isSimulated=1)
 
-    s = client.get('/api/stats').json
-    assert round(s['totalRealized']) == 200      # 모의 손실(-90,000)이 섞이지 않았다
-    assert s['sellCount'] == 1
-    assert s['lossCount'] == 0
-    assert [p['stock'] for p in s['perStock']] == ['A']
-
-def test_stats_filtered_request_also_excludes_simulated(client):
-    """entry_ids 를 직접 넘겨도(차트 필터 경로) 모의투자는 걸러져야 한다."""
-    _login(client, 'simstats2')
-    client.post('/api/entry', json=_buy(stock='A', qty=10, price=100,
-                                        rawDate='2024-01-10T09:00', id=1))
-    client.post('/api/entry', json=_sell(stock='A', qty=10, price=120,
-                                         rawDate='2024-02-10T09:00', id=2))
-    _insert_raw('simstats2', id=101, stockName='B', tradeType='매수', price=1000,
-                quantity=100, rawDate='2024-01-11T09:00', isSimulated=1)
-    _insert_raw('simstats2', id=102, stockName='B', tradeType='매도', price=100,
-                quantity=100, rawDate='2024-02-11T09:00', isSimulated=1)
-
-    s = client.post('/api/stats', json={'entry_ids': [1, 2, 101, 102]}).json
-    assert round(s['totalRealized']) == 200
-    assert [p['stock'] for p in s['perStock']] == ['A']
-
-def test_simulated_entries_are_still_returned_to_dashboard(client):
-    """카드 슬롯에는 떠야 하므로 목록 조회에서는 빠지면 안 된다."""
-    _login(client, 'simlist')
-    _insert_raw('simlist', id=101, stockName='B', tradeType='매수', price=1000,
-                quantity=100, rawDate='2024-01-11T09:00', isSimulated=1)
-
-    data = client.get('/api/data').json
-    assert len(data) == 1
-    assert data[0]['stockName'] == 'B'
-    assert data[0]['isSimulated'] == 1
 
 def test_stats_exclude_flagged_account(client):
     """계좌 관리에서 '금액 계산 제외'로 체크한 계좌는 통계에서 빠져야 한다.

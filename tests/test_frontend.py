@@ -247,65 +247,7 @@ def _seed_entries(page: Page, entries):
     }""", entries)
 
 
-def test_simulated_trades_show_as_card_but_excluded_from_totals(page: Page):
-    """모의투자는 카드로만 보이고, 도넛·총 투자금액·보유 종목 수에서는 빠져야 한다."""
-    _login(page)
 
-    assert _seed_entries(page, [
-        # 실거래: 1,000원 × 10주 = 10,000원
-        {"type": "trade", "tradeType": "매수", "stockName": "리얼종목",
-         "stockCode": "000001", "price": 1000, "quantity": 10,
-         "tradeClass": "장기투자", "rawDate": "2026-07-01T09:00", "id": 900001},
-        # 모의투자: 50,000원 × 10주 = 500,000원 — 합계에 섞이면 즉시 티가 난다
-        {"type": "trade", "tradeType": "매수", "stockName": "모의종목",
-         "stockCode": "000002", "price": 50000, "quantity": 10,
-         "tradeClass": "시스템", "rawDate": "2026-07-02T09:00", "id": 900002,
-         "isSimulated": 1},
-    ]) == 'OK'
-
-    page.reload()
-    expect(page.locator('#portfolioGrid .portfolio-card')).to_have_count(2, timeout=10000)
-
-    # 1) 모의투자도 카드로는 보인다 (+ '모의' 배지)
-    sim_card = page.locator('#portfolioGrid .portfolio-card[data-id="000002::모의"]')
-    expect(sim_card).to_have_count(1)
-    expect(sim_card).to_contain_text('모의')
-
-    # 2) 총 투자금액은 실거래 10,000원만 (모의 500,000원 제외)
-    expect(page.locator('#centerTotalInvested')).to_have_text('10,000원', timeout=5000)
-
-    # 3) 보유 종목 수도 실거래만 센다
-    expect(page.locator('#centerHoldingsCount')).to_have_text('1종목 보유')
-
-    # 4) 도넛 차트 데이터에 모의 종목이 없다
-    labels = page.evaluate("() => portfolioChartInstance.data.labels")
-    assert labels == ['리얼종목']
-
-
-def test_simulated_trade_does_not_pollute_real_average_price(page: Page):
-    """같은 종목을 실거래·모의로 함께 들고 있어도 카드가 합쳐지면 안 된다."""
-    _login(page)
-
-    assert _seed_entries(page, [
-        # 동일 종목명 '겹침종목' 을 실거래 100원, 모의 9,900원에 매수
-        {"type": "trade", "tradeType": "매수", "stockName": "겹침종목",
-         "stockCode": "000003", "price": 100, "quantity": 10,
-         "tradeClass": "장기투자", "rawDate": "2026-07-03T09:00", "id": 900003},
-        {"type": "trade", "tradeType": "매수", "stockName": "겹침종목",
-         "stockCode": "000003", "price": 9900, "quantity": 10,
-         "tradeClass": "시스템", "rawDate": "2026-07-04T09:00", "id": 900004,
-         "isSimulated": 1},
-    ]) == 'OK'
-
-    page.reload()
-    real_card = page.locator('#portfolioGrid .portfolio-card[data-id="000003"]')
-    sim_card = page.locator('#portfolioGrid .portfolio-card[data-id="000003::모의"]')
-    expect(real_card).to_have_count(1, timeout=10000)
-    expect(sim_card).to_have_count(1)
-
-    # 실거래 카드의 평균 단가는 모의 매수(9,900원)에 오염되지 않은 100원이어야 한다
-    expect(real_card).to_contain_text('100')
-    expect(sim_card).to_contain_text('9,900')
 
 
 def _chart_realized(page: Page, month_label):
@@ -321,8 +263,8 @@ def _chart_realized(page: Page, month_label):
     }""", month_label)
 
 
-def test_chart_excludes_simulated_and_flagged_accounts(page: Page):
-    """차트 뷰(실현손익)도 모의투자·'금액 계산 제외' 계좌를 빼고 그려야 한다."""
+def test_chart_excludes_flagged_accounts(page: Page):
+    """차트 뷰(실현손익)도 '금액 계산 제외' 계좌를 빼고 그려야 한다."""
     _login(page)
 
     # '연습계좌'(99998888-01)를 금액 계산 제외로 등록한다
@@ -350,14 +292,7 @@ def test_chart_excludes_simulated_and_flagged_accounts(page: Page):
         {"type": "trade", "tradeType": "매도", "stockName": "차트리얼",
          "stockCode": "000011", "price": 1200, "quantity": 10,
          "rawDate": day.format(5), "id": 900102},
-        # 모의투자: 큰 손실 — 차트에 섞이면 즉시 티가 난다
-        {"type": "trade", "tradeType": "매수", "stockName": "차트모의",
-         "stockCode": "000012", "price": 10000, "quantity": 10,
-         "rawDate": day.format(2), "id": 900103, "isSimulated": 1},
-        {"type": "trade", "tradeType": "매도", "stockName": "차트모의",
-         "stockCode": "000012", "price": 1000, "quantity": 10,
-         "rawDate": day.format(6), "id": 900104, "isSimulated": 1},
-        # 제외 계좌(연습계좌): 역시 큰 손실
+        # 제외 계좌(연습계좌): 역대급 큰 손실 - 차트에 섞이면 즉시 티가 난다
         {"type": "trade", "tradeType": "매수", "stockName": "차트연습",
          "stockCode": "000013", "price": 10000, "quantity": 10,
          "rawDate": day.format(3), "id": 900105, "subAccount": "99998888-01"},
@@ -830,7 +765,7 @@ def test_shared_alias_excludes_only_flagged_account(page: Page):
     #  앞선 테스트가 심어 둔 기록이 같은 계정에 남아 있으므로 개수가 아니라 이 두 장으로 본다.
     expect(page.locator('#portfolioGrid .portfolio-card[data-id="000021"]')).to_have_count(1, timeout=10000)
     #  제외 계좌 카드는 실거래와 섞이지 않도록 키에 접미사가 붙는다 (portfolioKey)
-    expect(page.locator('#portfolioGrid .portfolio-card[data-id="000022::모의"]')).to_have_count(1)
+    expect(page.locator('#portfolioGrid .portfolio-card[data-id="000022::제외"]')).to_have_count(1)
 
     # 판정 함수 자체를 직접 확인한다 — 계좌번호가 특정되면 그 계좌의 설정만 따른다.
     verdicts = page.evaluate("""() => {

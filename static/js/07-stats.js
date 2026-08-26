@@ -69,8 +69,7 @@ window.loadTradeStats = async function() {
             ? null : identityForStockName(currentChartStock);
         cloudEntries.forEach(entry => {
             if (entry.type !== 'trade' || !entry.stockName) return;
-            // ⭐️ 모의투자·'금액 계산 제외' 계좌는 실제 성과가 아니므로 통계에서 제외한다.
-            //    (모의투자는 백엔드에서도 한 번 더 거른다)
+            // ⭐️ '금액 계산 제외' 계좌는 실제 성과가 아니므로 통계에서 제외한다.
             if (isExcludedFromTotals(entry)) return;
             if (currentChartStock !== 'all' && identityOf(entry) !== chartStockIdentity) return;
             if (currentChartAccount !== 'all' && (entry.tradeClass || '') !== currentChartAccount) return;

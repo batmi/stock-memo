@@ -123,7 +123,7 @@ def summarize_bot_states(bots):
     """봇 목록에서 화면 대표 상태 하나를 고른다. (state, elapsed, botId)
 
     **가장 나쁜 상태가 이긴다.** 하나라도 살아 있으면 초록으로 칠하는 방식은
-    실전봇이 죽은 것을 모의봇 Ping 이 가려 버린다 — 이 기능이 막으려는 그 오표시다.
+    일부 봇이 죽은 상태를 정상 봇의 Ping 이 가려 버리는 문제를 막기 위함이다.
     """
     if not bots:
         return 'never', None, None

@@ -486,9 +486,7 @@ def get_stats():
     #    표기가 갈린 같은 종목의 손익이 쪼개진다.
     stats_cols = ("id, type, stockName, stockCode, tradeType, price, quantity, "
                   "rawDate, subAccount, accountName")
-    # ⭐️ 모의투자(isSimulated=1) 체결은 실제 돈이 오간 기록이 아니므로 성과 분석에서 제외한다.
-    #    프론트에서도 걸러 보내지만, 통계는 '실제 성과'를 말하는 화면이라 여기서도 막는다.
-    real_only = "COALESCE(isSimulated, 0) = 0"
+
     with db_conn() as conn:
         c = conn.cursor()
         if entry_ids is not None:
@@ -500,11 +498,11 @@ def get_stats():
                 for i in range(0, len(entry_ids), chunk_size):
                     chunk = entry_ids[i:i+chunk_size]
                     placeholders = ','.join('?' for _ in chunk)
-                    c.execute(f"SELECT {stats_cols} FROM entries WHERE username = ? AND {real_only} "
+                    c.execute(f"SELECT {stats_cols} FROM entries WHERE username = ? "
                               f"AND id IN ({placeholders})", (username, *chunk))
                     rows.extend([dict(row) for row in c.fetchall()])
         else:
-            c.execute(f"SELECT {stats_cols} FROM entries WHERE username = ? AND {real_only}", (username,))
+            c.execute(f"SELECT {stats_cols} FROM entries WHERE username = ?", (username,))
             rows = [dict(row) for row in c.fetchall()]
 
     # ⭐️ 계좌 관리에서 '금액 계산 제외'로 지정한 계좌의 기록도 성과 분석에서 뺀다.

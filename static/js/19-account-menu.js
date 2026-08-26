@@ -110,9 +110,7 @@ if (btnChangePassword && passwordModalOverlay) {
         box.innerHTML = bots.map(b => {
             const [dot, color] = DOT[b.state] || DOT.never;
             const name = b.label || b.botId;
-            // 라벨이 이미 '모의'를 말하고 있으면 배지를 겹쳐 붙이지 않는다.
-            const sim = (b.isSimulated && !name.includes('모의'))
-                ? ' <span style="opacity: .6;">모의</span>' : '';
+
             const ago = formatElapsed(b.elapsedSeconds).trim() || '-';
             // 죽은 봇만 지울 수 있게 한다 — 살아 있는 봇은 지워도 10초 뒤 되살아나
             // 버튼이 아무 일도 안 한 것처럼 보인다.
@@ -134,7 +132,7 @@ if (btnChangePassword && passwordModalOverlay) {
             return `<div title="${escapeHtml(b.botId)}">`
                  + '<div style="display: flex; justify-content: space-between; gap: 8px; align-items: center;">'
                  + `<span style="color: ${color}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">`
-                 + `${dot} ${escapeHtml(head || name)}${sim}</span>`
+                 + `${dot} ${escapeHtml(head || name)}</span>`
                  + '<span style="color: var(--text-muted-color); white-space: nowrap;">'
                  + `${escapeHtml(ago)}${removable}</span></div>`
                  + `${extra}</div>`;

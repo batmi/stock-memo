@@ -31,9 +31,7 @@ function recomputeHiddenStocks() {
         if (!prevName || nameTs > prevName.ts || (nameTs === prevName.ts && nameId > prevName.id)) {
             nameOfIdentity[identForName] = { name: stockName.trim(), ts: nameTs, id: nameId };
         }
-        // ⭐️ 숨김은 사용자가 실거래 종목에 대해 정한 의도다. 봇이 밀어 넣는 모의투자 기록은
-        //    항상 isHidden=0 이고 가장 최신이라, 포함시키면 숨김이 저절로 풀려버린다.
-        if (isSimulatedEntry(entry)) return;
+        // ⭐️ 숨김은 사용자가 실거래 종목에 대해 정한 의도다.
 
         const stamp = entry.updatedAt || entry.createdAt;
         const ts = stamp ? (new Date(stamp).getTime() || 0) : 0;
@@ -102,9 +100,9 @@ function displayEntries(isFilterUpdate = false) {
         const entryType = entry.type || 'trade';
         if (entryType !== 'trade' || !entry.stockName) return;
 
-        // ⭐️ 청산 판정 수량은 포트폴리오와 똑같이 (종목 + 모의/제외 여부)별로 나눠 쌓는다.
-        //    한 칸에 합치면 모의·제외 계좌 물량이 실거래 잔량을 오염시키고,
-        //    반대로 실거래만 세면 모의 전용 종목은 수량이 아예 안 잡혀 청산 판정에서 빠진다.
+        // ⭐️ 청산 판정 수량은 포트폴리오와 똑같이 (종목 + 제외 여부)별로 나눠 쌓는다.
+        //    한 칸에 합치면 제외 계좌 물량이 실거래 잔량을 오염시키고,
+        //    반대로 실거래만 세면 제외 전용 종목은 수량이 아예 안 잡혀 청산 판정에서 빠진다.
         if (entry.tradeType === '매수' || entry.tradeType === '매도') {
             const qtyKey = portfolioKeyFor(entry);   // 포트폴리오와 같은 기준(코드 우선)
             if (stockQtys[qtyKey] === undefined) stockQtys[qtyKey] = 0;

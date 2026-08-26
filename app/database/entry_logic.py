@@ -140,19 +140,16 @@ def update_entry_row(c, entry_id, username, entry):
     c.execute(_UPDATE_SQL, values)
 
 
-def net_holding_for_stock(c, username, stock_name, exclude_id=None, stock_code=None,
-                          is_simulated=0):
+def net_holding_for_stock(c, username, stock_name, exclude_id=None, stock_code=None):
     """해당 사용자의 특정 종목 현재 순보유 수량(매수 합계 - 매도 합계)을 계산합니다.
 
     종목코드(stock_code)가 주어지면 코드를 1순위 기준으로 집계합니다. 종목명은
     동일 종목이라도 표기가 갈리고(우선주·해외 티커·증권사별 명칭) 봇은 코드만
     보내오므로, 이름만으로 맞추면 보유 매칭이 어긋나 정상 매도가 거부됩니다.
     코드가 비어 있는 레거시 수동 기록도 함께 잡히도록 이름 조건을 OR 로 유지합니다.
-
-    모의투자(isSimulated=1) 기록은 실거래 잔고와 분리해 집계합니다.
     """
-    conditions = ["username = ?", "type = 'trade'", "COALESCE(isSimulated, 0) = ?"]
-    params = [username, 1 if is_simulated else 0]
+    conditions = ["username = ?", "type = 'trade'"]
+    params = [username]
 
     code = normalize_stock_code(stock_code)
     if code:
@@ -180,24 +177,6 @@ def net_holding_for_stock(c, username, stock_name, exclude_id=None, stock_code=N
         elif row['tradeType'] == '매도':
             held -= qty
     return held
-
-
-def _effective_is_simulated(c, username, entry, exclude_id):
-    """이 기록이 '저장된 뒤' 갖게 될 모의투자 플래그(0/1)를 돌려줍니다.
-
-    웹 UI 수정 폼은 봇 전용 컬럼(isSimulated 등)을 담아 보내지 않습니다. 그런데
-    UPDATE 도 그 컬럼을 건드리지 않으므로(_UPDATE_COLUMNS 에서 제외), 저장돼 있는
-    값이 곧 수정 후의 값입니다. 페이로드가 비었다고 실거래(0)로 넘겨짚으면 모의
-    종목의 잔고를 실거래 쪽에서 찾다가 '매수 보유 기록이 없다'며 수정이 막힙니다.
-    """
-    if 'isSimulated' in entry:
-        return 1 if entry.get('isSimulated') else 0
-    if exclude_id is None:  # 신규 작성 — 대조할 저장본이 없다.
-        return 0
-    c.execute("SELECT isSimulated FROM entries WHERE id = ? AND username = ?",
-              (exclude_id, username))
-    row = c.fetchone()
-    return 1 if (row and row['isSimulated']) else 0
 
 
 def check_sell_integrity(c, username, entry, exclude_id=None):
@@ -230,8 +209,7 @@ def check_sell_integrity(c, username, entry, exclude_id=None):
         return None
 
     held = net_holding_for_stock(
-        c, username, stock_name, exclude_id=exclude_id, stock_code=stock_code,
-        is_simulated=_effective_is_simulated(c, username, entry, exclude_id),
+        c, username, stock_name, exclude_id=exclude_id, stock_code=stock_code
     )
     label = stock_name or stock_code
 

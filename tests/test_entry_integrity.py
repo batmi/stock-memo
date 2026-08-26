@@ -55,16 +55,7 @@ def test_dividend_not_blocked(client):
         "price": 500, "quantity": 10})
     assert res.status_code == 200
 
-def test_simulated_holdings_do_not_block_real_sell(client):
-    """모의 보유가 실거래 매도 검증에 끼어들면 안 된다 (그 반대도 마찬가지)."""
-    _login(client, 'simhold')
-    # 모의로만 100주 보유
-    _insert_raw('simhold', id=101, stockName='C', tradeType='매수', price=1000,
-                quantity=100, rawDate='2024-01-11T09:00', isSimulated=1)
 
-    # 실거래 보유는 0 이므로 실거래 매도는 차단되어야 한다
-    res = client.post('/api/entry', json=_sell(stock='C', qty=10, price=1200))
-    assert res.status_code == 400
 
 
 # ── 종목코드 표기 정규화 ────────────────────────────────────────────────

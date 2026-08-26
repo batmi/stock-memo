@@ -239,29 +239,6 @@ def test_opening_balance_idempotency_key_ignores_symbol_case(api):
     assert [r[0] for r in rows] == ['AAPL']
 
 
-def test_simulated_holdings_do_not_cover_real_sells(api):
-    api['client'].post('/api/v1/trades', headers=api['headers'],
-                       json=_trade(volume=10, isSimulated=True,
-                                   brokerExecutionId='SIM:1234:20260801:0001'))
-    res = api['client'].post('/api/v1/trades', headers=api['headers'], json=_trade(
-        side='SELL', volume=10, brokerExecutionId='REAL:1234:20260801:0004'))
-    assert res.get_json()['needsReview'] is True
-
-
-# ── 모의/실거래 분리 ──────────────────────────────────────────────────
-
-def test_simulated_trades_excluded_from_default_queries(api):
-    api['client'].post('/api/v1/trades', json=_trade(), headers=api['headers'])
-    api['client'].post('/api/v1/trades', headers=api['headers'],
-                       json=_trade(isSimulated=True, brokerExecutionId='SIM:1:1:1'))
-
-    real = api['client'].get('/api/v1/trades', headers=api['headers']).get_json()['trades']
-    assert len(real) == 1 and real[0]['isSimulated'] is False
-
-    sim = api['client'].get('/api/v1/trades?isSimulated=true',
-                            headers=api['headers']).get_json()['trades']
-    assert len(sim) == 1 and sim[0]['isSimulated'] is True
-
 
 # ── 시각·거래일 ───────────────────────────────────────────────────────
 
@@ -739,12 +716,12 @@ def test_completed_command_is_never_sent_again(api):
 def test_pings_from_different_bots_do_not_overwrite_each_other(api):
     """실전봇이 죽어도 모의봇 Ping 이 화면을 '정상'으로 유지하던 문제."""
     _ping(api, botId='real', label='실전 68029263')
-    _ping(api, botId='sim', label='모의 50196591', isSimulated=True)
+    _ping(api, botId='botB', label='봇B 50196591')
 
     bots = {b['botId']: b for b in trading_api.list_bots('bot')}
-    assert set(bots) == {'real', 'sim'}
+    assert set(bots) == {'real', 'botB'}
     assert bots['real']['label'] == '실전 68029263'
-    assert bots['sim']['isSimulated'] is True
+    assert bots['botB']['label'] == '봇B 50196591'
 
 
 def test_missing_bot_id_is_grouped_as_legacy(api):
@@ -893,11 +870,11 @@ def _as_web_user(api):
 def test_resync_refuses_to_guess_when_several_bots_are_connected(api):
     """대상을 안 고르면 아무 봇이나 채가 엉뚱한 계좌가 재동기화된다 — 여기서 막는다."""
     _ping(api, botId='real', label='실전')
-    _ping(api, botId='sim', label='모의')
+    _ping(api, botId='botB', label='봇B')
 
     res = _as_web_user(api).post('/api/me/bot/resync', json={'preset': 'quarter'})
     assert res.status_code == 400
-    assert {b['botId'] for b in res.get_json()['bots']} == {'real', 'sim'}
+    assert {b['botId'] for b in res.get_json()['bots']} == {'real', 'botB'}
 
 
 def test_resync_pins_the_solo_bot_explicitly(api):
@@ -918,7 +895,7 @@ def test_resync_rejects_unknown_bot(api):
 def test_me_reports_the_worst_bot_and_lists_all(api, monkeypatch):
     """실전봇이 죽어도 모의봇 Ping 이 초록불을 유지하던 것이 이 기능의 출발점이다."""
     _ping(api, botId='real', label='실전')
-    _ping(api, botId='sim', label='모의')
+    _ping(api, botId='botB', label='봇B')
     # 실전봇만 오래 굶긴다 — Ping 시각을 과거로 밀어 통신단절 상태를 만든다.
     with backend_app.db_conn() as conn:
         conn.cursor().execute(
@@ -929,7 +906,7 @@ def test_me_reports_the_worst_bot_and_lists_all(api, monkeypatch):
     body = _as_web_user(api).get('/api/me').get_json()
     assert body['bot_state'] == 'offline'
     assert {b['botId']: b['state'] for b in body['bots']} == {
-        'real': 'offline', 'sim': 'running'}
+        'real': 'offline', 'botB': 'running'}
 
 
 def test_forgetting_a_bot_clears_a_stale_row(api):

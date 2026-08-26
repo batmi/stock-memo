@@ -128,22 +128,7 @@ let stockIdentityByName = {};  // ⭐️ 종목명 → 동일성(코드) 표. re
 let stockNameByIdentity = {};  // ⭐️ 동일성(코드) → 표시 이름(가장 최근 기록의 이름). 같은 표가 함께 만들어진다
 let hiddenStocks = new Set();  // ⭐️ 숨김 처리된 종목명 집합 — 각 종목의 최신 기록(updatedAt→createdAt→id)의 isHidden 으로 판정
 
-// ══════════════════════════════════════════════════════════════════════
-// ⭐️ 모의투자(isSimulated) 기록 분리
-//
-// HTS 모의투자 계좌에서 들어온 체결은 실제 돈이 오간 기록이 아니다.
-// 포트폴리오 '카드'로는 보여주되(무엇을 굴리고 있는지 확인용), 금액을 합산하는
-// 모든 지표에서는 빼야 한다 — 도넛 차트, 총 투자금액·평가금액·실현손익,
-// 보유 종목 수, 캘린더 일별 손익, 통계 화면.
-//
-// 카드 키에 접미사를 붙여 실거래와 같은 종목이라도 절대 한 칸에 합쳐지지 않게 한다.
-// 합쳐지면 모의 매수가 실거래 평균단가를 오염시킨다.
-// ══════════════════════════════════════════════════════════════════════
-const SIM_KEY_SUFFIX = '::모의';
-
-function isSimulatedEntry(entry) {
-    return !!Number(entry && entry.isSimulated);
-}
+const EXCLUDED_KEY_SUFFIX = '::제외';
 
 // ⭐️ 이름만으로 '제외 계좌'라고 단정할 수 있는 별칭 집합.
 //    같은 별칭이 제외 계좌와 포함 계좌에 함께 쓰이면(증권사마다 '일반계좌'처럼) 이름만으로는
@@ -181,18 +166,18 @@ function isExcludedAccountEntry(entry) {
 }
 
 // ⭐️ 금액을 합산하는 모든 지표(도넛·총액·실현손익·차트·통계)에서 빼야 하는 기록인지.
-//    모의투자(isSimulated) 체결 + 사용자가 '제외'로 체크한 계좌의 기록이 모두 해당된다.
+//    사용자가 '제외'로 체크한 계좌의 기록이 해당된다.
 function isExcludedFromTotals(entry) {
-    return isSimulatedEntry(entry) || isExcludedAccountEntry(entry);
+    return isExcludedAccountEntry(entry);
 }
 
 // 제외 사유에 따라 카드·목록에 붙일 배지 문구
 function exclusionBadgeLabel(entry) {
-    return isSimulatedEntry(entry) ? '모의' : '제외';
+    return '제외';
 }
 
-function portfolioKey(stockName, isSim) {
-    return isSim ? stockName + SIM_KEY_SUFFIX : stockName;
+function portfolioKey(stockName, isExcluded) {
+    return isExcluded ? stockName + EXCLUDED_KEY_SUFFIX : stockName;
 }
 
 // ⭐️ 종목 동일성 키 — 코드가 있으면 코드, 없으면 이름 (calc.js 가 정본, 백엔드

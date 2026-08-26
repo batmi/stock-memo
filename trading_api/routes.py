@@ -283,12 +283,7 @@ def list_trades(username, scopes):
         conditions.append("source = ?")
         params.append(args.get('source'))
 
-    sim_arg = args.get('isSimulated')
-    if sim_arg is None:
-        conditions.append("COALESCE(isSimulated, 0) = 0")
-    elif sim_arg.lower() not in ('all', '*'):
-        conditions.append("COALESCE(isSimulated, 0) = ?")
-        params.append(1 if sim_arg.lower() in ('1', 'true', 'yes') else 0)
+    sim_arg = args.get('isSimulated') # 파라미터는 읽어두되 분기 처리하지 않음 (API 하위 호환성)
 
     cursor = args.get('cursor')
     if cursor:
@@ -333,9 +328,7 @@ def last_sync(username, scopes):
         conditions.append("REPLACE(subAccount, '-', '') = ?")
         params.append(args.get('account').replace('-', ''))
 
-    sim_arg = (args.get('isSimulated') or 'false').lower()
-    conditions.append("COALESCE(isSimulated, 0) = ?")
-    params.append(1 if sim_arg in ('1', 'true', 'yes') else 0)
+    sim_arg = (args.get('isSimulated') or 'false').lower() # 하위 호환성 유지
 
     where = " AND ".join(conditions)
     with db_conn() as conn:
