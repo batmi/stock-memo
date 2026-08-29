@@ -467,18 +467,3 @@ ruff check .
 | `test_accounts.py::test_trading_api_shares_the_same_rule` | 봇 API 와 웹 화면이 같은 계좌 정규화 규칙을 쓴다 |
 | `test_frontend.py::test_broker_dropdown_is_built_from_the_single_source` | 증권사 목록이 한 곳에서만 정의된다 |
 
-### 검증은 손으로 돌립니다 (CI 없음)
-
-GitHub Actions 워크플로는 제거했습니다. **자동으로 돌아가는 것은 아무것도 없으므로,
-커밋 전에 아래 네 줄을 직접 돌립니다.** 순서는 빠르고 잘 깨지는 것부터입니다.
-
-```bash
-ruff check .                                # 린트  (규칙은 pyproject.toml)
-pytest -q --ignore=tests/test_frontend.py   # 백엔드·계산  (5초 내외)
-node --test tests/calc.test.js              # 보유 상태 엔진 (Node 18+)
-pytest -q tests/test_frontend.py            # 브라우저 E2E  (chromium 필요, 20초 내외)
-```
-
-⚠️ `node --test` 는 `package.json` 이 없어 이 문서 말고는 아무도 알려 주지 않습니다.
-   `static/calc.js` 는 화면이 평단·원가·실현손익을 굴리는 유일한 경로이므로,
-   그 파일을 고쳤다면 이 줄을 빠뜨리지 마십시오.

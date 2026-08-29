@@ -420,18 +420,3 @@ from quietly eroding during refactors.
 | `test_accounts.py::test_trading_api_shares_the_same_rule` | Bot API and web UI use the same account-normalization rule |
 | `test_frontend.py::test_broker_dropdown_is_built_from_the_single_source` | The broker list is defined in exactly one place |
 
-### Verification is manual (no CI)
-
-The GitHub Actions workflow has been removed. **Nothing runs automatically**, so run
-these four lines yourself before committing — ordered fastest-and-most-brittle first.
-
-```bash
-ruff check .                                # Lint (rules live in pyproject.toml)
-pytest -q --ignore=tests/test_frontend.py   # Backend + calculations (~5s)
-node --test tests/calc.test.js              # Holdings engine (Node 18+)
-pytest -q tests/test_frontend.py            # Browser E2E (needs chromium, ~20s)
-```
-
-⚠️ There is no `package.json`, so nothing but this document will remind you about
-   `node --test`. `static/calc.js` is the only path by which the UI computes average
-   cost, cost basis, and realized P&L — never skip that line after touching it.
