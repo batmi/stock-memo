@@ -91,7 +91,7 @@ python backend_app.py
 ### Access
 Open a web browser and navigate to the following address:
 ```text
-http://127.0.0.1:5000
+http://127.0.0.1:9094
 ```
 
 ---

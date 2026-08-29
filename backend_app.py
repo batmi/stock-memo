@@ -216,13 +216,13 @@ application = app
 if __name__ == '__main__':
     bootstrap()
 
-    port = 5000
+    port = 9094
     if len(sys.argv) > 1:
         try:
             port = int(sys.argv[1])
         except ValueError:
             app.logger.warning(
-                f"경고: 잘못된 포트 번호('{sys.argv[1]}')가 입력되어 기본 포트(5000)로 실행합니다.")
+                f"경고: 잘못된 포트 번호('{sys.argv[1]}')가 입력되어 기본 포트(9094)로 실행합니다.")
 
     app.logger.info(f"로컬 주식 매매 일지 서버를 시작합니다. (포트: {port})")
     app.logger.info(

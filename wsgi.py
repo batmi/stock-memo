@@ -1,6 +1,6 @@
 """WSGI 진입점 — gunicorn/uwsgi 로 띄울 때 여기를 가리킨다.
 
-    gunicorn 'wsgi:application' --bind 0.0.0.0:5000 --threads 16
+    gunicorn 'wsgi:application' --bind 0.0.0.0:9094 --threads 16
 
 `backend_app` 을 그냥 임포트하는 것과 다른 점은 **bootstrap() 을 부른다**는 것이다.
 스키마 적용·1회성 이관·백그라운드 작업이 여기서 일어난다. backend_app 임포트

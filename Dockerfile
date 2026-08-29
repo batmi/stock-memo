@@ -18,8 +18,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application code into the container
 COPY . .
 
-# Expose port 5000 for the app
-EXPOSE 5000
+# Expose port 9094 for the app
+EXPOSE 9094
 
 # Define volumes for persistent data
 # db: SQLite database files
