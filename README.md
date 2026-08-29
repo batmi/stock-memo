@@ -17,7 +17,6 @@
 5. [데이터 백업 및 보안 가이드 (Backup & Security)](#5-데이터-백업-및-보안-가이드-backup--security)
 6. [프로젝트 구조 (Project Structure)](#6-프로젝트-구조-project-structure)
 7. [시스템 트레이딩 연동 API (Trading API)](#7-시스템-트레이딩-연동-api-trading-api)
-8. [테스트 가이드 (Testing)](#8-테스트-가이드-testing)
 
 ---
 
@@ -410,60 +409,4 @@ INSERT/UPDATE)와 읽기(비교) 양쪽이 그것을 씁니다. 화면 쪽 정�
 
 *   API 키가 평문으로 전송되지 않도록 **반드시 HTTPS**로 서비스하세요 (Nginx 등 리버스 프록시 + SSL).
 *   레이트 리밋은 프로세스 내 메모리 기준입니다. 다중 프로세스로 확장하려면 Redis 등 공유 저장소로 교체해야 합니다.
-
----
-
-## 8. 테스트 가이드 (Testing)
-
-백엔드 API와 데이터 무결성 검증, 백업 복원(라운드트립), 성과 분석 로직은 `pytest` 기반 단위 테스트로 검증됩니다.
-테스트 코드는 `tests/` 폴더에 위치하며, 임시 DB를 사용하므로 실제 구동 데이터(`db/journal.db`)에 영향을 주지 않습니다.
-
-```bash
-# 개발·테스트 의존성 설치 (최초 1회)
-pip install -r requirements-dev.txt
-playwright install chromium      # 브라우저 E2E 테스트용
-
-# 전체 테스트 실행
-pytest
-
-# 브라우저 E2E 를 뺀 빠른 실행 (5초 내외)
-pytest --ignore=tests/test_frontend.py
-```
-
-프론트엔드 보유 상태 엔진(`static/calc.js`)은 Node 내장 테스트 러너로 검증합니다.
-백엔드 성과 지표는 `tests/test_stats.py` 가 골든 스냅샷으로 고정합니다.
-
-```bash
-# 프론트엔드 계산 단위 테스트 (Node 18+)
-node --test tests/calc.test.js
-
-# 백엔드 성과 지표 회귀
-pytest tests/test_stats.py
-```
-
-### 린트 (Lint)
-
-```bash
-pip install ruff
-ruff check .
-```
-
-규칙은 `pyproject.toml` 에 있습니다. 처음부터 넓게 켜면 기존 코드가 수백 건 걸려
-아무도 안 보게 되므로, **실제 버그로 이어지는 것**(미사용/미정의 이름, 문법 오류,
-흔한 함정)부터 켜 두었습니다.
-
-### 구조를 지키는 테스트
-
-일반적인 기능 테스트 외에, 위 "설계 규칙"이 무너지지 않도록 지키는 테스트가 있습니다.
-리팩터링 중에 조용히 되돌아가기 쉬운 것들입니다.
-
-| 파일 | 지키는 것 |
-|---|---|
-| `test_middleware.py::test_sensitive_files_are_not_served` | `.secret_key`·DB·백업이 정적 경로로 새지 않는다 |
-| `test_middleware.py::test_every_app_script_is_listed_and_served` | `static/js` 조각이 하나도 빠지지 않고 순서대로 실린다 |
-| `test_schema.py::test_migrated_legacy_db_matches_fresh_db` | 새 DB 와 마이그레이션된 옛 DB 의 스키마가 같다 |
-| `test_admin.py::test_every_admin_route_is_permission_checked` | 모든 관리자 라우트가 비관리자에게 403 |
-| `test_startup.py::test_importing_backend_app_has_no_side_effects` | 임포트만으로 DB·스레드가 생기지 않는다 |
-| `test_accounts.py::test_trading_api_shares_the_same_rule` | 봇 API 와 웹 화면이 같은 계좌 정규화 규칙을 쓴다 |
-| `test_frontend.py::test_broker_dropdown_is_built_from_the_single_source` | 증권사 목록이 한 곳에서만 정의된다 |
 

@@ -17,7 +17,6 @@ Built on a Python (Flask) backend and SQLite, it features a **multi-user environ
 5. [Backup & Security](#5-backup--security)
 6. [Project Structure](#6-project-structure)
 7. [Trading API](#7-trading-api)
-8. [Testing](#8-testing)
 
 ---
 
@@ -363,60 +362,4 @@ Always branch on `errorCode`. The `error` text may change without notice.
 
 *   **Serve over HTTPS** so the API key is never transmitted in the clear (reverse proxy such as Nginx + SSL).
 *   Rate limiting is in-process memory. Scaling to multiple processes requires swapping it for a shared store such as Redis.
-
-
----
-
-## 8. Testing
-
-Backend APIs, data integrity validations, backup restorations (round-trip), and performance analytics logic are verified by `pytest`-based unit tests.
-Test codes are located in the `tests/` folder and use a temporary DB, ensuring the actual operational data (`db/journal.db`) remains unaffected.
-
-```bash
-# Install test dependencies (once)
-pip install -r requirements-dev.txt
-playwright install chromium      # for the browser E2E tests
-
-# Run everything
-pytest
-
-# Fast run without browser E2E (about 5 seconds)
-pytest --ignore=tests/test_frontend.py
-```
-
-The frontend holdings engine (`static/calc.js`) is verified by the built-in Node test runner. Backend performance metrics are pinned by `tests/test_stats.py` against a golden snapshot.
-
-```bash
-# Run frontend calculation unit tests (Node 18+)
-node --test tests/calc.test.js
-
-# Backend performance-metric regressions
-pytest tests/test_stats.py
-```
-
-### Lint
-
-```bash
-pip install ruff
-ruff check .
-```
-
-Rules live in `pyproject.toml`. Only the checks that catch real defects are enabled
-(undefined/unused names, syntax errors, common traps) — turning everything on at once
-would bury the signal under hundreds of style findings.
-
-### Tests that protect the structure
-
-Beyond ordinary feature tests, a few tests exist purely to keep the design rules above
-from quietly eroding during refactors.
-
-| Test | What it protects |
-|---|---|
-| `test_middleware.py::test_sensitive_files_are_not_served` | `.secret_key`, DB, and backups never leak through static routes |
-| `test_middleware.py::test_every_app_script_is_listed_and_served` | No `static/js` fragment is dropped from the page, and order holds |
-| `test_schema.py::test_migrated_legacy_db_matches_fresh_db` | A fresh DB and a migrated legacy DB have identical schemas |
-| `test_admin.py::test_every_admin_route_is_permission_checked` | Every admin route returns 403 to non-admins |
-| `test_startup.py::test_importing_backend_app_has_no_side_effects` | Importing the module creates no DB and starts no threads |
-| `test_accounts.py::test_trading_api_shares_the_same_rule` | Bot API and web UI use the same account-normalization rule |
-| `test_frontend.py::test_broker_dropdown_is_built_from_the_single_source` | The broker list is defined in exactly one place |
 
