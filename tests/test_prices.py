@@ -392,8 +392,9 @@ def test_get_prices_aggregates(conn):
         return code, {'005930': 95000.0, 'AAPL': 250.5}.get(code)
 
     with patch.object(prices, 'fetch_price', side_effect=fake_fetch):
-        result = prices.get_prices(['005930', 'AAPL'])
+        result, is_fallback = prices.get_prices(['005930', 'AAPL'])
     assert result == {'005930': 95000.0, 'AAPL': 250.5}
+    assert is_fallback is False
 
 
 def test_get_prices_filters_none_code():
@@ -401,8 +402,26 @@ def test_get_prices_filters_none_code():
         return (None, None) if code == '' else (code, 1.0)
 
     with patch.object(prices, 'fetch_price', side_effect=fake_fetch):
-        result = prices.get_prices(['', '005930'])
+        result, is_fallback = prices.get_prices(['', '005930'])
     assert result == {'005930': 1.0}
+    assert is_fallback is False
+
+
+def test_get_prices_flags_cached_fallback():
+    """한 종목이라도 캐시로 대체됐으면 호출부가 그것을 알아야 한다.
+
+    이 두 번째 반환값이 곧 `/api/current_price` 의 `X-API-Fallback` 헤더가 된다.
+    빠뜨리면 화면이 옛 값을 '현재가'로 그대로 그린다 — 값은 그럴듯한데 시각이 없어
+    사람이 알아챌 방법이 없다. (반환 형태가 dict 에서 튜플로 바뀐 뒤 이 축이
+    테스트에서 통째로 비어 있었다.)
+    """
+    def fake_fetch(code, market_mode='AUTO', allow_cached=False):
+        return code, (prices.FallbackPrice(95000.0) if code == '005930' else 250.5)
+
+    with patch.object(prices, 'fetch_price', side_effect=fake_fetch):
+        result, is_fallback = prices.get_prices(['005930', 'AAPL'])
+    assert result == {'005930': 95000.0, 'AAPL': 250.5}
+    assert is_fallback is True
 
 
 # ─────────────────────────────────────────────────────────────

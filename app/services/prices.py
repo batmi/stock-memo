@@ -579,13 +579,24 @@ def fetch_price(code, market_mode='AUTO', allow_cached=False):
 
 
 def get_prices(codes, market_mode='AUTO', allow_cached=False):
-    """다수 종목 현재가를 상주 스레드 풀로 병렬 조회하여 {code: price} 반환."""
+    """다수 종목 현재가를 상주 스레드 풀로 병렬 조회한다.
+
+    반환: `({code: price}, is_fallback)` — **튜플이다.** 호출부는 반드시 풀어서 받아야 한다.
+
+    `is_fallback` 은 한 종목이라도 실시간 조회에 실패해 캐시로 대체됐다는 뜻이고,
+    `/api/current_price` 가 이것을 `X-API-Fallback` 헤더로 실어 보낸다. 이 값을 흘리면
+    화면이 옛 값을 '현재가'로 그대로 그린다 — 값은 그럴듯한데 그것이 옛 값이라는 표시가
+    없어 사람이 알아챌 방법이 없다.
+    """
     prices = {}
     is_fallback = False
     results = _executor.map(lambda c: fetch_price(c, market_mode, allow_cached), codes)
     for code, price in results:
         if code is not None:
             prices[code] = price
-            if type(price).__name__ == 'FallbackPrice':
+            # 클래스 이름 문자열로 비교하지 않는다 — 같은 모듈의 타입이라 isinstance 로
+            #  직접 볼 수 있고, 이름 비교는 클래스를 다른 이름으로 바꾸는 순간 **아무 말 없이**
+            #  항상 거짓이 되어 폴백 표시가 통째로 꺼진다.
+            if isinstance(price, FallbackPrice):
                 is_fallback = True
     return prices, is_fallback

@@ -204,12 +204,8 @@ def test_current_price_edge_cases(mock_http_get, client, app):
     def http_get_side_effect(url, headers=None):
         if 'M04020000' in url:
             if test_state['gold_fail_all']:
-                raise Exception("All Fail")
-            raise Exception("Naver Gold API Fail")
-        elif 'KRX_Gold_Market' in url:
-            if test_state['gold_fail_all']:
-                raise Exception("All Fail")
-            return b"<th>\xed\x98\x84\xec\x9e\xac\xea\xb0\x80</th><td><strong>88,000</strong></td>"
+                raise Exception("Naver Gold API Fail")
+            return b'{"closePrice": "88,000"}'
         elif '005930' in url:
             if test_state['all_fail']:
                 raise Exception("All APIs Fail")
@@ -232,28 +228,40 @@ def test_current_price_edge_cases(mock_http_get, client, app):
 
     mock_http_get.side_effect = http_get_side_effect
     
-    # 1. 금 주가: 기본 API 에러 -> KRX 크롤링 성공 패턴
+    # 1. 금 주가: 네이버 금속시세 API 정상 응답 (콤마 포함 문자열도 파싱된다)
     res_gold = client.post('/api/current_price', json={'codes': ['KRXGOLD']})
     assert res_gold.json.get('KRXGOLD') == 88000.0
-    
-    # 2. 금 주가: 모든 API 실패 시 None 반환
+    assert 'X-API-Fallback' not in res_gold.headers
+
+    # 2. 금 주가: API 실패 시 **직전 캐시로 방어**하고, 그 사실을 헤더로 알린다.
+    #    (화면이 옛 값을 현재가로 착각하지 않도록 알려 주는 것이 이 헤더의 존재 이유다)
     test_state['gold_fail_all'] = True
+    res_gold_cached = client.post('/api/current_price', json={'codes': ['KRXGOLD']})
+    assert res_gold_cached.json.get('KRXGOLD') == 88000.0
+    assert res_gold_cached.headers.get('X-API-Fallback') == 'true'
+
+    # 3. 금 주가: API 도 캐시도 없으면 None. 값을 지어내지 않는다.
+    with app.app_context():
+        conn = backend_app.get_db()
+        conn.execute("DELETE FROM price_cache")
+        conn.commit()
+        conn.close()
     res_gold_fail = client.post('/api/current_price', json={'codes': ['KRXGOLD']})
     assert res_gold_fail.json.get('KRXGOLD') is None
     
-    # 3. 네이버 주가: 실시간 API 정상 응답
+    # 4. 네이버 주가: 실시간 API 정상 응답
     res_naver = client.post('/api/current_price', json={'codes': ['005930']})
     assert res_naver.json.get('005930') == 95000.0
     
-    # 4. 6자리 해외 주식(US): 네이버 API 생략하고 즉시 야후 파이낸스 성공 패턴
+    # 5. 6자리 해외 주식(US): 네이버 API 생략하고 즉시 야후 파이낸스 성공 패턴
     res_us = client.post('/api/current_price', json={'codes': ['ABCDEF']})
     assert res_us.json.get('ABCDEF') == 250.5
     
-    # 5. 국내 주식 네이버 API 실패 -> 야후 파이낸스 폴백
+    # 6. 국내 주식 네이버 API 실패 -> 야후 파이낸스 폴백
     res_fallback = client.post('/api/current_price', json={'codes': ['123456']})
     assert res_fallback.json.get('123456') == 100.0
     
-    # 6. 빈 문자열 및 잘못된 코드 무시 처리
+    # 7. 빈 문자열 및 잘못된 코드 무시 처리
     res_empty = client.post('/api/current_price', json={'codes': ['', ' ']})
     assert res_empty.status_code == 200
     assert res_empty.json == {}
@@ -265,7 +273,7 @@ def test_current_price_edge_cases(mock_http_get, client, app):
         conn.commit()
         conn.close()
 
-    # 7. 일반 주식 모든 API 실패 시 500 에러 없이 안전하게 통과하는지 검증 (Unpacking 버그 회귀 방지)
+    # 8. 일반 주식 모든 API 실패 시 500 에러 없이 안전하게 통과하는지 검증 (Unpacking 버그 회귀 방지)
     test_state['all_fail'] = True
     res_all_fail = client.post('/api/current_price', json={'codes': ['005930', 'AAPL']})
     assert res_all_fail.status_code == 200
