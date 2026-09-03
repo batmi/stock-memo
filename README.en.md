@@ -314,7 +314,7 @@ Keys carry scopes and tokens inherit them — `trades:write` (create/update/dele
 
 *   **Idempotency**: `brokerExecutionId` carries a UNIQUE constraint, so a duplicate resend returns the existing record with `200`. A bot that never saw a response can **always retry safely.** The recommended key is `{env}:{account}:{fillDate}:{orderNo}` — broker order numbers are reused every business day, so the order number alone is not allowed.
 *   **Never lose a fill**: integrity violations such as overselling are **stored and flagged `needsReview`.** Returning `400` would make the bot retry forever and lose that fill permanently. (Manual entry through the web UI is still blocked, since a human can fix it on the spot.)
-*   **Simulated vs. real**: separated by `isSimulated` and excluded from default queries and statistics.
+*   **Simulated flag**: `isSimulated` only labels a record. What is excluded from totals and statistics is decided solely by the per-account setting ("exclude from calculations"). Queries filter on it **only when the parameter is explicitly supplied**.
 *   **System vs. manual**: `isSystem` marks only orders the automated strategy placed. Bots report **every** fill in the account — including orders a human placed in a broker app — so without this split, manual trading merges into automated performance.
 *   **Trade-date attribution**: `executedAt` (RFC3339 with offset) plus `exchange` yield the **exchange-local trade date**, so US after-hours fills do not slip into the next Korean date.
 *   **Rate limits**: token issuance 10 per 5 min per IP; general API 600 per min per key. Exceeding either returns `429` + `Retry-After`.

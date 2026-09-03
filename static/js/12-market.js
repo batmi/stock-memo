@@ -204,14 +204,14 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
                         }
                     });
                 }
-                // ⭐️ 모의투자 카드에도 현재가·평가손익은 보여주되(시세는 실제 시세다),
+                // ⭐️ 제외 계좌 카드에도 현재가·평가손익은 보여주되(시세는 실제 시세다),
                 //    총 평가금액 합계에는 넣지 않는다.
-                if (!data.isSim) totalEval += evalAmount;
+                if (!data.isExcluded) totalEval += evalAmount;
             } else {
                 if (isFresh) {
                     pEls.forEach(el => el.innerText = '조회 실패');
                 }
-                if (!data.isSim) totalEval += data.totalCost; // 조회 실패 시 기본 투자원금으로 임시 합산
+                if (!data.isExcluded) totalEval += data.totalCost; // 조회 실패 시 기본 투자원금으로 임시 합산
             }
         });
         

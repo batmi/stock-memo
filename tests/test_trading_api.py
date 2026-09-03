@@ -377,6 +377,58 @@ def test_last_sync_is_scoped_by_source(api):
     assert scoped['lastBrokerExecutionId'] == _trade()['brokerExecutionId']
 
 
+def test_last_sync_separates_simulated_from_real(api):
+    """한 설치에서 실전봇과 관찰(모의)봇을 함께 돌리면 source 가 같다.
+
+    거르지 않으면 한쪽의 최신 체결이 다른 쪽의 백필 기준점을 앞당기고, 뒤처진 봇의
+    누락 구간이 스캔에서 통째로 빠진다 — 그 체결은 재시도 로직이 손댈 수 없는
+    구멍으로 영영 올라오지 않는다.
+    """
+    api['client'].post('/api/v1/trades', headers=api['headers'],
+                       json=_trade(brokerExecutionId='REAL:1', isSimulated=False))
+    api['client'].post('/api/v1/trades', headers=api['headers'],
+                       json=_trade(brokerExecutionId='SIM:1', isSimulated=True,
+                                   executedAt='2026-08-05T09:30:00+09:00'))
+
+    real = api['client'].get(
+        '/api/v1/trades/last-sync?source=my-stock-hts&isSimulated=false',
+        headers=api['headers']).get_json()
+    sim = api['client'].get(
+        '/api/v1/trades/last-sync?source=my-stock-hts&isSimulated=true',
+        headers=api['headers']).get_json()
+
+    assert real['count'] == 1 and sim['count'] == 1
+    assert real['lastBrokerExecutionId'] == 'REAL:1'
+    assert sim['lastBrokerExecutionId'] == 'SIM:1'
+    # 실전봇의 기준점이 나중에 난 모의 체결에 끌려가면 안 된다.
+    assert real['lastExecutedAt'] < sim['lastExecutedAt']
+
+
+def test_last_sync_without_flag_still_sees_everything(api):
+    """값을 주지 않는 구버전 클라이언트는 종전대로 전체를 본다."""
+    api['client'].post('/api/v1/trades', headers=api['headers'],
+                       json=_trade(brokerExecutionId='REAL:2', isSimulated=False))
+    api['client'].post('/api/v1/trades', headers=api['headers'],
+                       json=_trade(brokerExecutionId='SIM:2', isSimulated=True))
+
+    both = api['client'].get('/api/v1/trades/last-sync?source=my-stock-hts',
+                             headers=api['headers']).get_json()
+    assert both['count'] == 2
+
+
+def test_list_trades_can_filter_simulated(api):
+    api['client'].post('/api/v1/trades', headers=api['headers'],
+                       json=_trade(brokerExecutionId='REAL:3', isSimulated=False))
+    api['client'].post('/api/v1/trades', headers=api['headers'],
+                       json=_trade(brokerExecutionId='SIM:3', isSimulated=True))
+
+    only_real = api['client'].get('/api/v1/trades?isSimulated=false',
+                                  headers=api['headers']).get_json()['trades']
+    assert [t['brokerExecutionId'] for t in only_real] == ['REAL:3']
+    both = api['client'].get('/api/v1/trades', headers=api['headers']).get_json()['trades']
+    assert len(both) == 2
+
+
 def test_get_by_execution_id(api):
     api['client'].post('/api/v1/trades', json=_trade(), headers=api['headers'])
     res = api['client'].get(f"/api/v1/trades/by-exec-id/{_trade()['brokerExecutionId']}",

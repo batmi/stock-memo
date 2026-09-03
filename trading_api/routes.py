@@ -283,7 +283,12 @@ def list_trades(username, scopes):
         conditions.append("source = ?")
         params.append(args.get('source'))
 
-    sim_arg = args.get('isSimulated') # 파라미터는 읽어두되 분기 처리하지 않음 (API 하위 호환성)
+    # ⭐️ 명시적으로 준 경우에만 거른다. 안 주면 종전대로 모의·실거래를 함께 돌려준다
+    #    (화면의 통합 표시를 위해 분리를 해제한 결정을 그대로 둔다).
+    sim_arg = args.get('isSimulated')
+    if sim_arg is not None:
+        conditions.append("COALESCE(isSimulated, 0) = ?")
+        params.append(1 if str(sim_arg).strip().lower() in ('1', 'true', 'yes') else 0)
 
     cursor = args.get('cursor')
     if cursor:
@@ -328,7 +333,16 @@ def last_sync(username, scopes):
         conditions.append("REPLACE(subAccount, '-', '') = ?")
         params.append(args.get('account').replace('-', ''))
 
-    sim_arg = (args.get('isSimulated') or 'false').lower() # 하위 호환성 유지
+    # ⭐️ 백필 기준점은 클라이언트가 요청한 축으로 좁혀 준다. 거르지 않으면 한쪽의 최신
+    #    체결이 다른 쪽의 기준점을 앞당기고, 뒤처진 쪽의 누락 구간이 스캔에서 통째로
+    #    빠진다 — 그 체결은 **영영 올라오지 않는다**(재시도 로직이 손대지 못하는 구멍).
+    #    지금은 가상투자가 계정 자체를 따로 쓰므로 1차 방어는 username 이다. 이건 그
+    #    뒤에 서는 두 번째 방어이자, 클라이언트가 보내는 파라미터가 말한 대로 동작하게
+    #    하는 것이다(예전엔 읽고 버렸다). 값을 안 주면 종전대로 전체를 본다.
+    sim_arg = args.get('isSimulated')
+    if sim_arg is not None:
+        conditions.append("COALESCE(isSimulated, 0) = ?")
+        params.append(1 if str(sim_arg).strip().lower() in ('1', 'true', 'yes') else 0)
 
     where = " AND ".join(conditions)
     with db_conn() as conn:

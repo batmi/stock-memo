@@ -36,7 +36,7 @@ function renderCalendar() {
             else if (entry.tradeType === '주시' || entry.tradeType === '관망') dailyStats[dateKey].details[stockKey].watchCount++;
             else if (entry.tradeType === '배당') dailyStats[dateKey].details[stockKey].dividendCount++;
 
-            // ⭐️ 일별 실현손익은 실거래만 계산한다. 모의투자·제외 계좌 체결을 같은 종목 칸에 섞으면
+            // ⭐️ 일별 실현손익은 실거래만 계산한다. '금액 계산 제외' 계좌 체결을 같은 종목 칸에 섞으면
             //    평균단가가 오염되어 실제 손익까지 틀어진다. (기록 자체는 달력에 그대로 표시)
             if (entry.stockName && !isExcludedFromTotals(entry)) {
                 // ⭐️ 보유 상태(평단)는 **종목코드**로 굴린다. 이름으로 굴리면 표기가 갈린
@@ -510,7 +510,7 @@ window.renderMonthlyProfitChart = function() {
     chronological.forEach(entry => {
         if (entry.type !== 'trade' || !entry.stockName) return;
 
-        // ⭐️ 모의투자·'금액 계산 제외' 계좌 체결은 실제 돈이 오간 기록이 아니다.
+        // ⭐️ '금액 계산 제외' 계좌 체결은 실제 돈이 오간 기록이 아니다.
         //    실현손익·평가손익·매매금액·누적수익 어느 집계에도 들어가면 안 된다.
         //    (분석 탭 loadTradeStats / 캘린더 일별 손익과 동일한 규칙)
         if (isExcludedFromTotals(entry)) return;

@@ -45,10 +45,10 @@ function updatePortfolioSummary() {
         const qty = Number(entry.quantity) || 0;
         const price = Number(entry.price) || 0;
 
-        // ⭐️ 모의투자·'금액 계산 제외' 계좌는 실거래와 다른 칸에 쌓는다. 같은 종목이라도 합치면
+        // ⭐️ '금액 계산 제외' 계좌는 실거래와 다른 칸에 쌓는다. 같은 종목이라도 합치면
         //    제외 대상 매수가 실거래 평균단가·실현손익을 오염시킨다.
-        const isSim = isExcludedFromTotals(entry);
-        const excludeLabel = isSim ? exclusionBadgeLabel(entry) : '';
+        const isExcluded = isExcludedFromTotals(entry);
+        const excludeLabel = isExcluded ? exclusionBadgeLabel(entry) : '';
 
         // ⭐️ 칸은 **종목코드**로 가른다(identityOf). 이름으로 가르면 표기가 갈린 같은 종목이
         //    카드 두 장으로 쪼개진다 — 봇이 보내는 증권사 정식 명칭과 손으로 적어 둔 이름이
@@ -56,7 +56,7 @@ function updatePortfolioSummary() {
         const identity = identityOf(entry);
         const key = portfolioKeyFor(entry);
 
-        if (!portfolio[key]) portfolio[key] = { stock, identity, isSim, excludeLabel, qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, realizedCost: 0, accountName: '', tradeClass: '', traded: false, stockCode: '' };
+        if (!portfolio[key]) portfolio[key] = { stock, identity, isExcluded, excludeLabel, qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, realizedCost: 0, accountName: '', tradeClass: '', traded: false, stockCode: '' };
         if (stock) portfolio[key].stock = stock;
         if (entry.tradeClass) portfolio[key].tradeClass = entry.tradeClass; // 가장 최근 거래의 투자 분류 기록
         if (entry.stockCode) portfolio[key].stockCode = entry.stockCode; // 종목코드 기록
@@ -75,7 +75,7 @@ function updatePortfolioSummary() {
         if (tt === '매수' || tt === '매도' || tt === '배당') {
             portfolio[key].traded = true;
             // ⭐️ 월간 매매 건수는 실거래(합계 반영 대상)만 센다.
-            if (isCurrentMonth && !isSim) {
+            if (isCurrentMonth && !isExcluded) {
                 if (tt === '매수') monthlyBuyCount++;
                 else if (tt === '매도') monthlySellCount++;
             }
@@ -84,7 +84,7 @@ function updatePortfolioSummary() {
             portfolio[key].realizedProfit += r.realized + r.dividend;
             portfolio[key].realizedCost += r.cost;
             // ⭐️ 카드에 표시할 종목별 손익은 모의도 계산하되, 누적 실현 손익 합계에는 넣지 않는다.
-            if (!isSim) totalRealizedProfit += r.realized + r.dividend;
+            if (!isExcluded) totalRealizedProfit += r.realized + r.dividend;
         }
     });
 
@@ -117,10 +117,10 @@ function updatePortfolioSummary() {
     currentPortfolioArrayForPrice = portfolioArray;
     const sortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "시스템": 7, "기타": 8 };
     portfolioArray.sort((a, b) => {
-        // ⭐️ 청산·숨김 종목과 모의투자 종목을 가장 하단으로 정렬
+        // ⭐️ 청산·숨김 종목과 제외 계좌 종목을 가장 하단으로 정렬
         //    (실제 돈이 들어간 종목이 위쪽에 모여 있어야 한눈에 읽힌다)
-        const aBottom = a.isClosed || a.isHiddenStock || a.isSim;
-        const bBottom = b.isClosed || b.isHiddenStock || b.isSim;
+        const aBottom = a.isClosed || a.isHiddenStock || a.isExcluded;
+        const bBottom = b.isClosed || b.isHiddenStock || b.isExcluded;
         if (aBottom !== bBottom) {
             return aBottom ? 1 : -1;
         }
@@ -166,14 +166,16 @@ function updatePortfolioSummary() {
     portfolioArray.forEach(data => {
         const stock = data.stock;
         const isClosed = data.isClosed;
-        const isSim = !!data.isSim;
+        const isExcluded = !!data.isExcluded;
 
         // ⭐️ 숨김 종목이라도 보유 중이면 총 투자금액·보유 종목 수에 그대로 반영한다.
         //    (종목만 가리는 것이지 수치를 빼는 것이 아니다. 총 평가금액은 현재가 조회 쪽에서
         //     currentPortfolioArrayForPrice 를 그대로 합산하므로 함께 반영되고,
         //     누적 실현 손익은 위쪽 기록 순회에서 이미 전 종목을 집계한다.)
-        // ⭐️ 단, 모의투자는 실제 돈이 아니므로 어떤 합계에도 넣지 않는다. 카드만 보여준다.
-        if (!isClosed && !isSim) {
+        // ⭐️ 단, '금액 계산 제외' 계좌는 어떤 합계에도 넣지 않는다. 카드만 보여준다.
+        //    (판정 근거는 계좌 설정 하나뿐이다 — isSimulated 는 표시용 컬럼일 뿐
+        //     합계를 가르지 않는다. isExcludedFromTotals 가 단독 소유한다.)
+        if (!isClosed && !isExcluded) {
             totalInvestedAmount += data.totalCost;
             holdingsCount++;
             hasHoldings = true;
@@ -183,8 +185,8 @@ function updatePortfolioSummary() {
         //    (카드·도넛 차트·뉴스)에서 제외한다. 수치 반영은 위에서 이미 끝났다.
         const hideThisStock = data.isHiddenStock && !showClosedPositions;
 
-        // ⭐️ 도넛 차트는 실거래 비중만 그린다 — 모의 물량이 섞이면 비중이 왜곡된다.
-        if (!isClosed && !hideThisStock && !isSim) {
+        // ⭐️ 도넛 차트는 합계에 잡히는 물량만 그린다 — 제외 계좌가 섞이면 비중이 왜곡된다.
+        if (!isClosed && !hideThisStock && !isExcluded) {
             currentHoldings.push(stock);
             chartLabels.push(stock);
             chartData.push(data.totalCost);
@@ -205,15 +207,15 @@ function updatePortfolioSummary() {
             card.style.opacity = '0.6'; // 청산 종목은 반투명하게 표시
             card.style.borderLeftColor = 'var(--text-muted-color)';
         }
-        // ⭐️ 합계에 잡히지 않는 카드(모의투자·제외 계좌)는 그 사실이 한눈에 보여야 오해가 없다.
+        // ⭐️ 합계에 잡히지 않는 카드(제외 계좌)는 그 사실이 한눈에 보여야 오해가 없다.
         //    다만 테두리는 실거래 카드와 동일한 실선·분류색을 그대로 쓴다. 점선/주황 고정색은
         //    '시스템' 같은 분류색을 가려 버려서, 구분은 아래 배지와 농도로만 준다.
-        if (isSim) {
+        if (isExcluded) {
             card.style.opacity = isClosed ? '0.5' : '0.75';
         }
         const closedBadge = isClosed ? `<span style="font-size: 10px; background: var(--border-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px;">청산완료</span>` : '';
         const hiddenBadge = data.isHiddenStock ? `<span style="font-size: 10px; background: var(--text-muted-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px; margin-left: 2px;">숨김</span>` : '';
-        const simBadge = isSim ? `<span style="font-size: 10px; background: var(--warning-color); color: #fff; padding: 1px 4px; border-radius: 3px; margin-left: 2px;" title="총 투자금액·평가금액·실현손익·도넛 차트·통계에는 반영되지 않는 기록입니다.">${data.excludeLabel || '모의'}</span>` : '';
+        const simBadge = isExcluded ? `<span style="font-size: 10px; background: var(--warning-color); color: #fff; padding: 1px 4px; border-radius: 3px; margin-left: 2px;" title="총 투자금액·평가금액·실현손익·도넛 차트·통계에는 반영되지 않는 기록입니다.">${data.excludeLabel || '모의'}</span>` : '';
         const statusBadge = `${closedBadge}${hiddenBadge}${simBadge}`;
         const accountBadgeHtml = shortAccountName ? `<span class="account-badge ${badgeClass}">${shortAccountName}</span>` : '';
         card.innerHTML = `
@@ -440,7 +442,7 @@ function updatePortfolioSummary() {
         }
 
         // ⭐️ 현재가 조회는 위 도넛 표시 여부와 분리한다.
-        //    isPortfolioEmpty 는 실거래 투자금액(totalInvestedAmount) 기준인데, 모의투자는
+        //    isPortfolioEmpty 는 실거래 투자금액(totalInvestedAmount) 기준인데, 제외 계좌는
         //    합계에 잡히지 않으므로 '모의투자계좌'로 필터하면 보유 종목이 있어도 참이 된다.
         //    여기에 묶어 두면 그 화면의 카드가 영영 '조회 중...' 에서 멈춘다.
         window.fetchCurrentPricesAndUpdateUI();
@@ -862,7 +864,7 @@ function updateFilterDropdown() {
     if (chartSubAccountFilter) {
         const currentSubAccountVal = currentChartSubAccount || 'all';
         let subAccountHtml = `<option value="all">모든 계좌</option>`;
-        // ⭐️ 금액 계산에서 빠지는 기록(모의투자·제외 계좌)만 들어있는 계좌는 차트가 항상 비므로
+        // ⭐️ 금액 계산에서 빠지는 기록(제외 계좌)만 들어있는 계좌는 차트가 항상 비므로
         //    아예 선택지에서 뺀다. (대시보드 카드 필터는 카드 확인용이라 그대로 유지)
         const chartSubAccounts = subAccounts.filter(sa => cloudEntries.some(e =>
             getMappedSubAccount(e.subAccount, e.accountName) === sa && !isExcludedFromTotals(e)
