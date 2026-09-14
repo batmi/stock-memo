@@ -162,15 +162,10 @@ async function loadDataFromLocal() {
                 }, 60000);
 
 
-                // ⭐️ KRX/NXT 버튼 상태 복원
+                // ⭐️ KRX/AFT 버튼 상태 복원 (예전 저장값 'NXT' 는 AFT 로 읽는다)
                 if (typeof userPreferences.currentMarketMode !== 'undefined') {
-                    currentMarketMode = userPreferences.currentMarketMode;
-                    const btnMM = document.getElementById('btnToggleMarketMode');
-                    if (btnMM) {
-                        btnMM.innerText = currentMarketMode === 'NXT' ? 'NXT' : 'KRX';
-                        btnMM.style.backgroundColor = currentMarketMode === 'NXT' ? 'transparent' : 'var(--primary-color)';
-                        btnMM.style.color = currentMarketMode === 'NXT' ? 'var(--primary-color)' : '#fff';
-                    }
+                    currentMarketMode = window.normalizeMarketMode(userPreferences.currentMarketMode);
+                    window.renderMarketModeButton();
                 }
                 
                 // ⭐️ 대시보드 및 하단 리스트 필터 상태 복원 (어긋난 상태를 방지하기 위해 강제 동기화)

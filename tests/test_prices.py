@@ -98,6 +98,28 @@ def test_is_kr_out_of_hours_default_now():
 
 
 # ─────────────────────────────────────────────────────────────
+# is_kr_pre_market: NXT 프리마켓(08:00~09:00) 판정
+# ─────────────────────────────────────────────────────────────
+def test_is_kr_pre_market_window():
+    # 2026-06-29(월)
+    assert prices.is_kr_pre_market(_dt.datetime(2026, 6, 29, 7, 59)) is False
+    assert prices.is_kr_pre_market(_dt.datetime(2026, 6, 29, 8, 0)) is True
+    assert prices.is_kr_pre_market(_dt.datetime(2026, 6, 29, 8, 59)) is True
+    assert prices.is_kr_pre_market(_dt.datetime(2026, 6, 29, 9, 0)) is False
+    # KRX 애프터마켓 시간대는 프리마켓이 아니다
+    assert prices.is_kr_pre_market(_dt.datetime(2026, 6, 29, 16, 30)) is False
+
+
+def test_is_kr_pre_market_weekend_and_holiday():
+    assert prices.is_kr_pre_market(_dt.datetime(2026, 6, 27, 8, 30)) is False  # 토
+    assert prices.is_kr_pre_market(_dt.datetime(2026, 1, 1, 8, 30)) is False   # 신정
+
+
+def test_is_kr_pre_market_default_now():
+    assert isinstance(prices.is_kr_pre_market(), bool)
+
+
+# ─────────────────────────────────────────────────────────────
 # save_price_cache / load_price_cache
 # ─────────────────────────────────────────────────────────────
 def test_save_and_load_price_cache(conn):
@@ -255,7 +277,7 @@ def test_fetch_yahoo_exception_returns_none(conn):
 
 
 # ─────────────────────────────────────────────────────────────
-# _fetch_kr: NXT/KRX 분기 및 폴백
+# _fetch_kr: AFT/KRX 분기 및 폴백
 # ─────────────────────────────────────────────────────────────
 def test_fetch_kr_krx_mode_realtime_priority(conn):
     # 장중: 실시간 시세 우선
@@ -265,52 +287,141 @@ def test_fetch_kr_krx_mode_realtime_priority(conn):
         assert prices._fetch_kr(conn, '005930', 'KRX') == 95000.0
 
 
-def test_fetch_kr_krx_mode_uses_close_when_no_realtime(conn):
-    # 장외: 실시간 없음 → 모바일 closePrice 사용
+def test_fetch_kr_krx_mode_out_of_hours_uses_regular_close(conn):
+    # 장외 + KRX 모드 → 분봉의 정규장 종가를 고정 표시 (closePrice 의 애프터 체결은 무시)
     with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'fetch_krx_regular_close', return_value=89500.0) as rc, \
+         patch.object(prices, '_http_get', return_value=b'{"closePrice": "90000"}') as hg:
+        assert prices._fetch_kr(conn, '005930', 'KRX') == 89500.0
+        rc.assert_called_once_with('005930')
+        hg.assert_not_called()   # 종가를 얻었으면 basic API 는 부르지 않는다
+    assert prices.load_price_cache(conn, '005930', prices.KRX_CLOSE_CACHE_MARKET) == 89500.0
+
+
+def test_fetch_kr_krx_mode_out_of_hours_regular_close_cache_fallback(conn):
+    # 분봉 실패 → 정규장 종가 스냅샷 캐시
+    prices.save_price_cache(conn, '005930', 88000.0, prices.KRX_CLOSE_CACHE_MARKET)
+    with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'fetch_krx_regular_close', return_value=None), \
+         patch.object(prices, '_http_get', return_value=b'{"closePrice": "90000"}'):
+        assert prices._fetch_kr(conn, '005930', 'KRX') == 88000.0
+
+
+def test_fetch_kr_krx_mode_uses_close_when_no_regular_close(conn):
+    # 장외 + 정규장 종가·캐시 모두 없음 → 모바일 closePrice 로 폴백
+    with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'fetch_krx_regular_close', return_value=None), \
          patch.object(prices, '_http_get', return_value=b'{"closePrice": "90000"}'):
         assert prices._fetch_kr(conn, '005930', 'KRX') == 90000.0
 
 
-def test_fetch_kr_nxt_mode_intraday_uses_krx(conn):
-    # NXT 모드 + 장중 → KRX 실시간 우선
+def test_fetch_kr_krx_mode_intraday_skips_regular_close(conn):
+    # 정규장 중 KRX 모드 → 분봉을 보지 않고 현재가
     with patch.object(prices, 'is_kr_out_of_hours', return_value=False), \
+         patch.object(prices, 'fetch_krx_regular_close') as rc, \
+         patch.object(prices, '_fetch_krx_realtime', return_value=None), \
+         patch.object(prices, '_http_get', return_value=b'{"closePrice": "90000"}'):
+        assert prices._fetch_kr(conn, '005930', 'KRX') == 90000.0
+        rc.assert_not_called()
+
+
+def test_fetch_kr_aft_mode_intraday_uses_krx(conn):
+    # AFT 모드 + 장중 → KRX 실시간 우선
+    with patch.object(prices, 'is_kr_out_of_hours', return_value=False), \
+         patch.object(prices, 'is_kr_pre_market', return_value=False), \
          patch.object(prices, '_fetch_krx_realtime', return_value=95000.0), \
          patch.object(prices, '_http_get', return_value=b'{"closePrice": "90000"}'):
-        assert prices._fetch_kr(conn, '005930', 'NXT') == 95000.0
+        assert prices._fetch_kr(conn, '005930', 'AFT') == 95000.0
 
 
-def test_fetch_kr_nxt_mode_over_price(conn):
-    # NXT 모드 + 장외 → overMarketPriceInfo 사용
+def test_fetch_kr_aft_mode_after_market_uses_close_price(conn):
+    # AFT 모드 + KRX 애프터마켓(16~20시) → closePrice(KRX 애프터 체결)를 쓰고 NXT overPrice 는 무시
+    body = b'{"closePrice": "249,000", "marketSessionType": "afterMarket", "overMarketPriceInfo": {"overPrice": "249,500"}}'
+    with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'is_kr_pre_market', return_value=False), \
+         patch.object(prices, 'fetch_krx_regular_close') as rc, \
+         patch.object(prices, '_http_get', return_value=body):
+        assert prices._fetch_kr(conn, '005930', 'AFT') == 249000.0
+        rc.assert_not_called()   # AFT 는 정규장 종가를 보지 않는다
+    assert prices.load_price_cache(conn, '005930', 'KRX') == 249000.0
+    assert prices.load_price_cache(conn, '005930', 'NXT') is None
+
+
+def test_fetch_kr_aft_mode_pre_market_uses_over_price(conn):
+    # AFT 모드 + 프리마켓(08~09시) → overMarketPriceInfo(NXT) 사용
     body = b'{"closePrice": "90000", "overMarketPriceInfo": {"overPrice": "91,200"}}'
     with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'is_kr_pre_market', return_value=True), \
          patch.object(prices, '_http_get', return_value=body):
-        assert prices._fetch_kr(conn, '005930', 'NXT') == 91200.0
+        assert prices._fetch_kr(conn, '005930', 'AFT') == 91200.0
     assert prices.load_price_cache(conn, '005930', 'NXT') == 91200.0
 
 
-def test_fetch_kr_nxt_mode_cached_nxt_fallback(conn):
-    # NXT 모드 + 모든 NXT 소스 실패 → NXT 캐시
+def test_fetch_kr_legacy_nxt_mode_is_aft(conn):
+    # 예전 저장값 'NXT' 도 AFT 와 같은 분기를 탄다
+    body = b'{"closePrice": "90000", "overMarketPriceInfo": {"overPrice": "91,200"}}'
+    with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'is_kr_pre_market', return_value=True), \
+         patch.object(prices, '_http_get', return_value=body):
+        assert prices._fetch_kr(conn, '005930', 'NXT') == 91200.0
+
+
+def test_fetch_kr_krx_mode_ignores_over_price_in_pre_market(conn):
+    # KRX 모드는 프리마켓이라도 NXT 를 보지 않는다
+    body = b'{"closePrice": "90000", "overMarketPriceInfo": {"overPrice": "91,200"}}'
+    with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'is_kr_pre_market', return_value=True), \
+         patch.object(prices, '_http_get', return_value=body):
+        assert prices._fetch_kr(conn, '005930', 'KRX') == 90000.0
+    assert prices.load_price_cache(conn, '005930', 'NXT') is None
+
+
+def test_fetch_kr_aft_mode_pre_market_cached_nxt_fallback(conn):
+    # 프리마켓 + overPrice 없음 → NXT 캐시
     prices.save_price_cache(conn, '005930', 70000.0, 'NXT')
     body = b'{"closePrice": "0"}'  # close_price None 처리
     with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'is_kr_pre_market', return_value=True), \
          patch.object(prices, '_http_get', return_value=body):
-        assert prices._fetch_kr(conn, '005930', 'NXT') == 70000.0
+        assert prices._fetch_kr(conn, '005930', 'AFT') == 70000.0
+
+
+def test_fetch_kr_aft_mode_pre_market_falls_back_to_close_price(conn):
+    # 프리마켓 + NXT 없음·NXT 캐시 없음 → closePrice 로 폴백 (KRX 슬롯에 저장)
+    body = b'{"closePrice": "90000"}'
+    with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'is_kr_pre_market', return_value=True), \
+         patch.object(prices, '_http_get', return_value=body):
+        assert prices._fetch_kr(conn, '005930', 'AFT') == 90000.0
+    assert prices.load_price_cache(conn, '005930', 'KRX') == 90000.0
+    assert prices.load_price_cache(conn, '005930', 'NXT') is None
 
 
 def test_fetch_kr_network_error_falls_back_to_cache(conn):
     # 통신 에러 → KRX 캐시를 최후 보루로
     prices.save_price_cache(conn, '005930', 68000.0, 'KRX')
     with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'fetch_krx_regular_close', return_value=None), \
          patch.object(prices, '_http_get', side_effect=Exception("net down")):
         assert prices._fetch_kr(conn, '005930', 'KRX') == 68000.0
 
 
-def test_fetch_kr_network_error_nxt_cache(conn):
+def test_fetch_kr_network_error_nxt_cache_in_pre_market(conn):
     prices.save_price_cache(conn, '005930', 69000.0, 'NXT')
     with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'is_kr_pre_market', return_value=True), \
          patch.object(prices, '_http_get', side_effect=Exception("net down")):
-        assert prices._fetch_kr(conn, '005930', 'NXT') == 69000.0
+        assert prices._fetch_kr(conn, '005930', 'AFT') == 69000.0
+
+
+def test_fetch_kr_network_error_aft_mode_outside_pre_market_uses_krx_cache(conn):
+    # 애프터마켓 시간대의 통신 오류는 NXT 캐시가 아니라 KRX 캐시로 막는다
+    prices.save_price_cache(conn, '005930', 69000.0, 'NXT')
+    prices.save_price_cache(conn, '005930', 68000.0, 'KRX')
+    with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'is_kr_pre_market', return_value=False), \
+         patch.object(prices, '_http_get', side_effect=Exception("net down")):
+        assert prices._fetch_kr(conn, '005930', 'AFT') == 68000.0
 
 
 # ─────────────────────────────────────────────────────────────
@@ -344,11 +455,31 @@ def test_fetch_price_uncached_final_cache_fallback(conn):
         assert prices._fetch_price_uncached(conn, 'AAPL', 'AUTO') == 123.0
 
 
-def test_fetch_price_uncached_nxt_cache_fallback(conn):
+def test_fetch_price_uncached_nxt_cache_fallback_in_pre_market(conn):
     prices.save_price_cache(conn, '005930', 77000.0, 'NXT')
     with patch.object(prices, '_fetch_kr', return_value=None), \
-         patch.object(prices, '_fetch_yahoo', return_value=None):
-        assert prices._fetch_price_uncached(conn, '005930', 'NXT') == 77000.0
+         patch.object(prices, '_fetch_yahoo', return_value=None), \
+         patch.object(prices, 'is_kr_pre_market', return_value=True):
+        assert prices._fetch_price_uncached(conn, '005930', 'AFT') == 77000.0
+
+
+def test_fetch_price_uncached_aft_mode_outside_pre_market_skips_nxt_cache(conn):
+    prices.save_price_cache(conn, '005930', 77000.0, 'NXT')
+    prices.save_price_cache(conn, '005930', 76000.0, 'KRX')
+    with patch.object(prices, '_fetch_kr', return_value=None), \
+         patch.object(prices, '_fetch_yahoo', return_value=None), \
+         patch.object(prices, 'is_kr_pre_market', return_value=False):
+        assert prices._fetch_price_uncached(conn, '005930', 'AFT') == 76000.0
+
+
+def test_fetch_price_uncached_krx_mode_out_of_hours_uses_regular_close_cache(conn):
+    prices.save_price_cache(conn, '005930', 77000.0, 'NXT')
+    prices.save_price_cache(conn, '005930', 76000.0, 'KRX')
+    prices.save_price_cache(conn, '005930', 75000.0, prices.KRX_CLOSE_CACHE_MARKET)
+    with patch.object(prices, '_fetch_kr', return_value=None), \
+         patch.object(prices, '_fetch_yahoo', return_value=None), \
+         patch.object(prices, 'is_kr_out_of_hours', return_value=True):
+        assert prices._fetch_price_uncached(conn, '005930', 'KRX') == 75000.0
 
 
 def test_fetch_price_uncached_all_fail_returns_none(conn):
@@ -425,14 +556,15 @@ def test_get_prices_flags_cached_fallback():
 
 
 # ─────────────────────────────────────────────────────────────
-# is_nxt_mode / holiday_list / 휴장일 목록 만료 경고
+# is_aft_mode / holiday_list / 휴장일 목록 만료 경고
 # ─────────────────────────────────────────────────────────────
-def test_is_nxt_mode_variants():
-    assert prices.is_nxt_mode('NXT') is True
-    assert prices.is_nxt_mode(' nxt ') is True
-    assert prices.is_nxt_mode('KRX') is False
-    assert prices.is_nxt_mode('AUTO') is False   # AUTO 는 KRX 와 동일 취급
-    assert prices.is_nxt_mode(None) is False
+def test_is_aft_mode_variants():
+    assert prices.is_aft_mode('AFT') is True
+    assert prices.is_aft_mode(' aft ') is True
+    assert prices.is_aft_mode('NXT') is True     # 예전 토글 값 호환
+    assert prices.is_aft_mode('KRX') is False
+    assert prices.is_aft_mode('AUTO') is False   # AUTO 는 KRX 와 동일 취급
+    assert prices.is_aft_mode(None) is False
 
 
 def test_holiday_list_is_sorted_iso_strings():
@@ -626,6 +758,35 @@ def test_fetch_yahoo_null_price_is_skipped(conn):
 # ─────────────────────────────────────────────────────────────
 # fetch_nxt_close: 백그라운드 캐싱 잡이 쓰는 진입점
 # ─────────────────────────────────────────────────────────────
+def test_last_kr_trading_day():
+    # 2026-09-14(월) 08:30 → 전 거래일 9/11(금); 15:30 이후 → 당일; 토요일 → 금요일
+    assert prices.last_kr_trading_day(_dt.datetime(2026, 9, 14, 8, 30)) == _dt.date(2026, 9, 11)
+    assert prices.last_kr_trading_day(_dt.datetime(2026, 9, 14, 15, 30)) == _dt.date(2026, 9, 14)
+    assert prices.last_kr_trading_day(_dt.datetime(2026, 9, 12, 12, 0)) == _dt.date(2026, 9, 11)
+    # 1/2(금) 10:00 → 1/1 신정·12/31 폐장일을 건너뛴 12/30
+    assert prices.last_kr_trading_day(_dt.datetime(2026, 1, 2, 10, 0)) == _dt.date(2025, 12, 30)
+
+
+def test_fetch_krx_regular_close_picks_1530_bar():
+    body = (b'[{"localDateTime":"20260914152900","currentPrice":1698000.0},'
+            b'{"localDateTime":"20260914153000","currentPrice":1697000.0}]')
+    with patch.object(prices, '_http_get', return_value=body) as hg:
+        assert prices.fetch_krx_regular_close('000660', _dt.datetime(2026, 9, 14, 17, 0)) == 1697000.0
+        url = hg.call_args[0][0]
+        assert 'startDateTime=202609141520' in url and 'endDateTime=202609141530' in url
+
+
+def test_fetch_krx_regular_close_uses_previous_trading_day_before_close():
+    with patch.object(prices, '_http_get', return_value=b'[]') as hg:
+        assert prices.fetch_krx_regular_close('000660', _dt.datetime(2026, 9, 14, 8, 30)) is None
+        assert 'startDateTime=202609111520' in hg.call_args[0][0]
+
+
+def test_fetch_krx_regular_close_network_error():
+    with patch.object(prices, '_http_get', side_effect=Exception("boom")):
+        assert prices.fetch_krx_regular_close('000660') is None
+
+
 def test_fetch_nxt_close_uses_over_price():
     body = b'{"overMarketPriceInfo": {"overPrice": "91,200"}}'
     with patch.object(prices, '_http_get', return_value=body):

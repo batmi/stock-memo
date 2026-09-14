@@ -224,18 +224,14 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ⭐️ KRX/NXT 토글 버튼 이벤트 연결
+    // ⭐️ KRX/AFT 토글 버튼 이벤트 연결 (표시는 renderMarketModeButton 이 담당)
     const btnToggleMarketMode = document.getElementById('btnToggleMarketMode');
     if (btnToggleMarketMode) {
-        btnToggleMarketMode.innerText = currentMarketMode === 'NXT' ? 'NXT' : 'KRX';
-        btnToggleMarketMode.style.backgroundColor = currentMarketMode === 'NXT' ? 'transparent' : 'var(--primary-color)';
-        btnToggleMarketMode.style.color = currentMarketMode === 'NXT' ? 'var(--primary-color)' : '#fff';
+        window.renderMarketModeButton();
 
         btnToggleMarketMode.addEventListener('click', () => {
-            currentMarketMode = currentMarketMode === 'NXT' ? 'KRX' : 'NXT';
-            btnToggleMarketMode.innerText = currentMarketMode === 'NXT' ? 'NXT' : 'KRX';
-            btnToggleMarketMode.style.backgroundColor = currentMarketMode === 'NXT' ? 'transparent' : 'var(--primary-color)';
-            btnToggleMarketMode.style.color = currentMarketMode === 'NXT' ? 'var(--primary-color)' : '#fff';
+            currentMarketMode = currentMarketMode === 'AFT' ? 'KRX' : 'AFT';
+            window.renderMarketModeButton();
             
             userPreferences.currentMarketMode = currentMarketMode;
             savePreferences();

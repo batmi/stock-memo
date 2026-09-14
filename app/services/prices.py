@@ -180,10 +180,13 @@ def _warn_if_holidays_unavailable(kst):
 
 HTTP_TIMEOUT = 2.5      # 단계별 외부 API 호출 제한시간(초)
 
-# ⭐️ price_cache 의 기본 슬롯 이름. 'NXT'(시간외단일가)와 구분하기 위한 값일
+# ⭐️ price_cache 의 기본 슬롯 이름. 'NXT'(넥스트레이드 시세)와 구분하기 위한 값일
 #    뿐이며 국내/해외를 가리지 않는 "정규장 기준가" 슬롯이다. 저장·조회가
 #    같은 이름을 쓰기만 하면 되므로 해외 종목도 이 슬롯을 사용한다.
 DEFAULT_CACHE_MARKET = 'KRX'
+# ⭐️ 정규장 종가(15:30 동시호가) 전용 슬롯. KRX 모드가 장외 시간에 보여 주는 값으로,
+#    애프터마켓 체결이 섞이는 'KRX' 슬롯과 분리해 둔다.
+KRX_CLOSE_CACHE_MARKET = 'KRX_CLOSE'
 
 _MOBILE_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
@@ -316,13 +319,40 @@ def is_kr_out_of_hours(now_kst=None):
     return (day_of_week >= 5) or is_holiday or not (900 <= time_num < 1530)
 
 
-def is_nxt_mode(market_mode):
-    """시간외단일가(NXT) 모드인지 여부.
+def is_kr_pre_market(now_kst=None):
+    """NXT 프리마켓(평일 08:00~09:00, 공휴일 제외) 시간대인지 판정.
 
-    'NXT' 외의 값(KRX/AUTO/미지정)은 모두 정규장 기준으로 취급한다.
+    2026-09-14 KRX 애프터마켓(16:00~20:00) 개장 이후 KRX 가 열지 않는
+    시간외 구간은 아침 프리마켓뿐이다. AFT 모드가 NXT 시세를 쓰는 유일한 창.
+    """
+    kst = now_kst or (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=9))
+    time_num = kst.hour * 100 + kst.minute
+    if kst.weekday() >= 5 or is_market_holiday(kst):
+        return False
+    return 800 <= time_num < 900
+
+
+def is_aft_mode(market_mode):
+    """애프터장(AFT) 모드인지 여부.
+
+    AFT 모드는 정규장·KRX 애프터마켓(16:00~20:00)의 시세(closePrice)를 쓰고,
+    KRX 가 열지 않는 프리마켓(08:00~09:00)에만 NXT 시세로 보완한다.
+    예전 토글 값 'NXT' 는 AFT 와 같은 의미로 받아들인다(저장된 사용자 설정 호환).
+    'AFT'/'NXT' 외의 값(KRX/AUTO/미지정)은 모두 KRX 시세만 쓴다.
     즉 'AUTO' 는 별도 자동 판정이 아니라 KRX 와 동일한 동작이다.
     """
-    return str(market_mode).strip().upper() == 'NXT'
+    return str(market_mode).strip().upper() in ('AFT', 'NXT')
+
+
+def last_kr_trading_day(now_kst=None):
+    """정규장이 가장 최근에 마감된 거래일(date). 당일 15:30 전이면 전 거래일."""
+    kst = now_kst or (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=9))
+    day = kst.date()
+    if kst.hour * 100 + kst.minute < 1530:
+        day -= _dt.timedelta(days=1)
+    while day.weekday() >= 5 or is_market_holiday(day):
+        day -= _dt.timedelta(days=1)
+    return day
 
 
 # ─────────────────────────────────────────────────────────────
@@ -366,8 +396,31 @@ def _fetch_krx_realtime(code_str):
     return None
 
 
+def fetch_krx_regular_close(code_str, now_kst=None):
+    """최근 거래일의 정규장 종가(15:30 동시호가)를 분봉 API 에서 읽는다. DB 는 건드리지 않는다.
+
+    2026-09-14 KRX 애프터마켓 개장 뒤로 네이버의 closePrice 는 20:00 까지 애프터
+    체결로 계속 바뀌고, 정규장 종가를 따로 주는 필드는 없다. 분봉 API 는
+    startDateTime/endDateTime 으로 특정 거래일의 15:30 봉을 집어낼 수 있다.
+    KRX 모드의 장외 표시값과 백그라운드 스냅샷 잡이 함께 쓴다.
+    """
+    try:
+        day = last_kr_trading_day(now_kst).strftime('%Y%m%d')
+        url = (f"https://api.stock.naver.com/chart/domestic/item/{code_str}/minute"
+               f"?periodType=minute&startDateTime={day}1520&endDateTime={day}1530")
+        bars = json.loads(_http_get(url, _PC_HEADERS))
+        closes = [float(b['currentPrice']) for b in bars
+                  if isinstance(b, dict) and str(b.get('localDateTime', ''))[8:12] <= '1530'
+                  and b.get('currentPrice')]
+        if closes and closes[-1] > 0:
+            return closes[-1]
+    except Exception as e:
+        logger.debug("정규장 종가(분봉) 조회 실패 (%s): %r", code_str, e)
+    return None
+
+
 def fetch_nxt_close(code_str):
-    """시간외단일가(NXT)만 조회한다. DB 를 건드리지 않고 가격만 반환.
+    """NXT(넥스트레이드) 시세만 조회한다. DB 를 건드리지 않고 가격만 반환.
 
     백그라운드 캐싱 잡이 쓰는 진입점. 모바일 API 의 overMarketPriceInfo 를
     우선 확인하며, 값이 없으면 (거래 없음 또는 심야 시간) None 을 반환한다.
@@ -380,19 +433,42 @@ def fetch_nxt_close(code_str):
         if isinstance(over_info, dict) and over_info.get('overPrice'):
             return float(str(over_info.get('overPrice')).replace(',', ''))
     except Exception as e:
-        logger.debug("시간외단일가 모바일 API 조회 실패 (%s): %r", code_str, e)
+        logger.debug("NXT 시세 모바일 API 조회 실패 (%s): %r", code_str, e)
     return None
 
 
 def _fetch_kr(conn, code_str, market_mode):
-    """국내 주식 시세. 정규장/시간외(NXT) 분기 및 다단계 폴백을 수행."""
+    """국내 주식 시세. KRX/AFT 분기 및 다단계 폴백을 수행.
+
+    네이버 모바일 basic API 의 closePrice 는 정규장은 물론 KRX 애프터마켓
+    (16:00~20:00) 체결도 실시간으로 담는다(2026-09-14 확인, marketSessionType
+    이 'afterMarket' 으로 바뀔 뿐 필드는 같다). overMarketPriceInfo.overPrice 는
+    NXT 시세로, AFT 모드에서 프리마켓(08:00~09:00)에만 쓴다.
+
+    - AFT: 정규장·애프터마켓 현재가(closePrice), 프리마켓은 NXT.
+    - KRX: 정규장 중엔 현재가, 장외에는 정규장 종가(fetch_krx_regular_close) 고정.
+    """
     out_of_hours = is_kr_out_of_hours()
+    use_nxt = is_aft_mode(market_mode) and is_kr_pre_market()
+
+    # ⭐️ KRX 모드는 장외 시간에 "정규장 종가"를 고정 표시한다. 애프터마켓 체결이
+    #    섞인 closePrice 대신 분봉의 15:30 봉을 쓰고, 그것도 없으면 스냅샷 캐시.
+    #    둘 다 없을 때만 아래 일반 경로(closePrice)로 내려간다.
+    if out_of_hours and not is_aft_mode(market_mode):
+        regular_close = fetch_krx_regular_close(code_str)
+        if regular_close:
+            save_price_cache(conn, code_str, regular_close, KRX_CLOSE_CACHE_MARKET)
+            return regular_close
+        cached_close = load_price_cache(conn, code_str, KRX_CLOSE_CACHE_MARKET)
+        if cached_close:
+            return cached_close
+        logger.info("ℹ️ %s 정규장 종가를 구하지 못해 현재가(애프터 반영)로 대체합니다.", code_str)
     try:
         # 정규장 실시간 시세 (장중일 때만)
         realtime_krx_price = None if out_of_hours else _fetch_krx_realtime(code_str)
 
         # ⭐️ 장중 실시간 시세 성공 시 즉시 반환 — 기존에는 모바일 기본 시세까지
-        #    항상 호출한 뒤 실시간 값을 우선 반환했으므로, KRX/NXT 모든 모드에서
+        #    항상 호출한 뒤 실시간 값을 우선 반환했으므로, KRX/AFT 모든 모드에서
         #    동작은 동일하고 장중 외부 HTTP 요청만 절반으로 줄어든다.
         if realtime_krx_price:
             save_price_cache(conn, code_str, realtime_krx_price, 'KRX')
@@ -406,45 +482,34 @@ def _fetch_kr(conn, code_str, market_mode):
         close_price = float(price_str.replace(',', '')) if price_str and price_str != '0' else None
         current_krx_price = close_price
 
-        if is_nxt_mode(market_mode):
-            # 1) 정규장에는 무조건 KRX 실시간 우선
-            if not out_of_hours and current_krx_price:
-                save_price_cache(conn, code_str, current_krx_price, 'KRX')
-                return current_krx_price
-
-            # 2) 장외 시간: NXT 시세 시도
+        if use_nxt:
+            # 1) 프리마켓: NXT 시세 시도
             over_info = res_data.get('overMarketPriceInfo', {})
             if isinstance(over_info, dict) and over_info.get('overPrice'):
                 nxt_price = float(str(over_info.get('overPrice')).replace(',', ''))
                 save_price_cache(conn, code_str, nxt_price, 'NXT')
                 return nxt_price
 
-            # 3) NXT 전용 캐시
+            # 2) NXT 전용 캐시
             cached_nxt = load_price_cache(conn, code_str, 'NXT')
             if cached_nxt:
                 return cached_nxt
 
-            # 4) KRX 기본 시세로 폴백 (NXT 슬롯을 오염시키지 않도록 KRX 로 저장)
-            if current_krx_price:
-                save_price_cache(conn, code_str, current_krx_price, 'KRX')
-                return current_krx_price
-
-            # 5) KRX 캐시로 최종 방어
-            cached_krx = load_price_cache(conn, code_str, 'KRX')
-            if cached_krx:
-                return cached_krx
-        else:
-            # KRX 모드: NXT 무시, KRX 가격만
-            if current_krx_price:
-                save_price_cache(conn, code_str, current_krx_price, 'KRX')
-                return current_krx_price
-
+        # 3) KRX 시세 (정규장·애프터마켓 실시간, 마감 후에는 종가).
+        #    프리마켓에서 NXT 가 없을 때의 폴백이기도 하다 — NXT 슬롯을
+        #    오염시키지 않도록 KRX 로 저장한다.
         if current_krx_price:
+            save_price_cache(conn, code_str, current_krx_price, 'KRX')
             return current_krx_price
+
+        # 4) KRX 캐시로 최종 방어
+        cached_krx = load_price_cache(conn, code_str, 'KRX')
+        if cached_krx:
+            return cached_krx
     except Exception as e:
         # 통신 에러: 캐시를 최후 보루로
         logger.debug("국내 시세 조회 실패 (%s, mode=%s): %r", code_str, market_mode, e)
-        if is_nxt_mode(market_mode):
+        if use_nxt:
             cached = load_price_cache(conn, code_str, 'NXT')
             if cached:
                 logger.info("ℹ️ %s 시세를 NXT 캐시로 대체합니다 (통신 오류).", code_str)
@@ -514,11 +579,18 @@ def _fetch_price_uncached(conn, code_str, market_mode):
     if price is not None:
         return price
 
-    # 최후 보루: 캐시
-    if is_nxt_mode(market_mode):
-        cached = load_price_cache(conn, code_str, 'NXT')
+    # 최후 보루: 캐시 (NXT 슬롯은 AFT 모드의 프리마켓에서만, KRX_CLOSE 슬롯은
+    #    KRX 모드의 장외 시간에만 의미가 있다)
+    if is_aft_mode(market_mode):
+        if is_kr_pre_market():
+            cached = load_price_cache(conn, code_str, 'NXT')
+            if cached:
+                logger.info("ℹ️ %s 시세를 NXT 캐시로 대체합니다 (라이브 조회 전부 실패).", code_str)
+                return FallbackPrice(cached)
+    elif market_type == "KR" and is_kr_out_of_hours():
+        cached = load_price_cache(conn, code_str, KRX_CLOSE_CACHE_MARKET)
         if cached:
-            logger.info("ℹ️ %s 시세를 NXT 캐시로 대체합니다 (라이브 조회 전부 실패).", code_str)
+            logger.info("ℹ️ %s 시세를 정규장 종가 캐시로 대체합니다 (라이브 조회 전부 실패).", code_str)
             return FallbackPrice(cached)
     cached = load_price_cache(conn, code_str, DEFAULT_CACHE_MARKET)
     if cached:

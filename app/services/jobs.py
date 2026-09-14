@@ -1,4 +1,4 @@
-"""백그라운드 스레드 — 매일 자동 백업, 시간외 단일가(NXT) 종가 캐싱.
+"""백그라운드 스레드 — 매일 자동 백업, 정규장 종가·NXT 애프터마켓 종가 캐싱.
 
 요청 처리와 완전히 다른 생명주기를 가진 코드다. 요청 컨텍스트가 없으므로
 `session`·`request`·`current_app` 을 쓸 수 없고, 로거도 `app.logger` 대신
@@ -111,7 +111,10 @@ def auto_backup_job():
             log.error(f"❌ 자동 백업 중 오류 발생: {e}")
 
 
-# ⭐️ 시간외 단일가(NXT) 종가를 자동 갱신하는 백그라운드 스레드 함수
+# ⭐️ 정규장 종가(KRX_CLOSE)와 NXT 애프터마켓 종가(NXT)를 자동 갱신하는 백그라운드 스레드 함수
+#    - KRX_CLOSE: KRX 모드가 장외 시간에 고정 표시하는 값. 분봉 API 가 실패할 때의 폴백.
+#    - NXT: AFT 모드가 다음날 프리마켓(08:00~09:00)에 NXT 시세를 못 받았을 때의 폴백.
+#    KRX 애프터마켓 현재가는 closePrice 로 오므로 따로 캐싱하지 않는다.
 #    시세 조회 자체는 prices 모듈에 위임한다. 예전에는 이 함수가 네이버 모바일
 #    API 를 urllib 로 따로 호출해 헤더·타임아웃·파싱이 prices.py 와 이중으로
 #    존재했고, 네이버 응답 스펙이 바뀌면 두 곳을 모두 고쳐야 했다.
@@ -129,11 +132,11 @@ def auto_fetch_nxt_close_job():
             # 평일(월~금) 15:30 ~ 20:30 (NXT 장 종료 20:00 및 마감 직후 시간)에만 캐시 갱신 수행
             if not (0 <= day_of_week <= 4 and 1530 <= time_num <= 2030):
                 continue
-            # 휴장일에는 시간외 단일가도 없다 (prices 의 휴장일 목록과 판정을 공유)
+            # 휴장일에는 NXT 도 열지 않는다 (prices 의 휴장일 목록과 판정을 공유)
             if prices.is_market_holiday(kst_now):
                 continue
 
-            log.info("🔄 백그라운드: 시간외 단일가(NXT) 자동 캐싱을 시작합니다...")
+            log.info("🔄 백그라운드: 정규장 종가·NXT 애프터마켓 종가 자동 캐싱을 시작합니다...")
             conn = get_db()
             try:
                 c = conn.cursor()
@@ -142,17 +145,20 @@ def auto_fetch_nxt_close_job():
 
                 updated_count = 0
                 for code in codes:
-                    # 국내 주식(6자리 영숫자) 만 시간외 단일가 대상
+                    # 국내 주식(6자리 영숫자) 만 NXT 대상
                     if prices.detect_market(code) != 'KR':
                         continue
                     price_val = prices.fetch_nxt_close(code)
                     if price_val is not None:
                         prices.save_price_cache(conn, code, price_val, 'NXT')
                         updated_count += 1
+                    regular_close = prices.fetch_krx_regular_close(code)
+                    if regular_close is not None:
+                        prices.save_price_cache(conn, code, regular_close, prices.KRX_CLOSE_CACHE_MARKET)
                     # 네이버 서버에 부담을 주지 않기 위해 약간의 지연 시간 추가
                     time.sleep(0.3)
             finally:
                 conn.close()
-            log.info(f"✅ 백그라운드: 시간외 단일가 캐싱 완료 (총 {updated_count}개 종목 업데이트 됨)")
+            log.info(f"✅ 백그라운드: NXT 종가 캐싱 완료 (총 {updated_count}개 종목 업데이트 됨)")
         except Exception as e:
-            log.error(f"❌ 시간외 단일가 자동 캐싱 스레드 오류: {e}")
+            log.error(f"❌ NXT 종가 자동 캐싱 스레드 오류: {e}")

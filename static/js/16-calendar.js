@@ -202,7 +202,7 @@ window.setMonthlyChartType = function(type) {
     window.renderMonthlyProfitChart();
 };
 
-// ⭐️ 주간/월간 집계 단위 토글 버튼 표시 동기화 (KRX/NXT 토글과 동일 방식)
+// ⭐️ 주간/월간 집계 단위 토글 버튼 표시 동기화 (KRX/AFT 토글과 동일 방식)
 window.updateChartGranularityToggle = function() {
     const btn = document.getElementById('btnToggleChartGranularity');
     if (!btn) return;

@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-// 12-market.js — 장 운영시간 판정(KRX/NXT/미국장)·현재가 조회
+// 12-market.js — 장 운영시간 판정(KRX/AFT/미국장)·현재가 조회
 //
 // ⚠️ 이 파일들은 ES 모듈이 아니라 **순서대로 로드되는 클래식 스크립트**다.
 //    최상위 let/const/function 은 전역 렉시컬 환경을 공유하므로, 예전 script.js
@@ -41,8 +41,11 @@ window.getMarketStatus = function() {
     const kstDate = `${kst.getFullYear()}-${String(kst.getMonth() + 1).padStart(2, '0')}-${String(kst.getDate()).padStart(2, '0')}`;
     const isKrHoliday = krxHolidaySet.has(kstDate);
     
-    // 1. 한국 정규장 및 장전/NXT(장후) 시간외 포함: 평일(월~금) 08:00 ~ 20:00 (휴장일 제외)
-    const isKrOpen = !isKrHoliday && (day >= 1 && day <= 5) && (timeNum >= 800 && timeNum <= 2000);
+    // 1. 한국 정규장 및 프리마켓(NXT)/애프터마켓(KRX·NXT) 포함: 평일(월~금) 08:00 ~ 20:00 (휴장일 제외)
+    const isKrWeekday = !isKrHoliday && (day >= 1 && day <= 5);
+    const isKrOpen = isKrWeekday && (timeNum >= 800 && timeNum <= 2000);
+    // ⭐️ 프리마켓(08:00~09:00)은 KRX 가 열지 않아 NXT 시세를 쓴다 — 백엔드 is_kr_pre_market 과 같은 창.
+    const isKrPreMarket = isKrWeekday && (timeNum >= 800 && timeNum < 900);
     
     // 2. 미국 정규장: 뉴욕 현지 시각으로 직접 판정한다.
     //    ⭐️ 예전에는 KST 22:30~06:00 으로 고정했는데, 미국 서머타임(EDT/EST) 때문에
@@ -54,8 +57,28 @@ window.getMarketStatus = function() {
     //       DST 규칙을 직접 구현하는 대신 브라우저의 타임존 데이터에 맡긴다.
     return {
         kr: isKrOpen,
+        krPreMarket: isKrPreMarket,
         us: isUsMarketOpen(now)
     };
+};
+
+// ⭐️ 저장된 토글 값을 현재 모드 이름으로 정규화한다. 'NXT' 는 KRX 애프터마켓
+//    개장(2026-09-14) 전의 이름이므로 AFT 로 읽는다. 그 밖의 값은 KRX.
+window.normalizeMarketMode = function(mode) {
+    const m = String(mode || '').trim().toUpperCase();
+    return (m === 'AFT' || m === 'NXT') ? 'AFT' : 'KRX';
+};
+
+// ⭐️ KRX/AFT 토글 버튼 표시 동기화. AFT 모드는 프리마켓 동안만 NXT 시세를 쓰므로
+//    그 시간대에는 라벨을 NXT 로 보여 준다. 60초 폴링마다 다시 불러 시간대에 맞춘다.
+window.renderMarketModeButton = function() {
+    const btn = document.getElementById('btnToggleMarketMode');
+    if (!btn) return;
+    const isAft = currentMarketMode === 'AFT';
+    const label = !isAft ? 'KRX' : (window.getMarketStatus().krPreMarket ? 'NXT' : 'AFT');
+    btn.innerText = label;
+    btn.style.backgroundColor = isAft ? 'transparent' : 'var(--primary-color)';
+    btn.style.color = isAft ? 'var(--primary-color)' : '#fff';
 };
 
 // ⭐️ 뉴욕 현지 시각/요일을 구한다. Intl 타임존을 못 쓰는 환경이면 null.
@@ -102,9 +125,10 @@ window.isMarketOpen = function() {
 window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
     if (currentPortfolioArrayForPrice.length === 0) return;
     
-    const displayMarket = currentMarketMode; // ⭐️ 토글된 시장 모드(KRX 또는 NXT) 사용
+    const displayMarket = currentMarketMode; // ⭐️ 토글된 시장 모드(KRX 또는 AFT) 사용
     
     const marketStatus = window.getMarketStatus();
+    window.renderMarketModeButton(); // 프리마켓 진입/이탈에 맞춰 AFT↔NXT 라벨 갱신
     let codesToFetch = [];
     
     currentPortfolioArrayForPrice.forEach(p => {

@@ -121,7 +121,10 @@ let showClosedPositions = false; // 청산종목 보기 상태
 // ⭐️ 금액 가리기(프라이버시) 모드. 초기값은 head 의 FOUC 방지 스크립트가 이미 적용해 둔
 //    클래스에서 읽어 온다 — localStorage 를 두 곳에서 따로 읽으면 언젠가 어긋난다.
 let isAmountMasked = document.documentElement.classList.contains('amount-masked');
-let currentMarketMode = 'NXT'; // ⭐️ KRX/NXT 토글 상태 (기본값 NXT)
+let currentMarketMode = 'AFT'; // ⭐️ KRX/AFT 토글 상태 (기본값 AFT).
+//    AFT = 정규장·KRX 애프터마켓(16:00~20:00) 현재가, 프리마켓(08:00~09:00)만 NXT 시세.
+//    KRX = 정규장 중 현재가, 장외에는 정규장 종가(15:30) 고정.
+//    예전 저장값 'NXT' 는 normalizeMarketMode() 가 AFT 로 읽는다.
 let currentPortfolioArrayForPrice = []; // 현재가 계산용 임시 배열
 let showHistoryClosedPositions = false; // ⭐️ 히스토리도 포트폴리오와 동일하게 청산·숨김 종목을 기본 숨김 처리
 let stockIdentityByName = {};  // ⭐️ 종목명 → 동일성(코드) 표. recomputeHiddenStocks 가 채운다

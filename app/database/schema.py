@@ -104,7 +104,7 @@ CREATE_TABLES = [
     )
     ''',
 
-    # ⭐️ 시간외 단일가(NXT) 전일 종가 유지를 위한 캐시 (KRX/NXT 분리 저장)
+    # ⭐️ 시세 폴백용 캐시 — KRX(정규장·애프터마켓)와 NXT(넥스트레이드) 슬롯 분리 저장
     '''
     CREATE TABLE IF NOT EXISTS price_cache (
         code TEXT,

@@ -233,7 +233,7 @@ def test_auto_backup_job_with_uploads_and_errors(mock_sleep, client, app, tmp_pa
 @patch('time.sleep')
 def test_auto_fetch_nxt_close_job(mock_sleep, mock_datetime, client, app):
     """
-    시간외 단일가 수집 스레드가 평일 동작 시간대/비동작 시간대에 따라 
+    정규장 종가·NXT 종가 수집 스레드가 평일 동작 시간대/비동작 시간대에 따라 
     각각 어떻게 동작하는지 테스트합니다.
     """
     from datetime import datetime, timezone
@@ -256,7 +256,8 @@ def test_auto_fetch_nxt_close_job(mock_sleep, mock_datetime, client, app):
         sess['expires_at'] = time.time() + 3600
     client.post('/api/entry', json={"type": "buy", "stockName": "삼성전자", "stockCode": "005930", "price": 10000, "quantity": 1})
     
-    with patch('app.services.prices.fetch_nxt_close', return_value=11000) as mock_fetch:
+    with patch('app.services.prices.fetch_nxt_close', return_value=11000) as mock_fetch, \
+         patch('app.services.prices.fetch_krx_regular_close', return_value=10500) as mock_close:
         with patch('app.services.prices.is_market_holiday', return_value=False):
             with app.app_context():
                 try:
@@ -264,6 +265,17 @@ def test_auto_fetch_nxt_close_job(mock_sleep, mock_datetime, client, app):
                 except KeyboardInterrupt:
                     pass
         assert mock_fetch.called
+        assert mock_close.called
+    # 정규장 종가는 KRX_CLOSE 슬롯에, NXT 종가는 NXT 슬롯에 저장된다
+    from app.database.db import get_db
+    from app.services import prices
+    with app.app_context():
+        conn = get_db()
+        try:
+            assert prices.load_price_cache(conn, '005930', prices.KRX_CLOSE_CACHE_MARKET) == 10500
+            assert prices.load_price_cache(conn, '005930', 'NXT') == 11000
+        finally:
+            conn.close()
 
     # 2. 비동작 시간대: KST 19:00
     mock_datetime.now.return_value = datetime(2023, 1, 2, 10, 0, tzinfo=timezone.utc)
