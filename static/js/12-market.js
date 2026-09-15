@@ -46,6 +46,9 @@ window.getMarketStatus = function() {
     const isKrOpen = isKrWeekday && (timeNum >= 800 && timeNum <= 2000);
     // ⭐️ 프리마켓(08:00~09:00)은 KRX 가 열지 않아 NXT 시세를 쓴다 — 백엔드 is_kr_pre_market 과 같은 창.
     const isKrPreMarket = isKrWeekday && (timeNum >= 800 && timeNum < 900);
+    // ⭐️ 정규장~애프터마켓 개장 전(09:00~16:00). AFT 모드라도 이 동안은 KRX 시세와 같으므로
+    //    버튼 라벨을 KRX 로 보여 준다. 16:00 애프터마켓이 열리면 다시 AFT.
+    const isKrRegular = isKrWeekday && (timeNum >= 900 && timeNum < 1600);
     
     // 2. 미국 정규장: 뉴욕 현지 시각으로 직접 판정한다.
     //    ⭐️ 예전에는 KST 22:30~06:00 으로 고정했는데, 미국 서머타임(EDT/EST) 때문에
@@ -58,6 +61,7 @@ window.getMarketStatus = function() {
     return {
         kr: isKrOpen,
         krPreMarket: isKrPreMarket,
+        krRegular: isKrRegular,
         us: isUsMarketOpen(now)
     };
 };
@@ -69,13 +73,18 @@ window.normalizeMarketMode = function(mode) {
     return (m === 'AFT' || m === 'NXT') ? 'AFT' : 'KRX';
 };
 
-// ⭐️ KRX/AFT 토글 버튼 표시 동기화. AFT 모드는 프리마켓 동안만 NXT 시세를 쓰므로
-//    그 시간대에는 라벨을 NXT 로 보여 준다. 60초 폴링마다 다시 불러 시간대에 맞춘다.
+// ⭐️ KRX/AFT 토글 버튼 표시 동기화. AFT 모드의 라벨은 그 시간대에 실제로 쓰이는 시세를
+//    따른다 — 프리마켓(08~09시) NXT, 정규장~애프터 개장 전(09~16시) KRX, 그 밖에는 AFT.
+//    60초 폴링마다 다시 불러 시간대에 맞춘다. 모드 값(currentMarketMode)은 바뀌지 않는다.
 window.renderMarketModeButton = function() {
     const btn = document.getElementById('btnToggleMarketMode');
     if (!btn) return;
     const isAft = currentMarketMode === 'AFT';
-    const label = !isAft ? 'KRX' : (window.getMarketStatus().krPreMarket ? 'NXT' : 'AFT');
+    const status = window.getMarketStatus();
+    const label = !isAft ? 'KRX'
+        : status.krPreMarket ? 'NXT'
+        : status.krRegular ? 'KRX'
+        : 'AFT';
     btn.innerText = label;
     btn.style.backgroundColor = isAft ? 'transparent' : 'var(--primary-color)';
     btn.style.color = isAft ? 'var(--primary-color)' : '#fff';

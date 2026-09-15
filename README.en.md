@@ -38,7 +38,7 @@ Beyond simple recording, it aims to maximize investment review and strategy form
     *   Supports direct image insertion into the editor body (clipboard pasting of screenshots, drag & drop) and resizing. It also automatically cleans up colors/background styles when pasting external text.
 *   **Portfolio Dashboard & Real-time Prices**
     *   Automatically calculates and visually displays currently held stocks, total investment amount, average unit price, and cumulative realized profit/loss using a pie chart. (Supports custom drag & drop sorting)
-    *   Supports automatic real-time price updates every minute, covering regular hours and the **KRX after-market (16:00–20:00)**. Of the `AFT`/`KRX` toggle, `AFT` supplements with NXT (Nextrade) quotes only during the **pre-market (08:00–09:00)** when KRX is closed, and the button reads `NXT` during that window. `KRX` pins the **regular-session close (15:30)** outside trading hours.
+    *   Supports automatic real-time price updates every minute, covering regular hours and the **KRX after-market (16:00–20:00)**. Of the `AFT`/`KRX` toggle, `AFT` supplements with NXT (Nextrade) quotes only during the **pre-market (08:00–09:00)** when KRX is closed, and the button shows the current quote source (`NXT` → `KRX` during regular hours → `AFT` from 16:00). `KRX` pins the **regular-session close (15:30)** outside trading hours.
     *   Dashboard view options (e.g., showing closed stocks, viewing current prices) are synchronized with each user's preferences.
 *   **5-Layer Advanced Filtering**
     *   Quickly and precisely filter and analyze vast trading records through 5 independent filters: by record type, stock, account type, broker, and sub-account.
