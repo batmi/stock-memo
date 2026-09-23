@@ -94,6 +94,7 @@
           },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
           "429": { "$ref": "#/components/responses/TooManyRequests" }
         }
       }
@@ -580,7 +581,7 @@
         }
       },
       "Forbidden": {
-        "description": "스코프 부족",
+        "description": "스코프 부족(INSUFFICIENT_SCOPE) 또는 관리자가 로그인 차단한 계정(ACCOUNT_DISABLED)",
         "content": {
           "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
         }
@@ -633,6 +634,7 @@
               "TOKEN_INVALID",
               "TOKEN_REVOKED",
               "INSUFFICIENT_SCOPE",
+              "ACCOUNT_DISABLED",
               "NOT_FOUND",
               "DUPLICATE",
               "NO_POSITION",

@@ -259,7 +259,7 @@ function renderTags() {
     currentTags.forEach((tag, index) => {
         const badge = document.createElement('span');
         badge.className = 'tag-badge';
-        badge.innerHTML = `#${tag} <span class="remove-tag" onclick="removeTag(${index})">&times;</span>`;
+        badge.innerHTML = `#${escapeHtml(tag)} <span class="remove-tag" onclick="removeTag(${index})">&times;</span>`;
         tagList.appendChild(badge);
     });
 }

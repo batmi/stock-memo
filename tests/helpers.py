@@ -10,6 +10,9 @@ import backend_app
 
 
 def _login(client, username='trader'):
+    # ⭐️ 세션 검사는 계정이 실제로 존재하고 허용됐는지까지 본다(삭제·차단된 계정의
+    #    세션을 끊기 위해서다). 그래서 세션만 조작해서는 통과하지 못한다.
+    _ensure_user(username)
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = username

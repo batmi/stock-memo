@@ -33,6 +33,7 @@ def test_backup_and_restore_workflow(client):
     해당 ZIP 파일을 다시 복구(POST /api/restore)하여 
     정상적으로 데이터가 복원되는지 확인하는 통합 테스트입니다.
     """
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -81,6 +82,7 @@ def test_restore_exceptions(client):
     """
     백업 복원 시 발생할 수 있는 에러 상황(파일 누락, 잘못된 형식 등)을 테스트합니다.
     """
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -121,6 +123,7 @@ def test_restore_rejects_oversized_uncompressed_zip(client, monkeypatch):
     업로드 크기 제한(MAX_CONTENT_LENGTH)만으로는 막을 수 없다 — ZIP 은 압축률이
     높아 작은 업로드가 해제 시 수백 MB 가 될 수 있다.
     """
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -203,6 +206,7 @@ def test_restore_keeps_existing_uploads_when_copy_fails(client, monkeypatch, tmp
     영구 소실되고 되돌릴 방법이 없었다.
     """
     monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path / 'uploads'))
+    _ensure_user('restoreuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'restoreuser'
@@ -241,6 +245,7 @@ def test_restore_keeps_existing_uploads_when_copy_fails(client, monkeypatch, tmp
 def test_restore_replaces_uploads_on_success(client, monkeypatch, tmp_path):
     """정상 복원 시에는 첨부파일 폴더가 백업 내용으로 교체된다."""
     monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path / 'uploads'))
+    _ensure_user('restoreuser2')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'restoreuser2'
@@ -282,6 +287,7 @@ def test_restore_survives_id_collision_with_other_user(client):
                 'rawDate': '2025-01-01T09:00'})
         conn.commit()
 
+    _ensure_user('restorer')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'restorer'
@@ -323,6 +329,7 @@ def test_restore_survives_id_collision_with_other_user(client):
 
 def test_restore_same_account_keeps_original_ids(client):
     """같은 계정의 백업을 되돌릴 때는 id 가 그대로 유지된다 (불필요한 재배정 금지)."""
+    _ensure_user('selfrestore')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'selfrestore'

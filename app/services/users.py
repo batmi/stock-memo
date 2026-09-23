@@ -97,23 +97,58 @@ def user_dir(base, username):
 _session_epochs = {}
 _session_epoch_lock = threading.Lock()
 
+# ⭐️ 계정이 없거나(삭제) 로그인 차단(is_allowed=0)이면 이 값을 돌려준다. 세션에 심긴
+#    epoch 은 항상 0 이상이라 절대 일치하지 않으므로, 그 계정의 모든 세션이 다음
+#    요청에서 끊긴다. 예전에는 계정이 없어도 0 을 돌려줘, 삭제·차단된 계정의 다른
+#    기기 세션이 만료 시각(최대 24시간)까지 그대로 기록을 쓸 수 있었다.
+REVOKED_EPOCH = -1
+
 
 def current_session_epoch(username):
     with _session_epoch_lock:
         if username in _session_epochs:
             return _session_epochs[username]
-    epoch = 0
+    epoch = REVOKED_EPOCH
     try:
         with db_conn() as conn:
             row = conn.execute(
-                "SELECT session_epoch FROM users WHERE username = ?", (username,)).fetchone()
-            if row and row['session_epoch'] is not None:
-                epoch = int(row['session_epoch'])
+                "SELECT session_epoch, is_allowed FROM users WHERE username = ?",
+                (username,)).fetchone()
+            if row and row['is_allowed']:
+                epoch = int(row['session_epoch'] or 0)
     except Exception:
         return 0
     with _session_epoch_lock:
         _session_epochs[username] = epoch
     return epoch
+
+
+def forget_session_epoch(username):
+    """계정 상태(가입·승인·차단·삭제)가 바뀌었을 때 캐시를 비운다.
+
+    epoch 캐시는 '계정이 살아 있고 허용됐는가'까지 담으므로, 그 사실이 바뀌는
+    지점에서 지워야 다음 요청이 DB 를 다시 읽는다.
+    """
+    with _session_epoch_lock:
+        _session_epochs.pop(username, None)
+
+
+# 계정에 딸린 행이 있는 테이블. 계정을 지울 때 여기 적힌 것을 전부 지운다.
+# ⭐️ 예전에는 삭제 경로(관리자 삭제·본인 탈퇴)가 각자 entries/api_keys/users 만
+#    지워서, 봇 목록·봇 명령·재설정 요청이 남았다. 같은 이름으로 다시 가입한
+#    사람이 남의 봇 상태와 대기 명령을 물려받는다. 새 테이블이 생기면 여기에 더한다.
+USER_OWNED_TABLES = ('entries', 'api_keys', 'bots', 'bot_commands',
+                     'password_reset_requests', 'users')
+
+
+def purge_account(c, username):
+    """계정과 그에 딸린 DB 행을 모두 지운다.
+
+    호출자가 commit 한 **뒤에** forget_session_epoch() 를 불러야 한다. 커밋 전에
+    캐시를 비우면 그 사이 들어온 요청이 아직 남아 있는 행을 다시 캐시에 올린다.
+    """
+    for table in USER_OWNED_TABLES:
+        c.execute(f"DELETE FROM {table} WHERE username = ?", (username,))
 
 
 def bump_session_epoch(c, username):

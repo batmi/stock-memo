@@ -239,24 +239,24 @@ function displayEntries(isFilterUpdate = false) {
             activeFilterCount++;
         }
         if (hasStock) {
-            chipsHtml += `<span class="filter-chip">🏢 ${currentFilterStock} <span class="chip-close" onclick="clearStockFilter()">&times;</span></span>`;
+            chipsHtml += `<span class="filter-chip">🏢 ${escapeHtml(currentFilterStock)} <span class="chip-close" onclick="clearStockFilter()">&times;</span></span>`;
             activeFilterCount++;
         }
         if (hasAccount) {
-            chipsHtml += `<span class="filter-chip">💼 ${currentFilterAccount} <span class="chip-close" onclick="clearAccountFilter()">&times;</span></span>`;
+            chipsHtml += `<span class="filter-chip">💼 ${escapeHtml(currentFilterAccount)} <span class="chip-close" onclick="clearAccountFilter()">&times;</span></span>`;
             activeFilterCount++;
         }
         if (hasBroker) {
-            chipsHtml += `<span class="filter-chip">🏦 ${currentFilterBroker} <span class="chip-close" onclick="clearBrokerFilter()">&times;</span></span>`;
+            chipsHtml += `<span class="filter-chip">🏦 ${escapeHtml(currentFilterBroker)} <span class="chip-close" onclick="clearBrokerFilter()">&times;</span></span>`;
             activeFilterCount++;
         }
         if (hasSubAccount) {
-            chipsHtml += `<span class="filter-chip">💳 ${currentFilterSubAccount} <span class="chip-close" onclick="clearSubAccountFilter()">&times;</span></span>`;
+            chipsHtml += `<span class="filter-chip">💳 ${escapeHtml(currentFilterSubAccount)} <span class="chip-close" onclick="clearSubAccountFilter()">&times;</span></span>`;
             activeFilterCount++;
         }
         if (hasKeyword) {
             currentFilterKeywords.forEach((kw, idx) => {
-                chipsHtml += `<span class="filter-chip">🔍 '${kw}' <span class="chip-close" onclick="clearKeywordFilter(${idx})" title="검색어 해제">&times;</span></span>`;
+                chipsHtml += `<span class="filter-chip">🔍 '${escapeHtml(kw)}' <span class="chip-close" onclick="clearKeywordFilter(${idx})" title="검색어 해제">&times;</span></span>`;
                 activeFilterCount++;
             });
         }
@@ -305,11 +305,16 @@ function renderPage() {
     // ⭐️ 검색어 하이라이팅을 위한 정규식 준비
     const keywords = currentFilterKeywords;
     
+    // ⭐️ 반환값은 그대로 innerHTML 에 들어간다. 그래서 강조 전에 먼저 안전하게 만든다 —
+    //    평문 필드는 이스케이프, 본문(HTML)은 허용 목록으로 정화. 예전에는 원문을 그대로
+    //    넣어, 봇 API·백업 복원으로 들어온 종목명·본문의 HTML 이 로그인 세션에서 실행됐다.
     function highlight(text, isHtml = false) {
-        if (!text || keywords.length === 0) return text || '';
-        let result = text;
+        const safe = isHtml ? sanitizeHtml(text) : escapeHtml(text);
+        if (!safe || keywords.length === 0) return safe;
+        let result = safe;
         keywords.forEach(kw => {
-            const safeKw = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            // 본문이 이스케이프된 상태이므로 검색어도 같은 형태로 맞춰 찾는다.
+            const safeKw = escapeHtml(kw).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             // 일반 텍스트든 HTML 텍스트든 중복 <mark> 태그 방지를 위해 HTML 태그 내용물 무시 정규식 적용
             const regex = new RegExp(`(${safeKw})(?![^<]*>)`, 'gi');
             result = result.replace(regex, `<mark class="search-highlight">$1</mark>`);
@@ -341,22 +346,25 @@ function renderPage() {
         const card = document.createElement('div');
         card.className = 'entry-card';
         const entryType = entry.type || 'trade';
-        const imageHtml = entry.attachedImage ? `<div style="margin-top:10px;"><img src="${entry.attachedImage}" class="entry-thumbnail" loading="lazy" decoding="async" onclick="openImageViewer(this.src, event)" title="클릭하여 원본 보기"></div>` : '';
+        const imageSrc = safeUrl(entry.attachedImage, { allowDataImage: true });
+        const imageHtml = imageSrc ? `<div style="margin-top:10px;"><img src="${escapeAttr(imageSrc)}" class="entry-thumbnail" loading="lazy" decoding="async" onclick="openImageViewer(this.src, event)" title="클릭하여 원본 보기"></div>` : '';
 
         const createdStr = entry.createdAt ? new Date(entry.createdAt).toLocaleString() : new Date(entry.id).toLocaleString();
         const updatedStr = entry.updatedAt ? new Date(entry.updatedAt).toLocaleString() : '';
         const timeDisplayHtml = `
             <div style="display: flex; flex-direction: column; gap: 3px;">
-                <span style="color: var(--text-strong-color); font-weight: var(--fw-bold, bold);">🕒 기록 일시: ${entry.date}</span>
+                <span style="color: var(--text-strong-color); font-weight: var(--fw-bold, bold);">🕒 기록 일시: ${escapeHtml(entry.date)}</span>
                 <span style="font-size: 11px; color: var(--text-muted-color);">최초 작성: ${createdStr}${updatedStr && updatedStr !== createdStr ? ` | 최종 수정: ${updatedStr}` : ''}</span>
             </div>
         `;
         const tagsArr = entry.tags ? entry.tags.split(',').filter(Boolean) : [];
         const tagsHtml = tagsArr.length > 0 ? `<div style="margin-top: 8px;">` + tagsArr.map(t => `<span class="history-tag">#${highlight(t)}</span>`).join('') + `</div>` : '';
 
-        const safeStockName = entry.stockName ? entry.stockName.replace(/'/g, "\\'") : '';
+        // ⭐️ onclick 안의 JS 문자열은 escapeJsInAttr 로 막는다. 작은따옴표만 막으면
+        //    큰따옴표 하나로 속성을 벗어나 임의 핸들러를 붙일 수 있었다.
+        const safeStockName = escapeJsInAttr(entry.stockName || '');
         const displayStockName = highlight(entry.stockName);
-        const stockBadge = entry.stockName ? `<span class="cal-badge stock" style="padding:4px 10px; border-radius:12px; font-size:0.95em; font-weight:bold; color:var(--text-strong-color); margin:0;" onclick="filterByStock('${safeStockName}', event)" title="${entry.stockName} 모아보기">🏷️ ${displayStockName}</span>` : '';
+        const stockBadge = entry.stockName ? `<span class="cal-badge stock" style="padding:4px 10px; border-radius:12px; font-size:0.95em; font-weight:bold; color:var(--text-strong-color); margin:0;" onclick="filterByStock('${safeStockName}', event)" title="${escapeAttr(entry.stockName)} 모아보기">🏷️ ${displayStockName}</span>` : '';
 
         if (entryType === 'memo') {
             card.style.borderLeftColor = 'var(--info-color)';
@@ -411,16 +419,18 @@ function renderPage() {
             const cSuf = entry.currency === 'USD' ? '' : ''; // 원화는 원래 생략되어 있었음
             
             if (entry.tradeType === '배당' && (entry.price > 0 || entry.quantity > 0)) {
-                const totalAmount = (entry.price * (entry.quantity || 1)).toLocaleString();
+                const totalAmount = escapeHtml((entry.price * (entry.quantity || 1)).toLocaleString());
                 detailsHtml = `
                     <div class="entry-details">
                         <div class="detail-item">배당금: <span class="masked-amount">${cPre}${totalAmount}${cSuf}</span></div>
                     </div>
                 `;
             } else if (entry.tradeType !== '관망' && entry.tradeType !== '주시' && (entry.price > 0 || entry.quantity > 0)) {
-                const priceStr = entry.price ? entry.price.toLocaleString() : '0';
-                const qtyStr = entry.quantity ? entry.quantity.toLocaleString() : '0';
-                const totalAmount = (entry.price * entry.quantity).toLocaleString();
+                // 숫자로 바꿔서 쓴다 — 복원 ZIP 등에서 문자열이 오면 toLocaleString 이
+                // 원문을 그대로 돌려줘 HTML 이 섞여 들어갈 수 있다.
+                const priceStr = entry.price ? escapeHtml(Number(entry.price).toLocaleString()) : '0';
+                const qtyStr = entry.quantity ? escapeHtml(Number(entry.quantity).toLocaleString()) : '0';
+                const totalAmount = escapeHtml((entry.price * entry.quantity).toLocaleString());
                 detailsHtml = `
                     <div class="entry-details">
                         <div class="detail-item">단가: <span>${cPre}${priceStr}${cSuf}</span></div>
@@ -429,7 +439,7 @@ function renderPage() {
                     </div>
                 `;
             }
-            const tradeBadge = `<span style="background-color: ${typeColor}; color: white; padding:4px 8px; border-radius:12px; font-size:0.85em; font-weight:bold; margin:0;">${entry.tradeType}</span>`;
+            const tradeBadge = `<span style="background-color: ${typeColor}; color: white; padding:4px 8px; border-radius:12px; font-size:0.85em; font-weight:bold; margin:0;">${escapeHtml(entry.tradeType)}</span>`;
             // ⭐️ 제외 계좌 체결은 기록으로는 남기되, 합계·통계에 안 잡힌다는 걸 목록에서도 알 수 있게 한다.
             const simBadge = isExcludedFromTotals(entry)
                 ? `<span style="background-color: var(--warning-color); color: white; padding:4px 8px; border-radius:12px; font-size:0.85em; font-weight:bold; margin:0;" title="총 투자금액·평가금액·실현손익·도넛 차트·통계에는 반영되지 않는 기록입니다.">${exclusionBadgeLabel(entry)}</span>`
@@ -447,7 +457,7 @@ function renderPage() {
             card.innerHTML = `
             <div class="entry-header">
                 ${timeDisplayHtml}
-                <div class="header-right"><span>💼 ${entry.tradeClass}</span><button class="btn-edit">수정</button><button class="btn-delete">삭제</button></div>
+                <div class="header-right"><span>💼 ${escapeHtml(entry.tradeClass)}</span><button class="btn-edit">수정</button><button class="btn-delete">삭제</button></div>
             </div>
                 <div class="entry-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">${stockBadge}${tradeBadge}${simBadge}${brokerBadge}</div>
                 ${detailsHtml}
@@ -528,10 +538,12 @@ window.editEntry = async function(entry) {
     
     // ⭐️ 과거 하단에 첨부했던 이미지가 있다면 에디터 본문으로 자동 이동(마이그레이션)
     let contentHtml = entry.thoughts || '';
-    if (entry.attachedImage && !contentHtml.includes(entry.attachedImage)) {
-        contentHtml += `<p><br></p><p><img src="${entry.attachedImage}"></p>`;
+    const legacyImage = safeUrl(entry.attachedImage, { allowDataImage: true });
+    if (legacyImage && !contentHtml.includes(entry.attachedImage)) {
+        contentHtml += `<p><br></p><p><img src="${escapeAttr(legacyImage)}"></p>`;
     }
-    if (window.quill) window.quill.root.innerHTML = contentHtml; // 에디터에 기존 내용 불러오기
+    // ⭐️ 편집기 본문도 살아 있는 문서라 정화 없이 넣으면 그 자리에서 실행된다.
+    if (window.quill) window.quill.root.innerHTML = sanitizeHtml(contentHtml); // 에디터에 기존 내용 불러오기
     
     currentTags = entry.tags ? entry.tags.split(',').filter(Boolean) : [];
     renderTags();

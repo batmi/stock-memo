@@ -18,7 +18,8 @@ from app.utils import ratelimit
 from app.utils import statscache
 from app.routes.authz import admin_required
 from app.database.db import db_conn
-from app.services.users import bump_session_epoch, generate_temp_password
+from app.services.users import (bump_session_epoch, forget_session_epoch,
+                                generate_temp_password, purge_account, user_dir)
 
 log = logging.getLogger('admin')
 
@@ -75,15 +76,17 @@ def admin_delete_user(target_username):
         if target_user and target_user['is_admin']:
             return jsonify({"error": "최고 관리자는 삭제할 수 없습니다."}), 400
 
-        c.execute("DELETE FROM entries WHERE username = ?", (target_username,))
-        c.execute("DELETE FROM api_keys WHERE username = ?", (target_username,))
-        c.execute("DELETE FROM users WHERE username = ?", (target_username,))
+        purge_account(c, target_username)
         conn.commit()
 
+    forget_session_epoch(target_username)  # 이 계정의 남은 세션을 다음 요청에서 끊는다
     statscache.invalidate(target_username)
 
-    user_folder = os.path.join(config.UPLOAD_FOLDER, target_username)
-    if os.path.exists(user_folder):
+    # ⭐️ 경로는 반드시 user_dir() 로 조합한다. 예전에는 os.path.join 을 그대로 써서
+    #    DELETE /api/admin/users/. 이 uploads 폴더 전체(모든 사용자 첨부)를,
+    #    '..' 이 프로젝트 루트(DB·소스)를 rmtree 했다. 이름이 수상하면 None 이다.
+    user_folder = user_dir(config.UPLOAD_FOLDER, target_username)
+    if user_folder and os.path.exists(user_folder):
         shutil.rmtree(user_folder)
 
     return jsonify({"status": "success"})
@@ -105,6 +108,10 @@ def admin_toggle_allow(target_username):
         new_status = 0 if user['is_allowed'] else 1
         c.execute("UPDATE users SET is_allowed = ? WHERE username = ?", (new_status, target_username))
         conn.commit()
+
+    # ⭐️ 차단은 '지금 로그인해 있는 세션'에도 들어야 한다. epoch 캐시가 허용 여부까지
+    #    담고 있으므로 비워 두면 다음 요청이 DB 를 다시 읽고, 차단됐으면 끊긴다.
+    forget_session_epoch(target_username)
 
     return jsonify({"status": "success", "is_allowed": new_status})
 

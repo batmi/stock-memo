@@ -85,7 +85,7 @@ async function loadDataFromLocal() {
                 if (meData.username) {
                     const userDisplay = document.getElementById('loggedInUserDisplay');
                     if (userDisplay) {
-                        userDisplay.innerHTML = `<span style="font-size:12px;">👤</span> ${meData.username}`;
+                        userDisplay.innerHTML = `<span style="font-size:12px;">👤</span> ${escapeHtml(meData.username)}`;
                         userDisplay.style.display = 'flex';
                     }
                     if (meData.is_admin) {
@@ -378,11 +378,14 @@ async function fetchRealtimeNews(forceRefresh = false) {
             const dateObj = new Date(news.pubDate);
             const dateStr = !isNaN(dateObj) ? (dateObj.getMonth()+1) + '/' + dateObj.getDate() + ' ' + String(dateObj.getHours()).padStart(2,'0') + ':' + String(dateObj.getMinutes()).padStart(2,'0') : news.pubDate;
 
+            // ⭐️ 기사 제목은 제3자(언론사)가 쓴 문자열이다. 그대로 innerHTML 에 넣으면
+            //    제목에 섞인 태그가 실행된다. 링크도 http(s) 만 허용한다.
+            const link = safeUrl(news.link);
             newsHtml += `
                 <div class="news-item">
-                    <a href="${news.link}" target="_blank">${news.title}</a>
+                    <a href="${escapeAttr(link || '#')}" target="_blank" rel="noopener noreferrer">${escapeHtml(news.title)}</a>
                     <div class="news-meta">
-                        <span class="news-stock-tag">${news.stock}</span><span>${dateStr}</span>
+                        <span class="news-stock-tag">${escapeHtml(news.stock)}</span><span>${escapeHtml(dateStr)}</span>
                     </div>
                 </div>`;
         });

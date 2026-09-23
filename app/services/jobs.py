@@ -48,67 +48,84 @@ def auto_backup_job():
             log.info("🔄 일일 자동 백업을 시작합니다.")
             with db_conn() as conn:
                 users = conn.execute("SELECT username FROM users").fetchall()
-
-            for user in users:
-                username = user['username']
-
-                # ⭐️ 기록과 계좌 매핑을 **같은 연결에서** 읽는다.
-                #    예전에는 기록만 읽고 곧바로 conn.close() 한 뒤, ZIP 을 쓰는
-                #    한참 아래에서 그 닫힌 연결로 accounts.load(conn, ...) 를 불렀다.
-                #    load() 는 조회 실패를 '매핑 없음'으로 삼키도록 되어 있어(그게
-                #    맞는 설계다) 아무 소리 없이 빈 매핑이 돌아왔고, 결과적으로
-                #    **자동 백업 ZIP 에서만 account_info.json 이 통째로 빠졌다.**
-                #    수동 백업(backup_api)은 with db_conn() 을 써서 멀쩡했기 때문에
-                #    "백업은 되는데 복원하면 계좌 매핑만 사라지는" 형태로 나타난다.
-                with db_conn() as conn:
-                    rows = [dict(row) for row in conn.execute(
-                        "SELECT * FROM entries WHERE username = ?", (username,)).fetchall()]
-                    mappings = accounts.load(conn, username)
-
-                user_backup_dir = user_dir(config.BACKUP_DIR, username)
-                if user_backup_dir is None:
-                    continue  # 규칙 이전에 만들어진 이상한 이름 — 파일을 건드리지 않는다
-                os.makedirs(user_backup_dir, exist_ok=True)
-
-                current_time_str = time.strftime('%Y%m%d')
-                filename = f'TradingJournal_backup_{username}_{current_time_str}.zip'
-                filepath = os.path.join(user_backup_dir, filename)
-
-                with zipfile.ZipFile(filepath, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    json_data = json.dumps(rows, ensure_ascii=False, indent=2)
-                    zf.writestr('data.json', json_data)
-
-                    user_folder = user_dir(config.UPLOAD_FOLDER, username)
-                    if user_folder and os.path.exists(user_folder):
-                        for root, _dirs, files in os.walk(user_folder):
-                            for file in files:
-                                file_path = os.path.join(root, file)
-                                arcname = os.path.join('uploads', file)
-                                zf.write(file_path, arcname=arcname)
-                                
-                    # 계좌 매핑은 DB 에 있지만, 백업 ZIP 안에서는 구버전과 같은
-                    # account_info.json 이름을 유지한다 (예전 백업과 호환).
-                    if mappings.get('brokers') or mappings.get('accounts'):
-                        zf.writestr(accounts.BACKUP_ARCNAME, accounts.dumps(mappings))
-
-                # ⭐️ 생성된 백업 파일의 무결성을 즉시 검증 (복원 가능 여부 확인)
-                ok, detail = verify_backup_zip(filepath, len(rows))
-                if ok:
-                    log.info(f"  └ 백업 검증 통과: {username} ({detail})")
-                else:
-                    log.error(f"  └ ⚠️ 백업 검증 실패: {username} - {detail} (파일: {filename})")
-
-                # 7일 지난 백업 파일 삭제 (7일 = 604800초)
-                current_time_sec = time.time()
-                for f in os.listdir(user_backup_dir):
-                    f_path = os.path.join(user_backup_dir, f)
-                    if os.path.isfile(f_path):
-                        if os.stat(f_path).st_mtime < current_time_sec - 7 * 86400:
-                            os.remove(f_path)
-
-            log.info("✅ 일일 자동 백업이 완료되었습니다.")
         except Exception as e:
-            log.error(f"❌ 자동 백업 중 오류 발생: {e}")
+            log.error(f"❌ 자동 백업 중 오류 발생(계정 목록 조회): {e}")
+            continue
+
+        # ⭐️ 사용자마다 따로 감싼다. 예전에는 try 하나가 루프 전체를 감싸서, 한
+        #    사용자에서 예외가 나면(깨진 첨부 파일, 권한 오류 등) 그 뒤 사용자 전원의
+        #    백업과 7일 정리가 조용히 건너뛰어졌다. 로그에는 한 줄만 남는다.
+        failed = []
+        for user in users:
+            username = user['username']
+            try:
+                _backup_user(username)
+            except Exception as e:
+                failed.append(username)
+                log.error(f"  └ ❌ 자동 백업 실패: {username} - {e}")
+
+        if failed:
+            log.error(f"⚠️ 일일 자동 백업이 일부 실패했습니다 ({len(failed)}/{len(users)}명: "
+                      f"{', '.join(failed)})")
+        else:
+            log.info("✅ 일일 자동 백업이 완료되었습니다.")
+
+
+def _backup_user(username):
+    """한 사용자의 기록·첨부·계좌 매핑을 ZIP 으로 백업하고 7일 지난 파일을 지운다."""
+    # ⭐️ 기록과 계좌 매핑을 **같은 연결에서** 읽는다.
+    #    예전에는 기록만 읽고 곧바로 conn.close() 한 뒤, ZIP 을 쓰는
+    #    한참 아래에서 그 닫힌 연결로 accounts.load(conn, ...) 를 불렀다.
+    #    load() 는 조회 실패를 '매핑 없음'으로 삼키도록 되어 있어(그게
+    #    맞는 설계다) 아무 소리 없이 빈 매핑이 돌아왔고, 결과적으로
+    #    **자동 백업 ZIP 에서만 account_info.json 이 통째로 빠졌다.**
+    #    수동 백업(backup_api)은 with db_conn() 을 써서 멀쩡했기 때문에
+    #    "백업은 되는데 복원하면 계좌 매핑만 사라지는" 형태로 나타난다.
+    with db_conn() as conn:
+        rows = [dict(row) for row in conn.execute(
+            "SELECT * FROM entries WHERE username = ?", (username,)).fetchall()]
+        mappings = accounts.load(conn, username)
+
+    user_backup_dir = user_dir(config.BACKUP_DIR, username)
+    if user_backup_dir is None:
+        return  # 규칙 이전에 만들어진 이상한 이름 — 파일을 건드리지 않는다
+    os.makedirs(user_backup_dir, exist_ok=True)
+
+    current_time_str = time.strftime('%Y%m%d')
+    filename = f'TradingJournal_backup_{username}_{current_time_str}.zip'
+    filepath = os.path.join(user_backup_dir, filename)
+
+    with zipfile.ZipFile(filepath, 'w', zipfile.ZIP_DEFLATED) as zf:
+        json_data = json.dumps(rows, ensure_ascii=False, indent=2)
+        zf.writestr('data.json', json_data)
+
+        user_folder = user_dir(config.UPLOAD_FOLDER, username)
+        if user_folder and os.path.exists(user_folder):
+            for root, _dirs, files in os.walk(user_folder):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.join('uploads', file)
+                    zf.write(file_path, arcname=arcname)
+
+        # 계좌 매핑은 DB 에 있지만, 백업 ZIP 안에서는 구버전과 같은
+        # account_info.json 이름을 유지한다 (예전 백업과 호환).
+        if mappings.get('brokers') or mappings.get('accounts'):
+            zf.writestr(accounts.BACKUP_ARCNAME, accounts.dumps(mappings))
+
+    # ⭐️ 생성된 백업 파일의 무결성을 즉시 검증 (복원 가능 여부 확인)
+    ok, detail = verify_backup_zip(filepath, len(rows))
+    if ok:
+        log.info(f"  └ 백업 검증 통과: {username} ({detail})")
+    else:
+        log.error(f"  └ ⚠️ 백업 검증 실패: {username} - {detail} (파일: {filename})")
+
+    # 7일 지난 백업 파일 삭제 (7일 = 604800초)
+    current_time_sec = time.time()
+    for f in os.listdir(user_backup_dir):
+        f_path = os.path.join(user_backup_dir, f)
+        if os.path.isfile(f_path):
+            if os.stat(f_path).st_mtime < current_time_sec - 7 * 86400:
+                os.remove(f_path)
 
 
 # ⭐️ 정규장 종가(KRX_CLOSE)와 NXT 애프터마켓 종가(NXT)를 자동 갱신하는 백그라운드 스레드 함수

@@ -33,3 +33,6 @@ backup/
 .git
 .vscode
 .claude
+# 계좌 매핑의 레거시 저장소(개인 계좌 정보). 이미지에 구워 넣지 않는다 —
+# 이관이 필요하면 /app/json 으로 마운트한다.
+json/

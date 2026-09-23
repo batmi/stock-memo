@@ -42,6 +42,15 @@ app = Flask(__name__)
 app.secret_key = config.load_secret_key()
 config.apply_to(app)
 
+# ⭐️ 리버스 프록시(nginx·Caddy 등) 뒤에 둘 때만 켠다. 켜지 않으면 모든 요청의
+#    remote_addr 가 프록시 주소가 되어, 누군가 로그인을 5번 틀리면 **전원이** 잠긴다.
+#    반대로 프록시 없이 켜면 클라이언트가 X-Forwarded-For 를 위조해 IP 제한을
+#    우회하므로, 앞단 프록시 수를 명시할 때만 그만큼만 믿는다.
+_trusted_proxies = config.trusted_proxy_count()
+if _trusted_proxies:
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=_trusted_proxies, x_proto=_trusted_proxies)
+
 applog.setup(app)
 middleware.register(app)
 auth.register(app)
@@ -240,4 +249,6 @@ if __name__ == '__main__':
         app.logger.warning(
             "⚠️ Waitress가 설치되지 않아 Flask 개발 서버로 실행합니다. "
             "(프로덕션 환경 권장: pip install waitress)")
-        app.run(host='0.0.0.0', debug=True, port=port)
+        # ⚠️ debug=True 로 띄우면 Werkzeug 디버거(브라우저에서 파이썬 실행)가
+        #    0.0.0.0 — 같은 네트워크 전체 — 에 열린다. 폴백이라도 끈다.
+        app.run(host='0.0.0.0', debug=False, port=port)

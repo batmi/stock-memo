@@ -28,11 +28,34 @@ from app.services import stats
 from app.utils import statscache
 import trading_api
 from app.database.db import db_conn
-from app.services.users import bump_session_epoch, user_dir, validate_password
+from app.services.users import (bump_session_epoch, forget_session_epoch, purge_account,
+                                user_dir, validate_password)
 
 log = logging.getLogger('api')
 
 bp = Blueprint('api', __name__)
+
+# 통계 집계 단위. 클라이언트 값을 그대로 캐시 키로 쓰면 요청마다 항목이 늘어난다.
+STATS_GRANULARITIES = ('monthly', 'weekly')
+
+# ⭐️ 외부 호출로 이어지는 목록의 상한. 목록 길이만큼 네이버·야후·구글 요청이 나가므로,
+#    제한이 없으면 요청 한 번이 외부 호출 수천 건이 된다. 실제 보유 종목 수보다 넉넉히 둔다.
+MAX_PRICE_CODES = 300
+MAX_NEWS_STOCKS = 100
+
+
+def _json_object():
+    """요청 본문이 JSON 객체면 dict, 아니면 None.
+
+    ⭐️ request.json 을 바로 쓰면 본문이 배열·문자열일 때 .get() 에서 터져 500 이 됐다.
+       '잘못된 요청'은 400 으로 돌려줘야 클라이언트가 서버 장애와 구분할 수 있다.
+    """
+    data = request.get_json(silent=True)
+    return data if isinstance(data, dict) else None
+
+
+def _bad_body():
+    return jsonify({"error": "요청 본문은 JSON 객체여야 합니다."}), 400
 
 
 def register(app):
@@ -230,7 +253,7 @@ def save_mappings_frontend():
     username = session.get('username')
     if not username:
         return jsonify({"error": "Unauthorized"}), 401
-    data = request.json
+    data = _json_object()
     if not isinstance(data, dict):
         return jsonify({"error": "잘못된 데이터 형식입니다."}), 400
 
@@ -323,7 +346,7 @@ def delete_account():
     if is_admin_flag:
         return jsonify({"error": "최고 관리자 계정은 탈퇴할 수 없습니다."}), 403
 
-    data = request.json or {}
+    data = _json_object() or {}
     password = data.get('password')
     if not password:
         return jsonify({"error": "비밀번호를 입력해주세요."}), 400
@@ -336,12 +359,12 @@ def delete_account():
         if not user_record or not check_password_hash(user_record['password_hash'], password):
             return jsonify({"error": "비밀번호가 일치하지 않습니다."}), 400
 
-        # 사용자 데이터 및 계정 삭제 (API 키도 함께 파기해야 탈퇴 후 접근이 막힌다)
-        c.execute("DELETE FROM entries WHERE username = ?", (username,))
-        c.execute("DELETE FROM api_keys WHERE username = ?", (username,))
-        c.execute("DELETE FROM users WHERE username = ?", (username,))
+        # 사용자 데이터 및 계정 삭제 (API 키·봇·재설정 요청까지 — users.USER_OWNED_TABLES)
+        purge_account(c, username)
         conn.commit()
 
+    # 다른 기기에 남은 이 계정의 세션도 다음 요청에서 끊긴다.
+    forget_session_epoch(username)
     statscache.invalidate(username)
 
     # 사용자 전용 업로드 폴더 삭제
@@ -394,7 +417,9 @@ def get_data():
 @bp.route('/api/entry', methods=['POST'])
 def create_entry():
     username = session.get('username')
-    entry = request.json
+    entry = _json_object()
+    if entry is None:
+        return _bad_body()
     # ⭐️ 본문 내장 base64 이미지를 파일로 추출 (초기 로딩 응답 크기 유지)
     entry = images.extract_inline_images(username, entry)
     with db_conn() as conn:
@@ -414,7 +439,9 @@ def create_entry():
 @bp.route('/api/entry/<int:entry_id>', methods=['PUT'])
 def update_entry(entry_id):
     username = session.get('username')
-    entry = request.json
+    entry = _json_object()
+    if entry is None:
+        return _bad_body()
     # ⭐️ 본문 내장 base64 이미지를 파일로 추출 (초기 로딩 응답 크기 유지)
     entry = images.extract_inline_images(username, entry)
     with db_conn() as conn:
@@ -467,11 +494,21 @@ def get_stats():
     # ⭐️ 차트가 보고 있는 기간(기간 이동 버튼 반영)을 그대로 받아 같은 구간만 집계한다.
     period_start = period_end = None
     if request.method == 'POST':
-        data = request.json or {}
+        data = _json_object()
+        if data is None:
+            return _bad_body()
         entry_ids = data.get('entry_ids')
+        if entry_ids is not None and (
+                not isinstance(entry_ids, list)
+                or not all(isinstance(i, int) and not isinstance(i, bool) for i in entry_ids)):
+            return jsonify({"error": "entry_ids 는 정수 배열이어야 합니다."}), 400
         granularity = data.get('granularity', 'monthly')
         period_start = data.get('period_start')
         period_end = data.get('period_end')
+    # ⭐️ 아는 값만 받는다. 클라이언트 문자열을 그대로 캐시 키로 쓰면 요청마다 캐시
+    #    항목이 늘어났다(값은 어차피 weekly 가 아니면 monthly 로 계산된다).
+    if granularity not in STATS_GRANULARITIES:
+        granularity = 'monthly'
 
     # ⭐️ 전체 통계 요청은 캐시 우선 조회 (필터링·기간 지정 요청은 캐시 대상 아님)
     if entry_ids is None and not period_start and not period_end:
@@ -548,9 +585,12 @@ def get_market_calendar():
 
 @bp.route('/api/current_price', methods=['POST'])
 def get_current_price():
-    data = request.json or {}
-    codes = data.get('codes', [])
-    market_mode = data.get('market_mode', 'AUTO')
+    data = _json_object() or {}
+    codes = data.get('codes') or []
+    if not isinstance(codes, list):
+        return jsonify({"error": "codes 는 배열이어야 합니다."}), 400
+    codes = [c for c in codes if isinstance(c, str)][:MAX_PRICE_CODES]
+    market_mode = str(data.get('market_mode') or 'AUTO')
     # ⭐️ allow_cached: 자동 폴링(60초 주기)만 True 로 보내 서버측 단기(25초) 캐시 허용.
     #    수동 새로고침은 False(기본) → 항상 외부 API 라이브 조회로 "진짜 현재가"를 보장.
     allow_cached = bool(data.get('allow_cached', False))
@@ -567,7 +607,9 @@ def change_password():
     if not username:
         return jsonify({"error": "Unauthorized"}), 401
 
-    data = request.json
+    data = _json_object()
+    if data is None:
+        return _bad_body()
     current_password = data.get('current_password')
     new_password = data.get('new_password')
 
@@ -653,7 +695,9 @@ def save_preferences():
     username = session.get('username')
     if not username:
         return jsonify({"error": "Unauthorized"}), 401
-    prefs = request.json
+    prefs = _json_object()
+    if prefs is None:
+        return _bad_body()
     with db_conn() as conn:
         c = conn.cursor()
         c.execute("UPDATE users SET preferences = ? WHERE username = ?", (json.dumps(prefs), username))
@@ -664,8 +708,13 @@ def save_preferences():
 @bp.route('/api/news', methods=['POST'])
 def get_news():
     """보유 종목의 최근 뉴스. 조회·캐시·병렬 처리는 news 모듈이 갖는다."""
-    data = request.json or {}
+    data = _json_object() or {}
+    stocks = data.get('stocks') or []
+    if not isinstance(stocks, list):
+        return jsonify({"error": "stocks 는 배열이어야 합니다."}), 400
+    # 문자열만 받는다 — 캐시 키로 쓰이므로 dict·list 가 섞이면 해시 불가로 500 이 됐다.
+    stocks = [s for s in stocks if isinstance(s, str) and s.strip()][:MAX_NEWS_STOCKS]
     return jsonify(news.fetch_many(
-        data.get('stocks', []),
+        stocks,
         force_refresh=bool(data.get('force_refresh', False)),
     ))

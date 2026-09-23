@@ -1503,6 +1503,10 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
     gap: 6px;
     align-items: stretch;
     justify-content: flex-end;
+    /* ⭐️ 초기화 요청이 있으면 '요청 해제'까지 버튼이 4개(84px×4)라 관리 열만 374px 가
+       된다. 줄바꿈을 막아 두면 표가 상자를 넘쳐 가로 스크롤이 생겼다. 넘칠 때만 다음
+       줄로 내린다 (여유가 있으면 auto 레이아웃이 한 줄 폭을 그대로 준다). */
+    flex-wrap: wrap;
 }
 .admin-action-btn {
     background: transparent;

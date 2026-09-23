@@ -10,12 +10,14 @@ import time
 import backend_app
 import config
 from app.services import images
+from helpers import _ensure_user
 
 
 def test_image_upload_and_access(client):
     """
     Base64 이미지 업로드 처리와 사용자 간 격리된 첨부파일 접근 제어를 테스트합니다.
     """
+    _ensure_user('imguser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'imguser'
@@ -32,6 +34,7 @@ def test_image_upload_and_access(client):
     filename = img_url.split('/')[-1]
     
     # 다른 유저 세션으로 타인의 파일 접근 시도 시 403 에러 발생 확인
+    _ensure_user('otheruser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['username'] = 'otheruser'
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
@@ -40,8 +43,8 @@ def test_image_upload_and_access(client):
 
 def test_process_image_edge_cases():
     """process_image 함수의 예외(None 입력, URL 직접 입력) 케이스를 테스트합니다."""
-    assert images.process_image(None, 1) is None
-    assert images.process_image("http://example.com/test.png", 1) == "http://example.com/test.png"
+    assert images.process_image('trader', None, 1) is None
+    assert images.process_image('trader', "http://example.com/test.png", 1) == "http://example.com/test.png"
 
 # ─────────────────────────────────────────────────────────────
 # ⭐️ 본문(thoughts) 내장 base64 이미지 → 파일 추출 (초기 로딩 최적화)
@@ -85,6 +88,7 @@ def test_create_entry_extracts_inline_images(client, monkeypatch, tmp_path):
     """POST /api/entry 로 저장된 본문의 base64 이미지가 URL 로 치환되어 조회된다."""
     import base64 as b64
     monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path))
+    _ensure_user('imgentry')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'imgentry'
@@ -152,11 +156,16 @@ def test_process_image_base64(monkeypatch, tmp_path):
     encoded = base64.b64encode(raw).decode()
     
     # Test png
-    res = images.process_image(f"data:image/png;base64,{encoded}", 99)
-    assert res == "/uploads/img_99.png"
-    assert (tmp_path / "img_99.png").read_bytes() == raw
-    
+    # 첨부 라우트(/uploads/<user>/<file>)가 서빙할 수 있도록 사용자 폴더에 저장한다.
+    res = images.process_image('trader', f"data:image/png;base64,{encoded}", 99)
+    assert res == "/uploads/trader/img_99.png"
+    assert (tmp_path / "trader" / "img_99.png").read_bytes() == raw
+
     # Test jpg
-    res2 = images.process_image(f"data:image/jpeg;base64,{encoded}", 100)
-    assert res2 == "/uploads/img_100.jpg"
-    assert (tmp_path / "img_100.jpg").read_bytes() == raw
+    res2 = images.process_image('trader', f"data:image/jpeg;base64,{encoded}", 100)
+    assert res2 == "/uploads/trader/img_100.jpg"
+    assert (tmp_path / "trader" / "img_100.jpg").read_bytes() == raw
+
+    # 경로 문자가 섞인 id 는 걸러져 사용자 폴더를 벗어나지 않는다.
+    res3 = images.process_image('trader', f"data:image/png;base64,{encoded}", '../../x')
+    assert res3 == "/uploads/trader/img_x.png"

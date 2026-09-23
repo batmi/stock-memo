@@ -73,8 +73,9 @@ function renderCalendar() {
         
         let badgesHtml = '';
         for (const [stock, counts] of Object.entries(dStats.details)) {
-            const prefix = stock ? `${stock} ` : '';
-            const safeStock = stock ? stock.replace(/'/g, "\\'") : '';
+            // ⭐️ 표시는 escapeHtml, onclick 안의 JS 문자열은 escapeJsInAttr 로 따로 막는다.
+            const prefix = stock ? `${escapeHtml(stock)} ` : '';
+            const safeStock = stock ? escapeJsInAttr(stock) : '';
             
             if (counts.buyCount > 0) {
                 const typeArg = `stock_trade_${safeStock}`;
@@ -377,7 +378,7 @@ window.renderChartDetailList = function(periodLabel, sections) {
             stocks.forEach(s => {
                 const { color, prefix, amount } = decorate(breakdown[s]);
                 html += `<div style="display: flex; justify-content: space-between; font-size: 12px; padding: 6px 10px; background: var(--bg-color); border-radius: 6px; border: 1px solid var(--border-light-color);">
-                    <span style="font-weight: bold; color: var(--text-strong-color);">${s}</span>
+                    <span style="font-weight: bold; color: var(--text-strong-color);">${escapeHtml(s)}</span>
                     <span style="color: ${color};">${prefix}${Math.round(amount).toLocaleString()}원</span>
                 </div>`;
             });

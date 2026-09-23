@@ -21,18 +21,22 @@ _INLINE_IMG_RE = re.compile(
     re.IGNORECASE)
 
 
-def extract_inline_images(username, entry):
+def extract_inline_images(username, entry, target_folder=None):
     """본문 HTML 내 base64 이미지를 사용자 업로드 폴더의 파일로 추출하고
     src 를 /uploads/ URL 로 치환한 새 entry(dict)를 반환한다.
 
     이미지가 없으면 원본 entry 를 그대로 반환한다. 디코딩 불가능한 손상
     데이터는 원본 그대로 보존한다.
+
+    target_folder 를 주면 파일을 그 폴더에 쓴다(URL 은 그대로 사용자 폴더 기준).
+    복원이 새 첨부 폴더를 옆에 완성한 뒤 맞바꾸기 때문에 필요하다 — 살아 있는
+    폴더에 쓰면 곧바로 교체되며 함께 지워진다.
     """
     thoughts = entry.get('thoughts')
-    if not username or not thoughts or 'data:image' not in thoughts:
+    if not username or not isinstance(thoughts, str) or 'data:image' not in thoughts:
         return entry
 
-    user_folder = user_dir(config.UPLOAD_FOLDER, username)
+    user_folder = target_folder or user_dir(config.UPLOAD_FOLDER, username)
     if user_folder is None:
         return entry  # 경로에 쓸 수 없는 계정이면 이미지 추출을 건너뛴다
     os.makedirs(user_folder, exist_ok=True)
@@ -57,21 +61,28 @@ def extract_inline_images(username, entry):
     return new_entry
 
 
-def process_image(image_data, entry_id):
-    """Base64 이미지를 파일로 저장하고 URL 경로를 반환"""
+def process_image(username, image_data, entry_id):
+    """Base64 이미지를 사용자 업로드 폴더에 저장하고 URL 경로를 반환한다.
+
+    ⭐️ 예전에는 uploads/ 바로 아래에 저장하고 /uploads/<file> 을 돌려줬다. 그런데
+       첨부 라우트는 /uploads/<user>/<file> 하나뿐이라(사용자 격리) 레거시 JSON 에서
+       옮겨 온 이미지는 전부 404 로 깨졌다. extract_inline_images 와 같은 규칙으로
+       사용자 폴더에 둔다. 파일명에 쓰는 id 도 경로 문자가 섞이지 않게 거른다.
+    """
     if not image_data:
         return None
-    if image_data.startswith('data:image'):
-        header, encoded = image_data.split(',', 1)
-        ext = 'jpg'
-        if 'png' in header:
-            ext = 'png'
+    if not image_data.startswith('data:image'):
+        return image_data  # 이미 URL 형식인 경우 그대로 반환
 
-        filename = f"img_{entry_id}.{ext}"
-        filepath = os.path.join(config.UPLOAD_FOLDER, filename)
+    user_folder = user_dir(config.UPLOAD_FOLDER, username)
+    if user_folder is None:
+        return None
+    header, encoded = image_data.split(',', 1)
+    ext = 'png' if 'png' in header else 'jpg'
+    safe_id = re.sub(r'[^0-9A-Za-z_-]', '', str(entry_id)) or uuid.uuid4().hex[:12]
+    filename = f"img_{safe_id}.{ext}"
 
-        with open(filepath, 'wb') as f:
-            f.write(base64.b64decode(encoded))
-
-        return f"/uploads/{filename}"
-    return image_data  # 이미 URL 형식인 경우 그대로 반환
+    os.makedirs(user_folder, exist_ok=True)
+    with open(os.path.join(user_folder, filename), 'wb') as f:
+        f.write(base64.b64decode(encoded))
+    return f"/uploads/{username}/{filename}"

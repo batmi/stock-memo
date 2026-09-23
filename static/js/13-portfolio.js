@@ -217,9 +217,9 @@ function updatePortfolioSummary() {
         const hiddenBadge = data.isHiddenStock ? `<span style="font-size: 10px; background: var(--text-muted-color); color: var(--card-bg-color); padding: 1px 4px; border-radius: 3px; margin-left: 2px;">숨김</span>` : '';
         const simBadge = isExcluded ? `<span style="font-size: 10px; background: var(--warning-color); color: #fff; padding: 1px 4px; border-radius: 3px; margin-left: 2px;" title="총 투자금액·평가금액·실현손익·도넛 차트·통계에는 반영되지 않는 기록입니다.">${data.excludeLabel || '모의'}</span>` : '';
         const statusBadge = `${closedBadge}${hiddenBadge}${simBadge}`;
-        const accountBadgeHtml = shortAccountName ? `<span class="account-badge ${badgeClass}">${shortAccountName}</span>` : '';
+        const accountBadgeHtml = shortAccountName ? `<span class="account-badge ${badgeClass}">${escapeHtml(shortAccountName)}</span>` : '';
         card.innerHTML = `
-            <div class="stock-name" style="margin-bottom: 2px;">${stock}</div>
+            <div class="stock-name" style="margin-bottom: 2px;">${escapeHtml(stock)}</div>
             <div style="margin-bottom: 8px; display: flex; align-items: center; min-height: 16px;">${accountBadgeHtml}${statusBadge}</div>
             <div class="stat-row"><span>보유 수량</span><span class="masked-amount">${data.qty.toLocaleString()}주</span></div>
             <div class="stat-row"><span>평균 단가</span><span>${Math.round(data.avgPrice).toLocaleString()}</span></div>
@@ -532,7 +532,7 @@ function updatePortfolioSummary() {
                     legendItem.style.fontSize = '11.5px';
                     legendItem.style.color = legendColor;
                     legendItem.style.cursor = 'pointer';
-                    legendItem.innerHTML = `<span style="display:inline-block; width:10px; height:10px; background-color:${color}; border-radius:2px;"></span><span>${label}</span>`;
+                    legendItem.innerHTML = `<span style="display:inline-block; width:10px; height:10px; background-color:${color}; border-radius:2px;"></span><span>${escapeHtml(label)}</span>`;
                     
                     legendItem.addEventListener('click', () => {
                         const prevDashboardBroker = currentDashboardBroker;
@@ -662,7 +662,7 @@ function updateFilterDropdown() {
     if (stockSelect) {
         let html = '<option value="all">종목별</option>';
         stocks.forEach(stock => {
-            html += `<option value="${stock.replace(/"/g, '&quot;')}">${stock}</option>`;
+            html += `<option value="${stock.replace(/"/g, '&quot;')}">${escapeHtml(stock)}</option>`;
         });
         stockSelect.innerHTML = html;
         // 저장해 둔 필터 값이 옛 표기여도 같은 종목의 현재 이름으로 옮겨 준다(값이 살아남는다).
@@ -687,7 +687,7 @@ function updateFilterDropdown() {
     if (accountSelect) {
         let html = '<option value="all">분류별</option>';
         accounts.forEach(account => {
-            html += `<option value="${account.replace(/"/g, '&quot;')}">${account}</option>`;
+            html += `<option value="${account.replace(/"/g, '&quot;')}">${escapeHtml(account)}</option>`;
         });
         accountSelect.innerHTML = html;
         if (accountSelect.querySelector(`option[value="${currentFilterAccount.replace(/"/g, '\\"')}"]`)) {
@@ -705,7 +705,7 @@ function updateFilterDropdown() {
         let html = '<option value="all">증권사별</option>';
         brokers.forEach(broker => {
             const displayBroker = broker;
-            html += `<option value="${broker.replace(/"/g, '&quot;')}">${displayBroker}</option>`;
+            html += `<option value="${broker.replace(/"/g, '&quot;')}">${escapeHtml(displayBroker)}</option>`;
         });
         brokerSelect.innerHTML = html;
         if (brokerSelect.querySelector(`option[value="${currentFilterBroker.replace(/"/g, '\\"')}"]`)) {
@@ -722,7 +722,7 @@ function updateFilterDropdown() {
     if (subAccountSelect) {
         let html = '<option value="all">계좌별</option>';
         subAccounts.forEach(sa => {
-            html += `<option value="${sa.replace(/"/g, '&quot;')}">${sa}</option>`;
+            html += `<option value="${sa.replace(/"/g, '&quot;')}">${escapeHtml(sa)}</option>`;
         });
         subAccountSelect.innerHTML = html;
         if (subAccountSelect.querySelector(`option[value="${currentFilterSubAccount.replace(/"/g, '\\"')}"]`)) {
@@ -743,7 +743,7 @@ function updateFilterDropdown() {
         if (brokers.length > 0) {
             brokers.forEach(broker => {
                 const displayBroker = broker;
-                brokerHtml += `<option value="${broker.replace(/"/g, '&quot;')}">${displayBroker}</option>`;
+                brokerHtml += `<option value="${broker.replace(/"/g, '&quot;')}">${escapeHtml(displayBroker)}</option>`;
             });
         }
         dashboardBrokerFilter.innerHTML = brokerHtml;
@@ -764,7 +764,7 @@ function updateFilterDropdown() {
         let subAccountHtml = `<option value="all">모든 계좌</option>`;
         if (subAccounts.length > 0) {
             subAccounts.forEach(sa => {
-                subAccountHtml += `<option value="${sa.replace(/"/g, '&quot;')}">${sa}</option>`;
+                subAccountHtml += `<option value="${sa.replace(/"/g, '&quot;')}">${escapeHtml(sa)}</option>`;
             });
         }
         dashboardSubAccountFilter.innerHTML = subAccountHtml;
@@ -785,7 +785,7 @@ function updateFilterDropdown() {
         let accountHtml = `<option value="all">모든 분류</option>`;
         if (accounts.length > 0) {
             accounts.forEach(account => {
-                accountHtml += `<option value="${account.replace(/"/g, '&quot;')}">${account}</option>`;
+                accountHtml += `<option value="${account.replace(/"/g, '&quot;')}">${escapeHtml(account)}</option>`;
             });
         }
         dashboardAccountFilter.innerHTML = accountHtml;
@@ -806,7 +806,7 @@ function updateFilterDropdown() {
         let stockHtml = `<option value="all">모든 종목</option>`;
         if (stocks.length > 0) {
             stocks.forEach(stock => {
-                stockHtml += `<option value="${stock.replace(/"/g, '&quot;')}">${stock}</option>`;
+                stockHtml += `<option value="${stock.replace(/"/g, '&quot;')}">${escapeHtml(stock)}</option>`;
             });
         }
         chartStockFilter.innerHTML = stockHtml;
@@ -827,7 +827,7 @@ function updateFilterDropdown() {
         let accountHtml = `<option value="all">모든 분류</option>`;
         if (accounts.length > 0) {
             accounts.forEach(account => {
-                accountHtml += `<option value="${account.replace(/"/g, '&quot;')}">${account}</option>`;
+                accountHtml += `<option value="${account.replace(/"/g, '&quot;')}">${escapeHtml(account)}</option>`;
             });
         }
         chartAccountFilter.innerHTML = accountHtml;
@@ -847,7 +847,7 @@ function updateFilterDropdown() {
         if (brokers.length > 0) {
             brokers.forEach(broker => {
                 const displayBroker = broker;
-                brokerHtml += `<option value="${broker.replace(/"/g, '&quot;')}">${displayBroker}</option>`;
+                brokerHtml += `<option value="${broker.replace(/"/g, '&quot;')}">${escapeHtml(displayBroker)}</option>`;
             });
         }
         chartBrokerFilter.innerHTML = brokerHtml;
@@ -871,7 +871,7 @@ function updateFilterDropdown() {
         ));
         if (chartSubAccounts.length > 0) {
             chartSubAccounts.forEach(sa => {
-                subAccountHtml += `<option value="${sa.replace(/"/g, '&quot;')}">${sa}</option>`;
+                subAccountHtml += `<option value="${sa.replace(/"/g, '&quot;')}">${escapeHtml(sa)}</option>`;
             });
         }
         chartSubAccountFilter.innerHTML = subAccountHtml;

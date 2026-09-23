@@ -18,6 +18,7 @@ def test_get_data_empty(client):
     """
     새로운 사용자의 경우 초기 데이터(/api/data)가 비어있는 리스트([])로 반환되는지 확인합니다.
     """
+    _ensure_user('new_user')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'new_user'
@@ -31,6 +32,7 @@ def test_create_and_get_entry(client):
     """
     새로운 매매 기록을 등록(POST)하고, 정상적으로 조회(GET)되는지 확인하는 통합 테스트입니다.
     """
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -64,6 +66,7 @@ def test_update_and_delete_entry(client):
     """
     기존 매매 기록을 수정(PUT)하고 삭제(DELETE)하는 과정을 검증합니다.
     """
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -99,6 +102,7 @@ def test_preferences_api(client):
     사용자별 환경 설정(Preferences) 저장 및 조회가 잘 되는지 테스트합니다.
     """
     client.post('/signup', data={'username': 'admin', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
+    _ensure_user('admin')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
@@ -122,6 +126,7 @@ def test_preferences_edge_cases(client):
     assert res2.status_code == 401
     
     # 잘못된 JSON 데이터(String)가 DB에 있을 때 빈 딕셔너리로 처리되는지 검증
+    _ensure_user('admin')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
@@ -141,6 +146,7 @@ def test_ping_and_timeout(client):
     """
     세션 연장용 ping 엔드포인트와 타임아웃 파라미터를 테스트합니다.
     """
+    _ensure_user('admin')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
@@ -164,6 +170,7 @@ def test_mock_external_apis(mock_urlopen, mock_http_get, client):
     """
     외부 API(네이버 주가, 구글 뉴스) 통신을 Mocking하여 네트워크 연결 없이 정상 로직을 테스트합니다.
     """
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -193,6 +200,7 @@ def test_mock_external_apis(mock_urlopen, mock_http_get, client):
 @patch('app.services.prices._http_get')
 def test_current_price_edge_cases(mock_http_get, client, app):
     """현재 주가 API(/api/current_price)의 다양한 파싱 폴백 및 네트워크 에러 처리를 검증합니다."""
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -282,6 +290,7 @@ def test_current_price_edge_cases(mock_http_get, client, app):
 @patch('urllib.request.urlopen')
 def test_news_api_exceptions(mock_urlopen, client):
     """구글 뉴스 API 파싱 시 예외가 발생해도 시스템 중단 없이 빈 배열을 리턴하는지 테스트합니다."""
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -295,6 +304,7 @@ def test_news_api_exceptions(mock_urlopen, client):
 
 def test_uploaded_file_success(client):
     """정상적으로 권한이 있는 사용자의 파일 다운로드가 동작하는지 테스트합니다."""
+    _ensure_user('admin')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
@@ -361,7 +371,14 @@ def test_mappings_persist_in_db_not_files(client, tmp_path, monkeypatch):
     assert not os.path.exists(os.path.join(str(tmp_path), 'mapuser'))
 
 def test_mappings_rejects_unknown_account(client):
-    """계정 행이 없으면 저장된 척하지 말고 404 로 알려야 한다."""
-    _login(client, 'ghostuser')
+    """계정 행이 없으면 저장된 척하지 말아야 한다.
+
+    예전에는 핸들러가 404 로 알렸다. 지금은 계정이 없는 세션(삭제된 계정의 옛 쿠키)을
+    세션 검사가 먼저 끊으므로 401 이 된다 — 어느 쪽이든 '성공'이 아니어야 한다.
+    """
+    with client.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'ghostuser'
+        sess['expires_at'] = time.time() + 3600
     res = client.post('/api/mappings', json={"brokers": {}, "accounts": {}})
-    assert res.status_code == 404
+    assert res.status_code == 401

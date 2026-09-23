@@ -9,7 +9,7 @@ import time
 import backend_app
 from app.utils import ratelimit
 import trading_api
-from helpers import _signup_and_login
+from helpers import _ensure_user, _signup_and_login
 
 
 def test_home_page_redirects_without_auth(client):
@@ -27,6 +27,7 @@ def test_home_page_status_with_auth(client):
     정상적으로 페이지(200)가 로드되는지 테스트합니다.
     """
     client.post('/signup', data={'username': 'admin', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -39,6 +40,7 @@ def test_logout(client):
     """
     로그아웃(/logout) 호출 시 세션이 안전하게 삭제되고 로그인 페이지로 이동하는지 테스트합니다.
     """
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -134,6 +136,7 @@ def test_account_deletion_and_change_pw(client):
     회원 탈퇴 및 비밀번호 변경 시 예외(비밀번호 오입력 등) 케이스를 테스트합니다.
     """
     client.post('/signup', data={'username': 'normal', 'password': 'Passw0rd1!', 'password_confirm': 'Passw0rd1!'})
+    _ensure_user('admin')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
@@ -141,6 +144,7 @@ def test_account_deletion_and_change_pw(client):
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
     client.post('/api/admin/users/normal/toggle_allow')
     
+    _ensure_user('normal')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'normal'
@@ -160,6 +164,7 @@ def test_account_deletion_and_change_pw(client):
     assert res.status_code == 200
     
     # 4. 최고 관리자 탈퇴 시도 방어
+    _ensure_user('admin')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
@@ -174,6 +179,7 @@ def test_account_deletion_and_password_exceptions(client):
     res_pw_unauth = client.post('/api/change_password', json={})
     assert res_pw_unauth.status_code == 401
     
+    _ensure_user('admin')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
@@ -186,6 +192,7 @@ def test_account_deletion_and_password_exceptions(client):
     assert '모든 필드' in res_pw_empty.json['error']
     
     # 최고 관리자는 계정 삭제 API 접근 시 403 에러가 우선 발생하므로 일반 유저로 세션 변경
+    _ensure_user('normal_user')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'normal_user'
@@ -217,6 +224,7 @@ def test_signup_rejects_weak_password(client):
 def test_change_password_enforces_policy(client):
     client.post('/signup', data={'username': 'polic', 'password': 'Passw0rd!',
                                  'password_confirm': 'Passw0rd!'})
+    _ensure_user('polic')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'polic'

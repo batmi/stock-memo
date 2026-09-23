@@ -14,6 +14,7 @@ import pytest
 import backend_app
 from app.utils import ratelimit
 import trading_api
+from helpers import _ensure_user
 
 
 @pytest.fixture
@@ -184,6 +185,7 @@ def test_web_ui_still_blocks_oversell(client, app):
         conn.cursor().execute(
             "INSERT INTO users (username, password_hash, is_allowed) VALUES ('u', 'x', 1)")
         conn.commit()
+    _ensure_user('u')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'u'

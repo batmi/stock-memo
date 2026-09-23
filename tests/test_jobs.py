@@ -14,6 +14,7 @@ from app.services import accounts
 import backend_app
 import config
 from app.services import jobs
+from helpers import _ensure_user
 
 
 @patch('time.sleep')
@@ -30,6 +31,7 @@ def test_auto_backup_job(mock_sleep, client, app, tmp_path, monkeypatch):
 
     # 1. 테스트 유저 및 매매 기록 생성
     client.post('/signup', data={'username': 'autobackupuser', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
+    _ensure_user('autobackupuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'autobackupuser'
@@ -102,6 +104,7 @@ def test_auto_backup_includes_account_mappings(mock_sleep, client, app, tmp_path
 
     client.post('/signup', data={'username': 'mapbackup', 'password': 'Passw0rd!',
                                  'password_confirm': 'Passw0rd!'})
+    _ensure_user('mapbackup')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'mapbackup'
@@ -186,6 +189,7 @@ def test_auto_backup_job_with_uploads_and_errors(mock_sleep, client, app, tmp_pa
     monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path / 'uploads'))
     
     client.post('/signup', data={'username': 'fullbackupuser', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
+    _ensure_user('fullbackupuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'fullbackupuser'
@@ -250,6 +254,7 @@ def test_auto_fetch_nxt_close_job(mock_sleep, mock_datetime, client, app):
     mock_sleep.side_effect = side_effect_sleep
     
     client.post('/signup', data={'username': 'nxt_user', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
+    _ensure_user('nxt_user')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'nxt_user'

@@ -111,7 +111,7 @@ async function ensureAccountMapping() {
             let options = '<option value="" disabled selected>계좌를 선택하세요</option>';
             for (const [code, info] of Object.entries(accounts)) {
                 if (typeof info === 'string') continue;
-                options += `<option value="${code}">[${info.broker_name}] ${info.alias} (${code})</option>`;
+                options += `<option value="${escapeAttr(code)}">[${escapeHtml(info.broker_name)}] ${escapeHtml(info.alias)} (${escapeHtml(code)})</option>`;
             }
             select.innerHTML = options;
         }
@@ -354,9 +354,10 @@ function setupAutocomplete(inputId, listId, getOptions) {
             
             if (val) {
                 // ⭐️ 특수문자 에러 방지 및 클릭 타겟 충돌을 막기 위해 span에 pointer-events: none 추가
-                const safeVal = val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                // 후보(종목명)는 기록에서 오므로 먼저 이스케이프하고, 검색어도 같은 형태로 맞춘다.
+                const safeVal = escapeHtml(val).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 const regex = new RegExp(`(${safeVal})`, 'gi');
-                item.innerHTML = opt.replace(regex, "<span style='color:var(--danger-color); font-weight:var(--fw-bold, bold); pointer-events: none;'>$1</span>");
+                item.innerHTML = escapeHtml(opt).replace(regex, "<span style='color:var(--danger-color); font-weight:var(--fw-bold, bold); pointer-events: none;'>$1</span>");
             } else {
                 item.innerText = opt;
             }

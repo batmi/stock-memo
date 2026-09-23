@@ -28,7 +28,7 @@ from .entries import (
     _fetch_by_exec_id, _insert_trade, _load_bot_entry, build_entry, entry_to_response,
 )
 from .keys import _hash_key
-from .security import _client_ip, _serializer, require_token
+from .security import _account_disabled, _client_ip, _serializer, require_token
 from .validation import (
     ValidationError, _normalize_enum, _num, _parse_executed_at, _text, _VALID_CONFIDENCE, _VALID_STATUS,
 )
@@ -63,12 +63,16 @@ def auth_token():
     with db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "SELECT id, username, scopes, revoked_at FROM api_keys WHERE key_hash = ?",
+            "SELECT k.id, k.username, k.scopes, k.revoked_at, u.is_allowed "
+            "FROM api_keys k LEFT JOIN users u ON u.username = k.username "
+            "WHERE k.key_hash = ?",
             (_hash_key(api_key.strip()),))
         row = c.fetchone()
 
     if row is None or row['revoked_at']:
         return _err(401, 'INVALID_API_KEY', '유효하지 않은 API 키입니다.')
+    if not row['is_allowed']:
+        return _account_disabled()
 
     token = _serializer().dumps({'u': row['username'], 'k': row['id']})
     return jsonify({

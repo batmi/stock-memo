@@ -253,6 +253,54 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// ⭐️ URL 을 href/src 에 넣기 전에 스킴을 확인한다. javascript:·data:text/html 같은
+//    실행 가능한 스킴을 막고, 상대 경로와 http(s) 만 통과시킨다.
+//    allowDataImage 는 편집기 본문 이미지(data:image/...)처럼 이미지 src 에만 쓴다.
+function safeUrl(url, { allowDataImage = false } = {}) {
+    const s = String(url == null ? '' : url).trim();
+    if (!s) return '';
+    if (/^(https?:)?\/\//i.test(s) || /^\/(?!\/)/.test(s) || /^[^:]*$/.test(s)) return s;
+    if (/^https?:/i.test(s)) return s;
+    if (allowDataImage && /^data:image\/(png|jpe?g|gif|webp);base64,/i.test(s)) return s;
+    if (/^mailto:/i.test(s)) return s;
+    return '';
+}
+
+// ⭐️ 편집기(Quill) 본문 HTML 을 화면에 넣기 전의 허용 목록 정화.
+//    본문은 서식을 살려야 해서 escapeHtml 로 뭉갤 수 없는데, 예전에는 그대로
+//    innerHTML 에 넣었다. 본문은 웹 화면만이 아니라 봇 API(memo)·백업 복원(ZIP)으로도
+//    들어오므로, 거기 심긴 <img onerror=...> 가 그대로 로그인 세션에서 실행됐다.
+//    DOMParser 로 만든 문서는 스크립트를 실행하지 않고 이미지도 불러오지 않는다.
+const _SANITIZE_DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'META',
+    'BASE', 'FORM', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'OPTION', 'SVG', 'MATH',
+    'TEMPLATE', 'NOSCRIPT', 'FRAME', 'FRAMESET', 'AUDIO', 'VIDEO', 'SOURCE', 'TITLE']);
+const _SANITIZE_ATTRS = new Set(['class', 'style', 'href', 'src', 'alt', 'title', 'target',
+    'rel', 'colspan', 'rowspan', 'data-list', 'spellcheck']);
+function sanitizeHtml(html) {
+    if (html == null || html === '') return '';
+    const doc = new DOMParser().parseFromString(`<body>${String(html)}</body>`, 'text/html');
+    const walk = (node) => {
+        for (const child of Array.from(node.children)) {
+            if (_SANITIZE_DROP.has(child.tagName.toUpperCase())) { child.remove(); continue; }
+            for (const attr of Array.from(child.attributes)) {
+                const name = attr.name.toLowerCase();
+                if (!_SANITIZE_ATTRS.has(name)) { child.removeAttribute(attr.name); continue; }
+                if (name === 'href' || name === 'src') {
+                    const ok = safeUrl(attr.value, { allowDataImage: name === 'src' });
+                    if (ok) child.setAttribute(attr.name, ok); else child.removeAttribute(attr.name);
+                }
+                if (name === 'style' && /expression|url\s*\(|javascript:/i.test(attr.value)) {
+                    child.removeAttribute(attr.name);
+                }
+            }
+            if (child.tagName === 'A') child.setAttribute('rel', 'noopener noreferrer');
+            walk(child);
+        }
+    };
+    walk(doc.body);
+    return doc.body.innerHTML;
+}
+
 // ⭐️ onclick="fn('...')" 처럼 'HTML 속성 안의 JS 문자열 리터럴'에 값을 넣기 위한 이스케이프.
 //    브라우저는 속성값을 HTML 디코딩한 뒤 JS 로 평가하므로 JS → HTML 순서로 두 번 막아야 한다.
 //    (계좌 별칭에 작은따옴표가 하나만 들어가도 핸들러가 깨져 수정·삭제 버튼이 먹통이 됐다)

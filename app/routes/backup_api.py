@@ -94,6 +94,12 @@ def full_restore():
     if not file.filename or not file.filename.endswith('.zip'):
         return jsonify({'error': '유효하지 않은 파일입니다. .zip 백업 파일을 업로드해주세요.'}), 400
 
+    user_folder = user_dir(config.UPLOAD_FOLDER, username)
+    if user_folder is None:
+        return jsonify({'error': '계정 이름이 올바르지 않습니다.'}), 400
+    staging = user_folder + '.restoring'
+    retired = user_folder + '.old'
+
     temp_dir = tempfile.mkdtemp()
     try:
         with zipfile.ZipFile(file.stream, 'r') as zf:
@@ -121,52 +127,11 @@ def full_restore():
             return jsonify({'error':
                 '손상된 백업 파일입니다. (data.json 이 기록 목록 형식이 아닙니다)'}), 400
 
-        with db_conn() as conn:
-            c = conn.cursor()
-
-            # 1. 기존 사용자의 데이터만 삭제
-            c.execute("DELETE FROM entries WHERE username = ?", (username,))
-
-            # 2. 복원할 데이터 삽입 (구버전 백업의 본문 내장 base64 이미지도 파일로 추출)
-            #
-            # ⭐️ entries.id 는 전역 PRIMARY KEY 인데 위 DELETE 는 '이 계정의 행'만
-            #    지운다. 그래서 백업 안의 id 가 다른 계정의 기존 행과 겹치면
-            #    'UNIQUE constraint failed: entries.id' 로 복원 전체가 실패했다.
-            #    (예: test 계정으로 batmi 의 백업을 복원)
-            #    id 는 밀리초 타임스탬프라 값 자체에 의미가 크지 않으므로, 비어 있으면
-            #    원래 id 를 그대로 쓰고 이미 쓰이는 것만 새로 배정한다.
-            taken = {row['id'] for row in c.execute("SELECT id FROM entries")}
-            next_id = (max(taken) + 1) if taken else int(time.time() * 1000)
-            remapped = 0
-
-            for entry in entries:
-                entry = images.extract_inline_images(username, entry)
-                entry_id = entry.get('id')
-                if entry_id is None or entry_id in taken:
-                    next_id += 1
-                    entry = dict(entry, id=next_id)
-                    entry_id = next_id
-                    remapped += 1
-                taken.add(entry_id)
-                entry_logic.insert_entry(c, username, entry)
-            conn.commit()
-
-        if remapped:
-            log.info(f"🔄 복원: id 가 이미 사용 중이던 {remapped}건에 새 id 를 배정했습니다."
-                            f" (username={username})")
-
-        statscache.invalidate(username)
-
-        # 3. 사용자 첨부파일 폴더 교체
+        # 1. 새 첨부 폴더를 옆에 먼저 완성한다.
         #    ⭐️ 예전에는 기존 폴더를 먼저 지우고(rmtree) 나서 복사했다. 복사 도중
         #       디스크가 차거나 권한 오류가 나면 원본 첨부파일이 이미 사라진 뒤라
         #       되돌릴 방법이 없었다. 그래서 '새 폴더를 옆에 완성한 뒤 맞바꾸는'
         #       순서로 바꾼다. 실패하면 기존 폴더가 그대로 남는다.
-        user_folder = user_dir(config.UPLOAD_FOLDER, username)
-        if user_folder is None:
-            return jsonify({'error': '계정 이름이 올바르지 않습니다.'}), 400
-        staging = user_folder + '.restoring'
-        retired = user_folder + '.old'
         shutil.rmtree(staging, ignore_errors=True)
         shutil.rmtree(retired, ignore_errors=True)
         os.makedirs(staging, exist_ok=True)
@@ -178,21 +143,66 @@ def full_restore():
                 if os.path.isfile(src_path):
                     shutil.copy2(src_path, os.path.join(staging, f))
 
-        # 여기까지 왔으면 새 폴더가 완성됐다. 이제 rename 두 번으로 맞바꾼다.
-        # (rename 은 같은 파일시스템 안에서 사실상 원자적이라 중간 상태가 짧다)
-        try:
-            if os.path.exists(user_folder):
-                os.rename(user_folder, retired)
-            os.rename(staging, user_folder)
-        except Exception:
-            # 교체 실패: 기존 폴더를 되돌려 놓는다
-            if not os.path.exists(user_folder) and os.path.exists(retired):
-                os.rename(retired, user_folder)
-            shutil.rmtree(staging, ignore_errors=True)
-            raise
+        # 2. DB 치환 → 폴더 교체 → 커밋 순서로, 어느 단계가 실패해도 둘이 어긋나지 않게 한다.
+        #    ⭐️ 예전에는 DB 를 먼저 커밋한 뒤 폴더를 교체해서, 교체가 실패하면 기록은
+        #       새것·첨부는 옛것인 반쪽 복원이 남았다. 이제 폴더 교체가 실패하면
+        #       롤백하고, 커밋이 실패하면 폴더를 되돌린다.
+        with db_conn() as conn:
+            c = conn.cursor()
+            c.execute("DELETE FROM entries WHERE username = ?", (username,))
+
+            # ⭐️ entries.id 는 전역 PRIMARY KEY 인데 위 DELETE 는 '이 계정의 행'만
+            #    지운다. 그래서 백업 안의 id 가 다른 계정의 기존 행과 겹치면
+            #    'UNIQUE constraint failed: entries.id' 로 복원 전체가 실패했다.
+            #    (예: test 계정으로 batmi 의 백업을 복원)
+            #    id 는 밀리초 타임스탬프라 값 자체에 의미가 크지 않으므로, 비어 있으면
+            #    원래 id 를 그대로 쓰고 이미 쓰이는 것만 새로 배정한다.
+            #    정수가 아닌 id(손상·수작업 편집)도 새로 배정한다 — 그대로 넣으면
+            #    'datatype mismatch' 로 복원 전체가 실패한다.
+            taken = {row['id'] for row in c.execute("SELECT id FROM entries")}
+            next_id = (max(taken) + 1) if taken else int(time.time() * 1000)
+            remapped = 0
+
+            for entry in entries:
+                # 구버전 백업의 본문 내장 base64 이미지는 **새 폴더에** 추출한다.
+                entry = images.extract_inline_images(username, entry, target_folder=staging)
+                entry_id = entry.get('id')
+                if (not isinstance(entry_id, int) or isinstance(entry_id, bool)
+                        or entry_id in taken):
+                    next_id += 1
+                    entry = dict(entry, id=next_id)
+                    entry_id = next_id
+                    remapped += 1
+                taken.add(entry_id)
+                entry_logic.insert_entry(c, username, entry)
+
+            try:
+                if os.path.exists(user_folder):
+                    os.rename(user_folder, retired)
+                os.rename(staging, user_folder)
+            except Exception:
+                conn.rollback()
+                if not os.path.exists(user_folder) and os.path.exists(retired):
+                    os.rename(retired, user_folder)
+                raise
+
+            try:
+                conn.commit()
+            except Exception:
+                # 기록이 옛것으로 남았으니 첨부도 옛것으로 되돌린다.
+                shutil.rmtree(user_folder, ignore_errors=True)
+                if os.path.exists(retired):
+                    os.rename(retired, user_folder)
+                raise
         shutil.rmtree(retired, ignore_errors=True)
 
-        # 4. 사용자 매핑 정보 복원 (ZIP → DB)
+        if remapped:
+            log.info(f"🔄 복원: id 를 쓸 수 없던 {remapped}건에 새 id 를 배정했습니다."
+                            f" (username={username})")
+
+        statscache.invalidate(username)
+
+        # 3. 사용자 매핑 정보 복원 (ZIP → DB)
         #    구버전 백업도 같은 파일명을 담고 있으므로 그대로 읽힌다.
         temp_account_info = os.path.join(temp_dir, accounts.BACKUP_ARCNAME)
         if os.path.exists(temp_account_info):
@@ -211,11 +221,15 @@ def full_restore():
                 statscache.invalidate(username)
 
         return jsonify({'status': 'success'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except (zipfile.BadZipFile, ValueError) as e:
+        log.warning(f"복원 실패(손상된 백업): username={username} {e}")
+        return jsonify({'error': '손상된 백업 파일입니다. (ZIP 또는 data.json 을 읽을 수 없습니다)'}), 400
+    except Exception:
+        # ⭐️ 예외 문자열을 그대로 내보내면 SQL·경로 같은 내부 정보가 새어 나간다
+        #    (middleware.handle_exception 과 같은 정책). 원인은 서버 로그에만 남긴다.
+        log.exception(f"복원 실패: username={username}")
+        return jsonify({'error': '복원 중 서버 오류가 발생했습니다. 기존 데이터는 그대로입니다.'}), 500
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
         # 예외로 중단됐을 때 남을 수 있는 작업용 폴더 정리 (원본은 건드리지 않는다)
-        safe_folder = user_dir(config.UPLOAD_FOLDER, username) if username else None
-        if safe_folder:
-            shutil.rmtree(safe_folder + '.restoring', ignore_errors=True)
+        shutil.rmtree(staging, ignore_errors=True)

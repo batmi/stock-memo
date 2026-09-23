@@ -157,7 +157,7 @@ function renderTradeStats(s) {
         html += `<th style="${thSticky.replace('text-align:right','text-align:left')}">${periodHeader}</th><th style="${thSticky}">실현손익</th><th style="${thSticky}">배당</th><th style="${thSticky}">매도금액</th></tr></thead><tbody>`;
         // ⭐️ 최근 기간이 위로 오도록 뒤집어 보여준다 (서버는 과거→최근 순으로 준다)
         s.monthly.slice().reverse().forEach(m => {
-            html += `<tr><td style="${tdLeft}">${m.month}</td>`
+            html += `<tr><td style="${tdLeft}">${escapeHtml(m.month)}</td>`
                 + `<td style="${tdStyle} color:${statsColor(m.realized)};">${statsMoney(m.realized)}</td>`
                 + `<td style="${tdStyle} color:${statsColor(m.dividend)};">${statsMoney(m.dividend)}</td>`
                 + `<td style="${tdStyle}">${Math.round(m.sellAmount).toLocaleString()}원</td></tr>`;
@@ -171,7 +171,7 @@ function renderTradeStats(s) {
         html += tableWrap;
         html += `<th style="${thSticky.replace('text-align:right','text-align:left')}">종목</th><th style="${thSticky}">합계(실현+배당)</th><th style="${thSticky}">매도 횟수</th><th style="${thSticky}">승률</th></tr></thead><tbody>`;
         s.perStock.forEach(p => {
-            html += `<tr><td style="${tdLeft}">${p.stock}</td>`
+            html += `<tr><td style="${tdLeft}">${escapeHtml(p.stock)}</td>`
                 + `<td style="${tdStyle} color:${statsColor(p.total)};">${statsMoney(p.total)}</td>`
                 + `<td style="${tdStyle}">${p.sellCount}</td>`
                 + `<td style="${tdStyle}">${p.sellCount ? p.winRate.toFixed(0) + '%' : '—'}</td></tr>`;

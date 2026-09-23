@@ -13,6 +13,7 @@ from app.routes import authz
 import backend_app
 from app.database import entry_logic
 import trading_api
+from helpers import _ensure_user
 
 
 def _admin_routes(app):
@@ -33,6 +34,7 @@ def test_every_admin_route_is_permission_checked(app):
     확인한다. 데코레이터 순서를 잘못 놓아 무력화된 경우까지 잡힌다.
     """
     client = app.test_client()
+    _ensure_user('ordinary')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'ordinary'
@@ -85,6 +87,7 @@ def test_admin_api_access_control(client):
     관리자 전용 API(/api/admin/*)가 일반 유저에게는 403 Forbidden을 반환하는지 확인합니다.
     """
     # 일반 유저 세션
+    _ensure_user('normal_user')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'normal_user'
@@ -94,6 +97,7 @@ def test_admin_api_access_control(client):
     assert res_forbidden.status_code == 403
     
     # 최고 관리자 세션
+    _ensure_user('admin')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
@@ -111,6 +115,7 @@ def test_admin_edge_cases(client):
     client.post('/signup', data={'username': 'admin', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
     client.post('/signup', data={'username': 'user2', 'password': 'Passw0rd!', 'password_confirm': 'Passw0rd!'})
     
+    _ensure_user('admin')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
@@ -145,6 +150,7 @@ def test_admin_sees_reset_requests_and_reset_clears_them(client):
                                  'password_confirm': 'Passw0rd!'})
     client.post('/request_password_reset', json={'username': 'lostpw', 'note': '메모'})
 
+    _ensure_user('adminy')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'adminy'
@@ -171,6 +177,7 @@ def test_admin_can_dismiss_reset_request_without_reset(client):
         before = conn.execute(
             "SELECT password_hash FROM users WHERE username='mistake'").fetchone()['password_hash']
 
+    _ensure_user('adminz')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'adminz'
@@ -192,6 +199,7 @@ def test_admin_reset_issues_strong_temp_password(client):
                                  'password_confirm': 'Passw0rd!'})
     client.post('/signup', data={'username': 'victim', 'password': 'Passw0rd!',
                                  'password_confirm': 'Passw0rd!'})
+    _ensure_user('adminx')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'adminx'
@@ -242,6 +250,10 @@ def test_admin_reset_only_touches_credentials(client):
 
     before = snapshot()
 
+    # 두 번째 가입자는 승인 대기(is_allowed=0)라 그대로는 세션이 끊긴다. 관리자로 승인해 둔다.
+    with backend_app.db_conn() as conn:
+        conn.execute("UPDATE users SET is_allowed = 1, is_admin = 1 WHERE username = 'adminq'")
+        conn.commit()
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'adminq'
@@ -265,6 +277,7 @@ def test_badge_counts_clear_after_handling(client):
                                  'password_confirm': 'Passw0rd!'})
     client.post('/request_password_reset', json={'username': 'newbie', 'note': '메모'})
 
+    _ensure_user('adminb')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'adminb'
@@ -289,6 +302,7 @@ def test_admin_list_exposes_reset_note_for_display(client):
     client.post('/request_password_reset',
                 json={'username': 'noteuser', 'note': '폰을 바꿔서 비밀번호를 잊었습니다'})
 
+    _ensure_user('adminc')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'adminc'

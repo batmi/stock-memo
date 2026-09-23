@@ -14,11 +14,13 @@ from app.routes import api
 import backend_app
 from app.database import entry_logic
 from app.routes import middleware
+from helpers import _ensure_user
 
 
 # ── 전역 예외 핸들러가 정상 HTTP 응답을 삼키지 않는지 ──────────────
 def test_http_errors_keep_their_status_codes(client):
     """404/405/413 이 500 으로 뭉개지면 클라이언트가 원인을 구분할 수 없다."""
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -31,6 +33,7 @@ def test_http_errors_keep_their_status_codes(client):
 
 def test_oversized_upload_returns_413_not_500(client):
     """MAX_CONTENT_LENGTH 초과는 413 이어야 한다 (예전엔 500 + 스택트레이스)."""
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -43,6 +46,7 @@ def test_oversized_upload_returns_413_not_500(client):
 
 def test_unhandled_exception_does_not_leak_internals(client, monkeypatch):
     """진짜 예외는 500 이되, 내부 메시지(경로·SQL 등)를 밖으로 흘리지 않는다."""
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -66,6 +70,7 @@ def test_large_json_response_is_still_compressed(client, monkeypatch):
     예전에는 16MB 를 넘는 순간 '메모리 보호'로 압축을 건너뛰어, 정작 절감 효과가
     가장 큰 구간에서 수십 MB 가 그대로 전송됐다.
     """
+    _ensure_user('compressuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'compressuser'
@@ -92,6 +97,7 @@ def test_large_json_response_is_still_compressed(client, monkeypatch):
 
 def test_response_above_cap_is_not_compressed(client, monkeypatch):
     """상한을 넘는 응답은 그대로 보낸다 (메모리 보호는 유지)."""
+    _ensure_user('compressuser2')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'compressuser2'
@@ -134,6 +140,7 @@ def test_sensitive_files_are_not_served(client, path):
     예전에는 static_folder='.' 라서 .secret_key(→세션 위조로 관리자 사칭)와
     db/journal.db(→전 사용자 기록·비밀번호 해시)가 그대로 노출됐다.
     """
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -143,6 +150,7 @@ def test_sensitive_files_are_not_served(client, path):
 
 def test_static_assets_are_served(client):
     """반대로 static/ 안의 프런트 자산은 정상 서빙돼야 한다."""
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
@@ -159,6 +167,7 @@ def test_every_app_script_is_listed_and_served(client, app):
     화면 일부만 조용히 죽으므로(에러 하나 없이 버튼이 반응하지 않는다) 목록을
     손으로 관리하지 않고 폴더에서 만든다 — 그 자동 생성이 도는지 확인한다.
     """
+    _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'

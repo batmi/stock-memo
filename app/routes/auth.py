@@ -23,7 +23,8 @@ from app.services import images
 import logging
 from app.utils import ratelimit
 from app.database.db import db_conn
-from app.services.users import current_session_epoch, is_valid_username, validate_password
+from app.services.users import (current_session_epoch, forget_session_epoch, is_valid_username,
+                                validate_password)
 
 log = logging.getLogger('auth')
 
@@ -229,6 +230,8 @@ def signup():
 
                     c.execute("INSERT INTO users (username, password_hash, is_allowed, is_admin, created_at) VALUES (?, ?, ?, ?, ?)", (username, hashed_pw, is_allowed, is_admin_flag, current_time))
                     conn.commit()
+                    # 같은 이름의 삭제된 계정이 남긴 '차단' 캐시를 새 계정이 물려받지 않게 한다.
+                    forget_session_epoch(username)
 
                     if is_admin_flag:
                         success_message = "최초 회원가입이 완료되어 자동으로 최고 관리자로 지정되었습니다. 잠시 후 로그인 화면으로 이동합니다."
@@ -241,7 +244,7 @@ def signup():
                                 with open(config.DATA_FILE, 'r', encoding='utf-8') as f:
                                     old_data = json.load(f)
                                     for entry in old_data:
-                                        img_url = images.process_image(entry.get('attachedImage'), entry.get('id'))
+                                        img_url = images.process_image(username, entry.get('attachedImage'), entry.get('id'))
                                         entry = images.extract_inline_images(username, entry)
                                         entry_logic.insert_entry(c, username, entry, attached_image=img_url)
                                     conn.commit()

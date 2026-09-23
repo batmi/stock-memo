@@ -22,9 +22,14 @@ API_RATE_LIMIT = ratelimit.API_RATE_LIMIT
 
 
 def _client_ip():
-    fwd = request.headers.get('X-Forwarded-For')
-    if fwd:
-        return fwd.split(',')[0].strip()
+    """요청을 보낸 IP. 토큰 발급 레이트리밋의 키다.
+
+    ⭐️ X-Forwarded-For 를 직접 읽지 않는다. 예전에는 이 헤더를 무조건 믿어서,
+       요청마다 헤더 값만 바꾸면 'IP 당 5분에 10회' 제한이 통째로 무력화됐다.
+       리버스 프록시 뒤에 둘 때는 TRUSTED_PROXY_COUNT 로 ProxyFix 를 켠다
+       (backend_app 참고). 그러면 remote_addr 자체가 실제 클라이언트 IP 가 되고,
+       로그인 IP 잠금도 같은 값을 쓴다.
+    """
     return request.remote_addr or 'unknown'
 
 
@@ -67,13 +72,18 @@ def require_token(*required_scopes):
             with db_conn() as conn:
                 c = conn.cursor()
                 c.execute(
-                    "SELECT scopes, revoked_at, last_used_at FROM api_keys "
-                    "WHERE id = ? AND username = ?",
+                    "SELECT k.scopes, k.revoked_at, k.last_used_at, u.is_allowed "
+                    "FROM api_keys k LEFT JOIN users u ON u.username = k.username "
+                    "WHERE k.id = ? AND k.username = ?",
                     (key_id, username))
                 key_row = c.fetchone()
                 if key_row is None or key_row['revoked_at']:
                     return _err(401, 'TOKEN_REVOKED',
                                 '이 토큰의 API 키가 폐기되었습니다. 새 키로 다시 발급받으세요.')
+                # ⭐️ 관리자가 로그인 차단한 계정은 봇 API 도 막는다. 웹 세션만 끊고
+                #    키를 살려 두면 차단이 봇 쪽으로 새어 나간다.
+                if not key_row['is_allowed']:
+                    return _account_disabled()
                 scopes = set((key_row['scopes'] or '').split())
                 # ⭐️ 위 SELECT 에 last_used_at 을 함께 담았으므로 추가 쿼리 없이 판정한다.
                 if _should_touch_last_used(key_row['last_used_at']):
@@ -99,6 +109,11 @@ def require_token(*required_scopes):
 
         return decorated
     return decorator
+
+
+def _account_disabled():
+    return _err(403, 'ACCOUNT_DISABLED',
+                '로그인이 차단된 계정입니다. 관리자에게 문의하세요.')
 
 
 def _with_ratelimit_headers(result, remaining):

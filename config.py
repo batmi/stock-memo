@@ -31,7 +31,10 @@ LOG_DIR = os.path.join(BASE_DIR, 'logs')
 # 계좌 매핑을 DB 로 옮기기 전의 레거시 저장소. 기동 시 1회 이관에만 쓴다.
 JSON_DIR = os.path.join(BASE_DIR, 'json')
 
-SECRET_KEY_FILE = os.path.join(BASE_DIR, '.secret_key')
+# ⭐️ SECRET_KEY_FILE 환경변수로 위치를 바꿀 수 있다. 컨테이너에서는 이 파일이 이미지
+#    레이어에 생겨 재시작마다 새 키가 만들어지고 전원이 로그아웃됐다. Dockerfile 은
+#    이것을 볼륨(db/) 안으로 돌린다.
+SECRET_KEY_FILE = os.environ.get('SECRET_KEY_FILE') or os.path.join(BASE_DIR, '.secret_key')
 
 # 업로드 본문 상한 (초과 시 413)
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024
@@ -58,6 +61,14 @@ def apply_to(app):
     # ⭐️ 만료 시각은 로그인 시점에 확정되므로 요청마다 쿠키 수명을 연장하지 않는다
     app.config['SESSION_REFRESH_EACH_REQUEST'] = False
     app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
+
+
+def trusted_proxy_count():
+    """앞단 리버스 프록시 수(TRUSTED_PROXY_COUNT). 없거나 잘못된 값이면 0(프록시 없음)."""
+    try:
+        return max(0, int(os.environ.get('TRUSTED_PROXY_COUNT', '0').strip() or 0))
+    except ValueError:
+        return 0
 
 
 # ---------------------------------------------------------------------------
