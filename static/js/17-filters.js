@@ -68,6 +68,19 @@ window.clearSubAccountFilter = function() {
     window.scrollToFilterBox();
 };
 
+window.clearReviewFilter = function() {
+    currentFilterNeedsReview = false;
+    displayEntries(true);
+    window.scrollToFilterBox();
+};
+
+// ⭐️ 상단 '검토 필요 N건' 안내를 누르면 그 기록만 모아 본다.
+window.showNeedsReviewEntries = function() {
+    currentFilterNeedsReview = true;
+    displayEntries(true);
+    window.scrollToFilterBox();
+};
+
 window.clearKeywordFilter = function(index) {
     if (typeof index === 'number' && index >= 0) {
         currentFilterKeywords.splice(index, 1);
@@ -84,6 +97,7 @@ window.clearAllFilters = function(shouldRender = true) {
     currentFilterBroker = 'all';
     currentFilterSubAccount = 'all';
     currentFilterKeywords = [];
+    currentFilterNeedsReview = false;
     
     currentDashboardAccount = 'all'; // ⭐️ 상단 필터 동기화
     currentDashboardBroker = 'all'; // ⭐️ 상단 필터 동기화

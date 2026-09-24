@@ -116,6 +116,7 @@ let currentFilterAccount = 'all';    // ⭐️ 독립 필터 3 (분류별)
 let currentFilterBroker = 'all';     // ⭐️ 독립 필터 4 (증권사별)
 let currentFilterSubAccount = 'all'; // ⭐️ 독립 필터 5 (계좌별)
 let currentFilterKeywords = []; // ⭐️ 다중 키워드 필터용 배열
+let currentFilterNeedsReview = false; // ⭐️ '검토 필요' 기록만 보기 (저장하지 않는 일회성 필터)
 let isDashboardCollapsed = false;
 let showClosedPositions = false; // 청산종목 보기 상태
 // ⭐️ 금액 가리기(프라이버시) 모드. 초기값은 head 의 FOUC 방지 스크립트가 이미 적용해 둔
@@ -299,6 +300,19 @@ function sanitizeHtml(html) {
     };
     walk(doc.body);
     return doc.body.innerHTML;
+}
+
+// ⭐️ 매수를 줄이거나 지워 이미 한 매도가 보유 수량을 넘게 되면 서버가 409
+//    (requiresConfirm)로 확인을 청한다. 사용자가 진행을 고르면 ?force=1 로 다시 보내고,
+//    서버는 초과된 매도에 '검토 필요'를 붙인다. 취소하면 null 을 돌려준다.
+async function fetchWithOversellConfirm(url, options) {
+    const res = await fetch(url, options);
+    if (res.status !== 409) return res;
+    let data = {};
+    try { data = await res.clone().json(); } catch (_) { /* 본문이 JSON 이 아니면 그대로 돌려준다 */ }
+    if (!data.requiresConfirm) return res;
+    if (!(await customConfirm(data.confirmMessage || data.error, '보유 수량 초과'))) return null;
+    return fetch(url + (url.includes('?') ? '&' : '?') + 'force=1', options);
 }
 
 // ⭐️ onclick="fn('...')" 처럼 'HTML 속성 안의 JS 문자열 리터럴'에 값을 넣기 위한 이스케이프.

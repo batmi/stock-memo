@@ -10,6 +10,7 @@
 
 import logging
 import os
+import sqlite3
 import threading
 import time
 import zipfile
@@ -43,6 +44,14 @@ def auto_backup_job():
             next_run += timedelta(days=1)
         time_to_sleep = (next_run - now).total_seconds()
         time.sleep(time_to_sleep)
+
+        # ⭐️ 사용자별 ZIP 보다 먼저, DB 파일 자체를 떠 둔다. ZIP 에는 기록·첨부·계좌
+        #    매핑만 들어가고 계정(비밀번호 해시)·API 키·환경설정은 없어서, journal.db 가
+        #    손상되면 기록은 되살려도 계정은 전부 다시 만들어야 했다.
+        try:
+            snapshot_database()
+        except Exception as e:
+            log.error(f"❌ DB 스냅샷 실패: {e}")
 
         try:
             log.info("🔄 일일 자동 백업을 시작합니다.")
@@ -95,7 +104,10 @@ def _backup_user(username):
     filename = f'TradingJournal_backup_{username}_{current_time_str}.zip'
     filepath = os.path.join(user_backup_dir, filename)
 
-    with zipfile.ZipFile(filepath, 'w', zipfile.ZIP_DEFLATED) as zf:
+    # ⭐️ 임시 파일에 다 쓴 뒤 이름을 바꾼다. 쓰는 도중 프로세스가 죽어도 반쯤 쓰인
+    #    ZIP 이 정식 백업 이름으로 남지 않는다.
+    tmp_path = filepath + '.tmp'
+    with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zf:
         json_data = json.dumps(rows, ensure_ascii=False, indent=2)
         zf.writestr('data.json', json_data)
 
@@ -112,20 +124,65 @@ def _backup_user(username):
         if mappings.get('brokers') or mappings.get('accounts'):
             zf.writestr(accounts.BACKUP_ARCNAME, accounts.dumps(mappings))
 
+    os.replace(tmp_path, filepath)
+
     # ⭐️ 생성된 백업 파일의 무결성을 즉시 검증 (복원 가능 여부 확인)
     ok, detail = verify_backup_zip(filepath, len(rows))
-    if ok:
-        log.info(f"  └ 백업 검증 통과: {username} ({detail})")
-    else:
-        log.error(f"  └ ⚠️ 백업 검증 실패: {username} - {detail} (파일: {filename})")
+    if not ok:
+        # ⭐️ 검증에 실패하면 옛 백업을 정리하지 않는다. 예전에는 결과와 무관하게 7일 지난
+        #    파일을 지워서, 백업이 일주일 내내 깨지면 남는 것이 깨진 백업뿐이었다.
+        #    실패한 파일은 원인을 볼 수 있게 남기고, 이 사용자를 실패로 집계한다.
+        raise RuntimeError(f"백업 검증 실패 - {detail} (파일: {filename}, 옛 백업은 보존)")
+    log.info(f"  └ 백업 검증 통과: {username} ({detail})")
+    _prune_older_than(user_backup_dir, BACKUP_RETENTION_DAYS)
 
-    # 7일 지난 백업 파일 삭제 (7일 = 604800초)
-    current_time_sec = time.time()
-    for f in os.listdir(user_backup_dir):
-        f_path = os.path.join(user_backup_dir, f)
-        if os.path.isfile(f_path):
-            if os.stat(f_path).st_mtime < current_time_sec - 7 * 86400:
-                os.remove(f_path)
+
+# 자동 백업 보관 기간 (사용자별 ZIP 과 DB 스냅샷 공통)
+BACKUP_RETENTION_DAYS = 7
+# ⭐️ DB 스냅샷 폴더. 사용자명은 영문·숫자로 시작해야 하므로(users.USERNAME_RE) '_' 로
+#    시작하는 이름은 어떤 계정의 백업 폴더와도 겹치지 않는다.
+DB_SNAPSHOT_DIRNAME = '_db'
+
+
+def _prune_older_than(folder, days, suffix=None):
+    """folder 안에서 days 일보다 오래된 파일을 지운다 (suffix 가 있으면 그 확장자만)."""
+    cutoff = time.time() - days * 86400
+    for f in os.listdir(folder):
+        f_path = os.path.join(folder, f)
+        if not os.path.isfile(f_path) or (suffix and not f.endswith(suffix)):
+            continue
+        if os.stat(f_path).st_mtime < cutoff:
+            os.remove(f_path)
+
+
+def snapshot_database():
+    """DB 파일의 일관된 사본을 backup/_db/journal_YYYYMMDD.db 로 남긴다. 경로를 돌려준다.
+
+    파일을 그냥 복사하면 WAL 에 남은 변경분이 빠지거나 쓰는 도중의 상태가 찍힌다.
+    SQLite 온라인 백업 API 는 사용 중인 DB 에서도 한 시점의 완전한 사본을 만든다.
+    사본을 quick_check 로 검증하고, 통과했을 때만 옛 스냅샷을 정리한다.
+    """
+    target_dir = os.path.join(config.BACKUP_DIR, DB_SNAPSHOT_DIRNAME)
+    os.makedirs(target_dir, exist_ok=True)
+    path = os.path.join(target_dir, f"journal_{time.strftime('%Y%m%d')}.db")
+    tmp_path = path + '.tmp'
+
+    src = get_db()
+    dst = sqlite3.connect(tmp_path)
+    try:
+        src.backup(dst)
+        result = dst.execute("PRAGMA quick_check").fetchone()[0]
+    finally:
+        dst.close()
+        src.close()
+    if result != 'ok':
+        os.remove(tmp_path)
+        raise RuntimeError(f"스냅샷 무결성 검사 실패: {result} (옛 스냅샷은 보존)")
+
+    os.replace(tmp_path, path)
+    _prune_older_than(target_dir, BACKUP_RETENTION_DAYS, suffix='.db')
+    log.info(f"  └ DB 스냅샷 생성: {path}")
+    return path
 
 
 # ⭐️ 정규장 종가(KRX_CLOSE)와 NXT 애프터마켓 종가(NXT)를 자동 갱신하는 백그라운드 스레드 함수

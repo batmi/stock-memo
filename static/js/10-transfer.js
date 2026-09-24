@@ -107,24 +107,34 @@ journalForm.addEventListener('submit', async function(e) {
     const url = currentEditingId ? `/api/entry/${currentEditingId}` : '/api/entry';
 
     try {
-        const res = await fetch(url, {
+        const res = await fetchWithOversellConfirm(url, {
             method: method,
             headers: { 
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(newEntry)
         });
-        
+        if (res === null) return;   // 보유 초과 경고에서 사용자가 취소했다 — 폼은 그대로 둔다
+
         if (res.ok) {
+            let result = {};
+            try { result = await res.json(); } catch (_) { /* 구버전 응답 */ }
             if (currentEditingId) {
                 const index = cloudEntries.findIndex(e => e.id === currentEditingId);
-                if (index > -1) cloudEntries[index] = newEntry;
+                // ⭐️ 화면이 모르는 서버 쪽 값(봇 컬럼·검토 필요 표시)은 수정으로 바뀌지
+                //    않으므로 기존 값 위에 덮어쓴다. 통째로 바꾸면 배지가 사라져 보였다.
+                if (index > -1) cloudEntries[index] = { ...cloudEntries[index], ...newEntry };
             } else {
+                // ⭐️ id 가 다른 사용자와 겹치면 서버가 새 id 를 준다. 그 값으로 맞춰야
+                //    곧바로 수정·삭제해도 엉뚱한(없는) 기록을 가리키지 않는다.
+                if (result.id) newEntry.id = result.id;
                 cloudEntries.unshift(newEntry);
             }
             
             editingEntryId = null;
             resetAndCloseForm();
+            // 초과 매도에 '검토 필요'가 붙었으면 그 표시(사유 포함)는 서버에만 있다.
+            if (result.flagged && result.flagged.length) await refreshEntriesFromServer();
             displayEntries(true);
             updatePortfolioSummary();
             renderCalendar();

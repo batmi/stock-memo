@@ -99,7 +99,7 @@ http://127.0.0.1:9094
 
 ### Data Backup & Restoration
 *   **Easy Web Backup (Recommended)**: Clicking the **[Full Backup]** button at the top of the app screen downloads a ZIP file containing the logged-in account's entire DB (`journal.db`) and attached images, complete with integrity verification. Uploading this ZIP file using the **[Restore]** button in a new environment restores the exact previous state.
-*   **Automatic Backup**: Every midnight, a compressed backup file for each user is automatically generated in the `backup/` folder on the server, and a self-integrity check (CRC, record count) is performed to ensure 100% restorability.
+*   **Automatic Backup**: Every day at 3 AM, a compressed backup file for each user is generated in the `backup/` folder on the server, and a self-integrity check (CRC, record count) confirms it can be restored. A snapshot of the DB file itself — including accounts, API keys and preferences — is also kept in `backup/_db/`. Both are kept for 7 days, and old backups are not pruned on a day when verification fails.
 *   **Manual Backup**: If you are migrating the server manually, simply copy the `db/` and `uploads/` folders within the project.
 
 ### Security Guide

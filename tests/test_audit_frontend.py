@@ -1,17 +1,20 @@
-"""전체 코드 감사(2026-09-24) — 화면 XSS 회귀 방지 (브라우저 E2E).
+"""전체 코드 감사(2026-09-24) — 화면 XSS·기능 보완 회귀 방지 (브라우저 E2E).
 
 감사 때 두 경로 모두 실제로 스크립트가 실행됐다(AUDIT-11·12). test_audit.py 와
 마찬가지로 xfail 로 재현한 뒤, 수정과 함께 표시를 걷어냈다.
 
 재현 방식: 스크립트가 실행되면 window.__xss 를 세우는 페이로드를 심고, 화면을
 그린 뒤 그 값이 비어 있는지 본다. (alert 대신 플래그라 헤드리스에서 확실히 잡힌다)
+
+뒤쪽의 기능 보완 테스트는 '검토 필요' 배지·모아 보기·검토 완료와, 매수를 지워 초과
+매도가 생길 때의 확인 창을 본다 (서버 쪽 규칙은 test_audit_functional.py).
 """
 import os
 import threading
 import time
 
 import pytest
-from playwright.sync_api import Page
+from playwright.sync_api import Page, expect
 from werkzeug.serving import make_server
 
 from app.utils import ratelimit
@@ -112,3 +115,69 @@ def test_sanitize_html_keeps_formatting_and_drops_handlers(page: Page):
         + '<a href="javascript:window.__xss=1">l</a><script>window.__xss=1</script></p>')""")
     assert '<strong>b</strong>' in out and 'ql-align-center' in out and '/uploads/a/x.png' in out
     assert 'onerror' not in out and 'javascript:' not in out and '<script' not in out
+
+
+# ---------------------------------------------------------------------------
+# 기능 보완 — '검토 필요' 표시와 매수 삭제 확인 창
+# ---------------------------------------------------------------------------
+
+def _insert(**cols):
+    import backend_app
+    cols.setdefault('type', 'trade')
+    cols.setdefault('username', ADMIN_ID)
+    keys = ', '.join(cols)
+    with backend_app.db_conn() as conn:
+        conn.execute(f"INSERT INTO entries ({keys}) VALUES ({', '.join('?' * len(cols))})",
+                     tuple(cols.values()))
+        conn.commit()
+
+
+def _entry(entry_id):
+    import backend_app
+    with backend_app.db_conn() as conn:
+        row = conn.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def test_needs_review_badge_filter_and_resolve(page: Page):
+    _insert(id=110, tradeType='매수', stockName='리뷰종목', stockCode='111110', quantity=10,
+            price=1, rawDate='2026-01-01T09:00', date='2026-01-01')
+    _insert(id=111, tradeType='매도', stockName='리뷰종목', stockCode='111110', quantity=3,
+            price=1, rawDate='2026-01-02T09:00', date='2026-01-02',
+            needsReview=1, reviewReason='테스트 사유입니다')
+
+    _login(page)
+    page.evaluate("() => displayEntries(true)")
+    bar = page.locator('#reviewNoticeBar')
+    expect(bar).to_be_visible()
+    expect(bar).to_contain_text('1건')
+
+    bar.locator('.review-notice-btn').click()
+    expect(page.locator('#historyList .entry-card')).to_have_count(1)
+    note = page.locator('#historyList .review-note')
+    expect(note).to_contain_text('테스트 사유입니다')
+
+    note.locator('.btn-review-done').click()
+    expect(page.locator('#historyList .review-note')).to_have_count(0)
+    expect(bar).to_be_hidden()
+    assert _entry(111)['needsReview'] == 0
+
+
+def test_deleting_buy_under_sold_quantity_confirms_then_flags(page: Page):
+    _insert(id=120, tradeType='매수', stockName='확인종목', stockCode='222220', quantity=10,
+            price=1, rawDate='2026-02-01T09:00', date='2026-02-01')
+    _insert(id=121, tradeType='매도', stockName='확인종목', stockCode='222220', quantity=5,
+            price=1, rawDate='2026-02-02T09:00', date='2026-02-02')
+
+    _login(page)
+    page.evaluate("() => { deleteEntry(120); }")
+    ok = page.locator('#btnCustomModalOk')
+    expect(page.locator('#customModalMessage')).to_contain_text('삭제하시겠습니까')
+    ok.click()
+    expect(page.locator('#customModalTitle')).to_have_text('보유 수량 초과')
+    expect(page.locator('#customModalMessage')).to_contain_text('5주 초과')
+    ok.click()
+
+    page.wait_for_function("() => !cloudEntries.some(e => e.id === 120)", timeout=10000)
+    assert _entry(120) is None
+    assert _entry(121)['needsReview'] == 1

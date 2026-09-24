@@ -179,9 +179,14 @@ signups = SlidingWindow(SIGNUP_MAX_PER_HOUR, 3600)
 # ⭐️ 로그인 IP 잠금. 5회 연속 실패하면 60초.
 #    reset_on_lock=False — 잠금이 풀린 직후 한 번만 더 틀려도 즉시 다시 잠긴다.
 #    자동화된 시도는 60초마다 1회로 눌리고, 사람은 한 번 맞히면 clear 된다.
+#    ⭐️ failure_window — 예전에는 창이 없어 실패 횟수가 성공하거나 재시작할 때까지
+#       줄지 않았다. 몇 주에 걸쳐 가끔 틀린 것이 쌓여 5회가 되면 잠기고, 그 뒤로는
+#       한 번 틀릴 때마다 곧바로 다시 잠겼다. 마지막 실패 후 15분이 지나면 새로 센다.
 LOGIN_IP_THRESHOLD = 5
 LOGIN_IP_LOCKOUT_SECONDS = 60
+LOGIN_IP_FAILURE_WINDOW = 900
 login_ips = FailureLockout(LOGIN_IP_THRESHOLD, LOGIN_IP_LOCKOUT_SECONDS,
+                           failure_window=LOGIN_IP_FAILURE_WINDOW,
                            reset_on_lock=False, max_keys=50, label='로그인 IP')
 
 # ⭐️ 계정 단위 로그인 실패 추적. IP 잠금(5회/60초)만으로는 IP 를 바꾸면 우회되고,

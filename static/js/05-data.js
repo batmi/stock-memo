@@ -222,6 +222,18 @@ async function loadDataFromLocal() {
 }
 
 // ⭐️ 초기 데이터 로딩 실패 시 화면 중앙에 안내 + '다시 시도' 버튼을 표시
+// ⭐️ 기록 목록만 서버 값으로 다시 받는다. 서버만 아는 변경(초과 매도에 붙은 '검토
+//    필요' 표시와 사유)을 화면에 반영할 때 쓴다. 전체 초기화(loadDataFromLocal)와 달리
+//    환경설정·뉴스·타이머는 건드리지 않는다. 실패하면 기존 목록을 그대로 둔다.
+async function refreshEntriesFromServer() {
+    try {
+        const res = await fetch('/api/data');
+        if (res.ok) cloudEntries = await res.json();
+    } catch (e) {
+        console.warn('기록 새로고침 실패', e);
+    }
+}
+
 function showDataLoadError(err) {
     const reason = err && err.name === 'AbortError'
         ? '서버 응답이 지연되어 연결을 종료했습니다 (네트워크 상태를 확인해주세요)'

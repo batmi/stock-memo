@@ -209,6 +209,7 @@ def _insert_trade(c, username, entry):
     if integrity:
         warnings.append(integrity[1])
         entry['needsReview'] = 1
+        entry['reviewReason'] = integrity[1]   # 화면의 '검토 필요' 배지가 이 문장을 보여 준다
 
     exec_id = entry.get('brokerExecutionId') or ''
     if exec_id:

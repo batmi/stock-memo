@@ -69,7 +69,8 @@ CREATE_TABLES = [
         executedAtUtc TEXT,
         tradeDate TEXT,
         needsReview INTEGER DEFAULT 0,
-        isSystem INTEGER
+        isSystem INTEGER,
+        reviewReason TEXT
     )
     ''',
 
@@ -214,6 +215,9 @@ ADDED_COLUMNS = [
     #    '시스템이 아니다'와 '봇이 알려주지 않았다'가 구분되지 않는데, 분류 폴백이
     #    바로 그 구분에 걸려 있다. 모르면 NULL 로 남아야 한다.
     ('entries', 'isSystem', 'INTEGER'),
+    # ⭐️ needsReview 가 켜진 이유(사람이 읽는 문장). 표시만 켜고 이유를 남기지 않으면
+    #    화면에서 '무엇을 확인하라는 건지'를 알 수 없다. 검토 완료 시 함께 비운다.
+    ('entries', 'reviewReason', 'TEXT'),
 
     ('users', 'preferences', 'TEXT'),
     ('users', 'account_mappings', 'TEXT'),

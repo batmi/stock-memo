@@ -137,6 +137,7 @@ function displayEntries(isFilterUpdate = false) {
         ? identityOf(entry) : identityForStockName(entry.stockName));
 
     const filteredEntries = cloudEntries.filter(entry => {
+        if (currentFilterNeedsReview && !entry.needsReview) return false;
         if (currentFilterKeywords.length > 0) {
             for (const kw of currentFilterKeywords) {
                 const lowerKw = kw.toLowerCase();
@@ -188,7 +189,9 @@ function displayEntries(isFilterUpdate = false) {
         }
         
         // ⭐️ 청산종목 숨김 상태일 때 (보유 수량이 0인 종목과 숨김 종목을 검색 및 필터에서 제외)
-        if (!showHistoryClosedPositions && entry.stockName) {
+        //    (검토 필요만 볼 때는 적용하지 않는다 — 초과 매도는 대개 수량이 0 이하로 떨어진
+        //     '청산' 종목이라, 여기서 걸러지면 정작 확인할 기록이 보이지 않는다)
+        if (!showHistoryClosedPositions && !currentFilterNeedsReview && entry.stockName) {
             if (hiddenStocks.has(identityOfEntry(entry))) return false;
 
             // 매매 기록은 자기 칸(실거래/모의·제외)의 잔량으로만 판정한다.
@@ -219,16 +222,23 @@ function displayEntries(isFilterUpdate = false) {
     const hasBroker = currentFilterBroker !== 'all';
     const hasSubAccount = currentFilterSubAccount !== 'all';
     const hasKeyword = currentFilterKeywords.length > 0;
-    
+    const hasReview = currentFilterNeedsReview;
+
+    renderReviewNotice();
+
     const isListView = document.getElementById('btnListView') && document.getElementById('btnListView').classList.contains('active');
 
-    if (isListView && (hasDate || hasRecordType || hasStock || hasAccount || hasBroker || hasSubAccount || hasKeyword)) {
+    if (isListView && (hasDate || hasRecordType || hasStock || hasAccount || hasBroker || hasSubAccount || hasKeyword || hasReview)) {
         banner.style.display = 'flex';
         if (filterBoxContainer) filterBoxContainer.classList.add('filter-active');
         
         let chipsHtml = '';
         let activeFilterCount = 0;
         
+        if (hasReview) {
+            chipsHtml += `<span class="filter-chip">⚠️ 검토 필요만 <span class="chip-close" onclick="clearReviewFilter()">&times;</span></span>`;
+            activeFilterCount++;
+        }
         if (hasDate) {
             chipsHtml += `<span class="filter-chip">📅 ${currentFilterDate} <span class="chip-close" onclick="clearDateFilter()">&times;</span></span>`;
             activeFilterCount++;
@@ -289,6 +299,50 @@ function displayEntries(isFilterUpdate = false) {
 
     // 리렌더링 완료 후 높이 고정 해제 (부드러운 전환을 위해 브라우저 페인트 타이밍에 맞춤)
     requestAnimationFrame(() => { historyList.style.minHeight = ''; });
+}
+
+// ⭐️ '검토 필요' 기록이 있으면 목록 위에 건수 안내를 띄운다.
+//    봇 체결이 보유 수량을 넘거나(서버가 거부 대신 표시만 한다) 매수를 고쳐 초과 매도가
+//    생기면 붙는 표시인데, 예전에는 화면 어디에도 나오지 않아 쌓이기만 했다.
+function renderReviewNotice() {
+    if (!historyList || !historyList.parentNode) return;
+    let bar = document.getElementById('reviewNoticeBar');
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'reviewNoticeBar';
+        bar.className = 'review-notice-bar';
+        historyList.parentNode.insertBefore(bar, historyList);
+    }
+    const count = cloudEntries.filter(e => e.needsReview).length;
+    if (!count || currentFilterNeedsReview) {
+        bar.style.display = 'none';
+        return;
+    }
+    bar.style.display = 'flex';
+    bar.innerHTML = `<span>⚠️ 확인이 필요한 매매 기록이 <b>${count}건</b> 있습니다.</span>`
+        + `<button type="button" class="review-notice-btn" onclick="showNeedsReviewEntries()">모아 보기</button>`;
+}
+
+// ⭐️ '검토 완료' — 서버의 표시를 내리고 화면 목록에도 반영한다.
+async function resolveEntryReview(entry) {
+    try {
+        const res = await fetch(`/api/entry/${entry.id}/review`, { method: 'POST' });
+        if (!res.ok) {
+            let msg = '검토 완료 처리에 실패했습니다.';
+            try { const d = await res.json(); if (d && d.error) msg = d.error; } catch (_) { /* 기본 문구 */ }
+            await customAlert(msg);
+            return;
+        }
+        entry.needsReview = 0;
+        entry.reviewReason = null;
+        // 마지막 한 건을 처리했으면 '검토 필요만' 필터도 함께 푼다(빈 목록에 갇히지 않게).
+        if (currentFilterNeedsReview && !cloudEntries.some(e => e.needsReview)) {
+            currentFilterNeedsReview = false;
+        }
+        displayEntries(true);
+    } catch (e) {
+        await customAlert('검토 완료 처리 중 오류가 발생했습니다.');
+    }
 }
 
 function renderPage() {
@@ -454,12 +508,18 @@ function renderPage() {
             const displaySubAccount = highlight(actualSub);
             const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.85em; color: var(--text-muted-color); font-weight: normal; margin:0;">🏦 ${displayBroker}${actualSub ? ` - ${displaySubAccount}` : ''}</span>` : '';
             const displayThoughts = highlight(entry.thoughts, true);
+            const reviewHtml = entry.needsReview
+                ? `<div class="review-note"><span>⚠️ <b>검토 필요</b> — ${escapeHtml(entry.reviewReason || '보유 수량과 맞지 않는 매도 체결입니다.')}</span>`
+                  + `<button type="button" class="btn-review-done">검토 완료</button></div>`
+                : '';
+            if (entry.needsReview) card.classList.add('needs-review');
             card.innerHTML = `
             <div class="entry-header">
                 ${timeDisplayHtml}
                 <div class="header-right"><span>💼 ${escapeHtml(entry.tradeClass)}</span><button class="btn-edit">수정</button><button class="btn-delete">삭제</button></div>
             </div>
                 <div class="entry-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">${stockBadge}${tradeBadge}${simBadge}${brokerBadge}</div>
+                ${reviewHtml}
                 ${detailsHtml}
                 <div class="entry-content ql-snow" style="border:none; padding:0;"><div class="ql-editor" style="padding:0; min-height:auto; font-family:inherit; font-size:inherit;">${displayThoughts}</div></div>
                 ${tagsHtml}
@@ -472,6 +532,9 @@ function renderPage() {
 
         const deleteBtn = card.querySelector('.btn-delete');
         deleteBtn.addEventListener('click', () => deleteEntry(entry.id));
+
+        const reviewBtn = card.querySelector('.btn-review-done');
+        if (reviewBtn) reviewBtn.addEventListener('click', () => resolveEntryReview(entry));
 
         // ⭐️ 에디터 본문 내 이미지 클릭 시 원본 보기 (확대/축소 지원)
         //    + 화면 밖 이미지는 스크롤 시점에 지연 로드하여 초기 렌더링 부담 제거
@@ -576,11 +639,15 @@ window.editEntry = async function(entry) {
 async function deleteEntry(id) {
     if (await customConfirm("정말로 이 기록을 삭제하시겠습니까?\n(삭제 후 로컬 파일에 즉시 반영됩니다)")) {
         try {
-            const res = await fetch(`/api/entry/${id}`, {
+            const res = await fetchWithOversellConfirm(`/api/entry/${id}`, {
                 method: 'DELETE'
             });
+            if (res === null) return;   // 보유 초과 경고에서 취소
             if (res.ok) {
+                let result = {};
+                try { result = await res.json(); } catch (_) { /* 구버전 응답 */ }
                 cloudEntries = cloudEntries.filter(e => e.id !== id);
+                if (result.flagged && result.flagged.length) await refreshEntriesFromServer();
                 displayEntries(true);
                 updatePortfolioSummary();
                 renderCalendar();

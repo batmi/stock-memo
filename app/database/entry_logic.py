@@ -14,6 +14,9 @@ entries 에 쓰는 곳은 네 군데이고, **매도 무결성 위반을 어떻�
   api.py (웹 UI 입력)      validate_trade_entry  → 위반 시 **차단**(400)
       사람이 화면 앞에 있으므로 즉시 고칠 수 있다. 틀린 채로 저장하는 것보다
       되돌려 주는 편이 낫다.
+      매수를 줄이거나 지우는 쪽은 oversell_after_change → **경고(409) 후 확인하면
+      진행**하고, 초과된 매도에 needsReview 를 붙인다(flag_oversold_sells).
+      매수 삭제를 차단하면 관련 매도를 먼저 모두 고쳐야 해서 정정이 막힌다.
 
   trading_api/entries.py   check_sell_integrity  → 저장하되 **needsReview 표시**
       (봇 체결)            봇 체결을 400 으로 되돌리면 재시도해도 계속 실패해
@@ -42,7 +45,7 @@ BOT_COLUMNS = [
     'isSimulated', 'tradeStatus', 'confidence', 'orderOrigin', 'source',
     'orderId', 'originalOrderId', 'realizedPnl', 'realizedPnlRate', 'fee', 'tax',
     'strategyScore', 'stopLossRate', 'executedAtUtc', 'tradeDate', 'needsReview',
-    'isSystem',
+    'isSystem', 'reviewReason',
 ]
 
 # entries 테이블 INSERT 시 사용하는 컬럼 순서 (단일 소스)
@@ -140,13 +143,10 @@ def update_entry_row(c, entry_id, username, entry):
     c.execute(_UPDATE_SQL, values)
 
 
-def net_holding_for_stock(c, username, stock_name, exclude_id=None, stock_code=None):
-    """해당 사용자의 특정 종목 현재 순보유 수량(매수 합계 - 매도 합계)을 계산합니다.
+def _stock_conditions(username, stock_name, stock_code):
+    """'이 사용자의 이 종목, 잔고에 반영되는 매매 기록' WHERE 조건과 파라미터.
 
-    종목코드(stock_code)가 주어지면 코드를 1순위 기준으로 집계합니다. 종목명은
-    동일 종목이라도 표기가 갈리고(우선주·해외 티커·증권사별 명칭) 봇은 코드만
-    보내오므로, 이름만으로 맞추면 보유 매칭이 어긋나 정상 매도가 거부됩니다.
-    코드가 비어 있는 레거시 수동 기록도 함께 잡히도록 이름 조건을 OR 로 유지합니다.
+    보유 수량 집계와 초과 매도 표시가 **같은 종목 판정**을 쓰도록 한곳에 둔다.
     """
     conditions = ["username = ?", "type = 'trade'"]
     params = [username]
@@ -160,12 +160,24 @@ def net_holding_for_stock(c, username, stock_name, exclude_id=None, stock_code=N
         conditions.append("stockName = ?")
         params.append(stock_name)
 
+    # 취소된 주문과 미체결 접수는 잔고에 반영하지 않는다.
+    conditions.append("COALESCE(tradeStatus, 'FILLED') NOT IN ('CANCELED', 'SUBMITTED')")
+    return conditions, params
+
+
+def net_holding_for_stock(c, username, stock_name, exclude_id=None, stock_code=None):
+    """해당 사용자의 특정 종목 현재 순보유 수량(매수 합계 - 매도 합계)을 계산합니다.
+
+    종목코드(stock_code)가 주어지면 코드를 1순위 기준으로 집계합니다. 종목명은
+    동일 종목이라도 표기가 갈리고(우선주·해외 티커·증권사별 명칭) 봇은 코드만
+    보내오므로, 이름만으로 맞추면 보유 매칭이 어긋나 정상 매도가 거부됩니다.
+    코드가 비어 있는 레거시 수동 기록도 함께 잡히도록 이름 조건을 OR 로 유지합니다.
+    """
+    conditions, params = _stock_conditions(username, stock_name, stock_code)
+
     if exclude_id is not None:
         conditions.append("id != ?")
         params.append(exclude_id)
-
-    # 취소된 주문과 미체결 접수는 잔고에 반영하지 않는다.
-    conditions.append("COALESCE(tradeStatus, 'FILLED') NOT IN ('CANCELED', 'SUBMITTED')")
 
     c.execute("SELECT tradeType, quantity FROM entries WHERE " + " AND ".join(conditions), params)
 
@@ -220,6 +232,79 @@ def check_sell_integrity(c, username, entry, exclude_id=None):
         return ('OVERSELL', f"'{label}'의 매도 수량({sell_qty:g})이 "
                             f"현재 보유 수량({held:g})을 초과합니다.")
     return None
+
+
+def _is_live_buy(entry):
+    return (entry is not None
+            and (entry.get('type') or 'trade') == 'trade'
+            and entry.get('tradeType') == '매수'
+            and (entry.get('tradeStatus') or 'FILLED') not in ('CANCELED', 'SUBMITTED'))
+
+
+def _same_stock(a, b):
+    code_a, code_b = normalize_stock_code(a.get('stockCode')), normalize_stock_code(b.get('stockCode'))
+    if code_a and code_b:
+        return code_a == code_b
+    return (a.get('stockName') or '').strip() == (b.get('stockName') or '').strip()
+
+
+def oversell_after_change(c, username, old_row, new_entry=None):
+    """기존 매수(old_row)를 new_entry 로 고치거나(None 이면 삭제) 했을 때 이미 저장된
+    매도가 보유 수량을 넘게 되는지 본다. 넘으면 (초과 수량, 메시지), 아니면 None.
+
+    ⭐️ 매도는 입력할 때 보유 수량을 검사하지만(validate_trade_entry), 매수를 나중에
+       줄이거나 지우는 쪽은 아무것도 보지 않았다. 매수 10·매도 10 에서 매수를 1 로
+       고치면 보유가 -9 가 되는데도 그대로 저장됐다. 웹 입력은 경고 후 사용자가
+       확인하면 진행하고, 그때 초과된 매도에 검토 필요를 붙인다(flag_oversold_sells).
+
+       이미 음수였던 종목(과거 데이터)은 **이번 변경으로 더 나빠질 때만** 알린다.
+       그렇지 않으면 무관한 수정(메모 한 줄)마다 경고가 뜬다.
+    """
+    old_row = dict(old_row) if old_row is not None else None
+    if not _is_live_buy(old_row):
+        return None
+    name = (old_row.get('stockName') or '').strip()
+    code = normalize_stock_code(old_row.get('stockCode'))
+
+    held_without = net_holding_for_stock(c, username, name, exclude_id=old_row['id'],
+                                         stock_code=code)
+    held_before = held_without + float(old_row.get('quantity') or 0)
+    held_after = held_without
+    if _is_live_buy(new_entry) and _same_stock(old_row, new_entry):
+        try:
+            held_after += float(new_entry.get('quantity') or 0)
+        except (TypeError, ValueError):
+            pass
+
+    EPS = 1e-6
+    if held_after >= -EPS or held_after >= held_before - EPS:
+        return None
+    deficit = -held_after
+    label = name or code
+    return deficit, (f"이 변경으로 '{label}'의 매도 수량이 보유 수량을 "
+                     f"{deficit:g}주 초과하게 됩니다.")
+
+
+def flag_oversold_sells(c, username, stock_name, stock_code, deficit, reason):
+    """초과분을 덮을 때까지 **가장 최근 매도부터** 검토 필요를 붙인다. 붙인 id 목록을 돌려준다.
+
+    어느 매도가 '틀린' 것인지는 서버가 알 수 없다. 보유를 넘어선 것은 시간상 마지막
+    매도들이므로 거기서부터 표시해, 사람이 확인할 출발점을 준다.
+    """
+    conditions, params = _stock_conditions(username, stock_name, stock_code)
+    conditions.append("tradeType = '매도'")
+    c.execute("SELECT id, quantity FROM entries WHERE " + " AND ".join(conditions)
+              + " ORDER BY COALESCE(rawDate, '') DESC, id DESC", params)
+    flagged, covered = [], 0.0
+    for row in c.fetchall():
+        if covered >= deficit - 1e-6:
+            break
+        flagged.append(row['id'])
+        covered += float(row['quantity'] or 0)
+    for entry_id in flagged:
+        c.execute("UPDATE entries SET needsReview = 1, reviewReason = ? WHERE id = ? AND username = ?",
+                  (reason, entry_id, username))
+    return flagged
 
 
 def validate_trade_entry(c, username, entry, exclude_id=None):
