@@ -152,6 +152,8 @@ stock-memo/
 │   │  ── services: 도메인 계층 (Flask 비의존, 단위 테스트 용이) ──
 │   ├── services/
 │   │   ├── accounts.py     # 계좌번호 정규화 규칙 + 계좌 매핑 저장소
+│   │   ├── entries.py      # 기록 저장·수정·삭제 (웹·봇 공통 무결성 규칙, 검토 필요 표시)
+│   │   ├── migrations.py   # 옛 저장소에서 옮겨 오는 1회성 이관 (JSON·계좌 매핑·내장 이미지)
 │   │   ├── stats.py        # 매매 성과 분석(통계) 계산 로직 (순수 함수)
 │   │   ├── prices.py       # 현재가(시세) 조회 서비스 (provider별 분해 + 폴백)
 │   │   ├── news.py         # 종목 뉴스 조회 (구글 뉴스 RSS + 캐시)

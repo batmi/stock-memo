@@ -95,19 +95,6 @@ def _now_kst_str():
     return _now_kst().strftime('%Y-%m-%d %H:%M:%S')
 
 
-def _should_touch_last_used(stored_value, now=None):
-    """last_used_at 을 지금 갱신해야 하는지 여부.
-
-    저장된 값이 없거나 읽을 수 없으면 갱신한다(첫 사용 기록은 남겨야 한다).
-    """
-    last = _parse_stored_dt(stored_value)
-    if last is None:
-        return True
-    elapsed = ((now or _now_kst()) - last).total_seconds()
-    # 시계가 뒤로 간 경우(elapsed < 0)에도 갱신해 값이 미래에 굳는 것을 막는다.
-    return not (0 <= elapsed < LAST_USED_WRITE_INTERVAL_SECONDS)
-
-
 def _now_iso():
     """오프셋을 포함한 ISO 8601 문자열 (예: 2026-08-01T20:08:04+09:00).
 

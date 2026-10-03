@@ -4,7 +4,7 @@
 도메인 로직과 공통 처리는 각각 별도 모듈이 소유한다.
   config                경로·상수·시크릿 키
   app.routes.*          웹 라우팅 (api/auth/admin/backup_api) 과 미들웨어
-  app.services.*        도메인 로직 (accounts/prices/stats/news/images/jobs/backups/users)
+  app.services.*        도메인 로직 (accounts/entries/prices/stats/news/images/jobs/backups/users/migrations)
   app.database.*        DB 접근·스키마·기록 무결성 (db/schema/entry_logic)
   app.utils.*           로깅·레이트리밋·캐시 (applog/ratelimit/memcache/statscache)
   trading_api           봇 연동 API(/api/v1)
@@ -18,7 +18,6 @@ if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8')
 
 import os
-import shutil
 from flask import (Flask)
 
 # ⭐️ 추출된 도메인 모듈 (순수 로직 — 단위 테스트 용이)
@@ -27,7 +26,7 @@ from flask import (Flask)
 import config
 import trading_api
 from app.routes import admin, api, auth, backup_api, middleware
-from app.services import accounts, images, jobs, prices
+from app.services import jobs, migrations, prices
 from app.database import entry_logic, schema
 from app.database.db import get_db, db_conn
 from app.utils import applog, memcache
@@ -89,52 +88,6 @@ def init_db():
         conn.close()
 
 
-# ⭐️ 레거시 json/<username>/account_info.json → users.account_mappings 1회성 이관
-def migrate_account_mappings():
-    try:
-        with db_conn() as conn:
-            accounts.migrate_json_files(conn, config.JSON_DIR, app.logger)
-    except Exception as e:
-        # 이관 실패로 서버 기동을 막지 않는다. 실패하면 해당 사용자는 빈 매핑으로
-        # 시작하고, 화면에서 다시 등록하면 그 값이 DB 에 저장된다.
-        app.logger.error(f"계좌 매핑 이관 중 오류: {e}")
-
-
-# ⭐️ 기존 기록의 본문 내장 base64 이미지를 파일로 일괄 추출하는 1회성 마이그레이션
-#    (서버 시작 시 실행. 실행 전 DB 파일을 backup/ 폴더에 안전 복사한다.)
-def migrate_inline_images():
-    conn = get_db()
-    try:
-        c = conn.cursor()
-        c.execute("SELECT id, username, thoughts FROM entries WHERE thoughts LIKE '%data:image%'")
-        rows = c.fetchall()
-        if not rows:
-            return
-
-        # 마이그레이션 직전 DB 원본을 1회 백업 (이미 있으면 생략)
-        safety_copy = os.path.join(config.BACKUP_DIR, 'journal_pre_imgmigration.db')
-        if not os.path.exists(safety_copy):
-            # WAL 에 남은 변경분까지 본 파일에 합친 뒤 복사 (스냅샷 무결성 보장)
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-            shutil.copy2(config.DB_FILE, safety_copy)
-            app.logger.info(f"🛡️ 이미지 마이그레이션 전 DB 백업 생성: {safety_copy}")
-
-        migrated = 0
-        for row in rows:
-            username = row['username'] or ''
-            new_entry = images.extract_inline_images(username, {'thoughts': row['thoughts']})
-            if new_entry['thoughts'] != row['thoughts']:
-                c.execute("UPDATE entries SET thoughts = ? WHERE id = ?", (new_entry['thoughts'], row['id']))
-                migrated += 1
-        conn.commit()
-        if migrated:
-            app.logger.info(f"🔄 본문 내장 base64 이미지 {migrated}건을 파일로 추출했습니다 (초기 로딩 최적화).")
-    except Exception as e:
-        app.logger.error(f"❌ 이미지 마이그레이션 중 오류 발생: {e}", exc_info=True)
-    finally:
-        conn.close()
-
-
 @app.context_processor
 def inject_get_mtime():
     def get_mtime(filename):
@@ -181,11 +134,9 @@ def bootstrap(start_jobs=True):
     """
     init_db()
 
-    # ⭐️ 본문 내장 base64 이미지 → 파일 추출 (1회성, 이미 완료된 경우 즉시 통과)
-    migrate_inline_images()
-
-    # ⭐️ 계좌 매핑을 파일에서 DB 로 이관 (이미 옮겨진 사용자는 즉시 통과)
-    migrate_account_mappings()
+    # ⭐️ 옛 저장소에서 옮겨 오는 1회성 이관 (이미 끝났으면 즉시 통과)
+    migrations.migrate_inline_images()      # 본문 내장 base64 이미지 → 파일
+    migrations.migrate_account_mappings()   # json/<username>/account_info.json → DB
 
     if start_jobs:
         jobs.start_all()

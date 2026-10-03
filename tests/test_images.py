@@ -9,7 +9,7 @@ import time
 
 import backend_app
 import config
-from app.services import images
+from app.services import images, migrations
 from helpers import _ensure_user
 
 
@@ -125,7 +125,7 @@ def test_migrate_inline_images(app, monkeypatch, tmp_path):
     conn.commit()
     conn.close()
 
-    backend_app.migrate_inline_images()
+    migrations.migrate_inline_images()
 
     conn = backend_app.get_db()
     rows = {r['id']: r['thoughts'] for r in conn.execute("SELECT id, thoughts FROM entries")}
@@ -136,7 +136,7 @@ def test_migrate_inline_images(app, monkeypatch, tmp_path):
     assert (backup_dir / 'journal_pre_imgmigration.db').exists()
 
     # 재실행 시 아무 것도 변경하지 않고 통과 (멱등성)
-    backend_app.migrate_inline_images()
+    migrations.migrate_inline_images()
 
 
 def test_extract_inline_images_exception(monkeypatch, tmp_path):

@@ -8,7 +8,6 @@ import pytest
 
 from app.services import accounts
 import backend_app
-import trading_api
 
 
 # ── 정규화 규칙 ────────────────────────────────────────────────
@@ -23,12 +22,6 @@ import trading_api
 ])
 def test_account_key_normalizes(raw, expected):
     assert accounts.account_key(raw) == expected
-
-
-def test_trading_api_shares_the_same_rule():
-    """봇 API 가 웹 화면과 다른 규칙을 쓰면 매핑이 조용히 어긋난다."""
-    assert trading_api._account_key is accounts.account_key
-    assert trading_api._find_account_mapping is accounts.find_account_mapping
 
 
 def test_find_account_mapping_prefers_exact_then_folded():

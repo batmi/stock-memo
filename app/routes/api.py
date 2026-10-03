@@ -19,9 +19,8 @@ from flask import (Blueprint, current_app, jsonify, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.services import accounts
+from app.services import entries
 import config
-from app.database import entry_logic
-from app.services import images
 from app.services import news
 from app.services import prices
 from app.services import stats
@@ -414,22 +413,6 @@ def get_data():
     return response
 
 
-def _assign_entry_id(c, entry):
-    """화면이 보낸 id 를 쓰되, 쓸 수 없으면 새로 배정한다. 최종 id 를 돌려준다.
-
-    ⭐️ 화면은 id 를 Date.now()(밀리초)로 만든다. entries.id 는 **모든 사용자에 걸친**
-       기본키라, 같은 밀리초에 다른 사용자가 저장하면 UNIQUE 위반으로 500 이 났다.
-       정수가 아니거나 이미 쓰이는 id 면 가장 큰 id 다음 값을 준다. 화면은 응답의 id 로
-       자기 목록을 고친다.
-    """
-    entry_id = entry.get('id')
-    if isinstance(entry_id, int) and not isinstance(entry_id, bool):
-        if c.execute("SELECT 1 FROM entries WHERE id = ?", (entry_id,)).fetchone() is None:
-            return entry_id
-    top = c.execute("SELECT MAX(id) FROM entries").fetchone()[0] or 0
-    return max(top + 1, int(time.time() * 1000))
-
-
 def _oversell_confirm(message):
     """매수 변경으로 초과 매도가 생길 때의 응답. 화면이 확인을 받고 ?force=1 로 다시 보낸다."""
     return jsonify({
@@ -440,110 +423,57 @@ def _oversell_confirm(message):
     }), 409
 
 
-def _flag_after_change(c, username, old_row, conflict):
-    deficit, message = conflict
-    return entry_logic.flag_oversold_sells(
-        c, username, (old_row['stockName'] or '').strip(), old_row['stockCode'],
-        deficit, message + " (매수 기록을 고치거나 지운 뒤 확인이 필요합니다)")
+_ENTRY_NOT_FOUND = "기록을 찾을 수 없습니다. 다른 곳에서 삭제되었을 수 있습니다."
 
 
+# ⭐️ 기록을 바꾸는 규칙(무결성·초과 매도·검토 표시·캐시)은 entries 서비스가 갖는다.
+#    봇 API 도 같은 서비스를 거치므로, 여기서는 요청과 응답만 옮긴다.
 @bp.route('/api/entry', methods=['POST'])
 def create_entry():
-    username = session.get('username')
     entry = _json_object()
     if entry is None:
         return _bad_body()
-    # ⭐️ 본문 내장 base64 이미지를 파일로 추출 (초기 로딩 응답 크기 유지)
-    entry = images.extract_inline_images(username, entry)
-    with db_conn() as conn:
-        c = conn.cursor()
-
-        # ⭐️ 데이터 무결성 검증 (매도 수량/보유 여부)
-        validation_error = entry_logic.validate_trade_entry(c, username, entry)
-        if validation_error:
-            return jsonify({"error": validation_error}), 400
-
-        entry_id = _assign_entry_id(c, entry)
-        entry = dict(entry, id=entry_id)
-        entry_logic.insert_entry(c, username, entry)
-        conn.commit()
-    statscache.invalidate(username)
+    try:
+        entry_id = entries.create(session.get('username'), entry)
+    except entries.InvalidEntry as e:
+        return jsonify({"error": str(e)}), 400
     return jsonify({"status": "success", "id": entry_id})
 
 
 @bp.route('/api/entry/<int:entry_id>', methods=['PUT'])
 def update_entry(entry_id):
-    username = session.get('username')
     entry = _json_object()
     if entry is None:
         return _bad_body()
-    force = request.args.get('force') == '1'
-    # ⭐️ 본문 내장 base64 이미지를 파일로 추출 (초기 로딩 응답 크기 유지)
-    entry = images.extract_inline_images(username, entry)
-    flagged = []
-    with db_conn() as conn:
-        c = conn.cursor()
-
-        # ⭐️ 없는(다른 기기에서 지운) 기록을 고치면 예전에는 0건 갱신인데도 성공으로
-        #    답해, 사용자는 저장된 줄 알았다. 먼저 있는지 본다.
-        old = c.execute("SELECT * FROM entries WHERE id = ? AND username = ?",
-                        (entry_id, username)).fetchone()
-        if old is None:
-            return jsonify({"error": "기록을 찾을 수 없습니다. 다른 곳에서 삭제되었을 수 있습니다."}), 404
-
-        # ⭐️ 데이터 무결성 검증 (수정 중인 기록 자신은 집계에서 제외)
-        validation_error = entry_logic.validate_trade_entry(c, username, entry, exclude_id=entry_id)
-        if validation_error:
-            return jsonify({"error": validation_error}), 400
-
-        conflict = entry_logic.oversell_after_change(c, username, old, entry)
-        if conflict and not force:
-            return _oversell_confirm(conflict[1])
-
-        entry_logic.update_entry_row(c, entry_id, username, entry)
-        if conflict:
-            flagged = _flag_after_change(c, username, old, conflict)
-        conn.commit()
-    statscache.invalidate(username)
+    try:
+        flagged = entries.update(session.get('username'), entry_id, entry,
+                                 force=request.args.get('force') == '1')
+    except entries.EntryNotFound:
+        return jsonify({"error": _ENTRY_NOT_FOUND}), 404
+    except entries.InvalidEntry as e:
+        return jsonify({"error": str(e)}), 400
+    except entries.OversellConflict as e:
+        return _oversell_confirm(str(e))
     return jsonify({"status": "success", "flagged": flagged})
 
 
 @bp.route('/api/entry/<int:entry_id>', methods=['DELETE'])
 def delete_entry(entry_id):
-    username = session.get('username')
-    force = request.args.get('force') == '1'
-    flagged = []
-    with db_conn() as conn:
-        c = conn.cursor()
-        old = c.execute("SELECT * FROM entries WHERE id = ? AND username = ?",
-                        (entry_id, username)).fetchone()
-        if old is not None:
-            conflict = entry_logic.oversell_after_change(c, username, old, None)
-            if conflict and not force:
-                return _oversell_confirm(conflict[1])
-            c.execute("DELETE FROM entries WHERE id=? AND username=?", (entry_id, username))
-            if conflict:
-                flagged = _flag_after_change(c, username, old, conflict)
-            conn.commit()
-    statscache.invalidate(username)
+    try:
+        flagged = entries.delete(session.get('username'), entry_id,
+                                 force=request.args.get('force') == '1')
+    except entries.OversellConflict as e:
+        return _oversell_confirm(str(e))
     return jsonify({"status": "success", "flagged": flagged})
 
 
 @bp.route('/api/entry/<int:entry_id>/review', methods=['POST'])
 def resolve_review(entry_id):
-    """'검토 필요' 표시를 내린다. 사람이 확인을 마쳤다는 뜻이다.
-
-    봇 체결이 보유를 넘거나(trading_api) 매수를 고쳐 초과 매도가 생기면 표시가 붙는다.
-    기록을 수정해도 자동으로 풀지 않는다 — 고친 뒤에도 맞는지는 사람이 판단한다.
-    """
-    username = session.get('username')
-    with db_conn() as conn:
-        cur = conn.execute("UPDATE entries SET needsReview = 0, reviewReason = NULL "
-                           "WHERE id = ? AND username = ?", (entry_id, username))
-        conn.commit()
-    if cur.rowcount == 0:
+    """'검토 필요' 표시를 내린다. 사람이 확인을 마쳤다는 뜻이다."""
+    try:
+        entries.resolve_review(session.get('username'), entry_id)
+    except entries.EntryNotFound:
         return jsonify({"error": "기록을 찾을 수 없습니다."}), 404
-    statscache.invalidate(username)
     return jsonify({"status": "success"})
 
 

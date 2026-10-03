@@ -6,6 +6,7 @@
 import io
 import json
 import os
+import shutil
 import time
 import zipfile
 
@@ -229,7 +230,7 @@ def test_restore_keeps_existing_uploads_when_copy_fails(client, monkeypatch, tmp
     # 복사 단계에서 디스크가 찬 상황을 흉내낸다
     def boom(*a, **k):
         raise OSError('No space left on device')
-    monkeypatch.setattr(backend_app.shutil, 'copy2', boom)
+    monkeypatch.setattr(shutil, 'copy2', boom)
 
     res = client.post('/api/restore', data={'file': (buf, 'b.zip')},
                       content_type='multipart/form-data')

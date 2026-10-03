@@ -11,22 +11,25 @@ entries 에 쓰는 곳은 네 군데이고, **매도 무결성 위반을 어떻�
 않되, 어디가 무엇을 쓰는지는 한곳에 적어 둡니다 — 새 쓰기 경로를 만들 때
 "둘 중 어느 쪽인가"를 반드시 정하고 넘어가라는 뜻입니다.
 
-  api.py (웹 UI 입력)      validate_trade_entry  → 위반 시 **차단**(400)
-      사람이 화면 앞에 있으므로 즉시 고칠 수 있다. 틀린 채로 저장하는 것보다
-      되돌려 주는 편이 낫다.
-      매수를 줄이거나 지우는 쪽은 oversell_after_change → **경고(409) 후 확인하면
-      진행**하고, 초과된 매도에 needsReview 를 붙인다(flag_oversold_sells).
-      매수 삭제를 차단하면 관련 매도를 먼저 모두 고쳐야 해서 정정이 막힌다.
+  services/entries.py      기존 기록의 수정·삭제는 웹이든 봇이든 모두 여기를 지난다.
+      웹 (api.py)          validate_trade_entry  → 위반 시 **차단**(400)
+          사람이 화면 앞에 있으므로 즉시 고칠 수 있다. 틀린 채로 저장하는 것보다
+          되돌려 주는 편이 낫다.
+          매수를 줄이거나 지우는 쪽은 oversell_after_change → **경고(409) 후
+          확인하면 진행**하고, 초과된 매도에 needsReview 를 붙인다(flag_oversold_sells).
+          매수 삭제를 차단하면 관련 매도를 먼저 모두 고쳐야 해서 정정이 막힌다.
+      봇 (PATCH·DELETE)    같은 판정을 하되 **막지 않고** needsReview 만 붙인다.
 
   trading_api/entries.py   check_sell_integrity  → 저장하되 **needsReview 표시**
-      (봇 체결)            봇 체결을 400 으로 되돌리면 재시도해도 계속 실패해
+      (봇 체결 신규 저장)  봇 체결을 400 으로 되돌리면 재시도해도 계속 실패해
       그 체결이 영구 유실된다. 유실보다는 '검토 필요' 상태로 남기는 편이 낫다.
 
   backup_api.py (복원)     검증하지 않음
       이미 한 번 통과했던 과거 데이터를 그대로 되돌리는 일이다. 지금 규칙으로
       다시 재면 옛 기록이 복원 도중 거부되어 백업이 반쪽이 된다.
 
-  auth.py (레거시 JSON 이관)  검증하지 않음
+  services/migrations.py   검증하지 않음
+      (레거시 JSON 이관)
       위와 같은 이유. 1회성 이관이며 원본을 손실 없이 옮기는 것이 목적이다.
 """
 
@@ -36,7 +39,7 @@ import sqlite3
 # ⚠️ 이 컬럼들은 INSERT 에만 포함하고 _UPDATE_COLUMNS 에는 넣지 않는다.
 #    웹 UI 의 수정(PUT /api/entry/<id>)은 화면 입력값으로 entry 를 새로 조립하므로
 #    UPDATE 대상에 넣으면 봇이 기록한 손익·모의여부 등이 NULL 로 덮여 사라진다.
-#    API 경유 정정(PATCH)은 trading_api 가 대상 컬럼만 지정해 직접 UPDATE 한다.
+#    API 경유 정정(PATCH)은 바꿀 컬럼만 골라 update_columns 로 쓴다.
 #
 # ⚠️ isSystem 은 isSimulated 와 달리 0/1 로 눕히지 않는다(_value_for 참고).
 #    '시스템 트레이딩이 낸 주문이 아니다(0)'와 '봇이 알려주지 않았다(NULL)'는 서로
@@ -141,6 +144,30 @@ def update_entry_row(c, entry_id, username, entry):
     values = [_value_for(entry, col) for col in _UPDATE_COLUMNS]
     values.extend([entry_id, username])
     c.execute(_UPDATE_SQL, values)
+
+
+_PATCHABLE_COLUMNS = frozenset(INSERT_COLUMNS) - {'id', 'username', 'createdAt'}
+
+
+def update_columns(c, entry_id, username, changes):
+    """지정한 컬럼만 고친다(봇 PATCH). 나머지 컬럼은 그대로 둔다.
+
+    update_entry_row 는 화면이 기록 전체를 다시 조립해 보내는 경우라 BOT_COLUMNS 를
+    건드리지 않는다. 봇 정정은 반대로 바꿀 칸만 알려 주므로 그 칸만 쓴다.
+    컬럼 이름이 SQL 에 그대로 들어가므로 아는 컬럼만 받는다.
+    """
+    unknown = set(changes) - _PATCHABLE_COLUMNS
+    if unknown:
+        raise ValueError(f"갱신할 수 없는 컬럼: {sorted(unknown)}")
+    cols = list(changes)
+    c.execute("UPDATE entries SET " + ", ".join(f"{col} = ?" for col in cols)
+              + " WHERE id = ? AND username = ?",
+              [_value_for(changes, col) for col in cols] + [entry_id, username])
+
+
+def is_bot_entry(row):
+    """봇이 만든 기록인가. 봇 API 는 이런 기록만 고치거나 지울 수 있다(사람이 쓴 기록 보호)."""
+    return bool(row['brokerExecutionId'] or row['source'])
 
 
 def _stock_conditions(username, stock_name, stock_code):

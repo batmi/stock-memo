@@ -36,28 +36,27 @@ UniversalTradingHistoryAPI.json 의 계약을 그대로 구현합니다.
 DB·계좌 매핑·통계 캐시는 각 도메인 모듈을 직접 임포트합니다 (순환 없음).
 """
 
-from app.services import accounts
-
 # ⚠️ 아래는 **값 복사**다. 상수를 런타임에 바꿔치기하려면(테스트 등) 이 이름이
 #    아니라 그 값을 실제로 읽는 모듈(trading_api.common)을 패치해야 한다.
+#    그래서 밑줄 이름(하위 모듈끼리만 쓰는 것)은 여기서 다시 내보내지 않는다.
+#    예전에는 테스트 편의로 내보냈는데, 테스트가 `trading_api._now_kst_str` 을
+#    바꿔치기해도 실제로 그 함수를 부르는 security 모듈은 원본을 쥐고 있어서
+#    **아무것도 검증하지 않고 통과하는** 테스트가 생겼다. 쓰는 쪽은 하위 모듈을 직접
+#    가리킨다(trading_api.keys._should_touch_last_used 처럼).
 from .common import (  # noqa: F401
     API_VERSION, BOT_COMMAND_TTL_SECONDS, BOT_ID_MAX_LEN, BOT_MISSED_PINGS_ALLOWED,
     BOT_OFFLINE_AFTER_SECONDS, BOT_PING_GRACE_SECONDS, BOT_PING_INTERVAL_SECONDS,
     ALL_SCOPES, API_KEY_PREFIX, DEFAULT_SCOPES, KST, LAST_USED_WRITE_INTERVAL_SECONDS,
     LEGACY_BOT_ID, MAX_BATCH_ITEMS, SCOPE_BOT_WRITE, SCOPE_TRADES_READ,
     SCOPE_TRADES_WRITE, SUPPORTED_BOT_COMMANDS, TOKEN_TTL_SECONDS, bp,
-    _now_iso, _now_kst, _now_kst_str,
 )
 from .keys import (  # noqa: F401
     create_api_key, list_api_keys, migrate_data, revoke_all_api_keys, revoke_api_key,
-    _migrate_legacy_api_keys, _should_touch_last_used,
 )
 from .security import (  # noqa: F401
     API_RATE_LIMIT, TOKEN_RATE_LIMIT, require_token,
 )
-from .validation import (  # noqa: F401
-    ValidationError, _resolve_account,
-)
+from .validation import ValidationError  # noqa: F401
 from .entries import build_entry, entry_to_response  # noqa: F401
 from .bots import (  # noqa: F401
     delete_bot, evaluate_bot_state, latest_bot_command, list_bots,
@@ -66,12 +65,6 @@ from .bots import (  # noqa: F401
 
 # ⭐️ 라우트는 임포트되는 것만으로 bp 에 등록된다. 반드시 마지막에 둔다.
 from . import routes  # noqa: E402,F401
-
-# ⭐️ 계좌번호 정규화·조회는 공용 도메인 규칙이므로 accounts 모듈이 소유한다.
-#    (예전에는 이 두 함수가 여기 비공개로 있었고 backend_app 이 밑줄 이름을 직접
-#     불러 썼다. 봇 연동 모듈이 웹 화면 통계의 의존 대상이 되는 건 계층이 뒤집힌 것이다)
-_account_key = accounts.account_key
-_find_account_mapping = accounts.find_account_mapping
 
 
 def register(app):

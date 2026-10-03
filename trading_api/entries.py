@@ -228,14 +228,3 @@ def _insert_trade(c, username, entry):
         raise
     return c.lastrowid, True, warnings
 
-
-def _load_bot_entry(c, username, trade_id):
-    """봇이 만든 기록만 반환합니다 (웹 UI 수동 입력은 API 로 건드리지 않는다)."""
-    c.execute("SELECT * FROM entries WHERE id = ? AND username = ?", (trade_id, username))
-    row = c.fetchone()
-    if row is None:
-        return None
-    if not (row['brokerExecutionId'] or row['source']):
-        return None
-    return row
-

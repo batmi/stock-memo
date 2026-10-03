@@ -150,6 +150,8 @@ stock-memo/
 │   │  ── services: domain layer (Flask-independent, unit-testable) ─
 │   ├── services/
 │   │   ├── accounts.py     # Account-number normalization + account mapping storage
+│   │   ├── entries.py      # Entry create/update/delete (integrity rules shared by web & bot)
+│   │   ├── migrations.py   # One-time migrations from legacy storage (JSON, mappings, inline images)
 │   │   ├── stats.py        # Trade performance analytics (pure functions)
 │   │   ├── prices.py       # Price lookup service (per-provider with fallbacks)
 │   │   ├── news.py         # Ticker news lookup (Google News RSS + cache)

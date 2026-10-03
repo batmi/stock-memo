@@ -34,7 +34,7 @@ QUIET_CONSOLE_FUNCS = {'auto_fetch_nxt_close_job'}
 #       "새 모듈을 만들면 여기 추가할 것" 이라는 주석은 이미 한 번 어긋났으므로,
 #       이제 tests/test_applog.py 가 소스를 훑어 강제한다.
 MODULE_LOGGERS = (
-    'admin', 'api', 'auth', 'backup_api', 'jobs', 'news',
+    'admin', 'api', 'auth', 'backup_api', 'jobs', 'migrations', 'news',
     'prices', 'ratelimit', 'trading_api', 'users',
 )
 

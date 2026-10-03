@@ -10,6 +10,7 @@ from datetime import timezone
 from flask import request, jsonify
 
 from app.services import accounts
+from app.services import entries as entry_service
 from app.utils import ratelimit
 from app.utils import statscache
 from app.database import entry_logic
@@ -25,7 +26,7 @@ from .common import (
     _now_kst_str,
 )
 from .entries import (
-    _fetch_by_exec_id, _insert_trade, _load_bot_entry, build_entry, entry_to_response,
+    _fetch_by_exec_id, _insert_trade, build_entry, entry_to_response,
 )
 from .keys import _hash_key
 from .security import _account_disabled, _client_ip, _serializer, require_token
@@ -401,7 +402,7 @@ def patch_trade(username, scopes, trade_id):
     if not isinstance(data, dict) or not data:
         return _err(400, 'INVALID_REQUEST', '갱신할 필드를 1개 이상 보내야 합니다.')
 
-    updates, params = [], []
+    changes = {}
     try:
         for field, value in data.items():
             column = _PATCHABLE.get(field)
@@ -423,58 +424,52 @@ def patch_trade(username, scopes, trade_id):
                 value = _text(value, 'memo', 5000)
             elif field == 'name':
                 value = _text(value, 'name', 100)
-            updates.append(f"{column} = ?")
-            params.append(value)
+            changes[column] = value
 
         if 'executedAt' in data:
             executed_dt, _ = _parse_executed_at(data['executedAt'])
             local_kst = executed_dt.astimezone(KST)
-            updates.extend(["rawDate = ?", "date = ?", "executedAtUtc = ?"])
-            params.extend([local_kst.strftime('%Y-%m-%dT%H:%M:%S'),
-                           local_kst.strftime('%Y-%m-%d'),
-                           executed_dt.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')])
+            changes['rawDate'] = local_kst.strftime('%Y-%m-%dT%H:%M:%S')
+            changes['date'] = local_kst.strftime('%Y-%m-%d')
+            changes['executedAtUtc'] = executed_dt.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
         if 'tags' in data:
             tags = data['tags']
             if not isinstance(tags, list):
                 raise ValidationError('INVALID_FIELD', 'tags 는 문자열 배열이어야 합니다.', 'tags')
-            updates.append("tags = ?")
-            params.append(','.join(_text(t, 'tags', 50) for t in tags[:30]))
+            changes['tags'] = ','.join(_text(t, 'tags', 50) for t in tags[:30])
     except ValidationError as e:
         return _err(400, e.code, e.message, field=e.field)
 
-    if not updates:
+    if not changes:
         return _err(400, 'INVALID_REQUEST', '갱신 가능한 필드가 없습니다.',
                     allowed=sorted(list(_PATCHABLE) + ['executedAt', 'tags']))
 
-    updates.append("updatedAt = ?")
-    params.append(_now_kst_str())
+    changes['updatedAt'] = _now_kst_str()
 
-    with db_conn() as conn:
-        c = conn.cursor()
-        if _load_bot_entry(c, username, trade_id) is None:
-            return _err(404, 'NOT_FOUND', '해당 기록이 없거나 API 로 수정할 수 없는 기록입니다.')
-        c.execute(f"UPDATE entries SET {', '.join(updates)} WHERE id = ? AND username = ?",
-                  params + [trade_id, username])
-        conn.commit()
-        c.execute("SELECT * FROM entries WHERE id = ? AND username = ?", (trade_id, username))
-        row = c.fetchone()
+    # ⭐️ 정정은 웹 수정과 같은 서비스를 지난다. 매수를 취소·축소하면 이미 한 매도에,
+    #    매도를 키우면 그 매도에 '검토 필요'가 붙는다 — 막지는 않는다(유실 금지).
+    try:
+        row, warnings = entry_service.patch_bot_trade(username, trade_id, changes)
+    except entry_service.EntryNotFound:
+        return _err(404, 'NOT_FOUND', '해당 기록이 없거나 API 로 수정할 수 없는 기록입니다.')
 
-    statscache.invalidate(username)
-    return jsonify(entry_to_response(row)), 200
+    body = entry_to_response(row)
+    if warnings:
+        body['warnings'] = warnings
+    return jsonify(body), 200
 
 
 @bp.route('/trades/<trade_id>', methods=['DELETE'])
 @require_token(SCOPE_TRADES_WRITE)
 def delete_trade(username, scopes, trade_id):
-    with db_conn() as conn:
-        c = conn.cursor()
-        if _load_bot_entry(c, username, trade_id) is None:
-            return _err(404, 'NOT_FOUND', '해당 기록이 없거나 API 로 삭제할 수 없는 기록입니다.')
-        c.execute("DELETE FROM entries WHERE id = ? AND username = ?", (trade_id, username))
-        conn.commit()
-
-    statscache.invalidate(username)
+    try:
+        warnings = entry_service.delete_bot_trade(username, trade_id)
+    except entry_service.EntryNotFound:
+        return _err(404, 'NOT_FOUND', '해당 기록이 없거나 API 로 삭제할 수 없는 기록입니다.')
+    # 204 는 본문이 없다. 표시된 매도는 웹 화면의 '검토 필요' 배지로 드러난다.
+    for message in warnings:
+        _log().warning(f"[trading_api] 봇 삭제로 초과 매도 발생 ({username}): {message}")
     return '', 204
 
 

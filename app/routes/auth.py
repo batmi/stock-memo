@@ -9,8 +9,6 @@
 (정적 파일·업로드·다른 블루프린트까지 모두 통과해야 한다) 여기서 붙인다.
 """
 
-import json
-import os
 import time
 
 from flask import (Blueprint, jsonify, redirect, render_template, request,
@@ -18,8 +16,7 @@ from flask import (Blueprint, jsonify, redirect, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import config
-from app.database import entry_logic
-from app.services import images
+from app.services import migrations
 import logging
 from app.utils import ratelimit
 from app.database.db import db_conn
@@ -236,21 +233,8 @@ def signup():
                     if is_admin_flag:
                         success_message = "최초 회원가입이 완료되어 자동으로 최고 관리자로 지정되었습니다. 잠시 후 로그인 화면으로 이동합니다."
 
-                        # ⭐️ 첫 관리자 가입 시 기존 JSON 파일이 있다면 자동 마이그레이션 수행
-                        c.execute("SELECT COUNT(*) FROM entries")
-                        if c.fetchone()[0] == 0 and os.path.exists(config.DATA_FILE):
-                            log.info("🔄 기존 JSON 데이터를 SQLite 데이터베이스로 마이그레이션 합니다...")
-                            try:
-                                with open(config.DATA_FILE, 'r', encoding='utf-8') as f:
-                                    old_data = json.load(f)
-                                    for entry in old_data:
-                                        img_url = images.process_image(username, entry.get('attachedImage'), entry.get('id'))
-                                        entry = images.extract_inline_images(username, entry)
-                                        entry_logic.insert_entry(c, username, entry, attached_image=img_url)
-                                    conn.commit()
-                                    log.info("✅ 데이터 마이그레이션 완료! (이제부터 db/journal.db와 uploads 폴더를 사용합니다)")
-                            except Exception as e:
-                                log.error(f"❌ 마이그레이션 중 오류 발생: {e}")
+                        # ⭐️ 첫 관리자에게 단일 JSON 파일 시절의 기록을 옮겨 준다(1회성).
+                        migrations.import_legacy_json(conn, username)
                     else:
                         success_message = "회원가입이 완료되었습니다! 관리자의 승인 후 로그인할 수 있습니다. 잠시 후 로그인 화면으로 이동합니다."
 

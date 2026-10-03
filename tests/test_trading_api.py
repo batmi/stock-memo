@@ -14,6 +14,7 @@ import pytest
 import backend_app
 from app.utils import ratelimit
 import trading_api
+from trading_api import common, keys, security, validation
 from helpers import _ensure_user
 
 
@@ -310,7 +311,7 @@ _ACCOUNT_MAPPINGS = {
 @pytest.mark.parametrize('received', ['44048158-01', '4404815801', ' 44048158 01 '])
 def test_account_matches_regardless_of_hyphens(received):
     """등록은 '-' 로 했는데 HTS 는 '-' 없이 보낸다. 어느 쪽이든 같은 계좌로 붙어야 한다."""
-    broker, sub, name = trading_api._resolve_account(
+    broker, sub, name = validation._resolve_account(
         'bot', {'subAccount': received, 'brokerAccount': '243'}, _ACCOUNT_MAPPINGS)
     assert (broker, name) == ('한국투자증권', '시스템계좌')
     # 저장 표기는 사용자가 등록한 형태로 통일한다 (같은 계좌가 두 번호로 쌓이지 않도록)
@@ -319,7 +320,7 @@ def test_account_matches_regardless_of_hyphens(received):
 
 def test_unregistered_account_keeps_hyphen_stripped_form():
     """매핑에 없는 계좌는 기존과 동일하게 하이픈을 뗀 형태로 남는다."""
-    _, sub, name = trading_api._resolve_account(
+    _, sub, name = validation._resolve_account(
         'bot', {'subAccount': '99999999-01', 'brokerAccount': '243'}, _ACCOUNT_MAPPINGS)
     assert sub == '9999999901'
     assert name == ''
@@ -495,6 +496,84 @@ def test_api_cannot_touch_manually_entered_records(api):
                                headers=api['headers']).status_code == 404
 
 
+# ── 정정·삭제가 만드는 초과 매도 ───────────────────────────────────────
+# 웹 화면은 매수를 줄이거나 지우면 이미 한 매도에 '검토 필요'를 붙인다. 봇의
+# PATCH·DELETE 는 같은 기록을 다른 길로 고칠 뿐이므로 결과가 같아야 한다.
+# 다만 봇은 막지 않는다(유실 금지) — 저장하고 표시만 한다.
+
+def _review(entry_id):
+    with backend_app.db_conn() as conn:
+        row = conn.execute("SELECT needsReview, reviewReason FROM entries WHERE id = ?",
+                           (int(entry_id),)).fetchone()
+    return row['needsReview'], row['reviewReason']
+
+
+def _bot_buy_then_sell(api, buy=10, sell=10):
+    buy_rec = api['client'].post('/api/v1/trades', headers=api['headers'],
+                                 json=_trade(volume=buy, brokerExecutionId='B1')).get_json()
+    sell_rec = api['client'].post('/api/v1/trades', headers=api['headers'], json=_trade(
+        side='SELL', volume=sell, brokerExecutionId='S1',
+        executedAt='2026-08-02T09:30:00+09:00')).get_json()
+    assert sell_rec['needsReview'] is False
+    return buy_rec['id'], sell_rec['id']
+
+
+def test_bot_deleting_a_buy_flags_the_sell_it_covered(api):
+    buy_id, sell_id = _bot_buy_then_sell(api)
+    assert api['client'].delete(f'/api/v1/trades/{buy_id}',
+                                headers=api['headers']).status_code == 204
+    flagged, reason = _review(sell_id)
+    assert flagged == 1 and '초과' in reason
+
+
+def test_bot_canceling_a_buy_flags_the_sell(api):
+    buy_id, sell_id = _bot_buy_then_sell(api)
+    res = api['client'].patch(f'/api/v1/trades/{buy_id}', headers=api['headers'],
+                              json={'status': 'CANCELED'})
+    assert res.status_code == 200
+    assert res.get_json()['warnings']
+    assert _review(sell_id)[0] == 1
+
+
+def test_bot_shrinking_a_buy_flags_the_sell(api):
+    buy_id, sell_id = _bot_buy_then_sell(api)
+    api['client'].patch(f'/api/v1/trades/{buy_id}', headers=api['headers'], json={'volume': 1})
+    assert _review(sell_id)[0] == 1
+
+
+def test_bot_growing_a_sell_past_holdings_flags_that_sell(api):
+    """POST 로 같은 매도를 보냈다면 표시가 붙었을 것이다 — PATCH 라고 달라선 안 된다."""
+    _, sell_id = _bot_buy_then_sell(api, buy=10, sell=5)
+    res = api['client'].patch(f'/api/v1/trades/{sell_id}', headers=api['headers'],
+                              json={'volume': 15})
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body['needsReview'] is True and body['warnings']
+
+
+def test_bot_memo_patch_does_not_reflag_a_resolved_sell(api, app):
+    """사람이 확인을 마친 매도에 봇이 메모만 고쳤다고 표시가 되살아나면 안 된다."""
+    sell = api['client'].post('/api/v1/trades', headers=api['headers'], json=_trade(
+        side='SELL', volume=3, brokerExecutionId='S-orphan')).get_json()
+    assert sell['needsReview'] is True
+    with backend_app.db_conn() as conn:
+        conn.execute("UPDATE entries SET needsReview = 0, reviewReason = NULL WHERE id = ?",
+                     (int(sell['id']),))
+        conn.commit()
+    res = api['client'].patch(f"/api/v1/trades/{sell['id']}", headers=api['headers'],
+                              json={'memo': '확인함'})
+    assert res.get_json()['needsReview'] is False
+    assert 'warnings' not in res.get_json()
+
+
+def test_bot_patch_that_keeps_holdings_covered_does_not_warn(api):
+    buy_id, sell_id = _bot_buy_then_sell(api, buy=10, sell=5)
+    res = api['client'].patch(f'/api/v1/trades/{buy_id}', headers=api['headers'],
+                              json={'volume': 5, 'price': 70000})
+    assert 'warnings' not in res.get_json()
+    assert _review(sell_id)[0] == 0
+
+
 # ── 기초잔고 ──────────────────────────────────────────────────────────
 
 def test_opening_positions_prevent_first_sell_warning(api):
@@ -558,7 +637,7 @@ def test_bot_status_rejects_unknown_value(api):
 # ── 봇 상태 판정(서버 확정) ───────────────────────────────────────────
 
 def _seen(seconds_ago):
-    return (trading_api._now_kst() - timedelta(seconds=seconds_ago)).isoformat(timespec='seconds')
+    return (common._now_kst() - timedelta(seconds=seconds_ago)).isoformat(timespec='seconds')
 
 
 def test_evaluate_bot_state_running_within_threshold():
@@ -588,7 +667,7 @@ def test_evaluate_bot_state_never_without_record():
 
 def test_evaluate_bot_state_accepts_legacy_naive_timestamp():
     """오프셋 없이 저장된 이전 형식 값은 KST 로 간주해 그대로 판정한다."""
-    legacy = trading_api._now_kst().strftime('%Y-%m-%d %H:%M:%S')
+    legacy = common._now_kst().strftime('%Y-%m-%d %H:%M:%S')
     assert trading_api.evaluate_bot_state('running', legacy)[0] == 'running'
 
 
@@ -618,7 +697,7 @@ def test_legacy_plaintext_key_is_migrated_and_erased(app):
         c.execute("INSERT INTO users (username, password_hash, is_allowed, api_key) "
                   "VALUES ('old', 'x', 1, ?)", (legacy,))
         conn.commit()
-        trading_api._migrate_legacy_api_keys(conn)
+        keys._migrate_legacy_api_keys(conn)
         row = c.execute("SELECT api_key FROM users WHERE username = 'old'").fetchone()
 
     assert row['api_key'] is None                                  # 평문 삭제됨
@@ -1003,29 +1082,29 @@ def test_a_live_bot_reappears_after_being_forgotten(api):
 # ── last_used_at 쓰기 스로틀 (SD카드 마모 방지) ──────────────────
 def test_should_touch_last_used_first_use():
     """기록이 없으면 첫 사용은 반드시 남긴다."""
-    assert trading_api._should_touch_last_used(None) is True
-    assert trading_api._should_touch_last_used('') is True
-    assert trading_api._should_touch_last_used('깨진 값') is True
+    assert keys._should_touch_last_used(None) is True
+    assert keys._should_touch_last_used('') is True
+    assert keys._should_touch_last_used('깨진 값') is True
 
 
 def test_should_touch_last_used_skips_within_interval():
-    now = trading_api._now_kst()
+    now = common._now_kst()
     recent = (now - timedelta(seconds=5)).strftime('%Y-%m-%d %H:%M:%S')
-    assert trading_api._should_touch_last_used(recent, now=now) is False
+    assert keys._should_touch_last_used(recent, now=now) is False
 
 
 def test_should_touch_last_used_after_interval():
-    now = trading_api._now_kst()
+    now = common._now_kst()
     old = (now - timedelta(seconds=trading_api.LAST_USED_WRITE_INTERVAL_SECONDS + 1)
            ).strftime('%Y-%m-%d %H:%M:%S')
-    assert trading_api._should_touch_last_used(old, now=now) is True
+    assert keys._should_touch_last_used(old, now=now) is True
 
 
 def test_should_touch_last_used_when_clock_went_backwards():
     """저장된 값이 미래면(시계 역행) 그대로 굳지 않도록 갱신한다."""
-    now = trading_api._now_kst()
+    now = common._now_kst()
     future = (now + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
-    assert trading_api._should_touch_last_used(future, now=now) is True
+    assert keys._should_touch_last_used(future, now=now) is True
 
 
 def _stored_last_used(key_id):
@@ -1041,21 +1120,19 @@ def test_last_used_at_recorded_on_first_use(api):
     assert _stored_last_used(api['key_id']) is not None
 
 
-def test_last_used_at_not_rewritten_on_every_request(api):
+def test_last_used_at_not_rewritten_on_every_request(api, monkeypatch):
     """연속 요청이 매번 UPDATE 를 일으키지 않는다 — SD카드 상시 쓰기 방지."""
     api['client'].post('/api/v1/bot/status', headers=api['headers'],
                        json={'status': 'running'})
     first = _stored_last_used(api['key_id'])
     assert first is not None
 
-    # 시각을 강제로 바꿔도, 60초 이내 재요청이면 값이 그대로여야 한다.
-    original = trading_api._now_kst_str
-    trading_api._now_kst_str = lambda: '2099-01-01 00:00:00'
-    try:
-        api['client'].post('/api/v1/bot/status', headers=api['headers'],
-                           json={'status': 'running'})
-    finally:
-        trading_api._now_kst_str = original
+    # 기록할 시각을 바꿔 둔다. 60초 이내 재요청이라 쓰기 자체가 없어야 하므로 값이
+    # 그대로여야 한다. 실제로 그 함수를 부르는 security 모듈을 패치해야 의미가 있다 —
+    # 패키지 이름(trading_api._now_kst_str)을 바꾸면 아무것도 바뀌지 않는다.
+    monkeypatch.setattr(security, '_now_kst_str', lambda: '2099-01-01 00:00:00')
+    api['client'].post('/api/v1/bot/status', headers=api['headers'],
+                       json={'status': 'running'})
     assert _stored_last_used(api['key_id']) == first
 
 
@@ -1064,7 +1141,7 @@ def test_last_used_at_updates_after_interval(api):
     api['client'].post('/api/v1/bot/status', headers=api['headers'],
                        json={'status': 'running'})
 
-    stale = (trading_api._now_kst()
+    stale = (common._now_kst()
              - timedelta(seconds=trading_api.LAST_USED_WRITE_INTERVAL_SECONDS + 5)
              ).strftime('%Y-%m-%d %H:%M:%S')
     with backend_app.db_conn() as conn:
