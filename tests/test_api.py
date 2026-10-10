@@ -265,9 +265,10 @@ def test_current_price_edge_cases(mock_http_get, client, app):
     res_us = client.post('/api/current_price', json={'codes': ['ABCDEF']})
     assert res_us.json.get('ABCDEF') == 250.5
     
-    # 6. 국내 주식 네이버 API 실패 -> 야후 파이낸스 폴백
+    # 6. 국내 주식 네이버 API 실패 -> 야후로 넘어가지 않는다 (캐시도 없으면 None).
+    #    야후가 값을 줄 수 있는 상황이어도 국내 종목은 네이버만 쓴다.
     res_fallback = client.post('/api/current_price', json={'codes': ['123456']})
-    assert res_fallback.json.get('123456') == 100.0
+    assert res_fallback.json.get('123456') is None
     
     # 7. 빈 문자열 및 잘못된 코드 무시 처리
     res_empty = client.post('/api/current_price', json={'codes': ['', ' ']})

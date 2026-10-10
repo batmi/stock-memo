@@ -6,12 +6,16 @@
 """
 
 import base64
+import logging
 import os
 import re
 import uuid
 
 import config
+from app.database.db import db_conn
 from app.services.users import user_dir
+
+log = logging.getLogger('images')
 
 # ⭐️ 본문(thoughts) HTML 에 내장된 base64 이미지 패턴
 #    Quill 에디터가 이미지를 base64 로 본문에 심으면 기록 1건이 수백 KB 가 되어
@@ -86,3 +90,77 @@ def process_image(username, image_data, entry_id):
     with open(os.path.join(user_folder, filename), 'wb') as f:
         f.write(base64.b64decode(encoded))
     return f"/uploads/{username}/{filename}"
+
+
+# ---------------------------------------------------------------------------
+# 첨부 파일 수명 — 기록이 더 이상 참조하지 않는 파일 정리
+# ---------------------------------------------------------------------------
+#
+# ⭐️ 예전에는 파일을 만들기만 하고 지우지 않았다. 기록을 지우거나, 수정하면서 본문의
+#    이미지를 빼거나, 저장이 검증(400)·확인(409)에서 되돌아가도 파일은 그대로 남아
+#    uploads/ 가 계속 불어났다. 같은 파일을 여러 기록이 함께 참조할 수 있으므로
+#    (기록 복사·이동이 본문을 그대로 옮긴다) '이 기록이 쓰던 파일'이 아니라
+#    '이제 아무 기록도 쓰지 않는 파일'만 지운다.
+
+# /uploads/<사용자>/<파일명> — 상대 경로든 http://host/uploads/... 든 경로 부분만 본다.
+_UPLOAD_URL_RE = re.compile(r'/uploads/([^/"\'\s<>?#]+)/([^/"\'\s<>?#]+)')
+
+# 기록에서 첨부 URL 이 들어 있을 수 있는 컬럼
+_UPLOAD_REF_COLUMNS = ('thoughts', 'attachedImage', 'attachedFile')
+
+
+def entry_uploads(username, entry):
+    """기록이 참조하는 이 사용자의 첨부 파일명 집합."""
+    if entry is None:
+        return set()
+    names = set()
+    for col in _UPLOAD_REF_COLUMNS:
+        text = entry[col] if col in entry.keys() else None
+        if isinstance(text, str):
+            names.update(name for user, name in _UPLOAD_URL_RE.findall(text) if user == username)
+    return names
+
+
+def store_inline_images(username, entry):
+    """extract_inline_images 와 같되, 이번에 새로 만든 파일명도 함께 돌려준다.
+
+    저장이 실패하면 호출자가 그 파일들을 remove_unreferenced() 로 되돌린다.
+    """
+    before = entry_uploads(username, entry)
+    stored = extract_inline_images(username, entry)
+    return stored, entry_uploads(username, stored) - before
+
+
+def remove_unreferenced(username, filenames):
+    """filenames 중 **어떤 기록도** 참조하지 않는 첨부 파일을 지운다. 지운 이름 목록을 돌려준다.
+
+    ⚠️ 반드시 커밋한 **뒤에** 부른다. 커밋 전에 지우면 롤백됐을 때 기록만 살아나고
+       파일은 사라진다. 참조 여부는 모든 사용자의 기록에서 찾는다(다른 계정이 이
+       경로를 담은 백업을 복원했을 수 있다). instr 로 찾는 이유는 LIKE 가 파일명의
+       '_' 를 와일드카드로 읽기 때문이다.
+    """
+    if not filenames:
+        return []
+    folder = user_dir(config.UPLOAD_FOLDER, username)
+    if folder is None:
+        return []
+    removed = []
+    where = ' OR '.join(f"instr({col}, ?) > 0" for col in _UPLOAD_REF_COLUMNS)
+    with db_conn() as conn:
+        for name in sorted(filenames):
+            # 경로 문자가 섞인 이름은 정규식에서 이미 걸러지지만, 지우는 쪽이라 한 번 더 막는다.
+            if not name or name != os.path.basename(name) or name.startswith('.'):
+                continue
+            url = f"/uploads/{username}/{name}"
+            hit = conn.execute(f"SELECT 1 FROM entries WHERE {where} LIMIT 1",
+                               (url,) * len(_UPLOAD_REF_COLUMNS)).fetchone()
+            if hit:
+                continue
+            try:
+                os.remove(os.path.join(folder, name))
+                removed.append(name)
+            except FileNotFoundError:
+                pass
+            except OSError as e:
+                log.warning(f"⚠️ 첨부 파일 정리 실패({username}/{name}): {e}")
+    return removed

@@ -158,3 +158,36 @@ def test_stats_shared_alias_excludes_only_flagged_account(client):
     s = client.get('/api/stats').json
     assert round(s['totalRealized']) == 200
     assert [p['stock'] for p in s['perStock']] == ['A']
+
+
+def test_stats_not_cached_when_data_changes_during_compute(client, monkeypatch):
+    """계산 도중 기록이 바뀌면 그 결과를 캐시하지 않는다 (옛 통계가 눌어붙지 않도록)."""
+    from app.services import stats
+    from app.utils import statscache
+
+    _login(client, 'statsrace')
+    real_compute = stats.compute_trade_stats
+
+    def compute_while_bot_writes(*args, **kwargs):
+        result = real_compute(*args, **kwargs)
+        statscache.invalidate('statsrace')   # 계산 중 봇 체결이 들어온 상황
+        return result
+
+    monkeypatch.setattr(stats, 'compute_trade_stats', compute_while_bot_writes)
+    assert client.get('/api/stats').status_code == 200
+    assert statscache.get(('statsrace', 'monthly')) is None
+
+    # 데이터가 그대로면 평소처럼 캐시한다
+    monkeypatch.setattr(stats, 'compute_trade_stats', real_compute)
+    client.get('/api/stats')
+    assert statscache.get(('statsrace', 'monthly')) is not None
+
+
+def test_statscache_put_skips_stale_etag():
+    from app.utils import statscache
+    statscache.clear_all()
+    etag = statscache.data_etag('u1')
+    statscache.invalidate('u1')
+    assert statscache.put(('u1', 'monthly'), {'x': 1}, etag=etag) is False
+    assert statscache.get(('u1', 'monthly')) is None
+    assert statscache.put(('u1', 'monthly'), {'x': 1}, etag=statscache.data_etag('u1')) is True

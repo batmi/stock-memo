@@ -531,6 +531,9 @@ def get_stats():
     #    표기가 갈린 같은 종목의 손익이 쪼개진다.
     stats_cols = ("id, type, stockName, stockCode, tradeType, price, quantity, "
                   "rawDate, subAccount, accountName")
+    # ⭐️ 읽기 전에 데이터 버전을 받아 둔다. 계산 도중 기록이 바뀌면 결과를 캐시하지
+    #    않는다(statscache.put 참고).
+    data_version = statscache.data_etag(username)
 
     with db_conn() as conn:
         c = conn.cursor()
@@ -565,7 +568,7 @@ def get_stats():
     result['periodEnd'] = period_end
 
     if entry_ids is None and not period_start and not period_end:
-        statscache.put((username, granularity), result)
+        statscache.put((username, granularity), result, etag=data_version)
 
     return jsonify(result)
 

@@ -241,14 +241,17 @@ def _http_get(url, headers):
             conn.request('GET', path, headers=req_headers)
             resp = conn.getresponse()
             return resp.read()  # 본문을 끝까지 읽어야 커넥션 재사용 가능
-        except Exception:
+        except Exception as e:
             # stale/오류 커넥션 폐기 후 새 커넥션으로 1회 재시도
             try:
                 conn.close()
             except Exception:
                 pass
             conns.pop(host, None)
-            if attempt == 1:
+            # ⭐️ 타임아웃은 재시도하지 않는다. 재시도는 서버가 먼저 끊어 둔 keep-alive
+            #    소켓(stale)을 위한 것인데, 타임아웃까지 다시 시도하면 장애 때 단계마다
+            #    2.5초가 5초가 된다. 폴백 단계가 겹치면 화면의 20초 제한을 넘겼다.
+            if attempt == 1 or isinstance(e, TimeoutError):
                 raise
     return b''
 
@@ -461,7 +464,9 @@ def _fetch_kr(conn, code_str, market_mode):
             return regular_close
         cached_close = load_price_cache(conn, code_str, KRX_CLOSE_CACHE_MARKET)
         if cached_close:
-            return cached_close
+            # ⭐️ 분봉 조회가 실패해 저장해 둔 값을 쓰는 것이므로 폴백으로 표시한다.
+            #    예전에는 그냥 float 로 돌려줘 화면이 옛 값을 '현재가'로 그렸다.
+            return FallbackPrice(cached_close)
         logger.info("ℹ️ %s 정규장 종가를 구하지 못해 현재가(애프터 반영)로 대체합니다.", code_str)
     try:
         # 정규장 실시간 시세 (장중일 때만)
@@ -491,6 +496,8 @@ def _fetch_kr(conn, code_str, market_mode):
                 return nxt_price
 
             # 2) NXT 전용 캐시
+            #    ⚠️ 폴백 표시를 붙이지 않는다. 여기는 통신이 성공했는데 프리마켓에 아직
+            #       NXT 체결이 없는 정상 상황이라, '외부 API 지연' 배너를 띄우면 틀린 안내다.
             cached_nxt = load_price_cache(conn, code_str, 'NXT')
             if cached_nxt:
                 return cached_nxt
@@ -502,10 +509,11 @@ def _fetch_kr(conn, code_str, market_mode):
             save_price_cache(conn, code_str, current_krx_price, 'KRX')
             return current_krx_price
 
-        # 4) KRX 캐시로 최종 방어
+        # 4) KRX 캐시로 최종 방어 — 응답에 가격이 없었다는 뜻이므로 폴백으로 표시한다.
         cached_krx = load_price_cache(conn, code_str, 'KRX')
         if cached_krx:
-            return cached_krx
+            logger.info("ℹ️ %s 시세 응답에 가격이 없어 KRX 캐시로 대체합니다.", code_str)
+            return FallbackPrice(cached_krx)
     except Exception as e:
         # 통신 에러: 캐시를 최후 보루로
         logger.debug("국내 시세 조회 실패 (%s, mode=%s): %r", code_str, market_mode, e)
@@ -524,8 +532,8 @@ def _fetch_kr(conn, code_str, market_mode):
 # ⭐️ 야후는 국내/아시아 종목을 접미사 없는 코드로는 찾지 못한다(005930 → 404).
 #    시장별 후보 접미사를 순서대로 시도하고, 성공한 심볼은 기억해 두어 다음
 #    조회부터는 곧바로 맞는 심볼 하나만 호출한다. (불필요한 404 왕복 제거)
+#    국내 종목은 야후로 조회하지 않는다(_fetch_price_uncached 참고)라 'KR' 은 없다.
 _YAHOO_SUFFIXES = {
-    'KR': ('.KS', '.KQ'),           # 코스피 / 코스닥
     'OTHER_ASIAN': ('.T', '.HK'),   # 일본(도쿄) / 홍콩
 }
 _yahoo_symbol_hint = {}  # code_str -> 실제로 성공했던 야후 심볼
@@ -569,15 +577,19 @@ def _fetch_price_uncached(conn, code_str, market_mode):
 
     market_type = detect_market(code_str)
 
+    # ⭐️ 국내 종목은 네이버만 쓴다. 야후 폴백을 두었지만 _fetch_kr 이 통신 실패 때
+    #    먼저 캐시를 돌려주므로 캐시가 있으면 닿지 않았고, 닿더라도 야후의 국내 시세는
+    #    지연·접미사(.KS/.KQ) 오판이 잦아 네이버 값과 섞이면 오히려 혼란스럽다.
+    #    네이버가 전부 실패하면 아래 캐시로 내려간다.
     if market_type == "KR":
         price = _fetch_kr(conn, code_str, market_mode)
         if price is not None:
             return price
-
-    # US / OTHER_ASIAN / UNKNOWN 또는 국내 조회 실패 시 야후
-    price = _fetch_yahoo(conn, code_str)
-    if price is not None:
-        return price
+    else:
+        # US / OTHER_ASIAN / UNKNOWN 은 야후
+        price = _fetch_yahoo(conn, code_str)
+        if price is not None:
+            return price
 
     # 최후 보루: 캐시 (NXT 슬롯은 AFT 모드의 프리마켓에서만, KRX_CLOSE 슬롯은
     #    KRX 모드의 장외 시간에만 의미가 있다)

@@ -438,10 +438,20 @@ def test_fetch_price_uncached_kr_success(conn):
         assert prices._fetch_price_uncached(conn, '005930', 'AUTO') == 95000.0
 
 
-def test_fetch_price_uncached_kr_fail_then_yahoo(conn):
+def test_fetch_price_uncached_kr_fail_does_not_use_yahoo(conn):
+    # 국내 종목은 네이버만 쓴다 — 실패해도 야후를 부르지 않고 캐시로 내려간다.
     with patch.object(prices, '_fetch_kr', return_value=None), \
-         patch.object(prices, '_fetch_yahoo', return_value=100.0):
-        assert prices._fetch_price_uncached(conn, '005930', 'AUTO') == 100.0
+         patch.object(prices, '_fetch_yahoo', return_value=100.0) as yahoo:
+        assert prices._fetch_price_uncached(conn, '005930', 'AUTO') is None
+    yahoo.assert_not_called()
+
+
+def test_fetch_price_uncached_kr_fail_uses_cache_flagged(conn):
+    prices.save_price_cache(conn, '005930', 70000.0, 'KRX')
+    with patch.object(prices, '_fetch_kr', return_value=None), \
+         patch.object(prices, 'is_kr_out_of_hours', return_value=False):
+        price = prices._fetch_price_uncached(conn, '005930', 'AUTO')
+    assert price == 70000.0 and isinstance(price, prices.FallbackPrice)
 
 
 def test_fetch_price_uncached_us_uses_yahoo(conn):
@@ -703,8 +713,9 @@ def _clear_yahoo_hint():
     prices._yahoo_symbol_hint.clear()
 
 
-def test_yahoo_candidates_kr_gets_ks_kq():
-    assert prices._yahoo_symbol_candidates('005930') == ['005930.KS', '005930.KQ', '005930']
+def test_yahoo_candidates_kr_has_no_suffixes():
+    # 국내 종목은 야후로 조회하지 않으므로 접미사 후보도 두지 않는다.
+    assert prices._yahoo_symbol_candidates('005930') == ['005930']
 
 
 def test_yahoo_candidates_us_is_bare():
@@ -715,29 +726,29 @@ def test_yahoo_candidates_other_asian():
     assert prices._yahoo_symbol_candidates('7203') == ['7203.T', '7203.HK', '7203']
 
 
-def test_fetch_yahoo_kr_falls_through_to_kosdaq(conn):
+def test_fetch_yahoo_falls_through_to_next_suffix(conn):
     body = b'{"chart": {"result": [{"meta": {"regularMarketPrice": 41000}}]}}'
     calls = []
 
     def fake_get(url, headers):
         calls.append(url)
-        if url.endswith('.KS'):
+        if url.endswith('.T'):
             raise Exception('404')
         return body
 
     with patch.object(prices, '_http_get', side_effect=fake_get):
-        assert prices._fetch_yahoo(conn, '035720') == 41000.0
-    assert calls[0].endswith('035720.KS')
-    assert calls[1].endswith('035720.KQ')
+        assert prices._fetch_yahoo(conn, '7203') == 41000.0
+    assert calls[0].endswith('7203.T')
+    assert calls[1].endswith('7203.HK')
     # 성공한 심볼을 기억해 다음 조회는 한 번만 호출한다
-    assert prices._yahoo_symbol_hint['035720'] == '035720.KQ'
+    assert prices._yahoo_symbol_hint['7203'] == '7203.HK'
 
 
 def test_fetch_yahoo_uses_remembered_symbol(conn):
-    prices._yahoo_symbol_hint['035720'] = '035720.KQ'
+    prices._yahoo_symbol_hint['7203'] = '7203.HK'
     body = b'{"chart": {"result": [{"meta": {"regularMarketPrice": 41000}}]}}'
     with patch.object(prices, '_http_get', return_value=body) as g:
-        assert prices._fetch_yahoo(conn, '035720') == 41000.0
+        assert prices._fetch_yahoo(conn, '7203') == 41000.0
     assert g.call_count == 1
 
 
@@ -833,3 +844,48 @@ def test_failed_lookup_does_not_poison_the_cache():
     assert prices._price_mem_cache.get(('005930', 'KRX')) is None
     assert len(prices._price_mem_cache) == 0
     prices._price_mem_cache.clear()
+
+
+# ─────────────────────────────────────────────────────────────
+# 캐시에서 꺼낸 값은 폴백으로 표시한다 (옛 값을 현재가로 그리지 않도록)
+# ─────────────────────────────────────────────────────────────
+def test_fetch_kr_regular_close_cache_is_flagged_fallback(conn):
+    # KRX 모드 장외: 분봉 조회 실패 → 정규장 종가 캐시는 폴백이다
+    prices.save_price_cache(conn, '005930', 75000.0, prices.KRX_CLOSE_CACHE_MARKET)
+    with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'fetch_krx_regular_close', return_value=None):
+        price = prices._fetch_kr(conn, '005930', 'KRX')
+    assert price == 75000.0 and isinstance(price, prices.FallbackPrice)
+
+
+def test_fetch_kr_missing_close_price_uses_flagged_krx_cache(conn):
+    # 응답은 왔지만 가격이 비어 있으면 KRX 캐시로 막고, 폴백으로 표시한다
+    prices.save_price_cache(conn, '005930', 68000.0, 'KRX')
+    with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'is_kr_pre_market', return_value=False), \
+         patch.object(prices, '_http_get', return_value=b'{"closePrice": "0"}'):
+        price = prices._fetch_kr(conn, '005930', 'AFT')
+    assert price == 68000.0 and isinstance(price, prices.FallbackPrice)
+
+
+def test_fetch_kr_pre_market_nxt_cache_is_not_fallback(conn):
+    # 프리마켓에 NXT 체결이 아직 없는 것은 통신 실패가 아니다 — 배너를 띄우지 않는다
+    prices.save_price_cache(conn, '005930', 69000.0, 'NXT')
+    with patch.object(prices, 'is_kr_out_of_hours', return_value=True), \
+         patch.object(prices, 'is_kr_pre_market', return_value=True), \
+         patch.object(prices, '_http_get', return_value=b'{"closePrice": "68000"}'):
+        price = prices._fetch_kr(conn, '005930', 'AFT')
+    assert price == 69000.0 and not isinstance(price, prices.FallbackPrice)
+
+
+def test_http_get_does_not_retry_on_timeout():
+    # 타임아웃까지 재시도하면 장애 때 단계마다 대기 시간이 두 배가 된다
+    _reset_conn_pool()
+    slow_conn = MagicMock()
+    slow_conn.request.side_effect = TimeoutError("timed out")
+
+    with patch.object(prices, '_make_conn', return_value=slow_conn) as mk:
+        with pytest.raises(TimeoutError):
+            prices._http_get('https://example.com/x', {})
+    assert mk.call_count == 1
+    assert slow_conn.request.call_count == 1

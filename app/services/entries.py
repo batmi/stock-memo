@@ -71,29 +71,45 @@ def _flag_oversold(c, username, old_row, conflict):
         deficit, message + " (매수 기록을 고치거나 지운 뒤 확인이 필요합니다)")
 
 
+def _release_uploads(username, old_row, new_row=None):
+    """old_row 가 쓰던 첨부 중 new_row 가 더 이상 쓰지 않는 것을 정리한다(커밋 뒤에 부른다).
+
+    다른 기록이 같은 파일을 쓰고 있으면 남긴다(images.remove_unreferenced).
+    """
+    if old_row is None:
+        return
+    images.remove_unreferenced(
+        username, images.entry_uploads(username, old_row) - images.entry_uploads(username, new_row))
+
+
 # ---------------------------------------------------------------------------
 # 웹 화면
 # ---------------------------------------------------------------------------
 
 def create(username, entry):
     """새 기록을 저장하고 최종 id 를 돌려준다. 매도 무결성 위반이면 InvalidEntry."""
-    # ⭐️ 본문 내장 base64 이미지를 파일로 추출 (초기 로딩 응답 크기 유지)
-    entry = images.extract_inline_images(username, entry)
     with db_conn() as conn:
         c = conn.cursor()
         error = entry_logic.validate_trade_entry(c, username, entry)
         if error:
             raise InvalidEntry(error)
         entry_id = _assign_entry_id(c, entry)
-        entry_logic.insert_entry(c, username, dict(entry, id=entry_id))
-        conn.commit()
+        # ⭐️ 본문 내장 base64 이미지를 파일로 추출 (초기 로딩 응답 크기 유지).
+        #    검증을 통과한 뒤에 한다 — 먼저 하면 거부된 저장의 이미지가 파일로 남는다.
+        entry, created = images.store_inline_images(username, dict(entry, id=entry_id))
+        try:
+            entry_logic.insert_entry(c, username, entry)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            images.remove_unreferenced(username, created)
+            raise
     statscache.invalidate(username)
     return entry_id
 
 
 def update(username, entry_id, entry, *, force=False):
     """기록 전체를 화면 입력으로 바꾼다. 검토 필요를 붙인 매도 id 목록을 돌려준다."""
-    entry = images.extract_inline_images(username, entry)
     with db_conn() as conn:
         c = conn.cursor()
         # ⭐️ 없는(다른 기기에서 지운) 기록을 고치면 예전에는 0건 갱신인데도 성공으로
@@ -111,9 +127,20 @@ def update(username, entry_id, entry, *, force=False):
         if conflict and not force:
             raise OversellConflict(conflict[1])
 
-        entry_logic.update_entry_row(c, entry_id, username, entry)
-        flagged = _flag_oversold(c, username, old, conflict) if conflict else []
-        conn.commit()
+        # ⭐️ 본문 내장 base64 이미지를 파일로 추출 (초기 로딩 응답 크기 유지).
+        #    검증·확인(409)을 모두 지난 뒤에 한다 — 409 후 force 로 다시 보내면
+        #    같은 이미지가 두 벌 저장되고 앞의 것은 아무도 참조하지 않았다.
+        entry, created = images.store_inline_images(username, entry)
+        try:
+            entry_logic.update_entry_row(c, entry_id, username, entry)
+            flagged = _flag_oversold(c, username, old, conflict) if conflict else []
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            images.remove_unreferenced(username, created)
+            raise
+    # 수정하면서 본문에서 뺀 이미지 — 다른 기록도 쓰지 않으면 지운다(커밋 뒤에).
+    _release_uploads(username, old, entry)
     statscache.invalidate(username)
     return flagged
 
@@ -132,6 +159,7 @@ def delete(username, entry_id, *, force=False):
             if conflict:
                 flagged = _flag_oversold(c, username, old, conflict)
             conn.commit()
+    _release_uploads(username, old)
     statscache.invalidate(username)
     return flagged
 
@@ -184,6 +212,8 @@ def patch_bot_trade(username, entry_id, changes):
             warnings.append(conflict[1])
         conn.commit()
         row = _load(c, username, entry_id)
+    # memo 를 바꾸면 웹에서 붙였던 본문 이미지가 빠질 수 있다.
+    _release_uploads(username, old, row)
     statscache.invalidate(username)
     return row, warnings
 
@@ -200,5 +230,7 @@ def delete_bot_trade(username, entry_id):
             _flag_oversold(c, username, old, conflict)
             warnings.append(conflict[1])
         conn.commit()
+    # 웹에서 이 봇 기록에 본문 이미지를 붙였을 수 있다.
+    _release_uploads(username, old)
     statscache.invalidate(username)
     return warnings

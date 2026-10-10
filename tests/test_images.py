@@ -169,3 +169,118 @@ def test_process_image_base64(monkeypatch, tmp_path):
     # 경로 문자가 섞인 id 는 걸러져 사용자 폴더를 벗어나지 않는다.
     res3 = images.process_image('trader', f"data:image/png;base64,{encoded}", '../../x')
     assert res3 == "/uploads/trader/img_x.png"
+
+
+# ─────────────────────────────────────────────────────────────
+# ⭐️ 아무 기록도 쓰지 않게 된 첨부 파일 정리
+# ─────────────────────────────────────────────────────────────
+_PNG = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQ"
+        "DwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+
+
+def _upload_files(username):
+    import os
+    folder = os.path.join(config.UPLOAD_FOLDER, username)
+    return sorted(os.listdir(folder)) if os.path.isdir(folder) else []
+
+
+def _memo(thoughts, **kw):
+    e = {"type": "memo", "title": "메모", "thoughts": thoughts}
+    e.update(kw)
+    return e
+
+
+def _login_as(client, username):
+    from helpers import _login
+    _login(client, username)
+
+
+def test_rejected_entry_leaves_no_image_file(client):
+    """검증에서 거부된 저장(400)은 이미지 파일을 남기지 않는다."""
+    from helpers import _sell
+    _login_as(client, 'imgreject')
+    res = client.post('/api/entry', json=_sell(thoughts=f'<img src="{_PNG}">'))
+    assert res.status_code == 400
+    assert _upload_files('imgreject') == []
+
+
+def test_oversell_confirm_then_force_stores_image_once(client):
+    """409 확인 후 force 로 다시 보내도 이미지는 한 벌만 남는다."""
+    from helpers import _buy, _sell
+    _login_as(client, 'imgforce')
+    buy_id = client.post('/api/entry', json=_buy(qty=10)).json['id']
+    client.post('/api/entry', json=_sell(qty=10))
+
+    body = _buy(qty=1, thoughts=f'<img src="{_PNG}">')
+    assert client.put(f'/api/entry/{buy_id}', json=body).status_code == 409
+    assert _upload_files('imgforce') == []
+    assert client.put(f'/api/entry/{buy_id}?force=1', json=body).status_code == 200
+    assert len(_upload_files('imgforce')) == 1
+
+
+def test_delete_entry_removes_its_image(client):
+    _login_as(client, 'imgdel')
+    entry_id = client.post('/api/entry', json=_memo(f'<img src="{_PNG}">')).json['id']
+    assert len(_upload_files('imgdel')) == 1
+    assert client.delete(f'/api/entry/{entry_id}').status_code == 200
+    assert _upload_files('imgdel') == []
+
+
+def test_shared_image_kept_until_last_reference_is_gone(client):
+    """기록 복사처럼 같은 파일을 여러 기록이 쓰면, 마지막 참조가 사라질 때만 지운다."""
+    _login_as(client, 'imgshare')
+    first = client.post('/api/entry', json=_memo(f'<img src="{_PNG}">')).json['id']
+    thoughts = next(e['thoughts'] for e in client.get('/api/data').json if e['id'] == first)
+    second = client.post('/api/entry', json=_memo(thoughts)).json['id']
+    assert len(_upload_files('imgshare')) == 1
+
+    client.delete(f'/api/entry/{first}')
+    assert len(_upload_files('imgshare')) == 1      # 두 번째 기록이 아직 쓴다
+    client.delete(f'/api/entry/{second}')
+    assert _upload_files('imgshare') == []
+
+
+def test_update_removing_image_deletes_file(client):
+    _login_as(client, 'imgedit')
+    entry_id = client.post('/api/entry', json=_memo(f'<p>a</p><img src="{_PNG}">')).json['id']
+    assert len(_upload_files('imgedit')) == 1
+    res = client.put(f'/api/entry/{entry_id}', json=_memo('<p>이미지 뺌</p>'))
+    assert res.status_code == 200
+    assert _upload_files('imgedit') == []
+
+
+def test_update_keeping_image_keeps_file(client):
+    _login_as(client, 'imgkeep')
+    entry_id = client.post('/api/entry', json=_memo(f'<img src="{_PNG}">')).json['id']
+    thoughts = client.get('/api/data').json[0]['thoughts']
+    client.put(f'/api/entry/{entry_id}', json=_memo(thoughts + '<p>추가</p>'))
+    assert len(_upload_files('imgkeep')) == 1
+
+
+def test_entry_uploads_only_counts_own_folder():
+    entry = {'thoughts': '<img src="/uploads/me/a.png"><img src="http://h:1/uploads/me/b.jpg">'
+                         '<img src="/uploads/other/c.png">',
+             'attachedImage': '/uploads/me/legacy.png'}
+    assert images.entry_uploads('me', entry) == {'a.png', 'b.jpg', 'legacy.png'}
+
+
+def test_bot_delete_and_patch_release_unused_images(client):
+    """봇 API 의 삭제·메모 정정도 같은 규칙으로 쓰지 않는 첨부를 정리한다."""
+    import os
+    from app.services import entries
+    from helpers import _insert_raw
+
+    _login_as(client, 'imgbot')
+    folder = os.path.join(config.UPLOAD_FOLDER, 'imgbot')
+    os.makedirs(folder, exist_ok=True)
+    for name in ('a.png', 'b.png'):
+        open(os.path.join(folder, name), 'wb').close()
+    _insert_raw('imgbot', id=1, source='bot', brokerExecutionId='E1', tradeType='매수',
+                quantity=1, thoughts='<img src="/uploads/imgbot/a.png">')
+    _insert_raw('imgbot', id=2, source='bot', brokerExecutionId='E2', tradeType='매수',
+                quantity=1, thoughts='<img src="/uploads/imgbot/b.png">')
+
+    entries.patch_bot_trade('imgbot', 1, {'thoughts': '메모만 남김'})
+    assert _upload_files('imgbot') == ['b.png']
+    entries.delete_bot_trade('imgbot', 2)
+    assert _upload_files('imgbot') == []

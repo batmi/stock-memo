@@ -31,15 +31,29 @@ def get(key):
         return _stats_cache.get(key)
 
 
-def put(key, value):
+def put(key, value, etag=None):
+    """캐시에 저장한다. etag 를 주면 그 사이 데이터가 바뀌지 않았을 때만 저장한다.
+
+    ⭐️ 통계는 'DB 읽기 → 계산 → 저장' 순서라, 계산 도중 봇 체결이 들어와 invalidate()
+       가 먼저 끝나면 옛 데이터로 낸 결과가 그 뒤에 캐시에 앉는다. 그러면 다음 기록
+       변경 전까지 통계가 갱신되지 않는다. 읽기 전에 data_etag() 를 받아 두고 넘기면,
+       버전이 달라졌을 때 저장을 건너뛴다(다음 요청이 새로 계산한다).
+       저장했으면 True.
+    """
     with _lock:
+        if etag is not None and etag != _etag_locked(key[0]):
+            return False
         _stats_cache[key] = value
+        return True
+
+
+def _etag_locked(username):
+    return f"{username}-{_BOOT_ID}-{_data_versions.get(username, 0)}"
 
 
 def data_etag(username):
     with _lock:
-        version = _data_versions.get(username, 0)
-    return f"{username}-{_BOOT_ID}-{version}"
+        return _etag_locked(username)
 
 
 def invalidate(username):
