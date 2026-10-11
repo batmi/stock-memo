@@ -606,7 +606,7 @@ window.editEntry = async function(entry) {
         contentHtml += `<p><br></p><p><img src="${escapeAttr(legacyImage)}"></p>`;
     }
     // ⭐️ 편집기 본문도 살아 있는 문서라 정화 없이 넣으면 그 자리에서 실행된다.
-    if (window.quill) window.quill.root.innerHTML = sanitizeHtml(contentHtml); // 에디터에 기존 내용 불러오기
+    if (window.quill) window.setEditorHtml(sanitizeHtml(contentHtml)); // 에디터에 기존 내용 불러오기
     
     currentTags = entry.tags ? entry.tags.split(',').filter(Boolean) : [];
     renderTags();

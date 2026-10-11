@@ -276,7 +276,7 @@ const _SANITIZE_DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 
     'BASE', 'FORM', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'OPTION', 'SVG', 'MATH',
     'TEMPLATE', 'NOSCRIPT', 'FRAME', 'FRAMESET', 'AUDIO', 'VIDEO', 'SOURCE', 'TITLE']);
 const _SANITIZE_ATTRS = new Set(['class', 'style', 'href', 'src', 'alt', 'title', 'target',
-    'rel', 'colspan', 'rowspan', 'data-list', 'spellcheck']);
+    'rel', 'colspan', 'rowspan', 'data-list', 'spellcheck', 'width']); // width: 표 열 너비(<col>)
 function sanitizeHtml(html) {
     if (html == null || html === '') return '';
     const doc = new DOMParser().parseFromString(`<body>${String(html)}</body>`, 'text/html');

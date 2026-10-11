@@ -36,6 +36,8 @@ Beyond simple recording, it aims to maximize investment review and strategy form
 *   **Journal & Smart Editor**
     *   Allows logging of buy, sell, observe, and dividend records, as well as general memos and ideas about specific stocks.
     *   Supports direct image insertion into the editor body (clipboard pasting of screenshots, drag & drop) and resizing. It also automatically cleans up colors/background styles when pasting external text.
+    *   Tables can be inserted, and tables copied from web pages or spreadsheets paste as real tables (header cells, merged cells, and multi-line cells are kept).
+    *   Markdown source pasted with `Ctrl/Cmd+Shift+V` or the toolbar **MD** button is converted to headings, lists, tables, and code. A normal paste keeps the text as-is.
 *   **Portfolio Dashboard & Real-time Prices**
     *   Automatically calculates and visually displays currently held stocks, total investment amount, average unit price, and cumulative realized profit/loss using a pie chart. (Supports custom drag & drop sorting)
     *   Supports automatic real-time price updates every minute, covering regular hours and the **KRX after-market (16:00–20:00)**. Of the `AFT`/`KRX` toggle, `AFT` supplements with NXT (Nextrade) quotes only during the **pre-market (08:00–09:00)** when KRX is closed, and the button shows the current quote source (`NXT` → `KRX` during regular hours → `AFT` from 16:00). `KRX` pins the **regular-session close (15:30)** outside trading hours.

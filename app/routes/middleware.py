@@ -47,9 +47,9 @@ _static_gzip_lock = threading.Lock()
 _CSP_DIRECTIVES = [
     "default-src 'self'",
     # Chart.js / Sortable / flatpickr / Quill / ExcelJS
-    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.quilljs.com https://cdnjs.cloudflare.com",
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
     # flatpickr 테마 + 화면 곳곳의 style="" 속성
-    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.quilljs.com",
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
     # 첨부 이미지는 /uploads/ (self), Quill 편집 중 이미지는 data:/blob:
     "img-src 'self' data: blob: https://ssl.gstatic.com",
     "font-src 'self' data:",

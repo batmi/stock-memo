@@ -39,7 +39,6 @@
     </script>
     <!-- ⭐️ CDN 접속 사전 연결(DNS/TLS 핸드셰이크 선행)로 첫 로딩 단축 -->
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
-    <link rel="preconnect" href="https://cdn.quilljs.com">
     <!-- ⭐️ Chart.js 라이브러리 추가 -->
     <!-- ⭐️ 모든 외부 스크립트는 defer 로 로드하여 첫 화면 렌더링을 차단하지 않는다.
          defer 스크립트는 문서 순서대로 DOMContentLoaded 이전에 실행되므로
@@ -60,11 +59,17 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/themes/dark.css" id="flatpickr-dark-theme" disabled>
     <script defer src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/l10n/ko.js"></script>
-    <!-- ⭐️ Quill (리치 텍스트 에디터) 라이브러리 추가 -->
-    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
-    <script defer src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
-    <!-- ⭐️ Quill 이미지 리사이즈 모듈 추가 -->
-    <script defer src="https://cdn.jsdelivr.net/npm/quill-image-resize-module@3.0.0/image-resize.min.js"></script>
+    <!-- ⭐️ Quill 2 (리치 텍스트 에디터). 1.x 는 표 서식이 없어 웹에서 복사한 표가 셀마다 한 줄로
+         흩어졌다. 표는 quill-table-up(<th>·병합 셀·셀 안 줄바꿈 지원)이 맡는다. -->
+    <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/quill-table-up@3.6.0/dist/index.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/quill-table-up@3.6.0/dist/table-creator.css" rel="stylesheet">
+    <script defer src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/quill-table-up@3.6.0/dist/index.umd.js"></script>
+    <!-- ⭐️ 마크다운 원문 붙여넣기 변환기 (GFM 표 지원) — 21-markdown-paste.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/marked@18.0.14/lib/marked.umd.js"></script>
+    <!-- ⭐️ 본문 이미지 크기 조절 (quill-image-resize-module 은 Quill 1 전용이라 교체) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/@botom/quill-resize-module@2.2.2/dist/quill-resize-module.min.js"></script>
     <!-- ⭐️ SheetJS (Excel 내보내기)는 약 1MB 로 매우 크므로 항상 로드하지 않고,
          내보내기 버튼을 누를 때 script.js 의 ensureXlsxLoaded() 가 동적으로 로드한다. -->
     <!-- ⭐️ 외부 CSS 파일 연결 -->

@@ -422,26 +422,83 @@ window.addEventListener('DOMContentLoaded', () => {
     Size.whitelist = ['small', false, 'medium', 'large', 'huge'];
     Quill.register(Size, true);
 
+    // ⭐️ 표(quill-table-up)와 이미지 크기 조절 모듈 등록
+    const TU = window.TableUp;
+    Quill.register({ [`modules/${TU.TableUp.moduleName}`]: TU.TableUp }, true);
+    Quill.register('modules/resize', window.QuillResizeModule);
+
+    const TABLE_TEXTS = {
+        fullCheckboxText: '화면 너비에 맞춘 표', customBtnText: '직접 입력', confirmText: '확인', cancelText: '취소',
+        rowText: '행', colText: '열', notPositiveNumberError: '1 이상의 정수를 입력하세요',
+        custom: '직접 지정', clear: '지우기', transparent: '투명',
+        perWidthInsufficient: '비율 너비로는 공간이 부족합니다. 고정 너비로 바꿔 계속할까요?',
+        InsertTop: '위에 행 추가', InsertRight: '오른쪽에 열 추가', InsertBottom: '아래에 행 추가', InsertLeft: '왼쪽에 열 추가',
+        MergeCell: '셀 병합', SplitCell: '셀 분할', DeleteRow: '행 삭제', DeleteColumn: '열 삭제', DeleteTable: '표 삭제',
+        BackgroundColor: '셀 배경색', BorderColor: '테두리 색', FreezeRow: '이 행까지 고정', UnfreezeRow: '행 고정 해제',
+        FreezeCol: '이 열까지 고정', UnfreezeCol: '열 고정 해제', SwitchWidth: '표 너비 방식 전환',
+        InsertCaption: '표 제목 추가', ToggleTdBetweenTh: '머리글 칸 전환'
+    };
+    const T = TU.tableMenuTools;
+    const brk = { name: 'break' };
+
     // ⭐️ Quill 에디터 초기화
     window.quill = new Quill('#editor-container', {
         theme: 'snow',
         modules: {
-            imageResize: {
-                displaySize: true // 리사이즈 시 이미지 크기 툴팁 표시
+            resize: {
+                showSize: true, // 리사이즈 시 이미지 크기 툴팁 표시
+                toolbar: { attributesTool: false }
             },
-            toolbar: [
-                [{ 'header': [1, 2, 3, false] }, { 'size': ['small', false, 'medium', 'large', 'huge'] }], // 헤더, 글자 크기
-                ['bold', 'italic', 'underline', 'strike'],       // 텍스트 강조
-                [{ 'color': [] }, { 'background': [] }],         // 글자/배경 색상
-                [{ 'align': [] }],                               // 정렬
-                [{ 'list': 'ordered'}, { 'list': 'bullet' }],    // 리스트
-                ['blockquote', 'code-block'],                    // 인용, 코드 블록
-                ['image'],                                       // ⭐️ 이미지 삽입 툴바 버튼 추가
-                ['clean']                                        // 서식 초기화
-            ]
+            toolbar: {
+                container: [
+                    [{ 'header': [1, 2, 3, false] }, { 'size': ['small', false, 'medium', 'large', 'huge'] }], // 헤더, 글자 크기
+                    ['bold', 'italic', 'underline', 'strike'],       // 텍스트 강조
+                    [{ 'color': [] }, { 'background': [] }],         // 글자/배경 색상
+                    [{ 'align': [] }],                               // 정렬
+                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],    // 리스트
+                    ['blockquote', 'code-block'],                    // 인용, 코드 블록
+                    [{ [TU.TableUp.toolName]: [] }],                 // ⭐️ 표 삽입 (행×열 선택)
+                    ['image', 'markdown'],                           // ⭐️ 이미지 삽입, 마크다운 붙여넣기
+                    ['clean']                                        // 서식 초기화
+                ],
+                // 등록된 서식이 아닌 버튼은 생성 시점에 핸들러가 있어야 클릭이 연결된다.
+                // 본체는 21-markdown-paste.js 에 있다.
+                handlers: { markdown: () => window.onMarkdownPasteButton && window.onMarkdownPasteButton() }
+            },
+            [TU.TableUp.moduleName]: {
+                full: true,          // 새 표는 본문 너비에 맞춘다 (모바일에서 가로로 넘치지 않게)
+                customSelect: TU.defaultCustomSelect,
+                texts: key => TABLE_TEXTS[key] || key,
+                modules: [
+                    { module: TU.TableResizeLine },
+                    { module: TU.TableSelection },
+                    // 우클릭 메뉴는 iOS 에서 뜨지 않아, 셀을 고르면 떠오르는 메뉴를 쓴다.
+                    { module: TU.TableMenuSelect, options: { tools: [
+                        T.InsertTop, T.InsertBottom, T.InsertLeft, T.InsertRight, brk,
+                        T.MergeCell, T.SplitCell, brk,
+                        T.DeleteRow, T.DeleteColumn, T.DeleteTable, brk,
+                        T.BackgroundColor, T.ToggleTdBetweenTh
+                    ] } }
+                ]
+            }
         },
         placeholder: '현재 시장 상황, 매매 이유, 향후 대응 계획 등을 자유롭게 기록하세요.'
     });
+
+    // ⭐️ 저장된 본문(HTML)을 편집기에 넣는다. Quill 2 는 root.innerHTML 을 직접 바꾸면 내부 문서와
+    //    어긋나므로 Delta 로 변환해 넣는다. 이 과정에서 예전(Quill 1) 목록 <ul><li> 도 새 형식으로 바뀐다.
+    //    변환은 붙여넣기 매처를 거치므로, 그동안 '붙여넣은 글자색 제거' 매처는 쉬게 한다.
+    let loadingEditorHtml = false;
+    window.setEditorHtml = function(html) {
+        loadingEditorHtml = true;
+        try {
+            window.quill.setContents([], 'silent');
+            window.quill.updateContents(window.quill.clipboard.convert({ html: html || '' }), 'silent');
+        } finally {
+            loadingEditorHtml = false;
+        }
+        window.quill.history.clear();
+    };
 
     // ⭐️ 에디터 내 이미지 삽입 커스텀 핸들러 연결 (원본 대신 리사이징 적용)
     window.quill.getModule('toolbar').addHandler('image', function() {
@@ -463,6 +520,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     // ⭐️ 붙여넣기 시 외부 텍스트의 글자색/배경색 서식 강제 제거 (테마 색상 자동 적용)
     window.quill.clipboard.addMatcher(Node.ELEMENT_NODE, function(node, delta) {
+        if (loadingEditorHtml) return delta; // 저장된 본문 불러오기는 붙여넣기가 아니다
         delta.ops.forEach(op => {
             // ⭐️ 텍스트(string)인 경우에만 서식(색상/배경)을 제거하여 이미지 등 임베드 요소 손상 원천 차단
             if (typeof op.insert === 'string' && op.attributes) {
@@ -530,7 +588,7 @@ window.addEventListener('DOMContentLoaded', () => {
                     }
                     
                     // 정제된 HTML을 안전한 Delta로 변환하여 에디터에 삽입
-                    const delta = window.quill.clipboard.convert(html);
+                    const delta = window.quill.clipboard.convert({ html });
                     window.quill.updateContents(new Delta().retain(insertIndex).concat(delta), 'user');
                     
                     // 삽입된 콘텐츠 끝으로 커서 자동 이동

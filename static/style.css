@@ -1392,6 +1392,23 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
     content: 'Medium';
 }
 
+/* ⭐️ Quill 1 시절 저장된 목록(<ul><li>, <ol><li>) 호환.
+   Quill 2 CSS 는 li 의 기본 글머리를 끄고 data-list 속성 + .ql-ui 로 그린다.
+   예전 본문에는 둘 다 없어 기록 화면에서 글머리·번호가 사라지므로 브라우저 기본 표시로 되돌린다.
+   (편집기로 불러오면 새 형식으로 변환되므로 이 규칙은 기록 화면용이다) */
+.ql-editor ul { padding-left: 1.5em; }
+.ql-editor ul > li:not([data-list]) { list-style-type: disc; padding-left: 0; }
+.ql-editor ol > li:not([data-list]) { list-style-type: decimal; padding-left: 0; }
+.ql-editor ol:has(> li:not([data-list])) { padding-left: 1.5em; }
+.ql-editor ul > li.ql-indent-1:not([data-list]), .ql-editor ol > li.ql-indent-1:not([data-list]) { margin-left: 1.5em; padding-left: 0; }
+
+/* ⭐️ 표: 넓은 표는 본문 밖으로 넘치지 않고 표 안에서 가로로 스크롤한다 */
+.ql-editor .ql-table-wrapper { overflow-x: auto; scrollbar-width: auto; }
+/* 봇 API·백업 복원으로 들어온, 표 모듈 클래스가 없는 표도 같은 모양으로 그린다 */
+.ql-editor table { border-collapse: collapse; }
+.ql-editor table td, .ql-editor table th { border: 1px solid var(--border-color); padding: 2px 6px; }
+.ql-editor table th { background: var(--border-light-color); font-weight: bold; }
+
 /* ⭐️ 계정 설정 모달 레이아웃 (비밀번호 / API 키) */
 .account-settings-layout {
     display: flex;
@@ -1594,3 +1611,7 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 .entry-card.needs-review {
     border-left-color: var(--warning-color) !important;
 }
+
+/* ⭐️ 마크다운 붙여넣기 버튼 (21-markdown-paste.js) — 아이콘 대신 글자, 대기 중에는 강조 */
+.ql-toolbar.ql-snow button.ql-markdown { font-size: 9px; font-weight: bold; letter-spacing: -0.3px; color: var(--text-color); width: auto !important; min-width: 22px; }
+.ql-toolbar.ql-snow button.ql-markdown.md-armed { background: var(--primary-color) !important; color: #fff; }

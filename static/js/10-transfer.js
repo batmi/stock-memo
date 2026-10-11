@@ -53,7 +53,9 @@ journalForm.addEventListener('submit', async function(e) {
     const tradeDateRaw = document.getElementById('tradeDate').value;
     
     // ⭐️ 에디터에서 작성한 내용 가져오기 및 필수 입력 검증
-    const thoughtsHTML = window.quill.root.innerHTML;
+    // 표 모듈은 편집 중에만 쓰는 표식(셀 id 같은 data-* 속성, 아이콘 SVG)을 본문에 심는다.
+    // 다시 불러올 때 표 구조만으로 복원되므로 저장 전에 정화해 걷어낸다.
+    const thoughtsHTML = sanitizeHtml(window.quill.root.innerHTML);
     const thoughtsText = window.quill.getText().trim();
     if (!thoughtsText && !thoughtsHTML.includes('<img')) {
         submitBtn.disabled = false;
