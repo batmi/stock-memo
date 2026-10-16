@@ -252,9 +252,9 @@ def _seed_entries(page: Page, entries):
 
 def _chart_realized(page: Page, month_label):
     """차트 뷰의 '실현손익' 데이터셋에서 특정 월(예: '9월') 값을 읽는다."""
-    return page.evaluate("""(monthLabel) => {
-        window.currentChartType = 'profit';
-        window.renderMonthlyProfitChart();
+    return page.evaluate("""async (monthLabel) => {
+        window.currentMonthlyChartType = 'realized';
+        await window.renderMonthlyProfitChart();
         const chart = window.monthlyProfitChartInstance;
         const idx = chart.data.labels.indexOf(monthLabel);
         if (idx < 0) return null;
@@ -673,6 +673,7 @@ def test_same_code_different_names_is_one_position(page: Page):
 
     # 카드 클릭 → 히스토리 필터. 표기가 다른 기록까지 함께 나와야 한다
     #  (이름으로 거르면 둘 중 하나만 남아 '카드는 합쳐졌는데 목록은 반만' 보인다)
+    page.evaluate("() => { currentFilterStock = 'KODEX 삼성그룹'; return displayEntries(true); }")
     matched = page.evaluate("""() => cloudEntries.filter(
         e => e.type === 'trade' && identityOf(e) === identityForStockName('KODEX 삼성그룹')
     ).length""")
@@ -768,12 +769,10 @@ def test_shared_alias_excludes_only_flagged_account(page: Page):
     expect(page.locator('#portfolioGrid .portfolio-card[data-id="000022::제외"]')).to_have_count(1)
 
     # 판정 함수 자체를 직접 확인한다 — 계좌번호가 특정되면 그 계좌의 설정만 따른다.
-    verdicts = page.evaluate("""() => {
-        const find = id => cloudEntries.find(e => Number(e.id) === id);
-        return {
-            kis: isExcludedFromTotals(find(900201)),
-            toss: isExcludedFromTotals(find(900202)),
-        };
+    verdicts = page.evaluate("""async () => {
+        const kis = await (await fetch('/api/entry/900201')).json();
+        const toss = await (await fetch('/api/entry/900202')).json();
+        return { kis: isExcludedFromTotals(kis), toss: isExcludedFromTotals(toss) };
     }""")
     assert verdicts == {'kis': False, 'toss': True}
 

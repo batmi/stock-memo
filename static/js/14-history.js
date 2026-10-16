@@ -9,44 +9,10 @@
 // ═══════════════════════════════════════════════════════════════════
 
 function recomputeHiddenStocks() {
-    // ⭐️ 키는 종목명이 아니라 **종목 동일성**(코드 우선)이다. 이름으로 두면 봇이 보내는
-    //    증권사 정식 명칭과 손으로 적은 이름이 갈릴 때 숨김이 저절로 풀린다 —
-    //    새 이름의 기록이 '숨김 이력이 없는 별개 종목'으로 잡히기 때문이다.
-    const latest = {}; // identity -> { ts, id, isHidden }
-    const byName = {};  // 종목명 → 동일성 (이름으로 지정된 필터·레거시 메모를 옮길 때 쓴다)
-    // ⭐️ 동일성 → 표시 이름. 표기가 갈린 같은 종목을 화면 어디서나 **한 이름**으로 부르기 위한 표다.
-    //    규칙은 백엔드(stats.display_names)와 같다 — 가장 최근 체결의 이름이 이긴다.
-    const nameOfIdentity = {}; // identity -> { name, ts, id }
-    cloudEntries.forEach(entry => {
-        const stockName = entry.stockName;
-        if (!stockName || (entry.type || 'trade') !== 'trade') return;
-        byName[stockName.trim()] = identityOf(entry);
-
-        // 표시 이름은 **거래 시각** 기준으로 고른다(숨김 판정의 updatedAt 기준과 다르다 —
-        //  이름은 '언제 산 종목이냐'의 문제이고, 숨김은 '언제 그렇게 정했냐'의 문제다).
-        const identForName = identityOf(entry);
-        const nameTs = entry.rawDate ? (new Date(entry.rawDate).getTime() || 0) : 0;
-        const nameId = Number(entry.id) || 0;
-        const prevName = nameOfIdentity[identForName];
-        if (!prevName || nameTs > prevName.ts || (nameTs === prevName.ts && nameId > prevName.id)) {
-            nameOfIdentity[identForName] = { name: stockName.trim(), ts: nameTs, id: nameId };
-        }
-        // ⭐️ 숨김은 사용자가 실거래 종목에 대해 정한 의도다.
-
-        const stamp = entry.updatedAt || entry.createdAt;
-        const ts = stamp ? (new Date(stamp).getTime() || 0) : 0;
-        const id = Number(entry.id) || 0;
-        const ident = identityOf(entry);
-        const prev = latest[ident];
-        if (!prev || ts > prev.ts || (ts === prev.ts && id > prev.id)) {
-            latest[ident] = { ts, id, isHidden: !!entry.isHidden };
-        }
-    });
-
-    stockIdentityByName = byName;
-    stockNameByIdentity = Object.fromEntries(
-        Object.entries(nameOfIdentity).map(([ident, v]) => [ident, v.name]));
-    hiddenStocks = new Set(Object.keys(latest).filter(k => latest[k].isHidden));
+    if (!journalMeta) return;
+    stockIdentityByName = journalMeta.stockIdentityByName;
+    stockNameByIdentity = journalMeta.stockNameByIdentity;
+    hiddenStocks = new Set(journalMeta.hiddenStocks);
 }
 
 // ⭐️ 특정 종목이 현재 숨김 상태인지 조회 (입력 폼 프리필용)
@@ -64,154 +30,82 @@ function syncHiddenCheckbox(stockName) {
     el.checked = isStockHidden(stockName);
 }
 
-function displayEntries(isFilterUpdate = false) {
-    recomputeHiddenStocks();
-    cloudEntries.sort((a, b) => {
-        const timeA = a.rawDate ? new Date(a.rawDate).getTime() : a.id;
-        const timeB = b.rawDate ? new Date(b.rawDate).getTime() : b.id;
-        return timeB - timeA;
-    });
-
-    if (!isFilterUpdate) {
-        updateFilterDropdown();
-        updatePortfolioSummary();
-        renderCalendar();
+async function displayEntries(isFilterUpdate = false, refreshed = false) {
+    if (!journalMeta) return;
+    if (!isFilterUpdate) updateFilterDropdown();
+    const otherViews = isFilterUpdate ? [] : [updatePortfolioSummary(), renderCalendar()];
+    const pendingKeyword = filterStockInput.value.trim();
+    if (pendingKeyword && !currentFilterKeywords.includes(pendingKeyword)) currentFilterKeywords.push(pendingKeyword);
+    filterStockInput.value = '';
+    if (clearFilterBtn) clearFilterBtn.style.display = 'none';
+    historyQuery = {
+        ...journalFilters('history'), date: currentFilterDate || '', type: currentFilterRecordType,
+        keywords: [...currentFilterKeywords], review: currentFilterNeedsReview ? '1' : '0',
+        showClosed: showHistoryClosedPositions ? '1' : '0', limit: entriesPerPage,
+    };
+    historyCursor = null;
+    historyLoading = false;
+    const ticket = journalRequests.history = (journalRequests.history || 0) + 1;
+    const generation = journalGeneration;
+    try {
+        const data = await journalJSON(journalUrl('entries', historyQuery), false);
+        if (ticket !== journalRequests.history || generation !== journalGeneration) return;
+        if (!refreshed && data.version !== journalMeta.version) {
+            await refreshEntriesFromServer();
+            return displayEntries(false, true);
+        }
+        document.getElementById('historyList-load-error')?.remove();
+        historyCursor = data.nextCursor;
+        cloudEntries = data.items;
+        renderHistoryResult(data);
+    } catch (error) {
+        if (ticket !== journalRequests.history || generation !== journalGeneration) return;
+        if (error.status === 409 && !refreshed) {
+            try {
+                await refreshEntriesFromServer();
+                return displayEntries(false, true);
+            } catch (refreshError) { error = refreshError; }
+        }
+        journalError('historyList', error, () => displayEntries(true));
     }
+    await Promise.all(otherViews);
+}
 
-    // ⭐️ 리스트 갱신 시 순간적인 스크롤 튐(위로 점프) 현상을 방지하기 위해 이전 높이 임시 유지
+async function loadNextHistoryPage() {
+    if (historyLoading || !historyCursor) return;
+    historyLoading = true;
+    const ticket = journalRequests.history, generation = journalGeneration;
+    try {
+        const data = await journalJSON(journalUrl('entries', { ...historyQuery, cursor: historyCursor }), false);
+        if (ticket !== journalRequests.history || generation !== journalGeneration) return;
+        document.getElementById('historyList-load-error')?.remove();
+        historyCursor = data.nextCursor;
+        cloudEntries.push(...data.items);
+        renderPage(data.items);
+    } catch (error) {
+        if (ticket !== journalRequests.history || generation !== journalGeneration) return;
+        if (error.status === 409) {
+            try {
+                await refreshEntriesFromServer();
+                await displayEntries(false, true);
+            } catch (refreshError) {
+                journalError('historyList', refreshError, loadNextHistoryPage);
+            }
+        } else {
+            journalError('historyList', error, loadNextHistoryPage);
+        }
+    } finally {
+        if (ticket === journalRequests.history) historyLoading = false;
+    }
+}
+
+function renderHistoryResult(data) {
+    recomputeHiddenStocks();
+    const filteredEntries = data.items;
     const prevHeight = historyList.offsetHeight;
     if (prevHeight > 0) historyList.style.minHeight = prevHeight + 'px';
-
+    loadMoreObserver.disconnect();
     historyList.innerHTML = '';
-    
-    // ⭐️ 청산 종목 수량 계산 + 필터 연관 종목 추출을 단일 순회로 통합
-    //   (기존: cloudEntries 를 최대 4회 반복 → 1회로 축소)
-    const stockQtys = {};                              // 청산 종목 필터용 보유 수량 (portfolioKey 기준)
-    // ⭐️ 연관 종목 집합의 키는 이름이 아니라 **동일성(코드)** 이다. 이름으로 담으면 메모에
-    //    적힌 표기와 체결의 표기가 갈릴 때 그 메모가 모아보기에서 빠진다.
-    const relatedStocksForAccountFilter = new Set();    // 분류별 모아보기 연관 종목
-    const relatedStocksForBrokerFilter = new Set();     // 증권사별 모아보기 연관 종목
-    const relatedStocksForSubAccountFilter = new Set(); // 증권계좌별 모아보기 연관 종목
-    const needAccount = currentFilterAccount !== 'all';
-    const needBroker = currentFilterBroker !== 'all';
-    const needSubAccount = currentFilterSubAccount !== 'all';
-
-    cloudEntries.forEach(entry => {
-        const entryType = entry.type || 'trade';
-        if (entryType !== 'trade' || !entry.stockName) return;
-
-        // ⭐️ 청산 판정 수량은 포트폴리오와 똑같이 (종목 + 제외 여부)별로 나눠 쌓는다.
-        //    한 칸에 합치면 제외 계좌 물량이 실거래 잔량을 오염시키고,
-        //    반대로 실거래만 세면 제외 전용 종목은 수량이 아예 안 잡혀 청산 판정에서 빠진다.
-        if (entry.tradeType === '매수' || entry.tradeType === '매도') {
-            const qtyKey = portfolioKeyFor(entry);   // 포트폴리오와 같은 기준(코드 우선)
-            if (stockQtys[qtyKey] === undefined) stockQtys[qtyKey] = 0;
-            if (entry.tradeType === '매수') stockQtys[qtyKey] += (Number(entry.quantity) || 0);
-            else stockQtys[qtyKey] -= (Number(entry.quantity) || 0);
-        }
-
-        // ⭐️ 분류별/증권사별 모아보기 시 연관된 일반 메모를 함께 보여주기 위해 종목 동일성 추출
-        const relatedIdentity = identityOf(entry);
-        if (needAccount && entry.tradeClass === currentFilterAccount) relatedStocksForAccountFilter.add(relatedIdentity);
-        if (needBroker && getMappedBroker(entry.brokerAccount) === currentFilterBroker) relatedStocksForBrokerFilter.add(relatedIdentity);
-        if (needSubAccount && getMappedSubAccount(entry.subAccount, entry.accountName) === currentFilterSubAccount) relatedStocksForSubAccountFilter.add(relatedIdentity);
-    });
-    
-    // ⭐️ 검색창에 입력 중인 텍스트가 있다면 다중 키워드 배열에 자동 등록하고 창 비움
-    const pendingKeyword = filterStockInput.value.trim();
-    if (pendingKeyword) {
-        if (!currentFilterKeywords.includes(pendingKeyword)) {
-            currentFilterKeywords.push(pendingKeyword);
-        }
-        filterStockInput.value = '';
-        if (clearFilterBtn) clearFilterBtn.style.display = 'none';
-    }
-
-    // ⭐️ 이름으로 지정된 종목 필터를 동일성으로 옮겨 둔다(루프 밖에서 한 번만).
-    //    카드 클릭·드롭다운은 이름을 넘기는데, 표기가 갈린 같은 종목의 기록이 빠지면
-    //    '카드는 합쳐졌는데 목록은 반만 나오는' 상태가 된다.
-    const filterStockIdentity = currentFilterStock === 'all'
-        ? null : identityForStockName(currentFilterStock);
-    //  메모는 종목코드 없이 이름만 달고 있을 수 있다(레거시). 이름표로 동일성을 찾아 준다.
-    const identityOfEntry = (entry) => ((entry.type || 'trade') === 'trade'
-        ? identityOf(entry) : identityForStockName(entry.stockName));
-
-    const filteredEntries = cloudEntries.filter(entry => {
-        if (currentFilterNeedsReview && !entry.needsReview) return false;
-        if (currentFilterKeywords.length > 0) {
-            for (const kw of currentFilterKeywords) {
-                const lowerKw = kw.toLowerCase();
-                const matchStock = entry.stockName && entry.stockName.toLowerCase().includes(lowerKw);
-                const matchBroker = entry.brokerAccount && entry.brokerAccount.toLowerCase().includes(lowerKw);
-                const matchSubAccount = entry.subAccount && entry.subAccount.toLowerCase().includes(lowerKw);
-                const matchTags = entry.tags && entry.tags.toLowerCase().includes(lowerKw);
-                const plainThoughts = entry.thoughts ? entry.thoughts.replace(/<[^>]*>?/gm, '').toLowerCase() : '';
-                const matchThoughts = plainThoughts.includes(lowerKw);
-                const matchTitle = entry.title && entry.title.toLowerCase().includes(lowerKw);
-                if (!(matchStock || matchBroker || matchSubAccount || matchTags || matchThoughts || matchTitle)) return false;
-            }
-        }
-        
-        if (currentFilterDate) {
-            let entryDateKey = '';
-            if (entry.rawDate) { entryDateKey = entry.rawDate.split('T')[0]; } 
-            else if (entry.date) {
-                const parts = entry.date.split('. ');
-                if (parts.length >= 3) entryDateKey = `${parts[0]}-${parts[1].padStart(2,'0')}-${parts[2].split('.')[0].padStart(2,'0')}`;
-            }
-            if (entryDateKey !== currentFilterDate) return false;
-        }
-
-        if (currentFilterRecordType !== 'all') {
-            const entryType = entry.type || 'trade';
-            if (entryType !== currentFilterRecordType) return false;
-        }
-        if (currentFilterStock !== 'all') {
-            if (identityOfEntry(entry) !== filterStockIdentity) return false;
-        }
-        if (currentFilterAccount !== 'all') {
-            const entryType = entry.type || 'trade';
-            const isMatchTrade = entryType === 'trade' && (entry.tradeClass || '') === currentFilterAccount;
-            const isMatchMemo = entryType === 'memo' && relatedStocksForAccountFilter.has(identityForStockName(entry.stockName));
-            if (!isMatchTrade && !isMatchMemo) return false;
-        }
-        if (currentFilterBroker !== 'all') {
-            const entryType = entry.type || 'trade';
-            const isMatchTrade = entryType === 'trade' && getMappedBroker(entry.brokerAccount) === currentFilterBroker;
-            const isMatchMemo = entryType === 'memo' && relatedStocksForBrokerFilter.has(identityForStockName(entry.stockName));
-            if (!isMatchTrade && !isMatchMemo) return false;
-        }
-        if (currentFilterSubAccount !== 'all') {
-            const entryType = entry.type || 'trade';
-            const isMatchTrade = entryType === 'trade' && getMappedSubAccount(entry.subAccount, entry.accountName) === currentFilterSubAccount;
-            const isMatchMemo = entryType === 'memo' && relatedStocksForSubAccountFilter.has(identityForStockName(entry.stockName));
-            if (!isMatchTrade && !isMatchMemo) return false;
-        }
-        
-        // ⭐️ 청산종목 숨김 상태일 때 (보유 수량이 0인 종목과 숨김 종목을 검색 및 필터에서 제외)
-        //    (검토 필요만 볼 때는 적용하지 않는다 — 초과 매도는 대개 수량이 0 이하로 떨어진
-        //     '청산' 종목이라, 여기서 걸러지면 정작 확인할 기록이 보이지 않는다)
-        if (!showHistoryClosedPositions && !currentFilterNeedsReview && entry.stockName) {
-            if (hiddenStocks.has(identityOfEntry(entry))) return false;
-
-            // 매매 기록은 자기 칸(실거래/모의·제외)의 잔량으로만 판정한다.
-            // 일반 메모는 어느 칸에 속하는지 알 수 없으므로, 그 종목의 칸이 모두 청산됐을 때만 숨긴다.
-            const entryType = entry.type || 'trade';
-            const memoIdentity = identityForStockName(entry.stockName);
-            const qtyKeys = entryType === 'trade'
-                ? [portfolioKeyFor(entry)]
-                : [memoIdentity, portfolioKey(memoIdentity, true)];
-            const knownQtys = qtyKeys
-                .map(k => stockQtys[k])
-                .filter(q => q !== undefined);
-            if (knownQtys.length > 0 && knownQtys.every(q => q <= 0)) {
-                return false;
-            }
-        }
-        
-        return true;
-    });
-
     const banner = document.getElementById('activeFilterBanner');
     const filterBoxContainer = document.getElementById('filterBoxContainer');
     
@@ -276,7 +170,7 @@ function displayEntries(isFilterUpdate = false) {
             chipsHtml += `<span onclick="clearAllFilters()" style="font-size: 11px; color: var(--danger-color); cursor: pointer; text-decoration: underline; margin-left: 5px;" title="모든 조건 해제">전체 초기화</span>`;
         }
         
-        chipsHtml += `<span style="margin-left: auto; color: var(--danger-color); font-size: 12px; font-weight: bold;">총 ${filteredEntries.length}건</span>`;
+        chipsHtml += `<span style="margin-left: auto; color: var(--danger-color); font-size: 12px; font-weight: bold;">총 ${data.total}건</span>`;
         
         banner.innerHTML = chipsHtml;
     } else { 
@@ -284,8 +178,6 @@ function displayEntries(isFilterUpdate = false) {
         if (filterBoxContainer) filterBoxContainer.classList.remove('filter-active');
     }
 
-    currentFilteredEntries = filteredEntries;
-    currentRenderPage = 1;
     lastRenderedMonth = '';
 
     if (filteredEntries.length === 0) {
@@ -295,7 +187,7 @@ function displayEntries(isFilterUpdate = false) {
         return;
     }
 
-    renderPage();
+    renderPage(filteredEntries);
 
     // 리렌더링 완료 후 높이 고정 해제 (부드러운 전환을 위해 브라우저 페인트 타이밍에 맞춤)
     requestAnimationFrame(() => { historyList.style.minHeight = ''; });
@@ -313,7 +205,7 @@ function renderReviewNotice() {
         bar.className = 'review-notice-bar';
         historyList.parentNode.insertBefore(bar, historyList);
     }
-    const count = cloudEntries.filter(e => e.needsReview).length;
+    const count = journalMeta?.reviewCount || 0;
     if (!count || currentFilterNeedsReview) {
         bar.style.display = 'none';
         return;
@@ -333,28 +225,20 @@ async function resolveEntryReview(entry) {
             await customAlert(msg);
             return;
         }
-        entry.needsReview = 0;
-        entry.reviewReason = null;
-        // 마지막 한 건을 처리했으면 '검토 필요만' 필터도 함께 푼다(빈 목록에 갇히지 않게).
-        if (currentFilterNeedsReview && !cloudEntries.some(e => e.needsReview)) {
-            currentFilterNeedsReview = false;
-        }
-        displayEntries(true);
+        await refreshEntriesFromServer();
+        if (currentFilterNeedsReview && !journalMeta.reviewCount) currentFilterNeedsReview = false;
+        await displayEntries(true);
     } catch (e) {
         await customAlert('검토 완료 처리 중 오류가 발생했습니다.');
     }
 }
 
-function renderPage() {
+function renderPage(pageEntries) {
     const existingSentinel = document.getElementById('scroll-sentinel');
     if (existingSentinel) {
         loadMoreObserver.unobserve(existingSentinel);
         existingSentinel.remove();
     }
-
-    const start = (currentRenderPage - 1) * entriesPerPage;
-    const end = start + entriesPerPage;
-    const pageEntries = currentFilteredEntries.slice(start, end);
 
     // ⭐️ 검색어 하이라이팅을 위한 정규식 준비
     const keywords = currentFilterKeywords;
@@ -400,7 +284,8 @@ function renderPage() {
         const card = document.createElement('div');
         card.className = 'entry-card';
         const entryType = entry.type || 'trade';
-        const imageSrc = safeUrl(entry.attachedImage, { allowDataImage: true });
+        card.dataset.entryId = entry.id;
+        const imageSrc = ''; // 첨부는 본문을 펼칠 때 단건 상세에서 받는다.
         const imageHtml = imageSrc ? `<div style="margin-top:10px;"><img src="${escapeAttr(imageSrc)}" class="entry-thumbnail" loading="lazy" decoding="async" onclick="openImageViewer(this.src, event)" title="클릭하여 원본 보기"></div>` : '';
 
         const createdStr = entry.createdAt ? new Date(entry.createdAt).toLocaleString() : new Date(entry.id).toLocaleString();
@@ -432,7 +317,7 @@ function renderPage() {
             const displaySubAccount = highlight(actualSub);
             const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.85em; color: var(--text-muted-color); font-weight: normal; margin:0;">🏦 ${displayBroker}${actualSub ? ` - ${displaySubAccount}` : ''}</span>` : '';
             const displayTitle = highlight(entry.title);
-            const displayThoughts = highlight(entry.thoughts, true);
+            const displayThoughts = highlight(entry.preview || '');
             card.innerHTML = `
             <div class="entry-header">
                 ${timeDisplayHtml}
@@ -507,7 +392,7 @@ function renderPage() {
             }
             const displaySubAccount = highlight(actualSub);
             const brokerBadge = entry.brokerAccount ? `<span style="font-size: 0.85em; color: var(--text-muted-color); font-weight: normal; margin:0;">🏦 ${displayBroker}${actualSub ? ` - ${displaySubAccount}` : ''}</span>` : '';
-            const displayThoughts = highlight(entry.thoughts, true);
+            const displayThoughts = highlight(entry.preview || '');
             const reviewHtml = entry.needsReview
                 ? `<div class="review-note"><span>⚠️ <b>검토 필요</b> — ${escapeHtml(entry.reviewReason || '보유 수량과 맞지 않는 매도 체결입니다.')}</span>`
                   + `<button type="button" class="btn-review-done">검토 완료</button></div>`
@@ -536,22 +421,53 @@ function renderPage() {
         const reviewBtn = card.querySelector('.btn-review-done');
         if (reviewBtn) reviewBtn.addEventListener('click', () => resolveEntryReview(entry));
 
-        // ⭐️ 에디터 본문 내 이미지 클릭 시 원본 보기 (확대/축소 지원)
-        //    + 화면 밖 이미지는 스크롤 시점에 지연 로드하여 초기 렌더링 부담 제거
-        const contentImages = card.querySelectorAll('.entry-content img');
-        contentImages.forEach(img => {
-            img.loading = 'lazy';
-            img.decoding = 'async';
-            img.addEventListener('click', (e) => {
-                window.openImageViewer(img.src, e);
+        const content = card.querySelector('.entry-content');
+        if (entry.hasDetail) {
+            const expand = document.createElement('button');
+            expand.type = 'button';
+            expand.className = 'btn-entry-detail';
+            expand.textContent = '본문 펼치기';
+            expand.setAttribute('aria-expanded', 'false');
+            content.after(expand);
+            expand.addEventListener('click', async () => {
+                if (expand.disabled) return;
+                if (expand.getAttribute('aria-expanded') === 'true') {
+                    content.querySelector('.ql-editor').innerHTML = highlight(entry.preview || '');
+                    expand.textContent = '본문 펼치기';
+                    expand.setAttribute('aria-expanded', 'false');
+                    return;
+                }
+                expand.disabled = true;
+                try {
+                    const detail = await journalJSON(`/api/entry/${entry.id}`, false);
+                    if (!card.isConnected) return;
+                    const body = content.querySelector('.ql-editor');
+                    body.innerHTML = highlight(detail.thoughts || '', true);
+                    const attachment = safeUrl(detail.attachedImage, { allowDataImage: true });
+                    if (attachment && !(detail.thoughts || '').includes(detail.attachedImage)) {
+                        const image = document.createElement('img');
+                        image.src = attachment;
+                        image.className = 'entry-thumbnail';
+                        body.appendChild(image);
+                    }
+                    body.querySelectorAll('img').forEach(img => {
+                        img.loading = 'lazy';
+                        img.decoding = 'async';
+                        img.addEventListener('click', event => window.openImageViewer(img.src, event));
+                    });
+                    expand.textContent = '본문 접기';
+                    expand.setAttribute('aria-expanded', 'true');
+                } catch (error) {
+                    await customAlert(error.message);
+                } finally { expand.disabled = false; }
             });
-        });
+        }
 
         listFragment.appendChild(card);
     });
 
     // 스크롤 감지용 투명 요소(Sentinel) 추가
-    if (end < currentFilteredEntries.length) {
+    if (historyCursor) {
         const sentinel = document.createElement('div');
         sentinel.id = 'scroll-sentinel';
         sentinel.style.padding = '20px';
@@ -566,6 +482,12 @@ function renderPage() {
 }
 
 window.editEntry = async function(entry) {
+    if (!entry) return;
+    const ticket = journalRequests.edit = (journalRequests.edit || 0) + 1;
+    try { entry = await journalJSON(`/api/entry/${entry.id}`, false); }
+    catch (error) { await customAlert(error.message); return; }
+    if (ticket !== journalRequests.edit) return;
+    editingEntry = entry;
     if (entry.type === 'trade') {
         const canOpen = await ensureAccountMapping();
         if (!canOpen) return;
@@ -644,13 +566,8 @@ async function deleteEntry(id) {
             });
             if (res === null) return;   // 보유 초과 경고에서 취소
             if (res.ok) {
-                let result = {};
-                try { result = await res.json(); } catch (_) { /* 구버전 응답 */ }
-                cloudEntries = cloudEntries.filter(e => e.id !== id);
-                if (result.flagged && result.flagged.length) await refreshEntriesFromServer();
-                displayEntries(true);
-                updatePortfolioSummary();
-                renderCalendar();
+                await refreshEntriesFromServer();
+                await displayEntries();
             } else { await customAlert("삭제에 실패했습니다."); }
         } catch(e) { await customAlert("삭제 중 오류가 발생했습니다."); }
     }

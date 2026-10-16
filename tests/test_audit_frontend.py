@@ -17,7 +17,7 @@ import pytest
 from playwright.sync_api import Page, expect
 from werkzeug.serving import make_server
 
-from app.utils import ratelimit
+from app.utils import ratelimit, statscache
 
 PORT = 5002
 BASE_URL = f"http://127.0.0.1:{PORT}"
@@ -44,6 +44,7 @@ def live_server(tmp_path_factory):
     with flask_app.app_context():
         backend_app.init_db()
     ratelimit.reset_all()
+    statscache.clear_all()
     flask_app.test_client().post('/signup', data={
         'username': ADMIN_ID, 'password': ADMIN_PW, 'password_confirm': ADMIN_PW})
 
@@ -85,6 +86,7 @@ def test_bot_supplied_stock_name_is_not_executed(page: Page):
     _login(page)
     # 기록 목록 탭을 그리게 한다 (함수가 전역이다)
     page.evaluate("() => { try { displayEntries(true); } catch (e) {} }")
+    page.locator('#historyList .btn-entry-detail').first.click()
     time.sleep(1.5)
     assert page.evaluate("() => window.__xss") is None
     # 막는 방식이 '지우기'가 아니라 '글자로 보여 주기'여야 한다 — 종목명이 그대로 읽혀야 한다.
@@ -130,6 +132,7 @@ def _insert(**cols):
         conn.execute(f"INSERT INTO entries ({keys}) VALUES ({', '.join('?' * len(cols))})",
                      tuple(cols.values()))
         conn.commit()
+    statscache.invalidate(cols['username'])
 
 
 def _entry(entry_id):

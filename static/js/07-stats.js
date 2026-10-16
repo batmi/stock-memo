@@ -62,40 +62,16 @@ function statsMoney(v) {
 window.loadTradeStats = async function() {
     if (!inlineStatsContainer) return;
     inlineStatsContainer.innerHTML = '<p style="text-align:center; padding: 20px; color: var(--text-muted-color);">불러오는 중...</p>';
+    const ticket = journalRequests.stats = (journalRequests.stats || 0) + 1;
+    const generation = journalGeneration;
     try {
-        let entryIds = [];
-        //  종목 필터는 이름으로 지정되지만 대조는 동일성(코드)으로 한다 — 루프 밖에서 한 번만.
-        const chartStockIdentity = currentChartStock === 'all'
-            ? null : identityForStockName(currentChartStock);
-        cloudEntries.forEach(entry => {
-            if (entry.type !== 'trade' || !entry.stockName) return;
-            // ⭐️ '금액 계산 제외' 계좌는 실제 성과가 아니므로 통계에서 제외한다.
-            if (isExcludedFromTotals(entry)) return;
-            if (currentChartStock !== 'all' && identityOf(entry) !== chartStockIdentity) return;
-            if (currentChartAccount !== 'all' && (entry.tradeClass || '') !== currentChartAccount) return;
-            if (currentChartBroker !== 'all' && getMappedBroker(entry.brokerAccount) !== currentChartBroker) return;
-            if (currentChartSubAccount !== 'all' && getMappedSubAccount(entry.subAccount, entry.accountName) !== currentChartSubAccount) return;
-            entryIds.push(entry.id);
-        });
-        
-        // ⭐️ 분석은 차트 기간과 무관하게 '전체 기간'을 집계한다.
-        //    (종목·계좌 등 필터는 그대로 적용되고, 기간만 제한하지 않는다)
-        const res = await fetch('/api/stats', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json' 
-            },
-            body: JSON.stringify({ 
-                entry_ids: entryIds,
-                granularity: window.currentChartGranularity || 'monthly',
-                period_start: null,
-                period_end: null
-            })
-        });
-        if (!res.ok) throw new Error('통계를 불러오지 못했습니다.');
-        const s = await res.json();
+        const s = await journalJSON(journalUrl('stats', {
+            ...journalFilters('chart'), granularity: window.currentChartGranularity || 'monthly',
+        }));
+        if (ticket !== journalRequests.stats || generation !== journalGeneration) return;
         renderTradeStats(s);
     } catch (e) {
+        if (ticket !== journalRequests.stats || generation !== journalGeneration) return;
         inlineStatsContainer.innerHTML = '<p style="text-align:center; padding: 20px; color: var(--danger-color);">데이터를 불러오지 못했습니다.</p>';
     }
 };

@@ -10,49 +10,16 @@
 
 let currentDate = new Date();
 function renderCalendar() {
-    const dailyStats = {};
-    const portfolio = {};
-    const chronological = [...cloudEntries].reverse();
-    
-    chronological.forEach(entry => {
-        let dateKey = '';
-        if (entry.rawDate) { dateKey = entry.rawDate.split('T')[0]; } 
-        else if (entry.date) {
-            const parts = entry.date.split('. ');
-            if (parts.length >= 3) dateKey = `${parts[0]}-${parts[1].padStart(2,'0')}-${parts[2].split('.')[0].padStart(2,'0')}`;
-        }
-        if (!dateKey) return;
-        
-        if (!dailyStats[dateKey]) dailyStats[dateKey] = { profit: 0, details: {} };
-        
-        // ⭐️ 배지도 **한 종목이면 한 줄**이어야 한다. 이름으로 묶으면 같은 날 봇 체결과 수동
-        //    기록이 표기가 갈려 '매수 1건'짜리 배지가 두 줄로 선다. 라벨은 최신 이름 하나로.
-        const stockKey = (entry.type === 'trade' ? displayNameForEntry(entry) : entry.stockName) || '';
-        if (!dailyStats[dateKey].details[stockKey]) dailyStats[dateKey].details[stockKey] = { buyCount: 0, sellCount: 0, watchCount: 0, memoCount: 0, dividendCount: 0 };
-        
-        if (entry.type === 'trade') {
-            if (entry.tradeType === '매수') dailyStats[dateKey].details[stockKey].buyCount++;
-            else if (entry.tradeType === '매도') dailyStats[dateKey].details[stockKey].sellCount++;
-            else if (entry.tradeType === '주시' || entry.tradeType === '관망') dailyStats[dateKey].details[stockKey].watchCount++;
-            else if (entry.tradeType === '배당') dailyStats[dateKey].details[stockKey].dividendCount++;
+    if (!journalMeta) return Promise.resolve();
+    const month = journalMonth(currentDate);
+    const result = readJournalView('calendar', journalUrl('calendar', { month }),
+        renderCalendarSummary, 'calendarGrid', renderCalendar);
+    // 차트는 화면에서 열었을 때만 집계한다.
+    if (document.getElementById('btnChartView')?.classList.contains('active')) window.renderMonthlyProfitChart();
+    return result;
+}
 
-            // ⭐️ 일별 실현손익은 실거래만 계산한다. '금액 계산 제외' 계좌 체결을 같은 종목 칸에 섞으면
-            //    평균단가가 오염되어 실제 손익까지 틀어진다. (기록 자체는 달력에 그대로 표시)
-            if (entry.stockName && !isExcludedFromTotals(entry)) {
-                // ⭐️ 보유 상태(평단)는 **종목코드**로 굴린다. 이름으로 굴리면 표기가 갈린
-                //    같은 종목이 두 칸으로 쪼개져 평단이 갈리고 실현손익까지 틀어진다.
-                const stock = identityOf(entry), qty = Number(entry.quantity) || 0, price = Number(entry.price) || 0;
-                if (!portfolio[stock]) portfolio[stock] = { qty: 0, totalCost: 0, avgPrice: 0 };
-
-                // ⭐️ 공용 계산 엔진(calc.js) — 일별 실현손익(매도 차익 + 배당)
-                const r = applyTradeToHolding(portfolio[stock], qty, price, entry.tradeType);
-                dailyStats[dateKey].profit += r.realized + r.dividend;
-            }
-        } else if (entry.type === 'memo') {
-            dailyStats[dateKey].details[stockKey].memoCount++;
-        }
-    });
-
+function renderCalendarSummary(dailyStats) {
     const year = currentDate.getFullYear(), month = currentDate.getMonth();
     document.getElementById('calendarMonthTitle').innerText = `${year}년 ${month + 1}월`;
     
@@ -110,8 +77,6 @@ function renderCalendar() {
         calendarGrid.innerHTML += `<div class="calendar-day${todayClass}" onclick="showDetailsForDate('${key}', 'all', event)" title="클릭하여 상세 보기">${daySpanHtml}<div style="text-align:right;">${profitHtml}${badgesHtml}</div></div>`;
     }
     
-    // ⭐️ 캘린더 렌더링 시 월별 실현 손익 차트 업데이트
-    window.renderMonthlyProfitChart();
 }
 
 // ⭐️ 종목 드롭다운을 현재 필터 값에 맞춘다. 달력 배지·카드가 넘겨 준 이름이 **옛 표기**일 수
@@ -395,7 +360,10 @@ window.renderChartDetailList = function(periodLabel, sections) {
 };
 
 // ⭐️ 최근 12개월 월별 실현손익/평가손익/매매금액 바 차트 렌더링 함수 (통합)
-window.renderMonthlyProfitChart = function() {
+window.renderMonthlyProfitChart = async function() {
+    if (!journalMeta) return;
+    const ticket = journalRequests.chart = (journalRequests.chart || 0) + 1;
+    const generation = journalGeneration;
     console.log("[Chart] 월별 실현/평가/매매금액 차트 렌더링 시작...");
     
     // ⭐️ 성과분석 뷰가 열려있다면 필터 갱신에 맞춰 다시 불러온다. 단 호출은 아래에서
@@ -417,7 +385,6 @@ window.renderMonthlyProfitChart = function() {
         chartClearAllBtnWrapper.style.display = activeFilterCount >= 1 ? 'flex' : 'none';
     }
     
-    const monthlyData = {};
     const now = new Date();
     const labels = [];
 
@@ -437,38 +404,6 @@ window.renderMonthlyProfitChart = function() {
         return d;
     };
     const fmtYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    // 기록에서 Date 객체 추출 (rawDate 우선, 없으면 표시용 date 문자열 파싱)
-    const getEntryDate = (entry) => {
-        if (entry.rawDate) {
-            const d = new Date(entry.rawDate);
-            if (!isNaN(d)) return d;
-        }
-        if (entry.date) {
-            const parts = entry.date.split('. ').map(p => p.trim()).filter(Boolean);
-            if (parts.length >= 3) return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-            if (parts.length >= 2) return new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
-        }
-        return null;
-    };
-    // 기록의 집계 키 산출 (월간: YYYY-MM, 주간: 해당 주 월요일 YYYY-MM-DD)
-    const periodKeyOf = (entry) => {
-        if (isWeekly) {
-            const ed = getEntryDate(entry);
-            if (!ed || isNaN(ed)) return '';
-            return fmtYmd(getMonday(ed));
-        }
-        if (entry.rawDate) return entry.rawDate.substring(0, 7);
-        if (entry.date) {
-            const parts = entry.date.split('. ');
-            if (parts.length >= 2) return `${parts[0]}-${parts[1].padStart(2, '0')}`;
-        }
-        return '';
-    };
-    const allProfitByMonth = {}; // ⭐️ 전체 기간의 월별 실현손익을 추적하여 누적 계산에 활용
-    const allProfitByMonthStock = {}; // ⭐️ 전체 기간의 누적 계산용 '종목별' 실현손익 추적
-    const dividendByMonth = {}; // ⭐️ 전체 기간의 월별 배당금 추적
-    const dividendByMonthStock = {}; // ⭐️ 전체 기간의 종목별 배당금 추적
-    
     // ⭐️ 렌더링 초기화 시 하단 상세 내역 영역 닫기
     const detailListEl = document.getElementById('chartDetailList');
     if (detailListEl) detailListEl.style.display = 'none';
@@ -489,172 +424,33 @@ window.renderMonthlyProfitChart = function() {
             const d = new Date(now.getFullYear(), now.getMonth() - i - monthOffset, 1);
             key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         }
-        monthlyData[key] = {
-            realized: 0, evaluated: 0, buy_volume: 0, sell_volume: 0, dividend: 0,
-            realized_breakdown: {}, evaluated_breakdown: {}, buy_volume_breakdown: {}, sell_volume_breakdown: {}, cumulative_breakdown: {}, dividend_breakdown: {}
-        };
         labels.push(key);
     }
     
-    //  종목 필터는 이름으로 지정되지만 대조는 동일성(코드)으로 한다 — 루프 밖에서 한 번만.
-    const chartStockIdentity = currentChartStock === 'all' ? null : identityForStockName(currentChartStock);
-
-    const chronological = [...cloudEntries].sort((a, b) => {
-        const timeA = a.rawDate ? new Date(a.rawDate).getTime() : a.id;
-        const timeB = b.rawDate ? new Date(b.rawDate).getTime() : b.id;
-        return timeA - timeB;
-    });
-
-    const portfolio = {};
-    const stockRemainingBuys = {}; // ⭐️ 선입선출(FIFO) 기반 각 매수 건의 잔여 수량 추적
-    
-    chronological.forEach(entry => {
-        if (entry.type !== 'trade' || !entry.stockName) return;
-
-        // ⭐️ '금액 계산 제외' 계좌 체결은 실제 돈이 오간 기록이 아니다.
-        //    실현손익·평가손익·매매금액·누적수익 어느 집계에도 들어가면 안 된다.
-        //    (분석 탭 loadTradeStats / 캘린더 일별 손익과 동일한 규칙)
-        if (isExcludedFromTotals(entry)) return;
-
-        // ⭐️ 차트 전용 필터 적용 (종목은 이름으로 지정되지만 대조는 동일성으로 한다)
-        if (currentChartStock !== 'all' && identityOf(entry) !== chartStockIdentity) return;
-        if (currentChartAccount !== 'all' && (entry.tradeClass || '') !== currentChartAccount) return;
-        if (currentChartBroker !== 'all' && getMappedBroker(entry.brokerAccount) !== currentChartBroker) return;
-        if (currentChartSubAccount !== 'all' && getMappedSubAccount(entry.subAccount, entry.accountName) !== currentChartSubAccount) return;
-        
-        const dateKey = periodKeyOf(entry);
-        if (!dateKey) return;
-
-        // ⭐️ 평단·FIFO 잔여수량 같은 **보유 상태**는 종목코드로 굴린다(이름은 표기가 갈린다).
-        //    월별 분해(breakdown)는 사람이 읽는 라벨이지만, 이름을 그대로 쓰면 표기가 갈린
-        //    같은 종목이 목록에 두 줄로 서므로 '최신 이름 하나'로 모은다.
-        const ident = identityOf(entry);
-        const stock = displayNameForEntry(entry);
-        const qty = Number(entry.quantity) || 0;
-        const price = Number(entry.price) || 0;
-
-        if (!portfolio[ident]) portfolio[ident] = { qty: 0, totalCost: 0, avgPrice: 0, stockCode: entry.stockCode || '' };
-        if (entry.stockCode) portfolio[ident].stockCode = entry.stockCode; // 최신 종목코드 갱신
-        portfolio[ident].displayName = stock; // 평가손익 분해에서 코드 대신 부를 이름
-        if (!stockRemainingBuys[ident]) stockRemainingBuys[ident] = [];
-        
-        if (!allProfitByMonth[dateKey]) allProfitByMonth[dateKey] = 0;
-        if (!allProfitByMonthStock[dateKey]) allProfitByMonthStock[dateKey] = {};
-        if (!allProfitByMonthStock[dateKey][stock]) allProfitByMonthStock[dateKey][stock] = 0;
-        
-        if (!dividendByMonth[dateKey]) dividendByMonth[dateKey] = 0;
-        if (!dividendByMonthStock[dateKey]) dividendByMonthStock[dateKey] = {};
-        if (!dividendByMonthStock[dateKey][stock]) dividendByMonthStock[dateKey][stock] = 0;
-
-        if (entry.tradeType === '매수') {
-            // ⭐️ 공용 계산 엔진(calc.js) — 평균단가/포지션 갱신
-            applyTradeToHolding(portfolio[ident], qty, price, '매수');
-
-            // ⭐️ 잔여 수량 큐에 삽입 및 거래대금(매매금액) 합산
-            stockRemainingBuys[ident].push({ dateKey, qty, price });
-            if (monthlyData[dateKey]) {
-                const vol = price * qty;
-                monthlyData[dateKey].buy_volume += vol;
-                monthlyData[dateKey].buy_volume_breakdown[stock] = (monthlyData[dateKey].buy_volume_breakdown[stock] || 0) + vol;
-            }
-            
-        } else if (entry.tradeType === '매도') {
-            // ⭐️ 공용 계산 엔진(calc.js): 갱신 전 평단으로 실현손익 산출 + 포지션 즉시 갱신
-            const profit = applyTradeToHolding(portfolio[ident], qty, price, '매도').realized;
-            allProfitByMonth[dateKey] += profit; // ⭐️ 전체 기간 수익 누적용
-            allProfitByMonthStock[dateKey][stock] += profit;
-            
-            if (monthlyData[dateKey]) {
-                monthlyData[dateKey].realized += profit;
-                monthlyData[dateKey].sell_volume += (price * qty);
-                monthlyData[dateKey].realized_breakdown[stock] = (monthlyData[dateKey].realized_breakdown[stock] || 0) + profit;
-                monthlyData[dateKey].sell_volume_breakdown[stock] = (monthlyData[dateKey].sell_volume_breakdown[stock] || 0) + (price * qty);
-            }
-            // (포지션 갱신은 위 applyTradeToHolding 에서 이미 처리됨)
-
-            // ⭐️ 매도 시 과거 매수 기록부터 선입선출(FIFO)로 차감하여 현재 미청산 매수건 파악
-            let sellQty = qty;
-            while(sellQty > 0 && stockRemainingBuys[ident].length > 0) {
-                let firstBuy = stockRemainingBuys[ident][0];
-                if (firstBuy.qty <= sellQty) {
-                    sellQty -= firstBuy.qty;
-                    stockRemainingBuys[ident].shift(); // 전량 청산
-                } else {
-                    firstBuy.qty -= sellQty;
-                    sellQty = 0; // 일부만 청산
-                }
-            }
-        } else if (entry.tradeType === '배당') {
-            allProfitByMonth[dateKey] += (price * qty); // ⭐️ 배당금 누적용
-            allProfitByMonthStock[dateKey][stock] += (price * qty);
-            
-            dividendByMonth[dateKey] += (price * qty); // ⭐️ 순수 배당금 누적용
-            dividendByMonthStock[dateKey][stock] += (price * qty);
-            
-            if (monthlyData[dateKey]) {
-                monthlyData[dateKey].dividend += (price * qty);
-                monthlyData[dateKey].dividend_breakdown[stock] = (monthlyData[dateKey].dividend_breakdown[stock] || 0) + (price * qty);
-            }
+    let result;
+    try {
+        result = await journalJSON(journalUrl('chart', {
+            ...journalFilters('chart'), granularity, period: labels,
+        }));
+    } catch (error) {
+        if (ticket === journalRequests.chart && generation === journalGeneration) {
+            journalError('monthlyProfitChartContainer', error, window.renderMonthlyProfitChart);
         }
-    });
-
-    // ⭐️ 현재가(Cache)를 바탕으로 현재 청산되지 않고 남은 매수 건들의 평가 손익 계산
-    //    현재가 캐시는 '대시보드' 필터에 걸린 종목만 채우므로, 차트가 필요한
-    //    종목이 캐시에 없을 수 있다. 예전엔 그런 종목이 소리 없이 0으로 빠져 평가손익이
-    //    실제보다 작게 나왔다 → 빠진 종목을 모아 화면에 알린다.
-    const evalMissingStocks = [];
-    for (const ident in stockRemainingBuys) {
-        const lots = stockRemainingBuys[ident];
-        // 지금 보고 있는 구간 안에 남은 매수건이 있는 종목만 평가 대상이다
-        if (!lots.some(buy => monthlyData[buy.dateKey])) continue;
-
-        //  이 표의 키는 동일성(대개 종목코드)이다. 사람이 읽는 자리(상세 내역·경고)에는
-        //  다른 집계와 똑같이 '최신 종목명'으로 바꿔 넣는다 — 코드가 그대로 나오면 안 된다.
-        const stock = portfolio[ident]?.displayName || displayNameForIdentity(ident) || ident;
-        const stockCode = portfolio[ident]?.stockCode;
-        const currentPrice = stockCode ? window.currentPriceCache[stockCode] : undefined;
-        if (currentPrice === undefined || currentPrice === null) {
-            evalMissingStocks.push(stock);
-            continue;
-        }
-        lots.forEach(buy => {
-            if (monthlyData[buy.dateKey]) {
-                const evalProfit = (currentPrice - buy.price) * buy.qty;
-                monthlyData[buy.dateKey].evaluated += evalProfit;
-                monthlyData[buy.dateKey].evaluated_breakdown[stock] = (monthlyData[buy.dateKey].evaluated_breakdown[stock] || 0) + evalProfit;
-            }
-        });
+        return;
     }
-    
-    // ⭐️ 12개월 라벨별로 과거부터 해당 월까지의 총 누적 수익금 계산 및 상세 내역 생성
-    labels.forEach(label => {
-        let cum = 0;
-        let cumDiv = 0;
-        let cumBreakdown = {};
-        let cumDivBreakdown = {};
-        
-        for (const key in allProfitByMonth) {
-            if (key <= label) {
-                cum += allProfitByMonth[key];
-                cumDiv += (dividendByMonth[key] || 0);
-                
-                if (allProfitByMonthStock[key]) {
-                    for (const s in allProfitByMonthStock[key]) {
-                        cumBreakdown[s] = (cumBreakdown[s] || 0) + allProfitByMonthStock[key][s];
-                    }
-                }
-                if (dividendByMonthStock[key]) {
-                    for (const s in dividendByMonthStock[key]) {
-                        cumDivBreakdown[s] = (cumDivBreakdown[s] || 0) + dividendByMonthStock[key][s];
-                    }
-                }
-            }
-        }
-        monthlyData[label].cumulative = cum;
-        monthlyData[label].cumulative_dividend = cumDiv;
-        monthlyData[label].cumulative_breakdown = cumBreakdown;
-        monthlyData[label].cumulative_div_breakdown = cumDivBreakdown;
+    if (ticket !== journalRequests.chart || generation !== journalGeneration) return;
+    document.getElementById('monthlyProfitChartContainer-load-error')?.remove();
+    const monthlyData = result.monthlyData;
+    const missing = new Set();
+    result.evaluation.forEach(lot => {
+        const price = lot.stockCode ? window.currentPriceCache[lot.stockCode] : undefined;
+        if (price === undefined || price === null) { missing.add(lot.stock); return; }
+        const period = monthlyData[lot.period];
+        const profit = price * lot.quantity - lot.cost;
+        period.evaluated += profit;
+        period.evaluated_breakdown[lot.stock] = (period.evaluated_breakdown[lot.stock] || 0) + profit;
     });
+    const evalMissingStocks = [...missing];
 
     const theme = document.documentElement.getAttribute('data-theme') || 'light';
     const isDark = theme === 'dark';

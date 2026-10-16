@@ -25,7 +25,7 @@ from flask import (Flask)
 #    `app` (Flask 인스턴스) 이름을 패키지로 덮어써 버린다.
 import config
 import trading_api
-from app.routes import admin, api, auth, backup_api, middleware
+from app.routes import admin, api, auth, backup_api, journal_api, middleware
 from app.services import jobs, migrations, prices
 from app.database import entry_logic, schema
 from app.database.db import get_db, db_conn
@@ -57,6 +57,7 @@ admin.register(app)
 trading_api.register(app)
 backup_api.register(app)
 api.register(app)
+journal_api.register(app)
 
 # 필요한 폴더들 생성
 os.makedirs(config.DB_DIR, exist_ok=True)

@@ -9,15 +9,15 @@
 // ═══════════════════════════════════════════════════════════════════
 
 function getStockOptions() {
-    const historyStocks = cloudEntries.map(entry => entry.stockName).filter(Boolean);
+    const historyStocks = (journalMeta?.stockNames || []);
     return [...new Set([...defaultStocks, ...historyStocks])].sort();
 }
 function getBrokerOptions() {
-    const historyBrokers = cloudEntries.map(entry => entry.brokerAccount).filter(Boolean);
+    const historyBrokers = (journalMeta?.brokers || []);
     return [...new Set([...defaultBrokers, ...historyBrokers])].sort();
 }
 function getSubAccountOptions() {
-    const historySubAccounts = cloudEntries.map(entry => entry.subAccount).filter(Boolean);
+    const historySubAccounts = (journalMeta?.rawSubAccounts || []);
     return [...new Set(historySubAccounts)].sort();
 }
 
@@ -33,12 +33,7 @@ function autoFillStockInfo(e) {
     syncHiddenCheckbox(val);
 
     // 증권사, 투자분류 등의 정보가 있는 가장 최근의 매매(trade) 기록을 우선 탐색
-    let recentEntry = cloudEntries.find(entry => entry.stockName === val && entry.type === 'trade');
-    
-    // 매매 기록이 없으면 일반 메모 기록이라도 탐색 (종목코드가 있을 수 있으므로)
-    if (!recentEntry) {
-        recentEntry = cloudEntries.find(entry => entry.stockName === val);
-    }
+    const recentEntry = journalMeta?.recentEntries[val];
 
     if (recentEntry) {
         if (recentEntry.stockCode) document.getElementById('stockCode').value = recentEntry.stockCode;
@@ -103,6 +98,7 @@ function resetAndCloseForm() {
         
         if (window.quill) window.quill.setContents([]); // 에디터 초기화
         editingEntryId = null;
+    editingEntry = null;
         submitBtn.innerText = "기록";
         const tradeRadio = document.querySelector('input[name="recordType"][value="trade"]');
         if(tradeRadio) { tradeRadio.checked = true; toggleFormUI('trade'); }

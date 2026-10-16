@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-// 05-data.js — 서버 데이터 로드(/api/data)·환경설정 저장·실시간 뉴스
+// 05-data.js — 서버 데이터 로드(/api/journal/meta)·환경설정 저장·실시간 뉴스
 //
 // ⚠️ 이 파일들은 ES 모듈이 아니라 **순서대로 로드되는 클래식 스크립트**다.
 //    최상위 let/const/function 은 전역 렉시컬 환경을 공유하므로, 예전 script.js
@@ -58,7 +58,7 @@ async function loadDataFromLocal() {
         const [mePromise, prefPromise, dataPromise, mappingPromise] = [
             initialFetchOrFresh('me', '/api/me').catch(e => { console.warn("사용자 정보 로드 실패", e); return null; }),
             initialFetchOrFresh('pref', '/api/preferences').catch(e => { console.warn("환경설정 로드 실패", e); return null; }),
-            initialFetchOrFresh('data', '/api/data'),
+            initialFetchOrFresh('data', '/api/journal/meta'),
             initialFetchOrFresh('mappings', '/api/mappings').catch(e => { console.warn("계좌 매핑 로드 실패", e); return null; })
         ];
 
@@ -192,7 +192,7 @@ async function loadDataFromLocal() {
         }
         
         // 3. 매매 기록 데이터 처리
-        console.log("[Data Load] /api/data 상태 코드:", response.status);
+        console.log("[Data Load] /api/journal/meta 상태 코드:", response.status);
         if (response.status === 401) {
             // ⭐️ 세션 만료 시 로그인 페이지로 이동 (빈 화면 방지)
             console.warn("[Data Load] 세션 만료 감지 - 로그인 페이지로 이동");
@@ -200,13 +200,13 @@ async function loadDataFromLocal() {
             return;
         }
         if (!response.ok) {
-            throw new Error(`/api/data 응답 오류: ${response.status}`);
+            throw new Error(`/api/journal/meta 응답 오류: ${response.status}`);
         }
-        cloudEntries = await response.json();
+        setJournalMeta(await response.json());
         window.__dataLoadFailed = false; // ⭐️ 로딩 성공: 재시도 플래그 해제
         const errBox = document.getElementById('dataLoadErrorBox');
         if (errBox) errBox.style.display = 'none';
-        displayEntries();
+        await displayEntries();
         console.log("[Data Load] 화면 렌더링(displayEntries) 완료");
 
         fetchRealtimeNews();
@@ -222,15 +222,15 @@ async function loadDataFromLocal() {
 }
 
 // ⭐️ 초기 데이터 로딩 실패 시 화면 중앙에 안내 + '다시 시도' 버튼을 표시
-// ⭐️ 기록 목록만 서버 값으로 다시 받는다. 서버만 아는 변경(초과 매도에 붙은 '검토
-//    필요' 표시와 사유)을 화면에 반영할 때 쓴다. 전체 초기화(loadDataFromLocal)와 달리
-//    환경설정·뉴스·타이머는 건드리지 않는다. 실패하면 기존 목록을 그대로 둔다.
+// 기록 변경 뒤 메타데이터와 읽기 캐시를 갱신한다. 목록과 집계는 각 화면이 다시 조회한다.
 async function refreshEntriesFromServer() {
     try {
-        const res = await fetch('/api/data');
-        if (res.ok) cloudEntries = await res.json();
+        const res = await fetch('/api/journal/meta');
+        if (!res.ok) throw new Error('요약 정보를 새로 불러오지 못했습니다.');
+        setJournalMeta(await res.json());
     } catch (e) {
         console.warn('기록 새로고침 실패', e);
+        throw e;
     }
 }
 

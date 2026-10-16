@@ -47,7 +47,9 @@ document.getElementById('btnModalExportExcel').addEventListener('click', async (
                 };
                 
                 // 데이터 추가
-                cloudEntries.forEach(e => {
+                // 전체 내보내기는 사용자가 요청한 때만 원문 전체를 읽는다.
+                const exportEntries = await journalJSON('/api/data', false);
+                exportEntries.forEach(e => {
                     const rowData = [
                         e.date, (e.type || '').toUpperCase(), e.stockName||'', getMappedBroker(e.brokerAccount)||'', e.subAccount||'', e.accountName||'',
                         e.tradeType||'', Number(e.price)||0, Number(e.quantity)||0, 

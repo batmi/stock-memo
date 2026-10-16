@@ -1615,3 +1615,24 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 /* ⭐️ 마크다운 붙여넣기 버튼 (21-markdown-paste.js) — 아이콘 대신 글자, 대기 중에는 강조 */
 .ql-toolbar.ql-snow button.ql-markdown { font-size: 9px; font-weight: bold; letter-spacing: -0.3px; color: var(--text-color); width: auto !important; min-width: 22px; }
 .ql-toolbar.ql-snow button.ql-markdown.md-armed { background: var(--primary-color) !important; color: #fff; }
+.btn-entry-detail {
+    width: auto;
+    margin-top: 8px;
+    padding: 5px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--card-bg-color);
+    color: var(--primary-color);
+    cursor: pointer;
+    font-size: 12px;
+}
+.btn-entry-detail:disabled { opacity: .6; cursor: wait; }
+.journal-load-error {
+    margin: 8px 0;
+    padding: 12px;
+    color: var(--danger-color);
+    background: var(--card-bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+}
+.journal-load-error button { width: auto; margin-left: 8px; }

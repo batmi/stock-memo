@@ -12,7 +12,7 @@
 import threading
 import uuid
 
-# (username, granularity) -> 결과 dict
+# (username, granularity 또는 'journal-index') -> 통계 또는 본문 없는 거래 인덱스
 #   전체 통계는 대시보드 진입 시 자주 호출되며 SELECT * 전체 로드 + Python 재계산
 #   비용이 크다. 기록이 변경될 때만 무효화하여 반복 계산을 제거한다.
 #   (특정 entry_ids 로 필터링된 POST 요청은 케이스가 다양해 캐싱하지 않는다.)

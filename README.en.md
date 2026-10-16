@@ -146,6 +146,7 @@ stock-memo/
 │   │   │                   #   so route modules never depend on each other
 │   │   ├── admin.py        # Admin — approve/delete accounts, reset passwords
 │   │   ├── api.py          # Screen API — entry CRUD, stats, prices, news, bot controls
+│   │   ├── journal_api.py  # Read APIs — metadata, cursor pages, detail and aggregates
 │   │   ├── backup_api.py   # Full backup ZIP export / restore
 │   │   └── middleware.py   # Security/cache headers, CSP, gzip, global error handling
 │   │
@@ -155,6 +156,7 @@ stock-memo/
 │   │   ├── entries.py      # Entry create/update/delete (integrity rules shared by web & bot)
 │   │   ├── migrations.py   # One-time migrations from legacy storage (JSON, mappings, inline images)
 │   │   ├── stats.py        # Trade performance analytics (pure functions)
+│   │   ├── journal.py      # Compact trade index, filtering and portfolio/calendar/chart aggregates
 │   │   ├── prices.py       # Price lookup service (per-provider with fallbacks)
 │   │   ├── news.py         # Ticker news lookup (Google News RSS + cache)
 │   │   ├── backups.py      # Backup ZIP integrity verification (pure functions)
@@ -262,13 +264,31 @@ functions directly; switching to modules would break all of them.)
     per-file, so a top-level reference to a later file's function is a `ReferenceError`.
     Wrap event handlers as `() => fn()` so the lookup happens when the event fires.
 
-> Performance metrics (win rate, profit factor, monthly aggregates) live in exactly
-> one place: the backend `app/services/stats.py`. `static/calc.js` used to carry a copy of the same
-> algorithm, but the app never called it — the analysis screen has always used
-> `/api/stats` — so it was deleted. What remains in `static/calc.js` is only the
-> state-transition function the screens use to roll up holdings (average cost, basis).
-> Regressions are pinned by `tests/test_stats.py` against a golden snapshot
-> (`tests/fixtures/stats_expected.json`).
+Performance metrics are calculated by `app/services/stats.py`; portfolio, calendar and
+chart aggregates are calculated by `app/services/journal.py`. The browser renders those
+results and applies current prices to the chart's remaining positions. Stock identity
+and flat-position checks still use `static/calc.js`. The existing statistics snapshots
+and `tests/test_journal_api.py` check calculation parity.
+
+### Loading large journals
+
+The initial screen does not download all bodies and attachments through `/api/data`.
+`/api/journal/meta` provides stock/account choices and autocomplete candidates from the
+full history, while `/api/journal/portfolio` provides holdings summaries. History uses
+`/api/journal/entries` to read 15 records per cursor page, ordered by trade date and ID.
+Search and filters run on the server and include text beyond the visible preview.
+
+Cards show up to 240 characters of plain text. Expanding a body or editing a record
+fetches its original content and attachment references from `/api/entry/<id>`. Calendar
+requests return one month's aggregates; charts return the selected 12 months or weeks.
+Average cost and realized profit still include earlier purchases, and remaining lots
+also account for later sales. Pagination never limits the calculation input.
+
+The server reuses a body-free trade index per user and data version. Entry changes,
+account mappings and restores invalidate it with the statistics cache. Responses use
+private, query-specific ETags. If data changes between pages, the browser reloads the
+summary and first page instead of mixing versions. Excel export requests `/api/data`
+only when explicitly requested and includes the full journal, regardless of loaded pages.
 
 ### Deployment Shape
 

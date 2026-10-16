@@ -18,7 +18,7 @@ import pytest
 from playwright.sync_api import Page, expect
 from werkzeug.serving import make_server
 
-from app.utils import ratelimit
+from app.utils import ratelimit, statscache
 
 PORT = 5003
 BASE_URL = f"http://127.0.0.1:{PORT}"
@@ -51,6 +51,7 @@ def live_server(tmp_path_factory):
     with flask_app.app_context():
         backend_app.init_db()
     ratelimit.reset_all()
+    statscache.clear_all()
     flask_app.test_client().post('/signup', data={
         'username': USER_ID, 'password': USER_PW, 'password_confirm': USER_PW})
 
@@ -82,6 +83,7 @@ def _insert_memo(entry_id, thoughts, title='메모'):
                      "VALUES (?, ?, 'memo', ?, ?, '2026-10-01T09:00', '2026-10-01')",
                      (entry_id, USER_ID, title, thoughts))
         conn.commit()
+    statscache.invalidate(USER_ID)
 
 
 def _thoughts(title):
@@ -135,6 +137,7 @@ def test_pasted_web_table_survives_save_view_and_reedit(page: Page):
     # 기록 화면: 표로 그려진다.
     page.evaluate("() => displayEntries(true)")
     card = page.locator('#historyList .entry-card', has_text='표 메모')
+    card.locator('.btn-entry-detail').click()
     expect(card.locator('table th')).to_have_count(2)
     expect(card.locator('td', has_text='SK하이닉스')).to_have_attribute('rowspan', '2')
 
@@ -152,6 +155,7 @@ def test_legacy_quill1_lists_render_and_convert(page: Page):
     _login(page)
     page.evaluate("() => displayEntries(true)")
     card = page.locator('#historyList .entry-card', has_text='옛 메모')
+    card.locator('.btn-entry-detail').click()
     expect(card.locator('li', has_text='글머리')).to_have_css('list-style-type', 'disc')
     expect(card.locator('li', has_text='번호')).to_have_css('list-style-type', 'decimal')
 

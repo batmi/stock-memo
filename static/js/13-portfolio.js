@@ -9,84 +9,17 @@
 // ═══════════════════════════════════════════════════════════════════
 
 function updatePortfolioSummary() {
-    // ⭐️ displayEntries 를 거치지 않고 직접 호출되는 경로(필터 변경 등)가 많으므로 여기서도 재계산
-    recomputeHiddenStocks();
+    if (!journalMeta) return Promise.resolve();
+    const url = journalUrl('portfolio', { ...journalFilters('portfolio'), month: journalMonth() });
+    return readJournalView('portfolio', url, renderPortfolioSummary, 'portfolioGrid', updatePortfolioSummary);
+}
 
-    const portfolio = {};
-    const chartLabels = [];
-    const chartData = [];
-    let totalRealizedProfit = 0;
-    let totalInvestedAmount = 0;
-    let holdingsCount = 0;
-    let monthlyBuyCount = 0;
-    let monthlySellCount = 0;
-    
-    const nowDt = new Date();
-    const curYear = nowDt.getFullYear();
-    const curMonth = nowDt.getMonth();
-    
-    const chronologicalEntries = [...cloudEntries].reverse();
-
-    chronologicalEntries.forEach(entry => {
-        if (entry.type !== 'trade' || !entry.stockName) return;
-        
-        // ⭐️ 대시보드 증권사 필터 적용
-        if (currentDashboardBroker !== 'all' && getMappedBroker(entry.brokerAccount) !== currentDashboardBroker) return;
-        
-        // ⭐️ 대시보드 증권계좌 필터 적용
-        if (currentDashboardSubAccount !== 'all' && getMappedSubAccount(entry.subAccount, entry.accountName) !== currentDashboardSubAccount) return;
-        
-        // ⭐️ 대시보드 투자 분류 필터 적용
-        if (currentDashboardAccount !== 'all' && (entry.tradeClass || '') !== currentDashboardAccount) return;
-
-        // 표시 이름은 표기가 갈린 같은 종목을 **한 이름**으로 부르기 위한 공용 규칙을 따른다
-        //  (가장 최근 체결의 이름 — 드롭다운·달력·백엔드 stats.display_names 와 같다).
-        const stock = displayNameForEntry(entry);
-        const qty = Number(entry.quantity) || 0;
-        const price = Number(entry.price) || 0;
-
-        // ⭐️ '금액 계산 제외' 계좌는 실거래와 다른 칸에 쌓는다. 같은 종목이라도 합치면
-        //    제외 대상 매수가 실거래 평균단가·실현손익을 오염시킨다.
-        const isExcluded = isExcludedFromTotals(entry);
-        const excludeLabel = isExcluded ? exclusionBadgeLabel(entry) : '';
-
-        // ⭐️ 칸은 **종목코드**로 가른다(identityOf). 이름으로 가르면 표기가 갈린 같은 종목이
-        //    카드 두 장으로 쪼개진다 — 봇이 보내는 증권사 정식 명칭과 손으로 적어 둔 이름이
-        //    다를 때가 그렇다(2026-08-24: 'KODEX 삼성그룹' vs 'KODEX 삼성그룹 ETF', 코드는 둘 다 102780).
-        const identity = identityOf(entry);
-        const key = portfolioKeyFor(entry);
-
-        if (!portfolio[key]) portfolio[key] = { stock, identity, isExcluded, excludeLabel, qty: 0, totalCost: 0, avgPrice: 0, realizedProfit: 0, realizedCost: 0, accountName: '', tradeClass: '', traded: false, stockCode: '' };
-        if (stock) portfolio[key].stock = stock;
-        if (entry.tradeClass) portfolio[key].tradeClass = entry.tradeClass; // 가장 최근 거래의 투자 분류 기록
-        if (entry.stockCode) portfolio[key].stockCode = entry.stockCode; // 종목코드 기록
-
-        // 이번 달 거래인지 확인
-        let isCurrentMonth = false;
-        let entryDate = null;
-        if (entry.rawDate) entryDate = new Date(entry.rawDate);
-        else if (entry.id) entryDate = new Date(entry.id);
-        
-        if (entryDate && !isNaN(entryDate) && entryDate.getFullYear() === curYear && entryDate.getMonth() === curMonth) {
-            isCurrentMonth = true;
-        }
-
-        const tt = entry.tradeType;
-        if (tt === '매수' || tt === '매도' || tt === '배당') {
-            portfolio[key].traded = true;
-            // ⭐️ 월간 매매 건수는 실거래(합계 반영 대상)만 센다.
-            if (isCurrentMonth && !isExcluded) {
-                if (tt === '매수') monthlyBuyCount++;
-                else if (tt === '매도') monthlySellCount++;
-            }
-            // ⭐️ 공용 계산 엔진(calc.js) — 평균단가/실현손익 단일 소스
-            const r = applyTradeToHolding(portfolio[key], qty, price, tt);
-            portfolio[key].realizedProfit += r.realized + r.dividend;
-            portfolio[key].realizedCost += r.cost;
-            // ⭐️ 카드에 표시할 종목별 손익은 모의도 계산하되, 누적 실현 손익 합계에는 넣지 않는다.
-            if (!isExcluded) totalRealizedProfit += r.realized + r.dividend;
-        }
-    });
+function renderPortfolioSummary(summary) {
+    const portfolio = summary.holdings;
+    const chartLabels = [], chartData = [];
+    const totalRealizedProfit = summary.totalRealizedProfit;
+    const monthlyBuyCount = summary.monthlyBuyCount, monthlySellCount = summary.monthlySellCount;
+    let totalInvestedAmount = 0, holdingsCount = 0;
 
     const portfolioGrid = document.getElementById('portfolioGrid');
     portfolioGrid.innerHTML = '';
@@ -345,7 +278,7 @@ function updatePortfolioSummary() {
 
     let toggleBtn = document.getElementById('btnTogglePortfolio');
     // ⭐️ 필터가 적용되어 결과가 없더라도, 전체 매매 기록이 존재하면 대시보드를 숨기지 않음
-    const hasAnyTrade = cloudEntries.some(e => e.type === 'trade' && e.stockName);
+    const hasAnyTrade = journalMeta.hasAnyTrade;
     const shouldShowDashboard = hasAnyTrade;
 
     if (toggleBtn) {
@@ -627,19 +560,7 @@ window.updateDashboardFilterStyle = function(element) {
 //    (2026-08-24: 봇이 보낸 'KODEX 삼성그룹'과 손으로 적은 'KODEX 삼성그룹 ETF'가 코드는 같은데
 //     두 줄로 섰다.) 표시 이름 규칙은 카드·백엔드(stats.display_names)와 같다.
 function stockFilterOptions() {
-    const latest = {}; // identity -> { name, ts, id }
-    cloudEntries.forEach(entry => {
-        const name = (entry.stockName || '').trim();
-        if (!name) return;
-        // 메모는 종목코드를 안 갖는 경우가 많아 이름 → 동일성 표를 거쳐 묶는다.
-        const ident = (entry.type || 'trade') === 'trade' ? identityOf(entry) : identityForStockName(name);
-        if (!ident) return;
-        const ts = entry.rawDate ? (new Date(entry.rawDate).getTime() || 0) : 0;
-        const id = Number(entry.id) || 0;
-        const prev = latest[ident];
-        if (!prev || ts > prev.ts || (ts === prev.ts && id > prev.id)) latest[ident] = { name, ts, id };
-    });
-    return Object.values(latest).map(v => v.name).sort();
+    return journalMeta ? journalMeta.stocks : [];
 }
 
 // ⭐️ 드롭다운 필터에 종목명을 동적으로 추가하는 함수
@@ -678,7 +599,7 @@ function updateFilterDropdown() {
     }
 
     const accountSortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "시스템": 7, "기타": 8 };
-    const accounts = [...new Set(cloudEntries.map(e => e.tradeClass).filter(Boolean))].sort((a, b) => {
+    const accounts = [...journalMeta.tradeClasses].sort((a, b) => {
         const orderA = accountSortOrder[a] || 99;
         const orderB = accountSortOrder[b] || 99;
         if (orderA !== orderB) return orderA - orderB;
@@ -700,7 +621,7 @@ function updateFilterDropdown() {
         window.updateDashboardFilterStyle(accountSelect);
     }
     
-    const brokers = [...new Set(cloudEntries.map(e => getMappedBroker(e.brokerAccount)).filter(Boolean))].sort();
+    const brokers = [...new Set(journalMeta.brokers.map(getMappedBroker))].sort();
     if (brokerSelect) {
         let html = '<option value="all">증권사별</option>';
         brokers.forEach(broker => {
@@ -718,7 +639,7 @@ function updateFilterDropdown() {
         window.updateDashboardFilterStyle(brokerSelect);
     }
 
-    const subAccounts = [...new Set(cloudEntries.map(e => getMappedSubAccount(e.subAccount, e.accountName)).filter(Boolean))].sort();
+    const subAccounts = [...journalMeta.subAccounts].sort();
     if (subAccountSelect) {
         let html = '<option value="all">계좌별</option>';
         subAccounts.forEach(sa => {
@@ -866,9 +787,7 @@ function updateFilterDropdown() {
         let subAccountHtml = `<option value="all">모든 계좌</option>`;
         // ⭐️ 금액 계산에서 빠지는 기록(제외 계좌)만 들어있는 계좌는 차트가 항상 비므로
         //    아예 선택지에서 뺀다. (대시보드 카드 필터는 카드 확인용이라 그대로 유지)
-        const chartSubAccounts = subAccounts.filter(sa => cloudEntries.some(e =>
-            getMappedSubAccount(e.subAccount, e.accountName) === sa && !isExcludedFromTotals(e)
-        ));
+        const chartSubAccounts = journalMeta.chartSubAccounts;
         if (chartSubAccounts.length > 0) {
             chartSubAccounts.forEach(sa => {
                 subAccountHtml += `<option value="${sa.replace(/"/g, '&quot;')}">${escapeHtml(sa)}</option>`;

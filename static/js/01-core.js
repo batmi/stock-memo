@@ -37,6 +37,7 @@ function initialFetchOrFresh(key, url) {
     return Promise.race([prefetched, timeout]).then(res => res ? res : fetchWithTimeout(url));
 }
 
+// 현재까지 읽은 목록 페이지. 전체 손익·필터 후보의 입력으로 쓰지 않는다.
 let cloudEntries = [];
 
 // ⭐️ 등록된 계좌 매핑(별칭·증권사). 페이지 로드 시 /api/mappings 로 채운다.
@@ -203,11 +204,7 @@ function identityForStockName(name) {
     const target = (name == null ? '' : String(name)).trim();
     if (!target) return '';
     if (stockIdentityByName[target]) return stockIdentityByName[target];
-    //  표가 아직 안 만들어진 시점(첫 렌더 순서에 따라)에도 답은 나와야 한다 — 그때만 훑는다.
-    const entries = (typeof cloudEntries !== 'undefined' && cloudEntries) ? cloudEntries : [];
-    const hit = entries.find(e => e && (e.type || 'trade') === 'trade'
-        && (e.stockName || '').trim() === target);
-    return hit ? identityOf(hit) : target;
+    return target;
 }
 
 // ⭐️ 동일성 → 화면에 보여 줄 종목명. 표기가 갈린 같은 종목은 **가장 최근 기록의 이름**
@@ -357,8 +354,6 @@ let currentDashboardBroker = 'all'; // 대시보드 증권사 필터 상태
 let currentDashboardSubAccount = 'all'; // 대시보드 계좌 필터 상태
 let currentDashboardAccount = 'all'; // 대시보드 투자 분류 필터 상태
 let priceUpdateInterval = null; // ⭐️ 타이머 변수 선언 누락 수정
-let currentFilteredEntries = [];
-let currentRenderPage = 1;
 const entriesPerPage = 15;
 let lastRenderedMonth = '';
 let userPreferences = {};       // ⭐️ 사용자별 설정(포트폴리오 정렬 순서 등) 저장
