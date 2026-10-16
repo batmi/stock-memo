@@ -1618,13 +1618,17 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 .btn-entry-detail {
     width: auto;
     margin-top: 8px;
-    padding: 5px 10px;
+    padding: 2px 8px;
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: 4px;
     background: var(--card-bg-color);
     color: var(--primary-color);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
+}
+.btn-entry-detail[aria-expanded="true"] {
+    background: var(--primary-color);
+    color: #fff;
 }
 .btn-entry-detail:disabled { opacity: .6; cursor: wait; }
 .journal-load-error {
