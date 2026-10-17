@@ -72,6 +72,15 @@ def trusted_proxy_count():
         return 0
 
 
+def trusted_proxy_addr():
+    """프록시 헤더를 믿을 상대 주소(TRUSTED_PROXY_ADDR). 기본은 같은 기기의 127.0.0.1.
+
+    cloudflared·nginx 를 같은 기기에서 돌리면 서버에는 127.0.0.1 로 붙는다. 다른 기기의
+    프록시라면 그 IP 를 준다. waitress 로 띄울 때만 쓴다(backend_app.waitress_proxy_options).
+    """
+    return os.environ.get('TRUSTED_PROXY_ADDR', '').strip() or '127.0.0.1'
+
+
 # ---------------------------------------------------------------------------
 # 시크릿 키
 # ---------------------------------------------------------------------------

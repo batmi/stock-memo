@@ -14,9 +14,11 @@
 
 import os
 
-from backend_app import bootstrap
+from backend_app import apply_proxy_fix, bootstrap
 
 _start_jobs = os.environ.get('START_BACKGROUND_JOBS', '1').strip().lower() \
     not in ('0', 'false', 'no', 'off')
 
-application = bootstrap(start_jobs=_start_jobs)
+# 프록시 뒤라면 TRUSTED_PROXY_COUNT 로 ProxyFix 를 켠다(waitress 로 띄울 때는 backend_app 이
+# waitress 에 맡긴다 — waitress_proxy_options 참고).
+application = apply_proxy_fix(bootstrap(start_jobs=_start_jobs))

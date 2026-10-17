@@ -41,15 +41,6 @@ app = Flask(__name__)
 app.secret_key = config.load_secret_key()
 config.apply_to(app)
 
-# ⭐️ 리버스 프록시(nginx·Caddy 등) 뒤에 둘 때만 켠다. 켜지 않으면 모든 요청의
-#    remote_addr 가 프록시 주소가 되어, 누군가 로그인을 5번 틀리면 **전원이** 잠긴다.
-#    반대로 프록시 없이 켜면 클라이언트가 X-Forwarded-For 를 위조해 IP 제한을
-#    우회하므로, 앞단 프록시 수를 명시할 때만 그만큼만 믿는다.
-_trusted_proxies = config.trusted_proxy_count()
-if _trusted_proxies:
-    from werkzeug.middleware.proxy_fix import ProxyFix
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=_trusted_proxies, x_proto=_trusted_proxies)
-
 applog.setup(app)
 middleware.register(app)
 auth.register(app)
@@ -153,6 +144,41 @@ def bootstrap(start_jobs=True):
     return app
 
 
+# ---------------------------------------------------------------------------
+# 프록시 헤더 (리버스 프록시·Cloudflare Tunnel 뒤에 둘 때)
+# ---------------------------------------------------------------------------
+#
+# ⭐️ TRUSTED_PROXY_COUNT 를 줄 때만 켠다. 켜지 않으면 모든 요청의 remote_addr 가 프록시
+#    주소가 되어, 누군가 로그인을 5번 틀리면 **전원이** 잠긴다. 반대로 프록시 없이 켜면
+#    클라이언트가 X-Forwarded-For 를 위조해 IP 제한을 우회하므로, 명시할 때만 그만큼 믿는다.
+#    X-Forwarded-Proto 로 HTTPS 를 알아야 HSTS 와 세션 쿠키 Secure 도 붙는다.
+
+def waitress_proxy_options():
+    """waitress.serve() 에 줄 프록시 설정. TRUSTED_PROXY_COUNT 가 없으면 빈 dict.
+
+    ⭐️ waitress 3.x 는 신뢰할 프록시가 지정되지 않으면 X-Forwarded-* 를 앱에 넘기기 **전에**
+       지운다(clear_untrusted_proxy_headers 기본값 True). 예전에는 앱에 ProxyFix 만 걸어
+       두어서, 설정을 켜도 헤더가 이미 사라진 뒤라 cloudflared 를 거친 접속이 모두
+       127.0.0.1·http 로 보였다(테스트는 waitress 를 거치지 않아 드러나지 않았다).
+       waitress 에 맡기면 요청을 보낸 상대가 그 프록시 주소일 때만 헤더를 믿으므로,
+       집 안 기기가 프록시를 거치지 않고 헤더를 꾸며 IP 제한을 피하는 길도 막힌다.
+    """
+    count = config.trusted_proxy_count()
+    if not count:
+        return {}
+    return {'trusted_proxy': config.trusted_proxy_addr(), 'trusted_proxy_count': count,
+            'trusted_proxy_headers': {'x-forwarded-for', 'x-forwarded-proto'}}
+
+
+def apply_proxy_fix(flask_app):
+    """waitress 가 아닌 서버(gunicorn·개발 서버)용 ProxyFix. 보낸 상대를 가리지 않고 헤더를 믿는다."""
+    count = config.trusted_proxy_count()
+    if count:
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        flask_app.wsgi_app = ProxyFix(flask_app.wsgi_app, x_for=count, x_proto=count)
+    return flask_app
+
+
 # ⭐️ WSGI 서버(gunicorn/uwsgi)용 진입점은 **wsgi.py** 다. 여기서 bootstrap() 을
 #    부르지 않는 이유: 이 모듈은 테스트·도구·다른 모듈이 그냥 임포트한다.
 #    임포트만으로 스키마가 적용되고 계좌 매핑이 이관되고 자동 백업 스레드가 뜨면,
@@ -183,11 +209,16 @@ if __name__ == '__main__':
         # ⭐️ 기본 스레드(4개)로는 시세/뉴스처럼 외부 API 를 수 초씩 점유하는 요청이
         #    겹칠 때 첫 화면 API(/api/journal/* 등)가 큐에서 대기하며 화면이 멈춘 것처럼
         #    보인다. 스레드를 16개로 늘려 초기 병렬 요청이 즉시 처리되도록 한다.
-        serve(app, host='0.0.0.0', port=port, threads=16)
+        proxy_options = waitress_proxy_options()
+        if proxy_options:
+            app.logger.info(
+                f"🔁 프록시 헤더 신뢰: {proxy_options['trusted_proxy']} 에서 온 요청의 "
+                f"X-Forwarded-For/Proto (프록시 {proxy_options['trusted_proxy_count']}단)")
+        serve(app, host='0.0.0.0', port=port, threads=16, **proxy_options)
     except ImportError:
         app.logger.warning(
             "⚠️ Waitress가 설치되지 않아 Flask 개발 서버로 실행합니다. "
             "(프로덕션 환경 권장: pip install waitress)")
         # ⚠️ debug=True 로 띄우면 Werkzeug 디버거(브라우저에서 파이썬 실행)가
         #    0.0.0.0 — 같은 네트워크 전체 — 에 열린다. 폴백이라도 끈다.
-        app.run(host='0.0.0.0', debug=False, port=port)
+        apply_proxy_fix(app).run(host='0.0.0.0', debug=False, port=port)

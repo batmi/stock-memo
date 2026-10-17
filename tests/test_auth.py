@@ -371,7 +371,8 @@ def test_session_cookie_is_secure_only_for_https_requests(app, monkeypatch):
     assert 'Secure' not in _session_cookie(login())
     assert 'Secure' in _session_cookie(login(base_url='https://localhost'))
 
-    # Cloudflare Tunnel 처럼 프록시가 HTTPS 를 받아 http 로 넘기는 경우 (TRUSTED_PROXY_COUNT=1)
+    # 프록시가 HTTPS 를 받아 http 로 넘기는 경우 — waitress 가 아닌 서버의 ProxyFix 경로
+    # (waitress 경로는 test_waitress_trusts_proxy_headers_only_from_the_proxy 가 본다)
     monkeypatch.setattr(app, 'wsgi_app', ProxyFix(app.wsgi_app, x_for=1, x_proto=1))
     assert 'Secure' in _session_cookie(login(headers={'X-Forwarded-Proto': 'https'}))
     assert 'Secure' not in _session_cookie(login(headers={'X-Forwarded-Proto': 'http'}))
@@ -379,3 +380,83 @@ def test_session_cookie_is_secure_only_for_https_requests(app, monkeypatch):
     # HTTPS 로만 쓰는 운영은 예전처럼 항상 Secure 로 고정할 수 있다
     monkeypatch.setitem(app.config, 'SESSION_COOKIE_SECURE', True)
     assert 'Secure' in _session_cookie(login(headers={'X-Forwarded-Proto': 'http'}))
+
+
+def _waitress(app, **options):
+    """실제 waitress 서버를 띄운다. Flask 테스트 클라이언트는 waitress 를 거치지 않아
+    waitress 가 프록시 헤더를 지우는 동작을 재현하지 못한다."""
+    import threading
+    from waitress import wasyncore
+    from waitress.server import create_server
+
+    server = create_server(app, host='127.0.0.1', port=0, threads=2, **options)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+
+    def stop():
+        # 이벤트 루프 스레드 안에서 소켓을 닫아야 select 가 닫힌 소켓을 보지 않는다.
+        server.task_dispatcher.shutdown()
+        server.trigger.pull_trigger(lambda: wasyncore.close_all(server._map))
+        thread.join(5)
+
+    return stop, f'http://127.0.0.1:{server.effective_port}'
+
+
+def _post_login(base, username, password, **headers):
+    import urllib.parse
+    import urllib.request
+
+    request = urllib.request.Request(
+        base + '/login', data=urllib.parse.urlencode({'username': username, 'password': password}).encode(),
+        headers=headers)
+    opener = urllib.request.build_opener(type('NoRedirect', (urllib.request.HTTPRedirectHandler,), {
+        'redirect_request': lambda *a, **k: None}))
+    try:
+        response = opener.open(request)
+    except urllib.error.HTTPError as redirect:  # 로그인 성공은 302 다
+        response = redirect
+    return response, response.read().decode()
+
+
+def test_waitress_trusts_proxy_headers_only_from_the_proxy(app, monkeypatch):
+    """Cloudflare Tunnel(같은 기기의 cloudflared → 127.0.0.1) 뒤에서 접속자를 구분한다.
+
+    waitress 3.x 는 신뢰할 프록시를 지정하지 않으면 X-Forwarded-* 를 앱에 넘기기 전에 지운다.
+    앱의 ProxyFix 만 걸어 두었을 때는 외부 접속이 모두 127.0.0.1 로 보여, 한 사람이 로그인을
+    5번 틀리면 전원이 잠겼고 HTTPS 도 알아보지 못했다(HSTS·쿠키 Secure 가 붙지 않았다).
+    """
+    _signup_and_login(app.test_client(), 'proxyuser', 'Proxy1234!')
+    a = {'X-Forwarded-For': '203.0.113.10', 'X-Forwarded-Proto': 'https'}
+    b = {'X-Forwarded-For': '203.0.113.11', 'X-Forwarded-Proto': 'https'}
+
+    monkeypatch.setenv('TRUSTED_PROXY_COUNT', '1')
+    stop, base = _waitress(app, **backend_app.waitress_proxy_options())
+    try:
+        assert '실패 횟수: 1/5' in _post_login(base, 'nobody1', 'x', **a)[1]
+        assert '실패 횟수: 2/5' in _post_login(base, 'nobody1', 'x', **a)[1]
+        response, body = _post_login(base, 'nobody2', 'x', **b)
+        assert '실패 횟수: 1/5' in body  # 다른 접속자는 따로 센다
+        assert 'Strict-Transport-Security' in response.headers
+        ok, _ = _post_login(base, 'proxyuser', 'Proxy1234!', **a)
+        assert ok.status == 302 and 'Secure' in ok.headers['Set-Cookie']
+    finally:
+        stop()
+
+    # 프록시가 아닌 상대(여기서는 127.0.0.1 이 프록시가 아니라고 지정)가 보낸 헤더는 믿지 않는다.
+    ratelimit.reset_all()
+    monkeypatch.setenv('TRUSTED_PROXY_ADDR', '10.0.0.9')
+    stop, base = _waitress(app, **backend_app.waitress_proxy_options())
+    try:
+        assert '실패 횟수: 1/5' in _post_login(base, 'nobody3', 'x', **a)[1]
+        response, body = _post_login(base, 'nobody4', 'x', **b)
+        assert '실패 횟수: 2/5' in body  # 헤더를 꾸며도 같은 상대로 센다
+        assert 'Strict-Transport-Security' not in response.headers
+    finally:
+        stop()
+
+
+def test_waitress_proxy_options_are_off_without_trusted_proxy_count(monkeypatch):
+    monkeypatch.delenv('TRUSTED_PROXY_COUNT', raising=False)
+    assert backend_app.waitress_proxy_options() == {}
+    monkeypatch.setenv('TRUSTED_PROXY_COUNT', '1')
+    assert backend_app.waitress_proxy_options()['trusted_proxy'] == '127.0.0.1'

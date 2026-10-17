@@ -26,9 +26,9 @@ def _client_ip():
 
     ⭐️ X-Forwarded-For 를 직접 읽지 않는다. 예전에는 이 헤더를 무조건 믿어서,
        요청마다 헤더 값만 바꾸면 'IP 당 5분에 10회' 제한이 통째로 무력화됐다.
-       리버스 프록시 뒤에 둘 때는 TRUSTED_PROXY_COUNT 로 ProxyFix 를 켠다
-       (backend_app 참고). 그러면 remote_addr 자체가 실제 클라이언트 IP 가 되고,
-       로그인 IP 잠금도 같은 값을 쓴다.
+       리버스 프록시 뒤에 둘 때는 TRUSTED_PROXY_COUNT 를 준다(backend_app 의
+       waitress_proxy_options·apply_proxy_fix 참고). 그러면 remote_addr 자체가 실제
+       클라이언트 IP 가 되고, 로그인 IP 잠금도 같은 값을 쓴다.
     """
     return request.remote_addr or 'unknown'
 
