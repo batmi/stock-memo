@@ -24,7 +24,7 @@ import config
 from app.services import news
 from app.services import prices
 from app.services import stats
-from app.utils import statscache
+from app.utils import scriptbundle, statscache
 import trading_api
 from app.database.db import db_conn
 from app.services.users import (bump_session_epoch, forget_session_epoch, purge_account,
@@ -68,6 +68,23 @@ def index():
     return render_template('stock-memo.html',
                            session_expires_at=session.get('expires_at', 0),
                            keep_logged_in=bool(session.get('keep_logged_in', False)))
+
+
+@bp.route('/bundle/app.js')
+def app_bundle():
+    """static/js/ 조각을 하나로 이은 화면 스크립트 (app.utils.scriptbundle 참고)."""
+    version, raw, compressed = scriptbundle.bundle(os.path.join(current_app.static_folder, 'js'))
+    gzipped = 'gzip' in (request.headers.get('Accept-Encoding') or '').lower()
+    response = current_app.response_class(compressed if gzipped else raw,
+                                          mimetype='application/javascript')
+    if gzipped:
+        response.headers['Content-Encoding'] = 'gzip'
+    response.headers['Vary'] = 'Accept-Encoding'
+    response.set_etag(version)
+    # 템플릿은 내용 해시를 ?v= 로 붙인다. 내용이 바뀌면 주소가 바뀌므로 오래 둬도 된다.
+    response.headers['Cache-Control'] = ('public, max-age=31536000, immutable'
+                                         if request.args.get('v') == version else 'no-cache')
+    return response.make_conditional(request)
 
 
 @bp.route('/api/ping', methods=['POST'])

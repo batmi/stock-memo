@@ -29,7 +29,7 @@ from app.routes import admin, api, auth, backup_api, journal_api, middleware
 from app.services import jobs, migrations, prices
 from app.database import entry_logic, schema
 from app.database.db import get_db, db_conn
-from app.utils import applog, memcache
+from app.utils import applog, memcache, scriptbundle
 
 # ⭐️ 정적 자산은 반드시 static/ 안에서만 서빙한다.
 #    예전에는 static_folder='.' 로 프로젝트 루트 전체를 정적 경로에 열어 두었는데,
@@ -113,13 +113,17 @@ def inject_get_mtime():
         """
         js_dir = os.path.join(app.static_folder, 'js')
         try:
-            names = sorted(f for f in os.listdir(js_dir) if f.endswith('.js'))
+            return [(f'js/{n}', mtime) for n, mtime in scriptbundle.script_files(js_dir)]
         except OSError:
             app.logger.error(f"⚠️ 화면 스크립트 폴더를 읽지 못했습니다: {js_dir}")
             return []
-        return [(f'js/{n}', int(os.path.getmtime(os.path.join(js_dir, n)))) for n in names]
 
-    return {'get_mtime': get_mtime, 'app_scripts': app_scripts}
+    def app_bundle_version():
+        """화면은 조각을 하나로 이은 /bundle/app.js 를 싣는다. 그 ?v= 값(내용 해시)."""
+        return scriptbundle.bundle(os.path.join(app.static_folder, 'js'))[0]
+
+    return {'get_mtime': get_mtime, 'app_scripts': app_scripts,
+            'app_bundle_version': app_bundle_version}
 
 # ---------------------------------------------------------------------------
 # 기동

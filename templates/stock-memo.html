@@ -36,6 +36,16 @@
             data: fetch('/api/journal/meta').catch(function () { return null; }),
             mappings: fetch('/api/mappings').catch(function () { return null; })
         };
+        // 목록·포트폴리오·달력은 필터가 환경설정과 meta 에 달려 있어 스크립트가 돌아야 주소가
+        // 정해진다. 그러면 meta 다음에 왕복이 한 번 더 들므로, 이 기기에서 지난번 첫 화면이
+        // 요청한 주소를 미리 받아 둔다. 화면이 계산한 주소와 같을 때만 쓴다 (05-journal.js).
+        try {
+            JSON.parse(localStorage.getItem('journalInitialViews') || '[]').slice(0, 6).forEach(function (url) {
+                if (typeof url === 'string' && url.indexOf('/api/journal/') === 0) {
+                    window.__initialFetches['view:' + url] = fetch(url).catch(function () { return null; });
+                }
+            });
+        } catch (e) { }
     </script>
     <!-- ⭐️ CDN 접속 사전 연결(DNS/TLS 핸드셰이크 선행)로 첫 로딩 단축 -->
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
@@ -414,7 +424,9 @@
             <!-- 자바스크립트를 통해 개별 필터 칩(Chip)들이 동적으로 주입됩니다 -->
         </div>
 
-        <div class="history-container" id="historyList"></div>
+        <!-- 스크립트를 받는 동안에도 멈춘 화면처럼 보이지 않게 안내를 미리 넣어 둔다.
+             (05-data.js 의 loadDataFromLocal() 은 목록이 비어 있을 때만 같은 안내를 넣는다) -->
+        <div class="history-container" id="historyList"><p style="text-align:center; color:var(--text-muted-color); font-size: 14px; padding: 30px 0;">⏳ 데이터를 불러오는 중입니다...</p></div>
 
         <button id="btnFab" class="btn-fab" title="새 기록 작성">+</button>
     </div>
@@ -732,10 +744,9 @@
     <!-- 매매 계산 단일 소스(백엔드 stats.py 와 동일 알고리즘). script.js 보다 먼저 로드 -->
     <script defer src="{{ url_for('static', filename='calc.js') }}?v={{ get_mtime('calc.js') }}"></script>
     <!-- ⭐️ 화면 스크립트는 static/js/ 안에 기능별로 나뉘어 있고, 파일명 번호 순서대로
-         로드된다. ES 모듈이 아니라 전역을 공유하는 클래식 스크립트라 순서가 곧 의미다.
-         (목록은 backend_app 의 app_scripts() 가 폴더에서 자동으로 만든다) -->
-    {%- for path, mtime in app_scripts() %}
-    <script defer src="{{ url_for('static', filename=path) }}?v={{ mtime }}"></script>
-    {%- endfor %}
+         실행된다. ES 모듈이 아니라 전역을 공유하는 클래식 스크립트라 순서가 곧 의미다.
+         조각마다 요청하면 모바일에서 받는 데만 왕복이 여러 번 들어, 서버가 순서대로
+         이어 붙인 한 파일로 싣는다 (app/utils/scriptbundle.py) -->
+    <script defer src="{{ url_for('api.app_bundle', v=app_bundle_version()) }}"></script>
 </body>
 </html>

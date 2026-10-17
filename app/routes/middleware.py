@@ -109,8 +109,11 @@ def register(app):
             if response.status_code == 200:
                 # setdefault 는 Flask 가 정적 파일에 기본으로 넣는 'no-cache' 때문에
                 # 항상 무시되어 캐시가 전혀 적용되지 않았다. 명시적으로 덮어쓴다.
-                # (js/css 는 ?v=수정시각 쿼리로 버전 관리되므로 1시간 캐시가 안전하다)
-                response.headers['Cache-Control'] = 'public, max-age=3600'
+                # ⭐️ ?v=수정시각 이 붙은 js/css 는 파일이 바뀌면 주소가 바뀌므로 오래 둔다.
+                #    1시간이면 그 뒤 첫 접속마다 파일 수만큼 재검증 왕복이 들어 모바일에서
+                #    화면이 한참 멈춘 것처럼 보였다. 버전 없는 자산만 1시간으로 둔다.
+                response.headers['Cache-Control'] = ('public, max-age=31536000, immutable'
+                                                     if request.args.get('v') else 'public, max-age=3600')
             else:
                 response.headers['Cache-Control'] = 'no-store'
         return response

@@ -3,6 +3,7 @@
 대상: middleware.py 와 backend_app 의 정적 자산 라우팅.
 """
 
+import gzip
 import io
 import os
 import re
@@ -160,29 +161,72 @@ def test_static_assets_are_served(client):
                  '/static/js/01-core.js'):
         assert client.get(path).status_code == 200, path
 
-def test_every_app_script_is_listed_and_served(client, app):
-    """static/js 의 모든 조각이 페이지에 실리고 실제로 내려와야 한다.
-
-    조각들은 ES 모듈이 아니라 전역을 공유하는 클래식 스크립트다. 하나가 빠지면
-    화면 일부만 조용히 죽으므로(에러 하나 없이 버튼이 반응하지 않는다) 목록을
-    손으로 관리하지 않고 폴더에서 만든다 — 그 자동 생성이 도는지 확인한다.
-    """
+def _login_testuser(client):
     _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
         sess['expires_at'] = time.time() + 3600
 
+
+def test_every_app_script_is_bundled_in_filename_order(client, app):
+    """static/js 의 모든 조각이 묶음에 파일명 순서대로 실리고, 페이지는 묶음 하나만 싣는다.
+
+    조각들은 ES 모듈이 아니라 전역을 공유하는 클래식 스크립트다. 하나가 빠지면
+    화면 일부만 조용히 죽으므로(에러 하나 없이 버튼이 반응하지 않는다) 목록을
+    손으로 관리하지 않고 폴더에서 만든다 — 그 자동 생성이 도는지 확인한다.
+    """
+    _login_testuser(client)
     js_dir = os.path.join(app.static_folder, 'js')
     on_disk = sorted(f for f in os.listdir(js_dir) if f.endswith('.js'))
     assert on_disk, 'static/js 에 스크립트가 없다'
 
     html = client.get('/').get_data(as_text=True)
-    listed = re.findall(r'/static/js/([^?"]+)', html)
-    assert listed == on_disk, f"페이지에 실린 순서/목록이 폴더와 다르다\n{listed}\n{on_disk}"
+    assert not re.findall(r'/static/js/', html), '조각을 따로 실으면 모바일에서 왕복이 늘어난다'
+    src = re.findall(r'src="(/bundle/app\.js\?v=[0-9a-f]+)"', html)
+    assert len(src) == 1, html[-800:]
 
+    body = client.get(src[0]).get_data(as_text=True)
+    bundled = re.findall(r'/\* ==== js/(.+?) ==== \*/', body)
+    assert bundled == on_disk, f"묶음의 순서/목록이 폴더와 다르다\n{bundled}\n{on_disk}"
+    for name in on_disk:
+        with open(os.path.join(js_dir, name), encoding='utf-8') as f:
+            assert f.read() in body, name
+
+    # 조각 파일도 그대로 열어 둔다 (디버깅·직접 확인용)
     for name in on_disk:
         assert client.get(f'/static/js/{name}').status_code == 200, name
+
+
+def test_bundle_is_cached_by_content_hash(client):
+    """주소에 내용 해시가 붙은 묶음만 오래 캐시하고, gzip 은 미리 만든 결과를 쓴다."""
+    _login_testuser(client)
+    html = client.get('/').get_data(as_text=True)
+    url = re.search(r'src="(/bundle/app\.js\?v=([0-9a-f]+))"', html)
+    res = client.get(url.group(1), headers={'Accept-Encoding': 'gzip'})
+    assert res.status_code == 200
+    assert res.headers['Content-Encoding'] == 'gzip'
+    assert 'immutable' in res.headers['Cache-Control']
+    assert 'Accept-Encoding' in res.headers['Vary']
+    plain = client.get(url.group(1))
+    assert gzip.decompress(res.data) == plain.data
+    assert 'Content-Encoding' not in plain.headers
+
+    # 옛 해시나 해시 없는 주소는 매번 재검증한다 (다른 내용을 오래 붙잡지 않게)
+    assert client.get('/bundle/app.js?v=old').headers['Cache-Control'] == 'no-cache'
+    again = client.get('/bundle/app.js', headers={'If-None-Match': f'"{url.group(2)}"'})
+    assert again.status_code == 304
+
+
+def test_bundle_requires_login(client):
+    assert client.get('/bundle/app.js').status_code == 302
+
+
+def test_versioned_static_assets_are_cached_long(client):
+    """?v= 가 붙은 자산은 바뀌면 주소가 바뀌므로 오래 캐시한다. 버전 없는 자산은 1시간."""
+    _login_testuser(client)
+    assert 'immutable' in client.get('/static/calc.js?v=123').headers['Cache-Control']
+    assert client.get('/static/calc.js').headers['Cache-Control'] == 'public, max-age=3600'
 
 def test_app_scripts_are_loaded_in_filename_order(app):
     """번호 접두사 순서가 곧 실행 순서다 — 정렬이 깨지면 전역 참조가 어긋난다."""

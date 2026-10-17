@@ -172,3 +172,47 @@ def test_export_reads_all_records_only_after_user_requests_it(page):
     rows = page.evaluate('() => window.exportedRows')
     assert len(rows) == 62  # 머리글 + 전체 61건 (첫 페이지 15건에 제한되지 않는다)
     assert '오래된검색어' in json.dumps(rows, ensure_ascii=False)
+
+
+def _entries_requests(page):
+    return page.evaluate('''() => performance.getEntriesByType('resource')
+        .filter(r => r.name.includes('/api/journal/entries'))
+        .map(r => ({ start: r.startTime, url: r.name.replace(location.origin, '') }))''')
+
+
+def _initial_load_done(page):
+    # 첫 화면의 조회 주소는 포트폴리오·달력까지 받은 뒤에 저장한다.
+    page.wait_for_function('() => initialViewUrls === null')
+
+
+def test_reload_prefetches_last_first_screen_views_once(page):
+    ready(page)
+    _initial_load_done(page)
+    saved = page.evaluate("() => JSON.parse(localStorage.getItem('journalInitialViews'))")
+    assert {url.split('?')[0] for url in saved} >= {
+        '/api/journal/entries', '/api/journal/portfolio', '/api/journal/calendar'}
+
+    page.reload()
+    expect(page.locator('#historyList .entry-card')).to_have_count(15)
+    dcl = page.evaluate("() => performance.getEntriesByType('navigation')[0].domContentLoadedEventStart")
+    requests = _entries_requests(page)
+    # 스크립트가 실행되기 전에 head 에서 한 번만 요청하고, 화면은 그 응답을 이어받는다.
+    assert len(requests) == 1 and requests[0]['start'] < dcl, requests
+    assert page.evaluate('''() => Object.keys(window.__initialFetches)
+        .filter(k => k.startsWith('view:')).every(k => window.__initialFetches[k] === null)''')
+
+
+def test_mismatched_saved_view_is_ignored(page):
+    ready(page)
+    _initial_load_done(page)
+    page.evaluate('''() => localStorage.setItem('journalInitialViews', JSON.stringify(
+        ['/api/journal/entries?type=memo&limit=1', 'https://example.com/x']))''')
+    # 요청을 보낸 순서로 모은다 (Resource Timing 은 응답이 끝나야 항목이 생긴다).
+    urls = []
+    page.on('request', lambda req: urls.append(req.url))
+    page.reload()
+    expect(page.locator('#historyList .entry-card')).to_have_count(15)
+    entries = [u for u in urls if '/api/journal/entries' in u]
+    assert entries[0].endswith('/api/journal/entries?type=memo&limit=1')
+    assert len(entries) == 2 and 'limit=15' in entries[1], entries
+    assert not any('example.com' in u for u in urls)

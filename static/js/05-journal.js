@@ -39,11 +39,32 @@ function journalUrl(endpoint, params = {}) {
     return `/api/journal/${endpoint}?${query}`;
 }
 
+// 첫 화면이 요청한 조회 주소. 다음 접속 때 head 의 프리페치가 이 목록을 미리 요청한다.
+const INITIAL_VIEWS_KEY = 'journalInitialViews';
+let initialViewUrls = null;
+
+function beginInitialViews() {
+    initialViewUrls = [];
+}
+
+function endInitialViews() {
+    // 남은 프리페치는 이후 화면에 쓰지 않는다. 그사이 기록이 바뀌었을 수 있다.
+    const pre = window.__initialFetches;
+    if (pre) Object.keys(pre).forEach(key => { if (key.startsWith('view:')) pre[key] = null; });
+    if (initialViewUrls?.length) {
+        try { localStorage.setItem(INITIAL_VIEWS_KEY, JSON.stringify(initialViewUrls)); } catch (e) { }
+    }
+    initialViewUrls = null;
+}
+
 async function journalJSON(url, cache = true) {
+    if (initialViewUrls && initialViewUrls.length < 6 && !initialViewUrls.includes(url)) initialViewUrls.push(url);
     let pending = cache && journalReads.get(url);
     if (!pending) {
         pending = (async () => {
-            const response = await fetchWithTimeout(url);
+            const key = `view:${url}`;
+            const response = window.__initialFetches?.[key]
+                ? await initialFetchOrFresh(key, url) : await fetchWithTimeout(url);
             if (response.status === 401) window.location.href = '/login';
             const data = await response.json();
             if (!response.ok) {

@@ -175,6 +175,7 @@ stock-memo/
 │       ├── applog.py       # Logging setup (daily rotation, single-line format)
 │       ├── ratelimit.py    # IP request limits + account login lockout
 │       ├── memcache.py     # TTL in-memory cache (prices/news) + process-local state list
+│       ├── scriptbundle.py # static/js files concatenated in order into one script (+gzip cache)
 │       └── statscache.py   # Stats cache and data version (ETag)
 │
 ├── trading_api/        # Trading bot REST API (/api/v1/*) — auth, idempotency
@@ -258,11 +259,18 @@ The files in `static/js/` are **ordered classic scripts, not ES modules**. Top-l
 match the old single `script.js`. (Inline `onclick` handlers in the HTML call global
 functions directly; switching to modules would break all of them.)
 
-*   Load order is filename order, and `backend_app.app_scripts()` builds the list from
-    the folder — the template never hardcodes `<script>` tags.
-*   ⚠️ Never reference another file's function **at load time**. Function hoisting is
-    per-file, so a top-level reference to a later file's function is a `ReferenceError`.
-    Wrap event handlers as `() => fn()` so the lookup happens when the event fires.
+*   Execution order is filename order. The server reads the folder and concatenates the
+    files in that order into one script (`/bundle/app.js?v=<content hash>`,
+    `app/utils/scriptbundle.py`). Requesting each file separately cost several round
+    trips on mobile, so the page looked frozen. The template never hardcodes `<script>` tags.
+*   ⚠️ Never reference another file's function **at load time**. Once concatenated,
+    function declarations hoist across the whole bundle, but `let`/`const` still throw
+    `ReferenceError` before their declaration. Wrap event handlers as `() => fn()` so the
+    lookup happens when the event fires.
+*   ⚠️ An exception in one file's **top-level code** stops every later file. Avoid
+    top-level access to DOM elements that may be missing.
+*   Static assets with `?v=` and the bundle are cached for a year (`immutable`); the URL
+    changes when the content does.
 
 Performance metrics are calculated by `app/services/stats.py`; portfolio, calendar and
 chart aggregates are calculated by `app/services/journal.py`. The browser renders those
@@ -289,6 +297,13 @@ account mappings and restores invalidate it with the statistics cache. Responses
 private, query-specific ETags. If data changes between pages, the browser reloads the
 summary and first page instead of mixing versions. Excel export requests `/api/data`
 only when explicitly requested and includes the full journal, regardless of loaded pages.
+
+The list, portfolio and calendar URLs depend on filters resolved from preferences and the
+summary (meta). The first screen therefore saves the URLs it requested in the device's
+localStorage (`journalInitialViews`), and on the next visit the page head requests them
+together with the summary. A prefetched response is used only when the URL computed by
+the page matches exactly; changed filters or months are fetched again. Responses left
+over after the first screen are discarded.
 
 ### Deployment Shape
 

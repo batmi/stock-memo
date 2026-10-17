@@ -206,7 +206,8 @@ async function loadDataFromLocal() {
         window.__dataLoadFailed = false; // ⭐️ 로딩 성공: 재시도 플래그 해제
         const errBox = document.getElementById('dataLoadErrorBox');
         if (errBox) errBox.style.display = 'none';
-        await displayEntries();
+        beginInitialViews();
+        try { await displayEntries(); } finally { endInitialViews(); }
         console.log("[Data Load] 화면 렌더링(displayEntries) 완료");
 
         fetchRealtimeNews();
