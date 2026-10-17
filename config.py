@@ -49,8 +49,9 @@ SESSION_LIFETIME = timedelta(hours=24)
 def apply_to(app):
     """Flask 앱에 세션·업로드 관련 설정을 적용한다."""
     app.config['SESSION_COOKIE_HTTPONLY'] = True   # 자바스크립트(XSS)로 쿠키 접근 원천 차단
-    # ⭐️ 기본은 False (로컬 HTTP 접속에서 로그인이 풀리지 않도록). HTTPS 로 외부에
-    #    공개할 때는 SESSION_COOKIE_SECURE=1 로 켜서 쿠키가 평문 경로로 나가지 않게 한다.
+    # ⭐️ 기본은 False (로컬 HTTP 접속에서 로그인이 풀리지 않도록). 그래도 HTTPS 로 들어온
+    #    요청의 쿠키에는 Secure 가 붙는다(auth._SessionInterface). HTTPS 로만 접속한다면
+    #    SESSION_COOKIE_SECURE=1 로 켜서 모든 쿠키를 HTTPS 전용으로 한다.
     app.config['SESSION_COOKIE_SECURE'] = (
         os.environ.get('SESSION_COOKIE_SECURE', '').strip().lower()
         in ('1', 'true', 'yes', 'on'))

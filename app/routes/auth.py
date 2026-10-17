@@ -13,6 +13,7 @@ import time
 
 from flask import (Blueprint, jsonify, redirect, render_template, request,
                    session, url_for)
+from flask.sessions import SecureCookieSessionInterface
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import config
@@ -32,9 +33,26 @@ PUBLIC_ENDPOINTS = frozenset({
     'auth.login', 'auth.signup', 'auth.logout', 'auth.request_password_reset',
 })
 
+class _SessionInterface(SecureCookieSessionInterface):
+    """HTTPS 로 들어온 요청이면 세션 쿠키에 Secure 를 붙인다.
+
+    ⭐️ 외부(Cloudflare Tunnel 등 HTTPS)와 집 안(http://192.168.x.x)에서 같은 서버에
+       접속한다. SESSION_COOKIE_SECURE 를 켜면 모든 응답의 쿠키가 HTTPS 전용이 되어
+       http 접속은 로그인이 바로 풀리고, 끄면 외부 HTTPS 쿠키도 평문 요청에 실릴 수 있다.
+       쿠키는 접속한 주소(도메인·IP)마다 따로 저장되므로, 요청이 HTTPS 일 때만 Secure 를
+       붙이면 두 접속이 서로 간섭하지 않는다. 프록시 뒤에서는 TRUSTED_PROXY_COUNT 를 줘야
+       request.is_secure 가 프록시가 알려 준 원래 프로토콜(X-Forwarded-Proto)을 따른다.
+       SESSION_COOKIE_SECURE=1 이면 예전처럼 항상 Secure 다.
+    """
+
+    def get_cookie_secure(self, app):
+        return bool(app.config['SESSION_COOKIE_SECURE'] or request.is_secure)
+
+
 def register(app):
     """블루프린트 등록 + 앱 전역 세션 검사 연결."""
     app.register_blueprint(bp)
+    app.session_interface = _SessionInterface()
     # ⭐️ 블루프린트가 아니라 앱에 건다. 정적 파일·업로드·봇 API 를 포함한
     #    모든 요청이 이 검사를 지나야 하기 때문이다.
     app.before_request(check_login)

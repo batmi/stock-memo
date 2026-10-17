@@ -349,3 +349,33 @@ def test_reset_request_requires_no_login_but_admin_list_does(client):
     assert client.post('/request_password_reset', json={'username': 'x'}).status_code == 200
     assert client.get('/api/admin/users').status_code == 401
     assert client.delete('/api/admin/password_resets/x').status_code == 401
+
+
+def _session_cookie(response):
+    return next(h for h in response.headers.getlist('Set-Cookie') if h.startswith('session='))
+
+
+def test_session_cookie_is_secure_only_for_https_requests(app, monkeypatch):
+    """외부(HTTPS)와 집 안(http)에서 같은 서버에 접속한다. 요청이 HTTPS 일 때만 Secure 를 붙인다.
+
+    SESSION_COOKIE_SECURE 를 켜면 http 접속의 로그인이 풀리고, 끄면 외부 쿠키도 평문 요청에 실린다.
+    """
+    from werkzeug.middleware.proxy_fix import ProxyFix
+
+    _signup_and_login(app.test_client(), 'cookieuser', 'Cookie1234!')
+
+    def login(**kwargs):
+        return app.test_client().post(
+            '/login', data={'username': 'cookieuser', 'password': 'Cookie1234!'}, **kwargs)
+
+    assert 'Secure' not in _session_cookie(login())
+    assert 'Secure' in _session_cookie(login(base_url='https://localhost'))
+
+    # Cloudflare Tunnel 처럼 프록시가 HTTPS 를 받아 http 로 넘기는 경우 (TRUSTED_PROXY_COUNT=1)
+    monkeypatch.setattr(app, 'wsgi_app', ProxyFix(app.wsgi_app, x_for=1, x_proto=1))
+    assert 'Secure' in _session_cookie(login(headers={'X-Forwarded-Proto': 'https'}))
+    assert 'Secure' not in _session_cookie(login(headers={'X-Forwarded-Proto': 'http'}))
+
+    # HTTPS 로만 쓰는 운영은 예전처럼 항상 Secure 로 고정할 수 있다
+    monkeypatch.setitem(app.config, 'SESSION_COOKIE_SECURE', True)
+    assert 'Secure' in _session_cookie(login(headers={'X-Forwarded-Proto': 'http'}))
