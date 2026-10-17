@@ -22,7 +22,7 @@ import zipfile
 
 from flask import Blueprint, jsonify, request, send_file, session
 
-from app.services import accounts
+from app.services import accounts, backups
 import config
 from app.database import entry_logic
 from app.services import images
@@ -45,31 +45,8 @@ def full_backup():
     username = session.get('username')
     if not username:
         return jsonify({"error": "로그인이 필요합니다."}), 401
-    with db_conn() as conn:
-        c = conn.cursor()
-        c.execute("SELECT * FROM entries WHERE username = ?", (username,))
-        rows = [dict(row) for row in c.fetchall()]
-        user_mappings = accounts.load(conn, username)
-
     memory_file = io.BytesIO()
-    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
-        # 1. 사용자 데이터를 JSON으로 백업
-        json_data = json.dumps(rows, ensure_ascii=False, indent=2)
-        zf.writestr('data.json', json_data)
-
-        # 2. 사용자 이미지 폴더 백업
-        user_folder = user_dir(config.UPLOAD_FOLDER, username)
-        if user_folder and os.path.exists(user_folder):
-            for root, _dirs, files in os.walk(user_folder):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.join('uploads', file)
-                    zf.write(file_path, arcname=arcname)
-                    
-        # 3. 사용자 매핑 정보 백업 (DB → ZIP, 파일명은 구버전과 동일하게 유지)
-        if user_mappings.get('brokers') or user_mappings.get('accounts'):
-            zf.writestr(accounts.BACKUP_ARCNAME, accounts.dumps(user_mappings))
-
+    backups.write_user_backup(memory_file, username)
     memory_file.seek(0)
 
     # 파일명에 현재 날짜와 시간 추가 (예: TradingJournal_backup_20231027_153000.zip)
@@ -162,8 +139,11 @@ def full_restore():
             taken = {row['id'] for row in c.execute("SELECT id FROM entries")}
             next_id = (max(taken) + 1) if taken else int(time.time() * 1000)
             remapped = 0
+            restored_files = set(os.listdir(staging))
 
             for entry in entries:
+                # 다른 계정의 백업이면 함께 복원한 첨부의 주소를 이 계정으로 옮긴다.
+                entry = images.rehome_upload_urls(username, entry, restored_files)
                 # 구버전 백업의 본문 내장 base64 이미지는 **새 폴더에** 추출한다.
                 entry = images.extract_inline_images(username, entry, target_folder=staging)
                 entry_id = entry.get('id')

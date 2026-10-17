@@ -18,7 +18,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"          # Dockerfile 의 python:3.11-slim 과 맞춘다
+target-version = "py311"          # README 의 최소 지원 버전(Python 3.11 이상)과 맞춘다
 exclude = [".venv", "venv", "logs", "backup", "uploads", "db", "json", "static"]
 
 [tool.ruff.lint]

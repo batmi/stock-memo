@@ -165,6 +165,18 @@ def update_columns(c, entry_id, username, changes):
               [_value_for(changes, col) for col in cols] + [entry_id, username])
 
 
+# ⭐️ 잔고·손익에 반영하지 않는 주문 상태. 취소된 주문과 체결 전 접수는 이력으로만 남는다
+#    (API 명세의 status 설명). 매도 검증·화면 집계·통계가 모두 이 판정 하나를 쓴다.
+#    예전에는 매도 검증만 이 상태를 빼고 포트폴리오·달력·차트·통계는 체결로 셌다.
+#    그래서 봇이 추정 체결을 취소로 정정하면 화면 보유 수량과 실현손익이 그대로 남았다.
+INACTIVE_TRADE_STATUSES = ('CANCELED', 'SUBMITTED')
+
+
+def is_settled_trade(row):
+    """잔고·손익에 반영되는 주문 상태인가. 상태가 없는 기록(수동 입력)은 체결로 본다."""
+    return (row.get('tradeStatus') or 'FILLED') not in INACTIVE_TRADE_STATUSES
+
+
 def is_bot_entry(row):
     """봇이 만든 기록인가. 봇 API 는 이런 기록만 고치거나 지울 수 있다(사람이 쓴 기록 보호)."""
     return bool(row['brokerExecutionId'] or row['source'])
@@ -187,8 +199,9 @@ def _stock_conditions(username, stock_name, stock_code):
         conditions.append("stockName = ?")
         params.append(stock_name)
 
-    # 취소된 주문과 미체결 접수는 잔고에 반영하지 않는다.
-    conditions.append("COALESCE(tradeStatus, 'FILLED') NOT IN ('CANCELED', 'SUBMITTED')")
+    # 취소된 주문과 미체결 접수는 잔고에 반영하지 않는다(is_settled_trade 와 같은 규칙).
+    conditions.append("COALESCE(tradeStatus, 'FILLED') NOT IN ("
+                      + ", ".join(f"'{s}'" for s in INACTIVE_TRADE_STATUSES) + ")")
     return conditions, params
 
 
@@ -232,7 +245,7 @@ def check_sell_integrity(c, username, entry, exclude_id=None):
         return None
 
     # 취소·접수 기록은 잔고를 소모하지 않으므로 검증 대상이 아니다.
-    if (entry.get('tradeStatus') or 'FILLED') in ('CANCELED', 'SUBMITTED'):
+    if not is_settled_trade(entry):
         return None
 
     stock_name = (entry.get('stockName') or '').strip()
@@ -265,7 +278,7 @@ def _is_live_buy(entry):
     return (entry is not None
             and (entry.get('type') or 'trade') == 'trade'
             and entry.get('tradeType') == '매수'
-            and (entry.get('tradeStatus') or 'FILLED') not in ('CANCELED', 'SUBMITTED'))
+            and is_settled_trade(entry))
 
 
 def _same_stock(a, b):

@@ -3,10 +3,10 @@
 
 도메인 로직과 공통 처리는 각각 별도 모듈이 소유한다.
   config                경로·상수·시크릿 키
-  app.routes.*          웹 라우팅 (api/auth/admin/backup_api) 과 미들웨어
+  app.routes.*          웹 라우팅 (api/auth/admin/backup_api/journal_api) 과 미들웨어
   app.services.*        도메인 로직 (accounts/entries/prices/stats/news/images/jobs/backups/users/migrations)
   app.database.*        DB 접근·스키마·기록 무결성 (db/schema/entry_logic)
-  app.utils.*           로깅·레이트리밋·캐시 (applog/ratelimit/memcache/statscache)
+  app.utils.*           로깅·레이트리밋·캐시·스크립트 묶음 (applog/ratelimit/memcache/statscache/scriptbundle)
   trading_api           봇 연동 API(/api/v1)
 """
 
@@ -102,28 +102,11 @@ def inject_get_mtime():
             return int(os.path.getmtime(path))
         return 0
 
-    def app_scripts():
-        """static/js/ 안의 화면 스크립트를 **파일명 순서대로** 돌려준다.
-
-        ⭐️ 예전에는 6,700줄짜리 script.js 한 덩어리였다. 조각으로 나눈 뒤에도
-           이들은 ES 모듈이 아니라 전역을 공유하는 클래식 스크립트이므로
-           **로드 순서가 곧 실행 순서**다. 그래서 파일명에 01-, 02- 처럼 번호를
-           붙이고 정렬해서 넣는다. 템플릿에 <script> 를 손으로 나열하면 새 조각을
-           추가할 때 빠뜨리기 쉽고, 그러면 화면 일부만 조용히 죽는다.
-        """
-        js_dir = os.path.join(app.static_folder, 'js')
-        try:
-            return [(f'js/{n}', mtime) for n, mtime in scriptbundle.script_files(js_dir)]
-        except OSError:
-            app.logger.error(f"⚠️ 화면 스크립트 폴더를 읽지 못했습니다: {js_dir}")
-            return []
-
     def app_bundle_version():
         """화면은 조각을 하나로 이은 /bundle/app.js 를 싣는다. 그 ?v= 값(내용 해시)."""
         return scriptbundle.bundle(os.path.join(app.static_folder, 'js'))[0]
 
-    return {'get_mtime': get_mtime, 'app_scripts': app_scripts,
-            'app_bundle_version': app_bundle_version}
+    return {'get_mtime': get_mtime, 'app_bundle_version': app_bundle_version}
 
 # ---------------------------------------------------------------------------
 # 기동
@@ -198,7 +181,7 @@ if __name__ == '__main__':
         from waitress import serve  # type: ignore
         app.logger.info("🚀 Waitress WSGI 프로덕션 서버로 실행 중입니다.")
         # ⭐️ 기본 스레드(4개)로는 시세/뉴스처럼 외부 API 를 수 초씩 점유하는 요청이
-        #    겹칠 때 초기 필수 API(/api/data 등)가 큐에서 대기하며 화면이 멈춘 것처럼
+        #    겹칠 때 첫 화면 API(/api/journal/* 등)가 큐에서 대기하며 화면이 멈춘 것처럼
         #    보인다. 스레드를 16개로 늘려 초기 병렬 요청이 즉시 처리되도록 한다.
         serve(app, host='0.0.0.0', port=port, threads=16)
     except ImportError:

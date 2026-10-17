@@ -19,7 +19,7 @@ import uuid
 _stats_cache = {}
 _lock = threading.Lock()
 
-# ⭐️ /api/data ETag 용 사용자별 데이터 버전 — 기록 변경 시마다 증가.
+# ⭐️ 조회 응답 ETag·캐시 무효화용 사용자별 데이터 버전 — 기록 변경 시마다 증가.
 #    서버 재시작 시 버전이 0부터 다시 시작해도 잘못된 304 가 나가지 않도록
 #    부팅마다 달라지는 식별자를 ETag 에 포함한다.
 _BOOT_ID = uuid.uuid4().hex[:8]

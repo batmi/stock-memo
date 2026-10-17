@@ -13,14 +13,11 @@ import os
 import sqlite3
 import threading
 import time
-import zipfile
-import json
 from datetime import datetime, timedelta, timezone
 
-from app.services import accounts
 import config
 from app.services import prices
-from app.services.backups import verify_backup_zip
+from app.services.backups import verify_backup_zip, write_user_backup
 from app.database.db import db_conn, get_db
 from app.services.users import user_dir
 
@@ -82,19 +79,6 @@ def auto_backup_job():
 
 def _backup_user(username):
     """한 사용자의 기록·첨부·계좌 매핑을 ZIP 으로 백업하고 7일 지난 파일을 지운다."""
-    # ⭐️ 기록과 계좌 매핑을 **같은 연결에서** 읽는다.
-    #    예전에는 기록만 읽고 곧바로 conn.close() 한 뒤, ZIP 을 쓰는
-    #    한참 아래에서 그 닫힌 연결로 accounts.load(conn, ...) 를 불렀다.
-    #    load() 는 조회 실패를 '매핑 없음'으로 삼키도록 되어 있어(그게
-    #    맞는 설계다) 아무 소리 없이 빈 매핑이 돌아왔고, 결과적으로
-    #    **자동 백업 ZIP 에서만 account_info.json 이 통째로 빠졌다.**
-    #    수동 백업(backup_api)은 with db_conn() 을 써서 멀쩡했기 때문에
-    #    "백업은 되는데 복원하면 계좌 매핑만 사라지는" 형태로 나타난다.
-    with db_conn() as conn:
-        rows = [dict(row) for row in conn.execute(
-            "SELECT * FROM entries WHERE username = ?", (username,)).fetchall()]
-        mappings = accounts.load(conn, username)
-
     user_backup_dir = user_dir(config.BACKUP_DIR, username)
     if user_backup_dir is None:
         return  # 규칙 이전에 만들어진 이상한 이름 — 파일을 건드리지 않는다
@@ -107,27 +91,11 @@ def _backup_user(username):
     # ⭐️ 임시 파일에 다 쓴 뒤 이름을 바꾼다. 쓰는 도중 프로세스가 죽어도 반쯤 쓰인
     #    ZIP 이 정식 백업 이름으로 남지 않는다.
     tmp_path = filepath + '.tmp'
-    with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-        json_data = json.dumps(rows, ensure_ascii=False, indent=2)
-        zf.writestr('data.json', json_data)
-
-        user_folder = user_dir(config.UPLOAD_FOLDER, username)
-        if user_folder and os.path.exists(user_folder):
-            for root, _dirs, files in os.walk(user_folder):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.join('uploads', file)
-                    zf.write(file_path, arcname=arcname)
-
-        # 계좌 매핑은 DB 에 있지만, 백업 ZIP 안에서는 구버전과 같은
-        # account_info.json 이름을 유지한다 (예전 백업과 호환).
-        if mappings.get('brokers') or mappings.get('accounts'):
-            zf.writestr(accounts.BACKUP_ARCNAME, accounts.dumps(mappings))
-
+    count = write_user_backup(tmp_path, username)
     os.replace(tmp_path, filepath)
 
     # ⭐️ 생성된 백업 파일의 무결성을 즉시 검증 (복원 가능 여부 확인)
-    ok, detail = verify_backup_zip(filepath, len(rows))
+    ok, detail = verify_backup_zip(filepath, count)
     if not ok:
         # ⭐️ 검증에 실패하면 옛 백업을 정리하지 않는다. 예전에는 결과와 무관하게 7일 지난
         #    파일을 지워서, 백업이 일주일 내내 깨지면 남는 것이 깨진 백업뿐이었다.

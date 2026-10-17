@@ -14,7 +14,7 @@ import pytest
 
 import backend_app
 import config
-from app.services import images, jobs
+from app.services import accounts, images, jobs
 from app.utils import statscache
 from helpers import _ensure_user, _login
 
@@ -126,9 +126,11 @@ def test_stats_cache_is_bounded_by_granularity(app):
     _ensure_user('trader')
     _login(client, 'trader')
     for i in range(50):
-        client.post('/api/stats', json={'granularity': f'junk-{i}'})
+        # 모르는 집계 단위는 캐시에 닿기 전에 400 으로 거절한다.
+        assert client.get('/api/journal/stats', query_string={'granularity': f'junk-{i}'}).status_code == 400
+    client.get('/api/journal/stats', query_string={'granularity': 'weekly'})
     keys = [k for k in statscache._stats_cache if k[0] == 'trader']
-    assert len(keys) <= 2  # monthly / weekly
+    assert keys == [('trader', 'journal-index')]  # 집계 단위와 무관한 거래 인덱스 하나뿐
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +153,7 @@ def test_auto_backup_continues_after_one_user_fails(app, monkeypatch):
         if calls['n'] > 1:
             raise _StopLoop()
 
-    real_load = jobs.accounts.load
+    real_load = accounts.load
 
     def flaky_load(conn, username):
         if username == 'aaa_first':
@@ -159,7 +161,7 @@ def test_auto_backup_continues_after_one_user_fails(app, monkeypatch):
         return real_load(conn, username)
 
     monkeypatch.setattr(jobs.time, 'sleep', fake_sleep)
-    monkeypatch.setattr(jobs.accounts, 'load', flaky_load)
+    monkeypatch.setattr(accounts, 'load', flaky_load)
     with pytest.raises(_StopLoop):
         jobs.auto_backup_job()
 
@@ -297,13 +299,6 @@ def test_reallowed_user_can_log_in_again(app):
     again = app.test_client()
     _login(again, 'blocked')
     assert again.get('/api/data').status_code == 200
-
-
-@pytest.mark.parametrize('body', [[1, 2], 'text', {'entry_ids': 'abc'}, {'entry_ids': [1, 'x']}])
-def test_stats_rejects_malformed_body(app, body):
-    client = app.test_client()
-    _login(client, 'trader')
-    assert client.post('/api/stats', json=body).status_code == 400
 
 
 @pytest.mark.parametrize('path', ['/api/entry', '/api/change_password', '/api/preferences'])

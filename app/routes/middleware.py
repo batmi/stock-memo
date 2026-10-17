@@ -18,7 +18,7 @@ from werkzeug.exceptions import HTTPException
 from app.utils import applog
 
 # ⭐️ 텍스트 응답 gzip 압축: 초기 로딩 전송량 절감
-#    (/api/data 수 MB JSON, script.js 350KB→60KB 등)
+#    (JSON 응답, 화면 스크립트 묶음 /bundle/app.js 약 390KB→100KB 등)
 #    이미지/ZIP 등 이미 압축된 형식은 Content-Type 으로 제외한다.
 COMPRESSIBLE_TYPES = ('application/json', 'text/html', 'text/css',
                       'application/javascript', 'text/javascript', 'text/plain')
@@ -32,7 +32,7 @@ COMPRESSIBLE_TYPES = ('application/json', 'text/html', 'text/css',
 MAX_COMPRESS_BYTES = 96 * 1024 * 1024
 
 # ⭐️ 정적 자산(js/css) 압축 결과 메모리 캐시 — 라즈베리파이의 느린 CPU 에서
-#    script.js 를 요청마다 매번 gzip 압축하면 요청당 수십 ms 를 소모한다.
+#    js/css 를 요청마다 매번 gzip 압축하면 요청당 수십 ms 를 소모한다.
 #    파일 mtime 을 키에 포함해, 파일이 바뀌지 않는 한 최초 1회만 압축한다.
 _static_gzip_cache = {}  # request.path -> (mtime, compressed_bytes | None)
 _static_gzip_lock = threading.Lock()

@@ -5,7 +5,7 @@
 //    최상위 let/const/function 은 전역 렉시컬 환경을 공유하므로, 예전 script.js
 //    한 덩어리였을 때와 실행 의미가 완전히 같다. (HTML 의 인라인 onclick 핸들러가
 //    전역 함수를 그대로 부르고 있어 모듈로 바꾸면 그것들이 전부 깨진다)
-//    → 로드 순서는 templates/stock-memo.html 의 <script> 순서가 결정한다. 바꾸지 말 것.
+//    → 실행 순서는 파일명 번호 순서다(app/utils/scriptbundle.py 가 그 순서로 이어 붙인다).
 // ═══════════════════════════════════════════════════════════════════
 
 function recomputeHiddenStocks() {
@@ -383,6 +383,11 @@ function renderPage(pageEntries) {
             const simBadge = isExcludedFromTotals(entry)
                 ? `<span style="background-color: var(--warning-color); color: white; padding:4px 8px; border-radius:12px; font-size:0.85em; font-weight:bold; margin:0;" title="총 투자금액·평가금액·실현손익·도넛 차트·통계에는 반영되지 않는 기록입니다.">${exclusionBadgeLabel(entry)}</span>`
                 : '';
+            // 취소·접수 주문도 이력으로는 남지만 보유 수량·손익·통계에는 넣지 않는다(서버 entry_logic.is_settled_trade).
+            const statusLabel = { CANCELED: '취소된 주문', SUBMITTED: '미체결 접수' }[entry.tradeStatus];
+            const statusBadge = statusLabel
+                ? `<span style="background-color: var(--text-muted-color); color: white; padding:4px 8px; border-radius:12px; font-size:0.85em; font-weight:bold; margin:0;" title="보유 수량·실현손익·달력·차트·통계에는 반영되지 않는 기록입니다.">${statusLabel}</span>`
+                : '';
                     const actualBroker = BROKER_NAMES[entry.brokerAccount] || entry.brokerAccount;
             const displayBroker = highlight(actualBroker);
             let actualSub = entry.accountName || entry.subAccount;
@@ -403,7 +408,7 @@ function renderPage(pageEntries) {
                 ${timeDisplayHtml}
                 <div class="header-right"><span>💼 ${escapeHtml(entry.tradeClass)}</span><button class="btn-edit">수정</button><button class="btn-delete">삭제</button></div>
             </div>
-                <div class="entry-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">${stockBadge}${tradeBadge}${simBadge}${brokerBadge}</div>
+                <div class="entry-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">${stockBadge}${tradeBadge}${statusBadge}${simBadge}${brokerBadge}</div>
                 ${reviewHtml}
                 ${detailsHtml}
                 <div class="entry-content ql-snow" style="border:none; padding:0;"><div class="ql-editor" style="padding:0; min-height:auto; font-family:inherit; font-size:inherit;">${displayThoughts}</div></div>

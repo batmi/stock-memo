@@ -100,7 +100,7 @@ http://127.0.0.1:9094
 ## 5. Backup & Security
 
 ### Data Backup & Restoration
-*   **Easy Web Backup (Recommended)**: Clicking the **[Full Backup]** button at the top of the app screen downloads a ZIP file containing the logged-in account's entire DB (`journal.db`) and attached images, complete with integrity verification. Uploading this ZIP file using the **[Restore]** button in a new environment restores the exact previous state.
+*   **Easy Web Backup (Recommended)**: Clicking the **[Full Backup]** button at the top of the app screen downloads a ZIP file containing the logged-in account's entire DB (`journal.db`) and attached images, complete with integrity verification. Uploading this ZIP file using the **[Restore]** button in a new environment restores the exact previous state. When restoring another account's backup, links to the restored attachments are moved to the restoring account so images keep working.
 *   **Automatic Backup**: Every day at 3 AM, a compressed backup file for each user is generated in the `backup/` folder on the server, and a self-integrity check (CRC, record count) confirms it can be restored. A snapshot of the DB file itself — including accounts, API keys and preferences — is also kept in `backup/_db/`. Both are kept for 7 days, and old backups are not pruned on a day when verification fails.
 *   **Manual Backup**: If you are migrating the server manually, simply copy the `db/` and `uploads/` folders within the project.
 
@@ -277,6 +277,16 @@ chart aggregates are calculated by `app/services/journal.py`. The browser render
 results and applies current prices to the chart's remaining positions. Stock identity
 and flat-position checks still use `static/calc.js`. The existing statistics snapshots
 and `tests/test_journal_api.py` check calculation parity.
+
+The screens, statistics and sell validation share two rules.
+
+*   **Orders that affect holdings**: canceled (`CANCELED`) and submitted-but-unfilled
+    (`SUBMITTED`) orders from the bot stay in the history list with a badge, but are left
+    out of holdings, realized profit, the calendar, charts and statistics
+    (`entry_logic.is_settled_trade`).
+*   **Trade time**: read from `rawDate`, then the legacy display date (`date`), then the
+    entry id (creation time) (`stats.parse_entry_dt`). Average cost depends on the order of
+    fills, so the screens and statistics must use the same order to agree on realized profit.
 
 ### Loading large journals
 

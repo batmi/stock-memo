@@ -15,6 +15,7 @@ from app.routes import api
 import backend_app
 from app.database import entry_logic
 from app.routes import middleware
+from app.utils import scriptbundle
 from helpers import _ensure_user
 
 
@@ -228,15 +229,14 @@ def test_versioned_static_assets_are_cached_long(client):
     assert 'immutable' in client.get('/static/calc.js?v=123').headers['Cache-Control']
     assert client.get('/static/calc.js').headers['Cache-Control'] == 'public, max-age=3600'
 
-def test_app_scripts_are_loaded_in_filename_order(app):
+def test_script_files_are_listed_in_filename_order(app):
     """번호 접두사 순서가 곧 실행 순서다 — 정렬이 깨지면 전역 참조가 어긋난다."""
-    with app.test_request_context('/'):
-        scripts = backend_app.inject_get_mtime()['app_scripts']()
-    paths = [p for p, _ in scripts]
-    assert paths == sorted(paths)
-    assert all(p.startswith('js/') for p in paths)
-    # 모든 조각의 mtime 이 실제 값이어야 캐시 버스팅이 동작한다
-    assert all(m > 0 for _, m in scripts)
+    files = scriptbundle.script_files(os.path.join(app.static_folder, 'js'))
+    names = [n for n, _ in files]
+    assert names and names == sorted(names)
+    assert all(n.endswith('.js') for n in names)
+    # 모든 조각의 mtime 이 실제 값이어야 묶음이 바뀐 조각을 알아챈다
+    assert all(m > 0 for _, m in files)
 
 def test_get_mtime_resolves_static_assets(app):
     """템플릿의 ?v= 캐시 버스팅이 실제 mtime 을 읽어야 한다 (0 이면 캐시가 안 깨진다)."""

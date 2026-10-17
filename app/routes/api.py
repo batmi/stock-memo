@@ -23,7 +23,6 @@ from app.services import entries
 import config
 from app.services import news
 from app.services import prices
-from app.services import stats
 from app.utils import scriptbundle, statscache
 import trading_api
 from app.database.db import db_conn
@@ -33,9 +32,6 @@ from app.services.users import (bump_session_epoch, forget_session_epoch, purge_
 log = logging.getLogger('api')
 
 bp = Blueprint('api', __name__)
-
-# 통계 집계 단위. 클라이언트 값을 그대로 캐시 키로 쓰면 요청마다 항목이 늘어난다.
-STATS_GRANULARITIES = ('monthly', 'weekly')
 
 # ⭐️ 외부 호출로 이어지는 목록의 상한. 목록 길이만큼 네이버·야후·구글 요청이 나가므로,
 #    제한이 없으면 요청 한 번이 외부 호출 수천 건이 된다. 실제 보유 종목 수보다 넉넉히 둔다.
@@ -492,102 +488,6 @@ def resolve_review(entry_id):
     except entries.EntryNotFound:
         return jsonify({"error": "기록을 찾을 수 없습니다."}), 404
     return jsonify({"status": "success"})
-
-
-def _excluded_accounts(username):
-    """'금액 계산 제외' 판정에 필요한 (제외 계좌번호, 제외 별칭, 등록된 전체 계좌번호).
-
-    등록된 전체 계좌번호도 함께 넘겨야, 계좌번호로 계좌가 특정되는 기록에서는
-    이름 대조를 건너뛸 수 있다 (다른 증권사의 같은 별칭까지 제외되는 것 방지).
-    """
-    mappings = get_user_mappings(username)
-    codes, aliases = accounts.excluded_accounts(mappings)
-    return codes, aliases, accounts.known_account_keys(mappings)
-
-
-def _is_excluded_account_row(row, codes, aliases, known_codes=None):
-    return accounts.is_excluded_row(row, codes, aliases, known_codes)
-
-
-@bp.route('/api/stats', methods=['GET', 'POST'])
-def get_stats():
-    """로그인한 사용자의 매매 성과 분석 지표를 반환합니다.
-    POST 요청 시 JSON 바디에 entry_ids 리스트를 전달하면 해당 항목들로만 통계를 계산합니다."""
-    username = session.get('username')
-    entry_ids = None
-    granularity = 'monthly'
-    # ⭐️ 차트가 보고 있는 기간(기간 이동 버튼 반영)을 그대로 받아 같은 구간만 집계한다.
-    period_start = period_end = None
-    if request.method == 'POST':
-        data = _json_object()
-        if data is None:
-            return _bad_body()
-        entry_ids = data.get('entry_ids')
-        if entry_ids is not None and (
-                not isinstance(entry_ids, list)
-                or not all(isinstance(i, int) and not isinstance(i, bool) for i in entry_ids)):
-            return jsonify({"error": "entry_ids 는 정수 배열이어야 합니다."}), 400
-        granularity = data.get('granularity', 'monthly')
-        period_start = data.get('period_start')
-        period_end = data.get('period_end')
-    # ⭐️ 아는 값만 받는다. 클라이언트 문자열을 그대로 캐시 키로 쓰면 요청마다 캐시
-    #    항목이 늘어났다(값은 어차피 weekly 가 아니면 monthly 로 계산된다).
-    if granularity not in STATS_GRANULARITIES:
-        granularity = 'monthly'
-
-    # ⭐️ 전체 통계 요청은 캐시 우선 조회 (필터링·기간 지정 요청은 캐시 대상 아님)
-    if entry_ids is None and not period_start and not period_end:
-        cache_key = (username, granularity)
-        cached = statscache.get(cache_key)
-        if cached is not None:
-            return jsonify(cached)
-
-    # ⭐️ 통계 계산에 필요한 컬럼만 조회 — SELECT * 는 본문 HTML(thoughts)까지
-    #    전부 읽어와, 본문이 커질수록 통계 응답이 느려진다. (특히 캐시가 없는 POST 필터 요청)
-    # ⭐️ stockCode 는 종목 동일성 판정에 쓴다(stats.stock_identity). 이름으로만 묶으면
-    #    표기가 갈린 같은 종목의 손익이 쪼개진다.
-    stats_cols = ("id, type, stockName, stockCode, tradeType, price, quantity, "
-                  "rawDate, subAccount, accountName")
-    # ⭐️ 읽기 전에 데이터 버전을 받아 둔다. 계산 도중 기록이 바뀌면 결과를 캐시하지
-    #    않는다(statscache.put 참고).
-    data_version = statscache.data_etag(username)
-
-    with db_conn() as conn:
-        c = conn.cursor()
-        if entry_ids is not None:
-            if not entry_ids:
-                rows = []
-            else:
-                chunk_size = 900
-                rows = []
-                for i in range(0, len(entry_ids), chunk_size):
-                    chunk = entry_ids[i:i+chunk_size]
-                    placeholders = ','.join('?' for _ in chunk)
-                    c.execute(f"SELECT {stats_cols} FROM entries WHERE username = ? "
-                              f"AND id IN ({placeholders})", (username, *chunk))
-                    rows.extend([dict(row) for row in c.fetchall()])
-        else:
-            c.execute(f"SELECT {stats_cols} FROM entries WHERE username = ?", (username,))
-            rows = [dict(row) for row in c.fetchall()]
-
-    # ⭐️ 계좌 관리에서 '금액 계산 제외'로 지정한 계좌의 기록도 성과 분석에서 뺀다.
-    #    프론트에서도 걸러 보내지만, 통계는 '실제 성과'를 말하는 화면이라 여기서도 막는다.
-    excluded_codes, excluded_aliases, known_codes = _excluded_accounts(username)
-    if excluded_codes or excluded_aliases:
-        rows = [row for row in rows
-                if not _is_excluded_account_row(row, excluded_codes, excluded_aliases,
-                                                known_codes)]
-
-    result = stats.compute_trade_stats(rows, granularity=granularity,
-                                       period_start=period_start, period_end=period_end)
-    # ⭐️ 프론트가 "어느 구간을 본 결과인지" 화면에 표기할 수 있도록 되돌려 준다.
-    result['periodStart'] = period_start
-    result['periodEnd'] = period_end
-
-    if entry_ids is None and not period_start and not period_end:
-        statscache.put((username, granularity), result, etag=data_version)
-
-    return jsonify(result)
 
 
 @bp.route('/api/market_calendar', methods=['GET'])

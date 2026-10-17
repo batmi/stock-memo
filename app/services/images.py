@@ -121,6 +121,29 @@ def entry_uploads(username, entry):
     return names
 
 
+def rehome_upload_urls(username, entry, available):
+    """다른 계정의 백업을 복원할 때, 함께 복원된 첨부를 가리키는 주소를 이 계정으로 옮긴다.
+
+    첨부 주소에는 원래 계정 이름이 들어 있다(/uploads/<계정>/<파일>). 복원은 파일을 이
+    계정 폴더로 복사하는데 주소가 그대로면 첨부 라우트가 403 을 돌려줘 이미지가 깨졌다.
+    available 은 복원 폴더에 실제로 있는 파일명 집합이다. 그 밖의 주소는 건드리지 않는다.
+    """
+    def rehome(match):
+        owner, name = match.group(1), match.group(2)
+        if owner != username and name in available:
+            return f"/uploads/{username}/{name}"
+        return match.group(0)
+
+    changed = {}
+    for col in _UPLOAD_REF_COLUMNS:
+        text = entry.get(col)
+        if isinstance(text, str) and '/uploads/' in text:
+            fixed = _UPLOAD_URL_RE.sub(rehome, text)
+            if fixed != text:
+                changed[col] = fixed
+    return dict(entry, **changed) if changed else entry
+
+
 def store_inline_images(username, entry):
     """extract_inline_images 와 같되, 이번에 새로 만든 파일명도 함께 돌려준다.
 

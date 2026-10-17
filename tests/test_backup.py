@@ -270,6 +270,36 @@ def test_restore_replaces_uploads_on_success(client, monkeypatch, tmp_path):
     assert not os.path.exists(user_folder + '.old')
     assert not os.path.exists(user_folder + '.restoring')
 
+def test_restore_from_other_account_rehomes_restored_upload_urls(client, monkeypatch, tmp_path):
+    """다른 계정의 백업을 복원하면 함께 복원된 첨부의 주소를 이 계정으로 옮긴다.
+
+    파일은 이 계정 폴더로 복사되는데 주소가 /uploads/<원래 계정>/ 그대로면 403 으로 깨졌다.
+    백업에 없는 파일의 주소는 건드리지 않는다.
+    """
+    monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path / 'uploads'))
+    _login(client, 'newowner')
+    payload = [{
+        'id': 1, 'type': 'memo', 'title': '첨부',
+        'thoughts': '<p><img src="/uploads/oldowner/chart.png"><img src="/uploads/oldowner/missing.png"></p>',
+        'attachedFile': 'https://example.test/uploads/oldowner/report.pdf',
+    }]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as zf:
+        zf.writestr('data.json', json.dumps(payload))
+        zf.writestr('uploads/chart.png', 'png')
+        zf.writestr('uploads/report.pdf', 'pdf')
+    buf.seek(0)
+    res = client.post('/api/restore', data={'file': (buf, 'b.zip')}, content_type='multipart/form-data')
+    assert res.status_code == 200, res.get_data(as_text=True)
+
+    with backend_app.db_conn() as conn:
+        row = conn.execute("SELECT thoughts, attachedFile FROM entries WHERE username='newowner'").fetchone()
+    assert '/uploads/newowner/chart.png' in row['thoughts']
+    assert '/uploads/oldowner/missing.png' in row['thoughts']
+    assert row['attachedFile'] == 'https://example.test/uploads/newowner/report.pdf'
+    assert client.get('/uploads/newowner/chart.png').status_code == 200
+
+
 # ══════════════════════════════════════════════════════════════
 # 복원: 다른 계정의 기록과 id 가 겹쳐도 실패하지 않는다
 # ══════════════════════════════════════════════════════════════

@@ -1,33 +1,47 @@
 """매매 성과 분석(통계) 계산 로직.
 
 DB에 의존하지 않는 순수 함수로 구성되어 단위 테스트가 용이합니다.
-백엔드 라우트(/api/stats)에서 조회한 기록 리스트를 받아 지표를 계산합니다.
+조회 API(/api/journal/stats)가 넘긴 기록 리스트를 받아 지표를 계산합니다.
 
-(entry_logic 에서 가져오는 것은 종목코드 표기 정규화 규칙 하나뿐입니다. DB 접근이
- 아니라 '같은 종목인가'를 저장 쪽과 같은 기준으로 판정하기 위한 순수 함수입니다.)
+(entry_logic 에서 가져오는 것은 종목코드 표기 정규화와 '잔고에 반영되는 주문인가'
+ 판정입니다. DB 접근이 아니라 저장·매도 검증과 같은 기준으로 판정하기 위한 순수 함수입니다.)
 """
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
+import re
 
-from app.database.entry_logic import normalize_stock_code
+from app.database.entry_logic import is_settled_trade, normalize_stock_code
+
+# 옛 기록의 표시용 날짜 ('2024. 1. 2. 오전 9:00' 처럼 앞부분이 연·월·일)
+_LEGACY_DATE_RE = re.compile(r'^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})')
+
 
 def parse_entry_dt(entry):
-    """기록의 거래 일시를 datetime으로 파싱합니다. rawDate를 우선 사용하고,
-    실패 시 id(밀리초 타임스탬프)로 대체합니다. 모두 실패하면 None."""
+    """기록의 거래 일시. 목록 정렬·포트폴리오·달력·차트·통계가 **모두 이 규칙**으로 읽는다.
+
+    rawDate(ISO 문자열. 오프셋이 붙어 있으면 떼고 그 시각 그대로) → 옛 기록의 표시용
+    날짜(date) → id(밀리초 타임스탬프 = 작성 시각) 순서로 본다. 모두 실패하면 None.
+
+    ⭐️ 예전에는 화면 집계(journal)와 통계가 규칙을 따로 가졌다. rawDate 가 없는 옛 기록을
+       화면은 표시 날짜로, 통계는 작성 시각으로 읽어서 체결 순서가 갈렸다. 이동평균
+       단가는 순서에 따라 달라지므로 분석 탭과 대시보드의 실현손익이 어긋날 수 있었다.
+    """
     raw = entry.get('rawDate')
     if raw:
-        for fmt in ('%Y-%m-%dT%H:%M', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
-            try:
-                return datetime.strptime(str(raw), fmt)
-            except (ValueError, TypeError):
-                continue
+        try:
+            return datetime.fromisoformat(str(raw)).replace(tzinfo=None)
+        except ValueError:
+            pass
+    parts = _LEGACY_DATE_RE.match(entry.get('date') or '')
+    if parts:
+        try:
+            return datetime(*map(int, parts.groups()))
+        except ValueError:
+            pass
     try:
         return datetime.fromtimestamp(int(entry.get('id')) / 1000)
     except (ValueError, TypeError, OSError):
         return None
-
-# 하위 호환을 위한 별칭 (기존 내부 명칭)
-_parse_entry_dt = parse_entry_dt
 
 
 def _entry_seq(entry):
@@ -80,7 +94,9 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
     집계합니다. 단, 평단(avgPrice)은 구간 이전 매수까지 모두 반영해야 실현손익이
     맞으므로 보유 상태는 전체 기록으로 갱신하고 '지표 누적'만 구간 안으로 제한합니다.
     """
-    trades = [r for r in rows if r.get('type') == 'trade' and (r.get('stockName') or '').strip()]
+    # 취소·접수 주문은 이력으로만 남고 성과에 넣지 않는다(entry_logic.is_settled_trade).
+    trades = [r for r in rows if r.get('type') == 'trade' and (r.get('stockName') or '').strip()
+              and is_settled_trade(r)]
     # ⭐️ 같은 시각의 체결은 **id 가 큰 쪽(나중에 들어온 쪽)이 뒤**로 간다.
     #    예전에는 정렬 키가 시각 하나뿐이었고, 파이썬 정렬이 안정적이라 동점의 순서가
     #    'SQL 이 돌려준 순서'(api.py 의 조회에는 ORDER BY 가 없다)로 결정됐다. 이 순서가

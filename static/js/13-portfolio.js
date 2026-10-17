@@ -5,8 +5,11 @@
 //    최상위 let/const/function 은 전역 렉시컬 환경을 공유하므로, 예전 script.js
 //    한 덩어리였을 때와 실행 의미가 완전히 같다. (HTML 의 인라인 onclick 핸들러가
 //    전역 함수를 그대로 부르고 있어 모듈로 바꾸면 그것들이 전부 깨진다)
-//    → 로드 순서는 templates/stock-memo.html 의 <script> 순서가 결정한다. 바꾸지 말 것.
+//    → 실행 순서는 파일명 번호 순서다(app/utils/scriptbundle.py 가 그 순서로 이어 붙인다).
 // ═══════════════════════════════════════════════════════════════════
+
+// 투자 분류 표시 순서. 포트폴리오 카드와 분류 필터가 같은 순서를 쓴다(없는 분류는 뒤로).
+const TRADE_CLASS_ORDER = Object.freeze({ "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "시스템": 7, "기타": 8 });
 
 function updatePortfolioSummary() {
     if (!journalMeta) return Promise.resolve();
@@ -48,7 +51,6 @@ function renderPortfolioSummary(summary) {
     }
 
     currentPortfolioArrayForPrice = portfolioArray;
-    const sortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "시스템": 7, "기타": 8 };
     portfolioArray.sort((a, b) => {
         // ⭐️ 청산·숨김 종목과 제외 계좌 종목을 가장 하단으로 정렬
         //    (실제 돈이 들어간 종목이 위쪽에 모여 있어야 한눈에 읽힌다)
@@ -68,8 +70,8 @@ function renderPortfolioSummary(summary) {
             if (idxB !== -1) return 1;
         }
         
-        const orderA = sortOrder[a.tradeClass] || 99;
-        const orderB = sortOrder[b.tradeClass] || 99;
+        const orderA = TRADE_CLASS_ORDER[a.tradeClass] || 99;
+        const orderB = TRADE_CLASS_ORDER[b.tradeClass] || 99;
         if (orderA !== orderB) return orderA - orderB;
         return a.stock.localeCompare(b.stock); // 분류가 같으면 종목명 가나다순 정렬
     });
@@ -598,10 +600,9 @@ function updateFilterDropdown() {
         window.updateDashboardFilterStyle(stockSelect);
     }
 
-    const accountSortOrder = { "장기투자": 1, "중기투자": 2, "단기스윙": 3, "단타(스캘핑)": 4, "배당투자": 5, "공모주": 6, "시스템": 7, "기타": 8 };
     const accounts = [...journalMeta.tradeClasses].sort((a, b) => {
-        const orderA = accountSortOrder[a] || 99;
-        const orderB = accountSortOrder[b] || 99;
+        const orderA = TRADE_CLASS_ORDER[a] || 99;
+        const orderB = TRADE_CLASS_ORDER[b] || 99;
         if (orderA !== orderB) return orderA - orderB;
         return a.localeCompare(b);
     });

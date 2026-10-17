@@ -1,4 +1,4 @@
-"""/api/stats — 집계 결과가 화면에 나가기까지의 필터링.
+"""/api/journal/stats — 집계 결과가 화면에 나가기까지의 필터링.
 
 계산식 자체의 회귀는 tests/test_stats.py 가 본다. 여기서는 "무엇을 빼고 세는가"
 (모의거래, 제외 표시한 계좌)를 API 레벨에서 확인한다.
@@ -10,12 +10,12 @@ from helpers import _buy, _ensure_user, _insert_raw, _login, _sell
 
 
 # ─────────────────────────────────────────────────────────────
-# ⭐️ 매매 성과 분석(/api/stats) 테스트
+# ⭐️ 매매 성과 분석(/api/journal/stats) 테스트
 # ─────────────────────────────────────────────────────────────
 def test_stats_empty(client):
     """기록이 없으면 0값 통계를 반환한다."""
     _login(client, 'statsempty')
-    res = client.get('/api/stats')
+    res = client.get('/api/journal/stats')
     assert res.status_code == 200
     s = res.json
     assert s['totalRealized'] == 0
@@ -35,7 +35,7 @@ def test_stats_realized_and_winrate(client):
     client.post('/api/entry', json=_sell(stock='A', qty=5, price=80,
                                          rawDate='2024-03-10T09:00', id=3))
 
-    s = client.get('/api/stats').json
+    s = client.get('/api/journal/stats').json
     assert round(s['totalRealized']) == 0           # +100 -100
     assert s['sellCount'] == 2
     assert s['winCount'] == 1 and s['lossCount'] == 1
@@ -61,7 +61,7 @@ def test_stats_holding_period_and_dividend(client):
         "type": "trade", "tradeType": "배당", "stockName": "B",
         "price": 50, "quantity": 10, "rawDate": "2024-02-01T09:00", "id": 3})
 
-    s = client.get('/api/stats').json
+    s = client.get('/api/journal/stats').json
     assert round(s['avgHoldingDays']) == 10
     assert round(s['totalDividend']) == 500
     assert round(s['totalPnl']) == round(s['totalRealized'] + 500)
@@ -95,20 +95,16 @@ def test_stats_exclude_flagged_account(client):
     _insert_raw('excacct', id=102, stockName='B', tradeType='매도', price=100,
                 quantity=100, rawDate='2024-02-11T09:00', subAccount='3333444401')
 
-    s = client.get('/api/stats').json
+    s = client.get('/api/journal/stats').json
     assert round(s['totalRealized']) == 200
     assert [p['stock'] for p in s['perStock']] == ['A']
-
-    # 차트 필터 경로(entry_ids 직접 전달)도 동일하게 걸러진다
-    s2 = client.post('/api/stats', json={'entry_ids': [1, 2, 101, 102]}).json
-    assert round(s2['totalRealized']) == 200
 
     # 계좌번호 없이 이름만 남은 수기 기록은 별칭으로 대조해 걸러낸다
     _insert_raw('excacct', id=103, stockName='C', tradeType='매수', price=1000,
                 quantity=100, rawDate='2024-01-12T09:00', accountName='연습계좌')
     _insert_raw('excacct', id=104, stockName='C', tradeType='매도', price=100,
                 quantity=100, rawDate='2024-02-12T09:00', accountName='연습계좌')
-    s3 = client.get('/api/stats').json
+    s3 = client.get('/api/journal/stats').json
     assert round(s3['totalRealized']) == 200
 
     # 체크를 풀면 다시 통계에 잡힌다 (매핑 저장 시 캐시가 무효화돼야 한다)
@@ -119,7 +115,7 @@ def test_stats_exclude_flagged_account(client):
                             "alias": "연습계좌"},
         }
     })
-    s4 = client.get('/api/stats').json
+    s4 = client.get('/api/journal/stats').json
     assert round(s4['totalRealized']) < 0
 
 
@@ -155,32 +151,33 @@ def test_stats_shared_alias_excludes_only_flagged_account(client):
                 quantity=100, rawDate='2024-02-11T09:00',
                 subAccount='189-01-501685', accountName='일반계좌')
 
-    s = client.get('/api/stats').json
+    s = client.get('/api/journal/stats').json
     assert round(s['totalRealized']) == 200
     assert [p['stock'] for p in s['perStock']] == ['A']
 
 
-def test_stats_not_cached_when_data_changes_during_compute(client, monkeypatch):
-    """계산 도중 기록이 바뀌면 그 결과를 캐시하지 않는다 (옛 통계가 눌어붙지 않도록)."""
-    from app.services import stats
+def test_stats_index_not_cached_when_data_changes_during_read(client, monkeypatch):
+    """거래 인덱스를 읽는 도중 기록이 바뀌면 그 인덱스를 캐시하지 않는다 (옛 통계가 눌어붙지 않도록)."""
+    from app.services import journal
     from app.utils import statscache
 
     _login(client, 'statsrace')
-    real_compute = stats.compute_trade_stats
+    _insert_raw('statsrace', id=1, stockName='A', tradeType='매수', price=100,
+                quantity=1, rawDate='2024-01-10T09:00')
+    real_date = journal._date
 
-    def compute_while_bot_writes(*args, **kwargs):
-        result = real_compute(*args, **kwargs)
-        statscache.invalidate('statsrace')   # 계산 중 봇 체결이 들어온 상황
-        return result
+    def read_while_bot_writes(row):
+        statscache.invalidate('statsrace')   # 읽는 중 봇 체결이 들어온 상황
+        return real_date(row)
 
-    monkeypatch.setattr(stats, 'compute_trade_stats', compute_while_bot_writes)
-    assert client.get('/api/stats').status_code == 200
-    assert statscache.get(('statsrace', 'monthly')) is None
+    monkeypatch.setattr(journal, '_date', read_while_bot_writes)
+    assert client.get('/api/journal/stats').status_code == 200
+    assert statscache.get(('statsrace', 'journal-index')) is None
 
     # 데이터가 그대로면 평소처럼 캐시한다
-    monkeypatch.setattr(stats, 'compute_trade_stats', real_compute)
-    client.get('/api/stats')
-    assert statscache.get(('statsrace', 'monthly')) is not None
+    monkeypatch.setattr(journal, '_date', real_date)
+    client.get('/api/journal/stats')
+    assert statscache.get(('statsrace', 'journal-index')) is not None
 
 
 def test_statscache_put_skips_stale_etag():

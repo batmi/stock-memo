@@ -5,7 +5,7 @@
 //    최상위 let/const/function 은 전역 렉시컬 환경을 공유하므로, 예전 script.js
 //    한 덩어리였을 때와 실행 의미가 완전히 같다. (HTML 의 인라인 onclick 핸들러가
 //    전역 함수를 그대로 부르고 있어 모듈로 바꾸면 그것들이 전부 깨진다)
-//    → 로드 순서는 templates/stock-memo.html 의 <script> 순서가 결정한다. 바꾸지 말 것.
+//    → 실행 순서는 파일명 번호 순서다(app/utils/scriptbundle.py 가 그 순서로 이어 붙인다).
 // ═══════════════════════════════════════════════════════════════════
 
 let krxHolidaySet = new Set();
@@ -130,8 +130,22 @@ window.isMarketOpen = function() {
     return status.kr || status.us;
 };
 
+// ⭐️ 탭이 가려진 동안에는 1분 자동 갱신을 건너뛴다. 탭을 열어 둔 채로 두면 장중 내내
+//    서버가 외부 시세를 부르고 휴대폰은 배터리를 쓴다. 다시 보일 때 한 번 갱신한다.
+let pricesSkippedWhileHidden = false;
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && pricesSkippedWhileHidden) {
+        pricesSkippedWhileHidden = false;
+        window.fetchCurrentPricesAndUpdateUI(true);
+    }
+});
+
 // ⭐️ 백엔드 API를 통해 현재가와 평가금액을 가져와 DOM에 반영하는 함수
 window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
+    if (isAuto && document.hidden) {
+        pricesSkippedWhileHidden = true;
+        return;
+    }
     if (currentPortfolioArrayForPrice.length === 0) return;
     
     const displayMarket = currentMarketMode; // ⭐️ 토글된 시장 모드(KRX 또는 AFT) 사용

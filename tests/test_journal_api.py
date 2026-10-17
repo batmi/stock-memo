@@ -125,6 +125,48 @@ def test_historical_buys_determine_portfolio_calendar_and_visible_chart(client):
     assert get(client, 'stats').json['totalPnl'] == 212
 
 
+def test_canceled_and_submitted_orders_stay_in_history_but_not_in_totals(client):
+    """API 명세: SUBMITTED·CANCELED 는 통계에서 제외되고 이력으로만 남는다.
+
+    예전에는 매도 검증만 이 상태를 뺐고, 화면 집계는 체결로 셌다. 추정 체결을 취소로
+    정정하면 보유 수량과 실현손익이 그대로 남았다.
+    """
+    _login(client, 'reader')
+    seed(id=1, rawDate='2026-02-01T09:00', quantity=10, price=100, tradeStatus='FILLED')
+    seed(id=2, rawDate='2026-02-02T09:00', quantity=10, price=100, tradeStatus='CANCELED')
+    seed(id=3, rawDate='2026-02-03T09:00', quantity=10, price=100, tradeStatus='SUBMITTED')
+    seed(id=4, rawDate='2026-02-04T09:00', tradeType='매도', quantity=10, price=300, tradeStatus='CANCELED')
+
+    portfolio = get(client, 'portfolio', month='2026-02').json
+    assert portfolio['holdings']['005930']['qty'] == 10
+    assert portfolio['totalRealizedProfit'] == 0
+    assert (portfolio['monthlyBuyCount'], portfolio['monthlySellCount']) == (1, 0)
+    assert set(get(client, 'calendar', month='2026-02').json) == {'2026-02-01'}
+    chart = get(client, 'chart', period='2026-02').json
+    assert chart['monthlyData']['2026-02']['buy_volume'] == 1000
+    assert chart['monthlyData']['2026-02']['realized'] == 0
+    assert chart['evaluation'][0]['quantity'] == 10
+    stats = get(client, 'stats').json
+    assert (stats['buyCount'], stats['sellCount'], stats['totalPnl']) == (1, 0, 0)
+
+    # 목록에는 이력으로 모두 남는다. 실제 보유는 10주라 청산 종목으로 숨지 않는다.
+    history = get(client, 'entries').json
+    assert history['total'] == 4
+    assert {e['id']: e['tradeStatus'] for e in history['items']}[4] == 'CANCELED'
+
+
+def test_legacy_rows_without_raw_date_use_one_order_for_portfolio_and_stats(client):
+    """rawDate 없는 옛 기록: 거래일(date)과 작성 순서(id)가 다르면 예전에는 화면은 거래일,
+    통계는 작성 시각으로 체결 순서를 정했다. 평단이 순서에 달려 실현손익이 갈렸다."""
+    _login(client, 'reader')
+    # 거래일 순서: 매수 100 → 매도 200(+100) → 매수 300. 작성(id) 순서는 그 반대다.
+    seed(id=3, rawDate=None, date='2026. 1. 1. 오전 9:00', price=100)
+    seed(id=2, rawDate=None, date='2026. 1. 2. 오전 9:00', price=200, tradeType='매도')
+    seed(id=1, rawDate=None, date='2026. 1. 3. 오전 9:00', price=300)
+    assert get(client, 'portfolio').json['totalRealizedProfit'] == 100
+    assert get(client, 'stats').json['totalPnl'] == 100
+
+
 def test_chart_fifo_consumes_sells_after_the_visible_period(client):
     _login(client, 'reader')
     seed(id=1, rawDate='2024-01-01T09:00', quantity=10, price=100)

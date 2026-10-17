@@ -13,13 +13,14 @@ import json
 import re
 
 from app.database.db import db_conn
+from app.database.entry_logic import is_settled_trade
 from app.services import accounts, stats
 from app.utils import statscache
 
 INDEX_COLUMNS = (
     'id', 'type', 'stockName', 'stockCode', 'date', 'rawDate', 'brokerAccount',
     'subAccount', 'accountName', 'tradeClass', 'tradeType', 'price', 'quantity',
-    'createdAt', 'updatedAt', 'isHidden', 'needsReview',
+    'createdAt', 'updatedAt', 'isHidden', 'needsReview', 'tradeStatus',
 )
 PAGE_COLUMNS = INDEX_COLUMNS + ('title', 'tags', 'currency', 'reviewReason')
 EPS = 1e-9
@@ -34,19 +35,7 @@ def plain_text(value):
 
 
 def _date(row):
-    raw = row.get('rawDate')
-    if raw:
-        try:
-            return datetime.fromisoformat(raw).replace(tzinfo=None)
-        except ValueError:
-            pass
-    # 옛 기록의 표시용 날짜도 정렬·달력·차트가 같은 기준으로 읽는다.
-    parts = re.match(r'^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})', row.get('date') or '')
-    if parts:
-        try:
-            return datetime(*map(int, parts.groups()))
-        except ValueError:
-            pass
+    # 날짜 해석 규칙은 통계와 하나다(stats.parse_entry_dt). 둘이 다르면 체결 순서가 갈린다.
     return stats.parse_entry_dt(row) or datetime.min
 
 
@@ -75,6 +64,8 @@ def snapshot(username):
         row['_dt'] = _date(row)
         row['_identity'] = stats.stock_identity(row)
         row['_excluded'] = accounts.is_excluded_row(row, excluded, aliases, known)
+        # 취소·접수 주문은 목록에는 이력으로 남지만 수량·손익·건수 집계에서는 뺀다.
+        row['_settled'] = is_settled_trade(row)
         _, info = accounts.find_account_mapping(mappings['accounts'], row.get('subAccount'))
         row['_account'] = (row.get('accountName')
                            or (info.get('alias') if isinstance(info, dict) else '')
@@ -194,7 +185,8 @@ def portfolio(model, query, month):
     realized = 0.0
     buys = sells = 0
     for row in model['rows']:
-        if row.get('type') != 'trade' or not row.get('stockName') or not matches(row, query):
+        if (row.get('type') != 'trade' or not row.get('stockName') or not row['_settled']
+                or not matches(row, query)):
             continue
         key = _holding_key(row)
         p = holdings.setdefault(key, dict(
@@ -231,7 +223,7 @@ def _history_rows(model, query):
     for row in rows:
         if (row.get('type') or 'trade') != 'trade' or not row.get('stockName'):
             continue
-        if row.get('tradeType') in ('매수', '매도'):
+        if row.get('tradeType') in ('매수', '매도') and row['_settled']:
             quantities[_holding_key(row)] += float(row.get('quantity') or 0) * (
                 1 if row['tradeType'] == '매수' else -1)
         for key, probe in related_queries.items():
@@ -324,6 +316,8 @@ def calendar(model, month):
     counts = {'매수': 'buyCount', '매도': 'sellCount', '관망': 'watchCount',
               '주시': 'watchCount', '배당': 'dividendCount'}
     for row in model['rows']:
+        if row.get('type') == 'trade' and not row['_settled']:
+            continue
         profit = dividend = 0.0
         if row.get('type') == 'trade' and row.get('stockName') and not row['_excluded']:
             profit, _, dividend = _apply(holdings[row['_identity']], row)
@@ -356,7 +350,7 @@ def chart(model, query, labels, weekly):
         breakdown[stock] = breakdown.get(stock, 0.0) + amount
 
     for row in model['rows']:
-        if (row.get('type') != 'trade' or not row.get('stockName')
+        if (row.get('type') != 'trade' or not row.get('stockName') or not row['_settled']
                 or row['_excluded'] or not matches(row, query)):
             continue
         dt = row['_dt']

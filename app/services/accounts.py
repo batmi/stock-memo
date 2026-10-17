@@ -46,7 +46,7 @@ def account_key(value):
 
     등록은 '44048158-01' 로 해 두고 HTS 는 '4404815801' 로 보내는(또는 그 반대의)
     경우가 흔하다. 양쪽을 같은 규칙으로 접어서 비교해야 매핑이 어긋나지 않는다.
-    프런트엔드 `static/script.js` 의 `accountKey()` 가 같은 규칙을 구현한다.
+    화면의 `static/js/01-core.js` 의 `accountKey()` 가 같은 규칙을 구현한다.
     """
     return re.sub(r'[\s-]', '', str(value or ''))
 

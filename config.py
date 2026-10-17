@@ -31,9 +31,9 @@ LOG_DIR = os.path.join(BASE_DIR, 'logs')
 # 계좌 매핑을 DB 로 옮기기 전의 레거시 저장소. 기동 시 1회 이관에만 쓴다.
 JSON_DIR = os.path.join(BASE_DIR, 'json')
 
-# ⭐️ SECRET_KEY_FILE 환경변수로 위치를 바꿀 수 있다. 컨테이너에서는 이 파일이 이미지
-#    레이어에 생겨 재시작마다 새 키가 만들어지고 전원이 로그아웃됐다. Dockerfile 은
-#    이것을 볼륨(db/) 안으로 돌린다.
+# ⭐️ SECRET_KEY_FILE 환경변수로 위치를 바꿀 수 있다. 소스 폴더를 새로 받거나 지우는
+#    배포에서도 키가 살아남도록 데이터 폴더(db/ 등) 안으로 옮길 때 쓴다. 키가 바뀌면
+#    재시작 때 전원이 로그아웃된다. (SECRET_KEY 환경변수가 있으면 그 값이 우선한다)
 SECRET_KEY_FILE = os.environ.get('SECRET_KEY_FILE') or os.path.join(BASE_DIR, '.secret_key')
 
 # 업로드 본문 상한 (초과 시 413)

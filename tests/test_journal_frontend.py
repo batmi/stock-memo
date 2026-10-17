@@ -216,3 +216,42 @@ def test_mismatched_saved_view_is_ignored(page):
     assert entries[0].endswith('/api/journal/entries?type=memo&limit=1')
     assert len(entries) == 2 and 'limit=15' in entries[1], entries
     assert not any('example.com' in u for u in urls)
+
+
+def test_auto_price_refresh_waits_while_tab_is_hidden(page):
+    ready(page)
+    result = page.evaluate('''() => {
+        let hidden = true;
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => hidden ? 'hidden' : 'visible' });
+        let statusChecks = 0;
+        const original = window.getMarketStatus;
+        window.getMarketStatus = () => { statusChecks++; return original(); };
+        window.fetchCurrentPricesAndUpdateUI(true);
+        const whileHidden = statusChecks;
+        const calls = [];
+        const refresh = window.fetchCurrentPricesAndUpdateUI;
+        window.fetchCurrentPricesAndUpdateUI = (isAuto) => { calls.push(isAuto); };
+        hidden = false;
+        document.dispatchEvent(new Event('visibilitychange'));
+        document.dispatchEvent(new Event('visibilitychange'));  // 한 번만 따라잡는다
+        window.fetchCurrentPricesAndUpdateUI = refresh;
+        return { whileHidden, calls };
+    }''')
+    assert result == {'whileHidden': 0, 'calls': [True]}
+
+
+def test_canceled_order_card_shows_it_is_not_counted(page):
+    with db_conn() as conn:
+        conn.execute(
+            "INSERT INTO entries (id, username, type, stockName, stockCode, tradeType, price, quantity, rawDate,"
+            " tradeStatus) VALUES (20000, ?, 'trade', '취소종목', '000001', '매수', 100, 1, '2026-12-01T09:00',"
+            " 'CANCELED')", (USER_ID,))
+        conn.commit()
+    statscache.invalidate(USER_ID)
+    _login(page)
+    card = page.locator('#historyList .entry-card[data-entry-id="20000"]')
+    expect(card).to_contain_text('취소된 주문')
+    # 보유 수량에 들어가지 않으므로 포트폴리오 카드가 생기지 않는다(포트폴리오 응답까지 기다린 뒤 본다).
+    _initial_load_done(page)
+    expect(page.locator('#portfolioGrid')).not_to_contain_text('취소종목')
