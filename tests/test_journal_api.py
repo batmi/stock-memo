@@ -260,3 +260,12 @@ def test_server_portfolio_matches_existing_profit_fixtures(client, name):
         conn.commit()
     got = get(client, 'portfolio').json
     assert got['totalRealizedProfit'] == pytest.approx(EXPECTED[name]['totalPnl'])
+
+
+def test_stats_reads_fee_and_tax_from_records(client):
+    """수수료·세금은 조회 열에 들어 있어야 분석 화면 비용에 잡힌다."""
+    _login(client, 'reader')
+    seed(id=1, quantity=10, fee=15)
+    seed(id=2, tradeType='매도', price=120, quantity=10, rawDate='2026-01-02T09:00', fee=18, tax=30)
+    got = get(client, 'stats').json
+    assert (got['totalCost'], got['costRecordCount'], got['netPnl']) == (63, 2, 137)

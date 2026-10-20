@@ -76,42 +76,104 @@ window.loadTradeStats = async function() {
     }
 };
 
+function statsRate(v) {
+    if (v === null || v === undefined) return '—';
+    return (v > 0 ? '+' : '') + v.toFixed(1) + '%';
+}
+function statsDays(v) {
+    return (v === null || v === undefined) ? '—' : `${v.toFixed(1)}일`;
+}
+function statsRatio(v) {
+    return (v === null || v === undefined) ? '—' : v.toFixed(2);
+}
+
 function renderTradeStats(s) {
     if (!inlineStatsContainer) return;
+    if (window.statsEquityChartInstance) {
+        window.statsEquityChartInstance.destroy();
+        window.statsEquityChartInstance = null;
+    }
 
     if (!s || (s.sellCount === 0 && s.buyCount === 0 && s.dividendCount === 0)) {
         inlineStatsContainer.innerHTML = '<p style="text-align:center; padding: 30px; color: var(--text-muted-color);">분석할 매매 기록이 없습니다.<br>매수/매도 기록을 추가해 보세요.</p>';
         return;
     }
 
-    const card = (label, value, color) =>
-        `<div style="flex:1 1 22%; min-width:75px; background: var(--bg-color); border:1px solid var(--border-color); border-radius:6px; padding:6px 4px; text-align:center;">
+    const strong = 'var(--text-strong-color)';
+    const card = (label, value, color, sub) =>
+        `<div style="background: var(--bg-color); border:1px solid var(--border-color); border-radius:6px; padding:6px 4px; text-align:center;">
             <div style="font-size:9.5px; color: var(--text-muted-color); margin-bottom:2px; word-break:keep-all;">${label}</div>
-            <div style="font-size:11.5px; font-weight:bold; color:${color || 'var(--text-strong-color)'}; word-break:keep-all;">${value}</div>
+            <div style="font-size:11.5px; font-weight:bold; color:${color || strong}; word-break:keep-all;">${value}</div>
+            ${sub ? `<div style="font-size:9px; color: var(--text-muted-color); margin-top:2px; word-break:keep-all;">${sub}</div>` : ''}
         </div>`;
-
-    const pf = (s.profitFactor === null || s.profitFactor === undefined) ? '—' : s.profitFactor.toFixed(2);
+    // ⭐️ 카드가 많아져 성격별로 묶는다 (손익 → 효율 → 위험 → 보유 습관)
+    //    flex-wrap 은 줄 끝에 남은 카드가 한 줄 전체로 늘어나므로, 열 너비가 고정되는 grid 로 놓는다
+    const section = (title, cards, note) =>
+        `<div style="font-size:11.5px; font-weight:bold; color:${strong}; margin:14px 0 6px;">${title}</div>`
+        + `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(88px, 1fr)); gap:8px;">${cards.join('')}</div>`
+        + (note ? `<p style="font-size:11px; color:var(--text-muted-color); margin:6px 0 0; line-height:1.5;">${note}</p>` : '');
+    const shortDate = d => d ? d.slice(2).replace(/-/g, '.') : '시작';
 
     // ⭐️ 분석은 차트 기간과 무관하게 전체 기록을 집계한다.
     //    (월간/주간 선택은 아래 기간별 표의 묶음 단위로만 반영된다)
     let html = '';
 
-    // 요약 지표 카드
-    html += '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">';
-    html += card('총 손익 (실현+배당)', statsMoney(s.totalPnl), statsColor(s.totalPnl));
-    html += card('실현 손익', statsMoney(s.totalRealized), statsColor(s.totalRealized));
-    html += card('배당 수익', statsMoney(s.totalDividend), statsColor(s.totalDividend));
-    html += card('승률', `${s.winRate.toFixed(1)}% (${s.winCount}승 ${s.lossCount}패)`, 'var(--text-strong-color)');
-    html += card('손익비 (Profit Factor)', pf, 'var(--text-strong-color)');
-    html += card('평균 보유기간', `${s.avgHoldingDays.toFixed(1)}일`, 'var(--text-strong-color)');
-    html += card('평균 수익 (이익 거래)', statsMoney(s.avgWin), statsColor(s.avgWin));
-    html += card('평균 손실 (손실 거래)', statsMoney(-s.avgLoss), statsColor(-s.avgLoss));
-    html += card('최대 단일 수익', statsMoney(s.maxSingleWin), statsColor(s.maxSingleWin));
-    html += card('최대 단일 손실', statsMoney(s.maxSingleLoss), statsColor(s.maxSingleLoss));
+    // 손익 — 수수료·세금은 기록된 건만 더하므로, 기록이 없으면 0원이 아니라 '기록 없음'이다
+    const hasCost = s.costRecordCount > 0;
+    const pnlCards = [
+        card('총 손익 (실현+배당)', statsMoney(s.totalPnl), statsColor(s.totalPnl)),
+        card('실현 손익', statsMoney(s.totalRealized), statsColor(s.totalRealized)),
+        card('배당 수익', statsMoney(s.totalDividend), statsColor(s.totalDividend)),
+        card('실현 수익률 (원금 대비)', statsRate(s.realizedReturnRate), statsColor(s.realizedReturnRate || 0)),
+        card('수수료·세금', hasCost ? statsMoney(-s.totalCost) : '기록 없음',
+            hasCost ? statsColor(-s.totalCost) : 'var(--text-muted-color)',
+            hasCost ? `${s.costRecordCount.toLocaleString()}건 기준` : ''),
+    ];
+    if (hasCost) pnlCards.push(card('순손익 (비용 차감)', statsMoney(s.netPnl), statsColor(s.netPnl)));
     // ⭐️ 매수는 빨강, 매도는 파랑 (국내 호가창 관행)
-    html += card('총 매수금', `${Math.round(s.totalBuyAmount).toLocaleString()}원`, 'var(--danger-color, #e74c3c)');
-    html += card('총 매도금', `${Math.round(s.totalSellAmount).toLocaleString()}원`, 'var(--primary-color, #3b82f6)');
-    html += '</div>';
+    pnlCards.push(card('총 매수금', `${Math.round(s.totalBuyAmount).toLocaleString()}원`, 'var(--danger-color, #e74c3c)'));
+    pnlCards.push(card('총 매도금', `${Math.round(s.totalSellAmount).toLocaleString()}원`, 'var(--primary-color, #3b82f6)'));
+    html += section('💰 손익', pnlCards);
+
+    html += section('🎯 매매 효율', [
+        card('승률', `${s.winRate.toFixed(1)}% (${s.winCount}승 ${s.lossCount}패)`),
+        card('손익비 (평균수익÷평균손실)', statsRatio(s.payoffRatio)),
+        card('Profit Factor (총이익÷총손실)', statsRatio(s.profitFactor)),
+        card('거래당 기대값', s.expectancy === null ? '—' : statsMoney(s.expectancy), statsColor(s.expectancy || 0)),
+        card('거래당 평균 수익률', statsRate(s.avgReturnRate), statsColor(s.avgReturnRate || 0)),
+        card('평균 수익 (이익 거래)', statsMoney(s.avgWin), statsColor(s.avgWin)),
+        card('평균 손실 (손실 거래)', statsMoney(-s.avgLoss), statsColor(-s.avgLoss)),
+    ]);
+
+    const mddSub = s.maxDrawdownTroughDate
+        ? `${shortDate(s.maxDrawdownPeakDate)} → ${shortDate(s.maxDrawdownTroughDate)}` : '';
+    html += section('⚠️ 위험', [
+        card('최대 낙폭 (MDD)', statsMoney(-s.maxDrawdown), statsColor(-s.maxDrawdown), mddSub),
+        card('최대 단일 수익', statsMoney(s.maxSingleWin), statsColor(s.maxSingleWin)),
+        card('최대 단일 손실', statsMoney(s.maxSingleLoss), statsColor(s.maxSingleLoss)),
+        card('최대 연승 / 연패', `${s.maxWinStreak}연승 / ${s.maxLossStreak}연패`),
+    ]);
+
+    // 손실 거래를 더 오래 들고 있었다면 한 줄로 짚어 준다 (흔한 '손절 지연' 습관)
+    let holdNote = '';
+    if (s.avgHoldingDaysWin !== null && s.avgHoldingDaysLoss !== null && s.avgHoldingDaysLoss > s.avgHoldingDaysWin) {
+        holdNote = `손실 거래를 이익 거래보다 평균 <b>${(s.avgHoldingDaysLoss - s.avgHoldingDaysWin).toFixed(1)}일</b> 더 오래 보유했습니다.`;
+    }
+    html += section('⏱️ 보유 습관', [
+        card('평균 보유기간', statsDays(s.avgHoldingDays)),
+        card('이익 거래 보유기간', statsDays(s.avgHoldingDaysWin), 'var(--danger-color, #e74c3c)'),
+        card('손실 거래 보유기간', statsDays(s.avgHoldingDaysLoss), 'var(--primary-color, #3b82f6)'),
+    ], holdNote);
+
+    // 누적 실현손익 곡선 — 날짜가 이틀 이상이어야 선이 된다
+    const curve = s.equityCurve || [];
+    if (curve.length >= 2) {
+        html += '<h4 style="font-size:13px; margin:18px 0 4px; color:var(--text-strong-color);">📈 누적 실현손익 (배당 포함)</h4>';
+        if (s.maxDrawdownTroughDate) {
+            html += '<div style="font-size:11px; color:var(--text-muted-color); margin-bottom:6px;"><span style="color:var(--warning-color, #f39c12); font-weight:bold;">━</span> 최대 낙폭 구간</div>';
+        }
+        html += '<div style="position:relative; height:180px;"><canvas id="statsEquityChart"></canvas></div>';
+    }
 
     const thStyle = 'padding:8px; text-align:right; font-weight:bold; color:var(--text-strong-color); border-bottom:2px solid var(--border-color); white-space:nowrap;';
     const tdStyle = 'padding:7px 8px; text-align:right; border-bottom:1px solid var(--border-color); white-space:nowrap;';
@@ -121,7 +183,24 @@ function renderTradeStats(s) {
     //    (border-bottom 을 같이 두면 줄이 두 개로 보인다)
     const thSticky = thStyle.replace('border-bottom:2px solid var(--border-color);', '')
         + ' position:sticky; top:0; z-index:1; background:var(--card-bg-color); box-shadow: inset 0 -2px 0 var(--border-color);';
+    const thLeft = thSticky.replace('text-align:right', 'text-align:left');
     const tableWrap = '<div style="overflow:auto; max-height:340px;"><table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr>';
+    const winRateCell = v => (v === null || v === undefined) ? '—' : v.toFixed(0) + '%';
+
+    // 보유기간별 성과
+    if (s.holdingBuckets && s.holdingBuckets.length) {
+        html += '<h4 style="font-size:13px; margin:18px 0 8px; color:var(--text-strong-color);">⏳ 보유기간별 성과</h4>';
+        html += tableWrap;
+        html += `<th style="${thLeft}">보유기간</th><th style="${thSticky}">매도</th><th style="${thSticky}">승률</th><th style="${thSticky}">실현손익</th><th style="${thSticky}">수익률</th></tr></thead><tbody>`;
+        s.holdingBuckets.forEach(b => {
+            html += `<tr><td style="${tdLeft}">${escapeHtml(b.label)}</td>`
+                + `<td style="${tdStyle}">${b.sellCount}</td>`
+                + `<td style="${tdStyle}">${winRateCell(b.winRate)}</td>`
+                + `<td style="${tdStyle} color:${statsColor(b.realized)};">${statsMoney(b.realized)}</td>`
+                + `<td style="${tdStyle} color:${statsColor(b.returnRate || 0)};">${statsRate(b.returnRate)}</td></tr>`;
+        });
+        html += '</tbody></table></div>';
+    }
 
     // 기간별 실현손익
     if (s.monthly && s.monthly.length) {
@@ -130,12 +209,14 @@ function renderTradeStats(s) {
         const periodHeader = isWeekly ? '주간(시작일)' : '월';
         html += `<h4 style="font-size:13px; margin:18px 0 8px; color:var(--text-strong-color);">${periodTitle}</h4>`;
         html += tableWrap;
-        html += `<th style="${thSticky.replace('text-align:right','text-align:left')}">${periodHeader}</th><th style="${thSticky}">실현손익</th><th style="${thSticky}">배당</th><th style="${thSticky}">매도금액</th></tr></thead><tbody>`;
+        html += `<th style="${thLeft}">${periodHeader}</th><th style="${thSticky}">실현손익</th><th style="${thSticky}">배당</th><th style="${thSticky}">매도</th><th style="${thSticky}">승률</th><th style="${thSticky}">매도금액</th></tr></thead><tbody>`;
         // ⭐️ 최근 기간이 위로 오도록 뒤집어 보여준다 (서버는 과거→최근 순으로 준다)
         s.monthly.slice().reverse().forEach(m => {
             html += `<tr><td style="${tdLeft}">${escapeHtml(m.month)}</td>`
                 + `<td style="${tdStyle} color:${statsColor(m.realized)};">${statsMoney(m.realized)}</td>`
                 + `<td style="${tdStyle} color:${statsColor(m.dividend)};">${statsMoney(m.dividend)}</td>`
+                + `<td style="${tdStyle}">${m.sellCount}</td>`
+                + `<td style="${tdStyle}">${winRateCell(m.winRate)}</td>`
                 + `<td style="${tdStyle}">${Math.round(m.sellAmount).toLocaleString()}원</td></tr>`;
         });
         html += '</tbody></table></div>';
@@ -145,20 +226,93 @@ function renderTradeStats(s) {
     if (s.perStock && s.perStock.length) {
         html += '<h4 style="font-size:13px; margin:18px 0 8px; color:var(--text-strong-color);">🏷️ 종목별 실현손익</h4>';
         html += tableWrap;
-        html += `<th style="${thSticky.replace('text-align:right','text-align:left')}">종목</th><th style="${thSticky}">합계(실현+배당)</th><th style="${thSticky}">매도 횟수</th><th style="${thSticky}">승률</th></tr></thead><tbody>`;
+        html += `<th style="${thLeft}">종목</th><th style="${thSticky}">합계(실현+배당)</th><th style="${thSticky}">수익률</th><th style="${thSticky}">매도</th><th style="${thSticky}">승률</th><th style="${thSticky}">평균 보유</th></tr></thead><tbody>`;
         s.perStock.forEach(p => {
             html += `<tr><td style="${tdLeft}">${escapeHtml(p.stock)}</td>`
                 + `<td style="${tdStyle} color:${statsColor(p.total)};">${statsMoney(p.total)}</td>`
+                + `<td style="${tdStyle} color:${statsColor(p.returnRate || 0)};">${statsRate(p.returnRate)}</td>`
                 + `<td style="${tdStyle}">${p.sellCount}</td>`
-                + `<td style="${tdStyle}">${p.sellCount ? p.winRate.toFixed(0) + '%' : '—'}</td></tr>`;
+                + `<td style="${tdStyle}">${p.sellCount ? p.winRate.toFixed(0) + '%' : '—'}</td>`
+                + `<td style="${tdStyle}">${statsDays(p.avgHoldingDays)}</td></tr>`;
         });
         html += '</tbody></table></div>';
     }
 
     html += '<p style="font-size:11px; color:var(--text-muted-color); margin-top:14px; line-height:1.5;">'
-        + '※ 실현손익은 이동평균단가 방식으로 계산되며, 보유기간은 선입선출(FIFO) 기준 추정치입니다. 미실현(평가) 손익은 포함되지 않습니다.'
+        + '※ 실현손익은 이동평균단가 방식으로 계산되며, 보유기간은 선입선출(FIFO) 기준 추정치입니다. 미실현(평가) 손익은 포함되지 않습니다.<br>'
+        + '※ 수익률은 매도 수량의 평단 원금 대비이며, 매수 기록이 없는 매도는 수익률 계산에서 제외됩니다.<br>'
+        + '※ 수수료·세금은 기록에 입력된 건만 합산합니다. 최대 낙폭은 누적 실현손익(배당 포함)이 고점에서 내려간 최대 금액입니다.'
         + '</p>';
 
     inlineStatsContainer.innerHTML = html;
+    if (curve.length >= 2) renderStatsEquityChart(s);
 }
 
+// 누적 실현손익 곡선. 0원 위는 빨강, 아래는 파랑으로 칠하고 최대 낙폭 구간을 주황 선으로 겹친다.
+function renderStatsEquityChart(s) {
+    const canvas = document.getElementById('statsEquityChart');
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    const css = getComputedStyle(document.documentElement);
+    const up = css.getPropertyValue('--danger-color').trim() || '#e74c3c';
+    const down = css.getPropertyValue('--primary-color').trim() || '#3b82f6';
+    const warn = css.getPropertyValue('--warning-color').trim() || '#f39c12';
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+
+    const curve = s.equityCurve;
+    const labels = curve.map(p => p.date);
+    const datasets = [{
+        label: '누적 실현손익',
+        data: curve.map(p => p.value),
+        borderColor: up,
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0,
+        segment: { borderColor: ctx => (ctx.p1.parsed.y < 0 ? down : up) },
+    }];
+    if (s.maxDrawdownTroughDate) {
+        // 고점이 없으면(처음부터 내려간 경우) 곡선의 시작이 고점이다
+        const from = s.maxDrawdownPeakDate || labels[0];
+        const to = s.maxDrawdownTroughDate;
+        datasets.push({
+            label: '최대 낙폭 구간',
+            data: curve.map(p => (p.date >= from && p.date <= to ? p.value : null)),
+            borderColor: warn,
+            borderWidth: 3,
+            pointRadius: 2,
+            pointBackgroundColor: warn,
+            tension: 0,
+            spanGaps: false,
+        });
+    }
+
+    window.statsEquityChartInstance = new Chart(canvas, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    // 낙폭 선은 같은 값을 겹쳐 그린 것이라 툴팁에서는 본선만 보여준다
+                    filter: item => item.datasetIndex === 0,
+                    callbacks: {
+                        label: ctx => `${ctx.dataset.label}: ${statsMoney(ctx.parsed.y)}`,
+                    },
+                },
+            },
+            scales: {
+                y: {
+                    grid: { color: isDark ? '#333333' : '#eeeeee' },
+                    ticks: { callback: v => v.toLocaleString() },
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: { maxTicksLimit: 6, maxRotation: 0, callback: function(v) { return this.getLabelForValue(v).slice(2, 7).replace('-', '.'); } },
+                },
+            },
+        },
+    });
+}

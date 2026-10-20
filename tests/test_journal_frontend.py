@@ -255,3 +255,26 @@ def test_canceled_order_card_shows_it_is_not_counted(page):
     # 보유 수량에 들어가지 않으므로 포트폴리오 카드가 생기지 않는다(포트폴리오 응답까지 기다린 뒤 본다).
     _initial_load_done(page)
     expect(page.locator('#portfolioGrid')).not_to_contain_text('취소종목')
+
+
+def test_stats_panel_shows_grouped_metrics_and_equity_curve(page):
+    with db_conn() as conn:
+        conn.executemany(
+            "INSERT INTO entries (id, username, type, stockName, stockCode, tradeType, quantity, price, rawDate, fee, tax) "
+            "VALUES (?, ?, 'trade', '분석종목', 'STAT', ?, ?, ?, ?, ?, ?)", [
+                (1, USER_ID, '매수', 10, 100, '2026-01-02T09:00', 15, None),
+                (2, USER_ID, '매도', 5, 150, '2026-01-10T09:00', 8, 20),    # +250, 8일 보유
+                (3, USER_ID, '매도', 5, 80, '2026-03-02T09:00', 4, 10)])    # -100, 59일 보유
+        conn.commit()
+    statscache.invalidate(USER_ID)
+    ready(page)
+    page.locator('#btnChartView').click()
+    page.locator('#btnStats').click()
+    stats = page.locator('#inlineStatsContainer')
+    for text in ('💰 손익', '🎯 매매 효율', '⚠️ 위험', '⏱️ 보유 습관', '⏳ 보유기간별 성과',
+                 '-57원', '+93원', '손익비 (평균수익÷평균손실)', '2.50', '1연승 / 1연패',
+                 '최대 낙폭 (MDD)', '-100원', '+15.0%', '51.0일 더 오래'):
+        expect(stats).to_contain_text(text)
+    page.wait_for_function('() => window.statsEquityChartInstance?.data.datasets.length === 2')
+    curve = page.evaluate('() => window.statsEquityChartInstance.data.datasets[0].data')
+    assert curve == [250, 150]

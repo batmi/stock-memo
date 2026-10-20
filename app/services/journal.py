@@ -20,7 +20,7 @@ from app.utils import statscache
 INDEX_COLUMNS = (
     'id', 'type', 'stockName', 'stockCode', 'date', 'rawDate', 'brokerAccount',
     'subAccount', 'accountName', 'tradeClass', 'tradeType', 'price', 'quantity',
-    'createdAt', 'updatedAt', 'isHidden', 'needsReview', 'tradeStatus',
+    'createdAt', 'updatedAt', 'isHidden', 'needsReview', 'tradeStatus', 'fee', 'tax',
 )
 PAGE_COLUMNS = INDEX_COLUMNS + ('title', 'tags', 'currency', 'reviewReason')
 EPS = 1e-9

@@ -48,12 +48,18 @@ SCALAR_KEYS = [
     'avgWin', 'avgLoss', 'profitFactor', 'avgHoldingDays',
     'maxDrawdown', 'maxSingleWin', 'maxSingleLoss',
     'totalBuyAmount', 'totalSellAmount',
+    'realizedReturnRate', 'avgReturnRate', 'payoffRatio', 'expectancy',
+    'avgHoldingDaysWin', 'avgHoldingDaysLoss', 'maxWinStreak', 'maxLossStreak',
+    'maxDrawdownPeakDate', 'maxDrawdownTroughDate',
+    'totalFee', 'totalTax', 'totalCost', 'costRecordCount', 'netPnl',
 ]
 
 
 def _close(a, b):
     if a is None or b is None:
         return a is None and b is None
+    if isinstance(a, str) or isinstance(b, str):
+        return a == b
     return abs(float(a) - float(b)) < 1e-6
 
 
@@ -72,7 +78,7 @@ def test_monthly_matches_snapshot(name):
     want = EXPECTED[name]['monthly']
     assert [m['month'] for m in got] == [m['month'] for m in want], f"[{name}] monthly 구간 불일치"
     for gm, wm in zip(got, want, strict=True):
-        for k in ('realized', 'dividend', 'buyAmount', 'sellAmount'):
+        for k in ('realized', 'dividend', 'buyAmount', 'sellAmount', 'sellCount', 'winRate'):
             assert _close(gm[k], wm[k]), f"[{name}] monthly[{gm['month']}].{k} 불일치"
 
 
@@ -83,7 +89,8 @@ def test_per_stock_matches_snapshot(name):
     assert [p['stock'] for p in got] == [p['stock'] for p in want], f"[{name}] perStock 종목/정렬 불일치"
     for gp, wp in zip(got, want, strict=True):
         assert gp['stockCode'] == wp['stockCode'], f"[{name}] perStock 종목코드 불일치"
-        for k in ('realized', 'dividend', 'total', 'sellCount', 'winCount', 'lossCount', 'winRate'):
+        for k in ('realized', 'dividend', 'total', 'sellCount', 'winCount', 'lossCount', 'winRate',
+                  'returnRate', 'avgHoldingDays'):
             assert _close(gp[k], wp[k]), f"[{name}] perStock[{gp['stock']}].{k} 불일치"
 
 
@@ -180,3 +187,138 @@ def test_same_timestamp_trades_are_ordered_by_id():
         result = stats.compute_trade_stats(ordered)
         assert len(result['perStock']) == 1
         assert result['perStock'][0]['stock'] == '나중표기'
+
+
+# ── 분석 화면 확장 지표 (수익률·기대값·손익비·보유 습관·연승연패·비용·낙폭 곡선) ──
+def _trade(entry_id, trade_type, price, qty, raw_date, code='A', **extra):
+    return {'id': entry_id, 'type': 'trade', 'tradeType': trade_type, 'stockName': code,
+            'stockCode': code, 'price': price, 'quantity': qty, 'rawDate': raw_date, **extra}
+
+
+def test_payoff_ratio_differs_from_profit_factor():
+    """손익비는 평균수익/평균손실, Profit Factor 는 총이익/총손실이다. 건수가 다르면 값이 갈린다."""
+    rows = [
+        _trade(1, '매수', 100, 3, '2026-01-01T09:00'),
+        _trade(2, '매도', 110, 1, '2026-01-02T09:00'),   # +10
+        _trade(3, '매도', 110, 1, '2026-01-03T09:00'),   # +10
+        _trade(4, '매도', 85, 1, '2026-01-04T09:00'),    # -15
+    ]
+    s = stats.compute_trade_stats(rows)
+    assert s['profitFactor'] == pytest.approx(20 / 15)
+    assert s['payoffRatio'] == pytest.approx(10 / 15)
+    assert s['expectancy'] == pytest.approx(5 / 3)       # 실현 5 ÷ 매도 3건
+
+
+def test_payoff_ratio_and_expectancy_are_none_when_undefined():
+    s = stats.compute_trade_stats([_trade(1, '매수', 100, 1, '2026-01-01T09:00')])
+    assert s['payoffRatio'] is None and s['expectancy'] is None
+    assert s['realizedReturnRate'] is None and s['avgReturnRate'] is None
+
+
+def test_return_rate_uses_cost_basis_and_skips_sells_without_buys():
+    """수익률은 매도분 평단 원금 대비. 매수 기록 없는 매도(평단 0)는 수익률에서 뺀다."""
+    rows = [
+        _trade(1, '매수', 100, 10, '2026-01-01T09:00'),
+        _trade(2, '매도', 120, 5, '2026-01-02T09:00'),               # +100 / 원금 500 → +20%
+        _trade(3, '매도', 90, 5, '2026-01-03T09:00'),                # -50 / 원금 500 → -10%
+        _trade(4, '매도', 1000, 1, '2026-01-04T09:00', code='B'),    # 매수 기록 없음
+    ]
+    s = stats.compute_trade_stats(rows)
+    assert s['totalRealized'] == pytest.approx(1050)                # 금액 집계는 종전대로 포함
+    assert s['realizedReturnRate'] == pytest.approx(50 / 1000 * 100)
+    assert s['avgReturnRate'] == pytest.approx((20 - 10) / 2)
+    by_code = {p['stockCode']: p for p in s['perStock']}
+    assert by_code['A']['returnRate'] == pytest.approx(5.0)
+    assert by_code['B']['returnRate'] is None
+
+
+def test_holding_days_split_by_outcome_and_bucketed():
+    rows = [
+        _trade(1, '매수', 100, 1, '2026-01-01T09:00', code='W'),
+        _trade(2, '매도', 110, 1, '2026-01-01T15:00', code='W'),    # 0.25일, 이익
+        _trade(3, '매수', 100, 1, '2026-01-01T09:00', code='L'),
+        _trade(4, '매도', 90, 1, '2026-01-21T09:00', code='L'),     # 20일, 손실
+    ]
+    s = stats.compute_trade_stats(rows)
+    assert s['avgHoldingDaysWin'] == pytest.approx(0.25)
+    assert s['avgHoldingDaysLoss'] == pytest.approx(20)
+    assert [(b['label'], b['sellCount'], b['winRate']) for b in s['holdingBuckets']] == [
+        ('1일 미만', 1, 100.0), ('1개월 이내', 1, 0.0)]
+    by_code = {p['stockCode']: p for p in s['perStock']}
+    assert by_code['L']['avgHoldingDays'] == pytest.approx(20)
+
+
+def test_holding_bucket_boundaries():
+    assert [stats._holding_bucket(d) for d in (0, 0.99, 1, 7, 7.01, 30, 90, 90.5)] == [0, 0, 1, 1, 2, 2, 3, 4]
+
+
+def test_streaks_ignore_break_even_sells():
+    """손익 0 매도는 승률처럼 승도 패도 아니므로 연승을 끊지 않는다."""
+    prices = [110, 100, 110, 90, 80, 120]   # 승, 0, 승, 패, 패, 승
+    rows = [_trade(1, '매수', 100, len(prices), '2026-01-01T09:00')]
+    rows += [_trade(10 + i, '매도', p, 1, f'2026-01-{i + 2:02d}T09:00') for i, p in enumerate(prices)]
+    s = stats.compute_trade_stats(rows)
+    assert (s['maxWinStreak'], s['maxLossStreak']) == (2, 2)
+
+
+def test_fee_and_tax_count_only_recorded_rows():
+    rows = [
+        _trade(1, '매수', 100, 10, '2026-01-01T09:00', fee=15),
+        _trade(2, '매도', 120, 10, '2026-01-02T09:00', fee=18, tax=30),
+        _trade(3, '매수', 100, 1, '2026-01-03T09:00', code='B'),      # 수기 기록: 비용 없음
+    ]
+    s = stats.compute_trade_stats(rows)
+    assert (s['totalFee'], s['totalTax'], s['totalCost']) == (33, 30, 63)
+    assert s['costRecordCount'] == 2
+    assert s['netPnl'] == pytest.approx(200 - 63)
+    none = stats.compute_trade_stats(rows[2:])
+    assert none['costRecordCount'] == 0 and none['netPnl'] == none['totalPnl']
+
+
+def test_canceled_order_fee_is_not_counted():
+    rows = [_trade(1, '매수', 100, 1, '2026-01-01T09:00', fee=5, tradeStatus='CANCELED')]
+    assert stats.compute_trade_stats(rows)['costRecordCount'] == 0
+
+
+def test_equity_curve_and_drawdown_dates():
+    rows = [
+        _trade(1, '매수', 100, 3, '2026-01-01T09:00'),
+        _trade(2, '매도', 200, 1, '2026-01-02T09:00'),   # +100 → 고점
+        _trade(3, '매도', 50, 1, '2026-01-05T09:00'),    # -50 → 50
+        _trade(4, '매도', 70, 1, '2026-01-05T10:00'),    # -30 → 20 (같은 날, 저점)
+    ]
+    s = stats.compute_trade_stats(rows)
+    assert s['equityCurve'] == [{'date': '2026-01-02', 'value': 100}, {'date': '2026-01-05', 'value': 20}]
+    assert s['maxDrawdown'] == pytest.approx(80)
+    assert (s['maxDrawdownPeakDate'], s['maxDrawdownTroughDate']) == ('2026-01-02', '2026-01-05')
+
+
+def test_drawdown_from_start_has_no_peak_date():
+    rows = [_trade(1, '매수', 100, 1, '2026-01-01T09:00'), _trade(2, '매도', 90, 1, '2026-01-02T09:00')]
+    s = stats.compute_trade_stats(rows)
+    assert s['maxDrawdownPeakDate'] is None and s['maxDrawdownTroughDate'] == '2026-01-02'
+
+
+def test_period_rows_have_sell_count_and_win_rate():
+    rows = [
+        _trade(1, '매수', 100, 3, '2026-01-01T09:00'),
+        _trade(2, '매도', 110, 1, '2026-01-02T09:00'),
+        _trade(3, '매도', 90, 1, '2026-01-03T09:00'),
+        _trade(4, '매도', 120, 1, '2026-02-03T09:00'),
+        _trade(5, '매수', 100, 1, '2026-03-03T09:00'),
+    ]
+    got = {m['month']: (m['sellCount'], m['winRate']) for m in stats.compute_trade_stats(rows)['monthly']}
+    assert got == {'2026-01': (2, 50.0), '2026-02': (1, 100.0), '2026-03': (0, None)}
+
+
+@pytest.mark.parametrize('name', sorted(FIXTURES))
+def test_curve_and_buckets_match_snapshot(name):
+    got = stats.compute_trade_stats(FIXTURES[name])
+    want = EXPECTED[name]
+    assert [p['date'] for p in got['equityCurve']] == [p['date'] for p in want['equityCurve']]
+    for gp, wp in zip(got['equityCurve'], want['equityCurve'], strict=True):
+        assert _close(gp['value'], wp['value']), f"[{name}] equityCurve[{gp['date']}] 불일치"
+    assert [b['label'] for b in got['holdingBuckets']] == [b['label'] for b in want['holdingBuckets']]
+    for gb, wb in zip(got['holdingBuckets'], want['holdingBuckets'], strict=True):
+        for k in ('sellCount', 'winRate', 'realized', 'returnRate'):
+            assert _close(gb[k], wb[k]), f"[{name}] holdingBuckets[{gb['label']}].{k} 불일치"
