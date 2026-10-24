@@ -390,3 +390,169 @@ def test_stats_panel_shows_grouped_metrics_and_equity_curve(page):
     page.wait_for_function('() => window.statsEquityChartInstance?.data.datasets.length === 2')
     curve = page.evaluate('() => window.statsEquityChartInstance.data.datasets[0].data')
     assert curve == [250, 150]
+
+
+def _analysis_trades():
+    entries.create(USER_ID, _buy(id=1, stock='분석종목', stockCode='STAT', qty=10, price=100,
+                                rawDate='2026-01-01T09:00', tradeClass='장기투자', accountName='일반계좌'))
+    entries.create(USER_ID, _sell(id=2, stock='분석종목', stockCode='STAT', qty=2, price=120,
+                                 rawDate='2026-02-10T09:00', tradeClass='단기스윙', accountName='일반계좌'))
+    entries.create(USER_ID, _sell(id=3, stock='분석종목', stockCode='STAT', qty=3, price=80,
+                                 rawDate='2026-03-10T09:00', tradeClass='단기스윙', accountName='일반계좌',
+                                 thoughts='<p>손절 판단을 다시 확인</p>'))
+
+
+def _select_analysis_period(page, start, end):
+    page.locator('#statsPeriodPreset').select_option('custom')
+    page.locator('#statsFrom').fill(start)
+    page.locator('#statsTo').fill(end)
+    page.locator('#statsPeriodForm button[type="submit"]').click()
+    expect(page.locator('.stats-caption')).to_contain_text(f'{start} ~ {end}')
+
+
+def test_analysis_period_comparison_and_trade_note_are_connected(page):
+    _analysis_trades()
+    requested = []
+    page.on('request', lambda request: requested.append(request.url))
+    ready(page)
+    page.locator('#btnChartView').click()
+    page.locator('#btnStats').click()
+    _select_analysis_period(page, '2026-03-01', '2026-03-31')
+    stats = page.locator('#inlineStatsContainer')
+    expect(stats).to_contain_text('2026-01-29 ~ 2026-02-28')
+    expect(stats).to_contain_text('-60원')
+    expect(stats.locator('details').first).to_contain_text('40원')
+    assert not any('/api/entry/' in url or '/stats/trades' in url for url in requested)
+    stats.locator('[data-stats-title="최대 단일 손실"]').click()
+    details = page.locator('#statsTradeDetails')
+    expect(details).to_contain_text('최대 단일 손실 · 1건')
+    expect(details).to_contain_text('300원')  # 기간 밖 매수 원가
+    expect(details).not_to_contain_text('손절 판단')
+    details.get_by_role('button', name='메모 보기').click()
+    expect(details).to_contain_text('손절 판단을 다시 확인')
+    assert any('/api/entry/3' in url for url in requested)
+    page.locator('#statsQuality summary').click()
+    expect(page.locator('#statsQuality')).to_contain_text('모두 미입력: 1건')
+    page.locator('#statsRecovery summary').click()
+    expect(page.locator('#statsRecovery')).to_contain_text('미회복')
+    page.locator('[data-stats-close]').click()
+    expect(details).not_to_be_visible()
+    page.locator('#statsPeriodPreset').select_option('all')
+    expect(page.locator('.stats-caption')).to_contain_text('전체 기간')
+    expect(stats).not_to_contain_text('직전 기간과 비교')
+    page.locator('.chart-type-btn[data-type="realized"]').click()
+    expect(page.locator('#statsPeriodForm')).not_to_be_visible()
+
+
+def test_analysis_groups_open_foreign_currency_and_escape_stock_names(page):
+    _analysis_trades()
+    stock = 'Apple "A&B" <종목>'
+    entries.create(USER_ID, _buy(id=4, stock=stock, stockCode='AAPL', qty=2, price=12.5,
+                                currency='USD', subAccount='US', accountName='미국계좌', rawDate='2026-03-01T09:00'))
+    entries.create(USER_ID, _sell(id=5, stock=stock, stockCode='AAPL', qty=1, price=15,
+                                 currency='USD', subAccount='US', accountName='미국계좌', rawDate='2026-03-02T09:00'))
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    ready(page)
+    page.locator('#btnChartView').click()
+    page.locator('#btnStats').click()
+    page.locator('#statsGroups summary').click()
+    row = page.locator('#statsGroups tr').filter(has_text='미국계좌')
+    expect(row).to_contain_text('+2.5 USD')
+    row.get_by_role('button', name='거래 보기').click()
+    details = page.locator('#statsTradeDetails')
+    expect(details).to_contain_text(stock)
+    expect(details).to_contain_text('12.5 USD')
+    page.locator('#chartStockFilter').select_option(stock)
+    page.wait_for_function("() => statsLastReport?.currency === 'USD'")
+    page.locator('#inlineStatsContainer [data-stats-title]').filter(has_text=stock).click()
+    expect(page.locator('#statsTradeDetails')).to_contain_text(stock + ' · 1건')
+    assert errors == []
+
+
+def test_analysis_discards_late_period_and_detail_responses(page):
+    _analysis_trades()
+    ready(page)
+    page.locator('#btnChartView').click()
+    page.locator('#btnStats').click()
+    page.wait_for_function('() => statsLastReport !== null')
+    page.evaluate('''async () => {
+        const original = fetchWithTimeout;
+        window.fetchWithTimeout = async (...args) => {
+            const response = await original(...args);
+            const url = String(args[0]);
+            if (url.includes('/stats/trades') || url.includes('from=2026-02')) {
+                await new Promise(resolve => setTimeout(resolve, 150));
+            }
+            return response;
+        };
+        try {
+            const oldDetail = openStatsTrades({metric: 'sell'}, '오래된 상세');
+            statsPeriod = {from: '2026-02-01', to: '2026-02-28'};
+            const older = loadTradeStats();
+            statsPeriod = {from: '2026-03-01', to: '2026-03-31'};
+            const newer = loadTradeStats();
+            await Promise.all([oldDetail, older, newer]);
+        } finally { window.fetchWithTimeout = original; }
+    }''')
+    expect(page.locator('.stats-caption')).to_contain_text('2026-03-01 ~ 2026-03-31')
+    expect(page.locator('#statsTradeDetails')).not_to_be_visible()
+    assert page.evaluate('() => statsLastReport.totalRealized') == -60
+
+
+def test_analysis_empty_period_and_invalid_dates_keep_controls_available(page):
+    _analysis_trades()
+    ready(page)
+    page.locator('#btnChartView').click()
+    page.locator('#btnStats').click()
+    _select_analysis_period(page, '2026-04-01', '2026-04-30')
+    expect(page.locator('.stats-empty')).to_contain_text('분석할 매매 기록이 없습니다')
+    expect(page.locator('#statsPeriodForm')).to_be_visible()
+    expect(page.locator('#inlineStatsContainer')).to_contain_text('-60원')  # 이전 기간 비교는 유지
+    page.locator('#statsFrom').fill('2026-05-01')
+    page.locator('#statsPeriodForm button[type="submit"]').click()
+    expect(page.locator('#statsPeriodError')).to_contain_text('올바른 순서')
+    expect(page.locator('.stats-caption')).to_contain_text('2026-04-01 ~ 2026-04-30')
+
+
+def test_analysis_mobile_layout_and_sections(page):
+    _analysis_trades()
+    page.set_viewport_size({'width': 390, 'height': 844})
+    ready(page)
+    page.locator('#btnChartView').click()
+    page.locator('#btnStats').click()
+    _select_analysis_period(page, '2026-03-01', '2026-03-31')
+    page.locator('#statsDistribution summary').click()
+    expect(page.locator('.stats-bin')).to_have_count(1)
+    page.locator('#statsGroups summary').click()
+    assert page.evaluate('''() => {
+        const root = document.getElementById('monthlyChartSection');
+        return root.scrollWidth <= root.clientWidth + 1;
+    }''')
+    page.locator('#statsPeriodForm').scroll_into_view_if_needed()
+    page.set_viewport_size({'width': 1280, 'height': 1000})
+    page.locator('#statsQuality summary').click()
+    page.locator('#statsRecovery summary').click()
+    page.locator('[data-stats-title="최대 단일 손실"]').click()
+    details = page.locator('#statsTradeDetails')
+    expect(details).to_contain_text('수수료 / 세금')
+    details.get_by_role('button', name='메모 보기').click()
+    expect(details).to_contain_text('손절 판단을 다시 확인')
+
+
+def test_analysis_presets_use_kst_dates_and_clamp_short_months(page):
+    ready(page)
+    def bounds(now):
+        return page.evaluate('''now => {
+            const Original = Date;
+            window.Date = class extends Original {
+                constructor(...args) { super(...(args.length ? args : [now])); }
+            };
+            try { return ['all', 'month', 'quarter', 'year'].map(statsPresetBounds); }
+            finally { window.Date = Original; }
+        }''', now)
+    assert bounds('2024-05-31T03:00:00Z') == [
+        {'from': '', 'to': ''}, {'from': '2024-05-01', 'to': '2024-05-31'},
+        {'from': '2024-03-01', 'to': '2024-05-31'}, {'from': '2024-01-01', 'to': '2024-05-31'},
+    ]
+    assert bounds('2024-05-31T15:30:00Z')[1] == {'from': '2024-06-01', 'to': '2024-06-01'}

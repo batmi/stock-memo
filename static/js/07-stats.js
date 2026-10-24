@@ -18,6 +18,7 @@ if (btnStats && inlineStatsContainer) {
 
         if (inlineStatsContainer.style.display === 'block') {
             inlineStatsContainer.style.display = 'none';
+            syncStatsControls();
             btnStats.style.backgroundColor = 'transparent';
             btnStats.style.color = 'var(--primary-color)';
             
@@ -61,18 +62,28 @@ function statsMoney(v, currency = displayCurrency) {
 
 window.loadTradeStats = async function() {
     if (!inlineStatsContainer) return;
+    syncStatsControls();
+    ++statsDetailTicket;
+    statsLastQuery = statsLastReport = null;
+    if (window.statsEquityChartInstance) {
+        window.statsEquityChartInstance.destroy();
+        window.statsEquityChartInstance = null;
+    }
     inlineStatsContainer.innerHTML = '<p style="text-align:center; padding: 20px; color: var(--text-muted-color);">불러오는 중...</p>';
     const ticket = journalRequests.stats = (journalRequests.stats || 0) + 1;
     const generation = journalGeneration;
+    const query = { ...journalFilters('chart'), ...statsPeriod,
+        granularity: window.currentChartGranularity || 'monthly' };
     try {
-        const s = await journalJSON(journalUrl('stats', {
-            ...journalFilters('chart'), granularity: window.currentChartGranularity || 'monthly',
-        }));
+        const s = await journalJSON(journalUrl('stats', query));
         if (ticket !== journalRequests.stats || generation !== journalGeneration) return;
+        statsLastQuery = query;
+        statsLastReport = s;
         renderTradeStats(s);
     } catch (e) {
         if (ticket !== journalRequests.stats || generation !== journalGeneration) return;
-        inlineStatsContainer.innerHTML = '<p style="text-align:center; padding: 20px; color: var(--danger-color);">데이터를 불러오지 못했습니다.</p>';
+        inlineStatsContainer.innerHTML = `<p role="alert" class="stats-detail-error">${escapeHtml(e.message)}</p><button type="button" id="statsRetry">다시 시도</button>`;
+        document.getElementById('statsRetry').onclick = () => window.loadTradeStats();
     }
 };
 
@@ -95,16 +106,18 @@ function renderTradeStats(s) {
     }
 
     if (!s || (s.sellCount === 0 && s.buyCount === 0 && s.dividendCount === 0)) {
-        inlineStatsContainer.innerHTML = '<p style="text-align:center; padding: 30px; color: var(--text-muted-color);">분석할 매매 기록이 없습니다.<br>매수/매도 기록을 추가해 보세요.</p>';
+        inlineStatsContainer.innerHTML = (s ? statsPeriodSummary(s) + renderStatsComparison(s) + renderStatsGroups(s) : '')
+            + '<p class="stats-empty">선택한 조건에 분석할 매매 기록이 없습니다.</p>'
+            + '<section id="statsTradeDetails" class="stats-section" hidden aria-live="polite"></section>';
         return;
     }
 
     const currency = s.currency || displayCurrency;
     const strong = 'var(--text-strong-color)';
-    const card = (label, value, color, sub) =>
+    const card = (label, value, color, sub, detail) =>
         `<div style="background: var(--bg-color); border:1px solid var(--border-color); border-radius:6px; padding:6px 4px; text-align:center;">
             <div style="font-size:9.5px; color: var(--text-muted-color); margin-bottom:2px; word-break:keep-all;">${label}</div>
-            <div style="font-size:11.5px; font-weight:bold; color:${color || strong}; word-break:keep-all;">${value}</div>
+            <div style="font-size:11.5px; font-weight:bold; color:${color || strong}; word-break:keep-all;">${detail ? statsDetailButton(value, { metric: detail }, label) : value}</div>
             ${sub ? `<div style="font-size:9px; color: var(--text-muted-color); margin-top:2px; word-break:keep-all;">${sub}</div>` : ''}
         </div>`;
     // ⭐️ 카드가 많아져 성격별로 묶는다 (손익 → 효율 → 위험 → 보유 습관)
@@ -115,16 +128,15 @@ function renderTradeStats(s) {
         + (note ? `<p style="font-size:11px; color:var(--text-muted-color); margin:6px 0 0; line-height:1.5;">${note}</p>` : '');
     const shortDate = d => d ? d.slice(2).replace(/-/g, '.') : '시작';
 
-    // ⭐️ 분석은 차트 기간과 무관하게 전체 기록을 집계한다.
-    //    (월간/주간 선택은 아래 기간별 표의 묶음 단위로만 반영된다)
-    let html = '';
+    // 분석 기간은 차트 이동과 독립적이며, 월간/주간은 표의 묶음 단위다.
+    let html = statsPeriodSummary(s) + renderStatsComparison(s);
 
     // 손익 — 수수료·세금은 기록된 건만 더하므로, 기록이 없으면 0원이 아니라 '기록 없음'이다
     const hasCost = s.costRecordCount > 0;
     const pnlCards = [
-        card('총 손익 (실현+배당)', statsMoney(s.totalPnl, currency), statsColor(s.totalPnl)),
-        card('실현 손익', statsMoney(s.totalRealized, currency), statsColor(s.totalRealized)),
-        card('배당 수익', statsMoney(s.totalDividend, currency), statsColor(s.totalDividend)),
+        card('총 손익 (실현+배당)', statsMoney(s.totalPnl, currency), statsColor(s.totalPnl), '', 'pnl'),
+        card('실현 손익', statsMoney(s.totalRealized, currency), statsColor(s.totalRealized), '', 'sell'),
+        card('배당 수익', statsMoney(s.totalDividend, currency), statsColor(s.totalDividend), '', 'dividend'),
         card('실현 수익률 (원금 대비)', statsRate(s.realizedReturnRate), statsColor(s.realizedReturnRate || 0)),
         card('수수료·세금', hasCost ? statsMoney(-s.totalCost, currency) : '기록 없음',
             hasCost ? statsColor(-s.totalCost) : 'var(--text-muted-color)',
@@ -142,16 +154,16 @@ function renderTradeStats(s) {
         card('Profit Factor (총이익÷총손실)', statsRatio(s.profitFactor)),
         card('거래당 기대값', s.expectancy === null ? '—' : statsMoney(s.expectancy, currency), statsColor(s.expectancy || 0)),
         card('거래당 평균 수익률', statsRate(s.avgReturnRate), statsColor(s.avgReturnRate || 0)),
-        card('평균 수익 (이익 거래)', statsMoney(s.avgWin, currency), statsColor(s.avgWin)),
-        card('평균 손실 (손실 거래)', statsMoney(-s.avgLoss, currency), statsColor(-s.avgLoss)),
+        card('평균 수익 (이익 거래)', statsMoney(s.avgWin, currency), statsColor(s.avgWin), '', 'wins'),
+        card('평균 손실 (손실 거래)', statsMoney(-s.avgLoss, currency), statsColor(-s.avgLoss), '', 'losses'),
     ]);
 
     const mddSub = s.maxDrawdownTroughDate
         ? `${shortDate(s.maxDrawdownPeakDate)} → ${shortDate(s.maxDrawdownTroughDate)}` : '';
     html += section('⚠️ 위험', [
         card('최대 낙폭 (MDD)', statsMoney(-s.maxDrawdown, currency), statsColor(-s.maxDrawdown), mddSub),
-        card('최대 단일 수익', statsMoney(s.maxSingleWin, currency), statsColor(s.maxSingleWin)),
-        card('최대 단일 손실', statsMoney(s.maxSingleLoss, currency), statsColor(s.maxSingleLoss)),
+        card('최대 단일 수익', statsMoney(s.maxSingleWin, currency), statsColor(s.maxSingleWin), '', 'best'),
+        card('최대 단일 손실', statsMoney(s.maxSingleLoss, currency), statsColor(s.maxSingleLoss), '', 'worst'),
         card('최대 연승 / 연패', `${s.maxWinStreak}연승 / ${s.maxLossStreak}연패`),
     ]);
 
@@ -194,7 +206,7 @@ function renderTradeStats(s) {
         html += tableWrap;
         html += `<th style="${thLeft}">보유기간</th><th style="${thSticky}">매도</th><th style="${thSticky}">승률</th><th style="${thSticky}">실현손익</th><th style="${thSticky}">수익률</th></tr></thead><tbody>`;
         s.holdingBuckets.forEach(b => {
-            html += `<tr><td style="${tdLeft}">${escapeHtml(b.label)}</td>`
+            html += `<tr><td style="${tdLeft}">${statsDetailButton(b.label, { bucket: b.label })}</td>`
                 + `<td style="${tdStyle}">${b.sellCount}</td>`
                 + `<td style="${tdStyle}">${winRateCell(b.winRate)}</td>`
                 + `<td style="${tdStyle} color:${statsColor(b.realized)};">${statsMoney(b.realized, currency)}</td>`
@@ -213,7 +225,7 @@ function renderTradeStats(s) {
         html += `<th style="${thLeft}">${periodHeader}</th><th style="${thSticky}">실현손익</th><th style="${thSticky}">배당</th><th style="${thSticky}">매도</th><th style="${thSticky}">승률</th><th style="${thSticky}">매도금액</th></tr></thead><tbody>`;
         // ⭐️ 최근 기간이 위로 오도록 뒤집어 보여준다 (서버는 과거→최근 순으로 준다)
         s.monthly.slice().reverse().forEach(m => {
-            html += `<tr><td style="${tdLeft}">${escapeHtml(m.month)}</td>`
+            html += `<tr><td style="${tdLeft}">${statsDetailButton(m.month, { periodKey: m.month })}</td>`
                 + `<td style="${tdStyle} color:${statsColor(m.realized)};">${statsMoney(m.realized, currency)}</td>`
                 + `<td style="${tdStyle} color:${statsColor(m.dividend)};">${statsMoney(m.dividend, currency)}</td>`
                 + `<td style="${tdStyle}">${m.sellCount}</td>`
@@ -229,7 +241,7 @@ function renderTradeStats(s) {
         html += tableWrap;
         html += `<th style="${thLeft}">종목</th><th style="${thSticky}">합계(실현+배당)</th><th style="${thSticky}">수익률</th><th style="${thSticky}">매도</th><th style="${thSticky}">승률</th><th style="${thSticky}">평균 보유</th></tr></thead><tbody>`;
         s.perStock.forEach(p => {
-            html += `<tr><td style="${tdLeft}">${escapeHtml(p.stock)}</td>`
+            html += `<tr><td style="${tdLeft}">${statsDetailButton(p.stock, { identity: p.stockCode || p.stock, metric: 'pnl' })}</td>`
                 + `<td style="${tdStyle} color:${statsColor(p.total)};">${statsMoney(p.total, currency)}</td>`
                 + `<td style="${tdStyle} color:${statsColor(p.returnRate || 0)};">${statsRate(p.returnRate)}</td>`
                 + `<td style="${tdStyle}">${p.sellCount}</td>`
@@ -239,6 +251,8 @@ function renderTradeStats(s) {
         html += '</tbody></table></div>';
     }
 
+    html += renderStatsQuality(s) + renderStatsGroups(s) + renderStatsDistribution(s) + renderStatsRecovery(s);
+    html += '<section id="statsTradeDetails" class="stats-section" hidden aria-live="polite"></section>';
     html += '<p style="font-size:11px; color:var(--text-muted-color); margin-top:14px; line-height:1.5;">'
         + '※ 실현손익은 이동평균단가 방식으로 계산되며, 보유기간은 선입선출(FIFO) 기준 추정치입니다. 미실현(평가) 손익은 포함되지 않습니다.<br>'
         + '※ 수익률은 매도 수량의 평단 원금 대비이며, 매수 기록이 없는 매도는 수익률 계산에서 제외됩니다.<br>'

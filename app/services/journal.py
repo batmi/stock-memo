@@ -17,7 +17,7 @@ from app.domain.trades import (
     apply_trade as _apply, currency_of, empty_holding as _empty_holding,
     is_settled_trade, position_key, trade_day,
 )
-from app.services import accounts, stats
+from app.services import accounts, analysis, stats
 from app.utils import statscache
 
 INDEX_COLUMNS = (
@@ -447,9 +447,18 @@ def chart(model, query, labels, weekly):
     return {'monthlyData': monthly, 'evaluation': list(evaluation.values()), 'currency': query['currency']}
 
 
-def trade_stats(model, query, granularity='monthly'):
-    query = dict(query, currency=resolve_currency(model, query))
-    result = stats.compute_trade_stats([
-        r for r in model['rows'] if not r['_excluded'] and currency_of(r) == query['currency']],
-        granularity=granularity, include=lambda row: matches(row, query))
-    return dict(result, currency=query['currency'])
+def trade_stats(model, query, granularity='monthly', start=None, end=None):
+    result = analysis.report(
+        [r for r in model['rows'] if not r['_excluded']], resolve_currency(model, query),
+        lambda row: matches(row, query), granularity, start, end,
+        all_currencies=not query.get('currency'))
+    return dict(result, version=model['version'])
+
+
+def stats_trades(model, query, granularity, start, end, options, version):
+    if version and version != model['version']:
+        raise StalePage('기록이 변경되었습니다. 분석을 새로 조회해주세요.')
+    currency = resolve_currency(model, query)
+    _, facts = analysis.calculate([r for r in model['rows'] if not r['_excluded']], currency,
+                                  lambda row: matches(row, query), granularity, start, end)
+    return dict(analysis.detail_page(facts, options), currency=currency, version=model['version'])

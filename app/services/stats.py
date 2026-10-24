@@ -9,7 +9,7 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta
 
 from app.domain.trades import (
-    apply_trade, currency_of, empty_holding, entry_order, is_settled_trade,
+    account_identity, apply_trade, currency_of, empty_holding, entry_order, is_settled_trade,
     normalize_stock_code, parse_entry_dt as parse_entry_dt, position_key, stock_identity, trade_day,
 )
 
@@ -52,7 +52,8 @@ def _parse_period_bound(value):
     except (ValueError, TypeError):
         return None
 
-def compute_trade_stats(rows, granularity='monthly', period_start=None, period_end=None, *, include=None):
+def compute_trade_stats(rows, granularity='monthly', period_start=None, period_end=None, *, include=None,
+                        trade_facts=None):
     """매매 기록 리스트로부터 성과 분석 지표를 계산합니다.
 
     실현손익은 프론트엔드 대시보드와 동일한 이동평균단가(average-cost) 방식으로,
@@ -63,6 +64,8 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
     맞으므로 보유 상태는 전체 기록으로 갱신하고 '지표 누적'만 구간 안으로 제한합니다.
     include(record)도 같은 방식으로 지표만 제한합니다. 분류가 다른 매수·매도를
     계산에서 먼저 제거하면 원가와 보유기간이 달라지므로 전체 이력을 전달해야 합니다.
+    trade_facts 리스트를 전달하면 같은 계산에서 거래별 근거도 수집합니다.
+    본문·첨부는 포함하지 않으며, 화면 상세와 추가 분석이 원가를 재계산하지 않습니다.
     """
     # 취소·접수 주문은 이력으로만 남고 성과에 넣지 않는다(entry_logic.is_settled_trade).
     trades = [r for r in rows if r.get('type') == 'trade' and (r.get('stockName') or '').strip()
@@ -154,6 +157,9 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
 
         p = portfolio.setdefault(position_key(t), dict(empty_holding(), lots=deque()))
         inw = in_window(day) and (include is None or include(t))
+        profit = basis = dividend = 0.0
+        holding_days = None
+        missing_qty = max(0.0, qty - p['qty']) if ttype == '매도' else 0.0
 
         if inw and (t.get('fee') is not None or t.get('tax') is not None):
             cost_record_count += 1
@@ -188,6 +194,8 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
                 remaining -= matched
                 if lot[1] <= EPS:
                     p['lots'].popleft()
+            if sell_hold_qty > 0:
+                holding_days = sell_hold_days / sell_hold_qty
 
             if inw:
                 sell_count += 1
@@ -265,11 +273,28 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
                 continue
             dividend_count += 1
             amount = price * qty
+            dividend = amount
             total_dividend += amount
             monthly[mkey]['dividend'] += amount
             per_stock[stock]['dividend'] += amount
             if dt:
                 realized_events.append((day, amount))
+
+        if trade_facts is not None and inw and ttype in ('매수', '매도', '배당'):
+            trade_facts.append({
+                'id': t.get('id'), 'date': day.strftime('%Y-%m-%d') if day else None,
+                'period': mkey, 'stock': t['stockName'].strip(), 'identity': stock,
+                'stockCode': normalize_stock_code(t.get('stockCode')), 'tradeType': ttype,
+                'quantity': qty, 'price': price, 'realized': profit, 'basis': basis,
+                'dividend': dividend, 'returnRate': _rate(profit, basis) if ttype == '매도' else None,
+                'holdingDays': holding_days,
+                'holdingBucket': HOLDING_BUCKETS[_holding_bucket(holding_days)][1]
+                    if holding_days is not None else None,
+                'missingBuyQuantity': missing_qty, 'needsReview': bool(t.get('needsReview')),
+                'fee': t.get('fee'), 'tax': t.get('tax'), 'currency': currency_of(t),
+                'tradeClass': t.get('tradeClass') or '', 'accountKey': account_identity(t),
+                'account': t.get('_account') or t.get('accountName') or t.get('subAccount') or '미지정',
+            })
 
     # 누적 실현손익 곡선 및 최대 낙폭(MDD, 금액 기준)
     realized_events.sort(key=lambda x: x[0])

@@ -421,6 +421,23 @@
             <!-- ⭐️ 차트 막대 클릭 시 나타나는 종목별 상세 내역 영역 -->
             <div id="chartDetailList" style="display: none; margin-top: 15px; border-top: 1px dashed var(--border-color); padding-top: 15px;"></div>
             <!-- ⭐️ 성과 분석 내역 영역 -->
+            <form id="statsPeriodForm" class="stats-period-form" hidden>
+                <label for="statsPeriodPreset">분석 기간</label>
+                <select id="statsPeriodPreset">
+                    <option value="all">전체</option>
+                    <option value="month">이번 달</option>
+                    <option value="quarter">최근 3개월</option>
+                    <option value="year">올해</option>
+                    <option value="custom">직접 지정</option>
+                </select>
+                <span id="statsCustomPeriod" class="stats-custom-period" hidden>
+                    <input id="statsFrom" type="date" aria-label="분석 시작일">
+                    <span>~</span>
+                    <input id="statsTo" type="date" aria-label="분석 종료일">
+                    <button type="submit">적용</button>
+                </span>
+                <span id="statsPeriodError" role="alert"></span>
+            </form>
             <div id="inlineStatsContainer" style="display: none; width: 100%;"></div>
         </div>
         

@@ -1640,3 +1640,41 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
     border-radius: 6px;
 }
 .journal-load-error button { width: auto; margin-left: 8px; }
+
+/* 분석 기간과 상세는 기존 테마를 따르며, 긴 표는 영역 안에서만 스크롤한다. */
+/* 기존 라벨 크기(12px × 0.9)를 기간 컨트롤 전체에 적용한다. */
+.stats-period-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; font-size: 10.8px; font-weight: var(--fw-bold, bold); line-height: 1.4; }
+.stats-period-form[hidden], .stats-custom-period[hidden], .stats-section[hidden], .stats-note-row[hidden] { display: none; }
+.stats-period-form label { margin: 0; font-size: inherit; }
+.stats-custom-period { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.stats-period-form select, .stats-period-form input, .stats-period-form button { width: auto; min-width: 0; height: 22px; box-sizing: border-box; margin: 0; padding: 0 6px; font: inherit; }
+/* 모바일 공통 select 확대를 막고 라벨의 글자 크기를 유지한다. */
+.stats-period-form select { border-radius: 4px; font-size: inherit !important; }
+.stats-period-form input { max-width: 145px; border: 1px solid var(--border-color); border-radius: 4px; background-color: var(--bg-color); color: var(--text-color); }
+.stats-period-form input::-webkit-datetime-edit { padding: 0; }
+.stats-period-form button { padding: 0 8px; }
+#inlineStatsContainer button { width: auto; margin: 0; padding: 4px 8px; font-size: 12px; }
+#statsPeriodError, .stats-detail-error { color: var(--danger-color); }
+.stats-caption { font-size: 12px; color: var(--text-strong-color); }
+.stats-muted { color: var(--text-muted-color); font-size: 11px; line-height: 1.6; }
+.stats-section { margin-top: 14px; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 12px; min-width: 0; }
+.stats-section summary { cursor: pointer; color: var(--text-strong-color); font-weight: bold; }
+.stats-section summary:focus-visible, #inlineStatsContainer .stats-link:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 3px; }
+.stats-section h4 { font-size: 12px; margin: 12px 0 6px; }
+.stats-table-wrap { overflow: auto; max-height: 420px; margin-top: 8px; }
+.stats-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.stats-table th, .stats-table td { padding: 8px; text-align: right; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+.stats-table th:first-child { text-align: left; }
+.stats-table thead th { position: sticky; top: 0; background: var(--card-bg-color); color: var(--text-strong-color); z-index: 1; }
+.stats-table small { display: block; font-size: 10px; color: var(--text-muted-color); margin-top: 3px; }
+#inlineStatsContainer .stats-link { color: inherit; background: transparent; border: 0; text-decoration: underline; text-underline-offset: 3px; padding: 0; font: inherit; cursor: pointer; }
+.stats-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 0; color: var(--primary-color); }
+.stats-facts { display: flex; flex-wrap: wrap; gap: 12px 24px; margin: 12px 0; }
+.stats-facts b { display: block; margin-top: 4px; color: var(--text-strong-color); }
+.stats-bin { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(50px, 2fr) 35px; gap: 8px; align-items: center; margin: 8px 0; font-size: 11px; }
+.stats-bar-track { background: var(--bg-color); border-radius: 3px; overflow: hidden; }
+.stats-bar { display: block; height: 12px; background: var(--primary-color); }
+.stats-detail-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.stats-note-row td { text-align: left; white-space: normal; max-width: 500px; overflow-wrap: anywhere; }
+.stats-note-row img { max-width: 100%; height: auto; }
+.stats-empty { text-align: center; padding: 24px 0; color: var(--text-muted-color); font-size: 12px; }

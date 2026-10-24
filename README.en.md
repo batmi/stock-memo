@@ -46,6 +46,7 @@ Beyond simple recording, it aims to maximize investment review and strategy form
     *   Quickly and precisely filter and analyze vast trading records through 5 independent filters: by record type, stock, account type, broker, and sub-account.
 *   **Performance Analytics & Chart View**
     *   Provides in-depth statistical metrics for review, such as win rate, profit factor, average profit/loss, maximum drawdown (MDD), and average holding period.
+    *   Select analysis dates and compare with the preceding period; explore classifications/accounts, data quality, P&L distribution, profit concentration and drawdown recovery. Open supporting trades and notes directly from metrics.
     *   Supports interactive bar charts showing monthly/weekly realized profit/loss, evaluated profit/loss, trading volume, and cumulative profit flows. Clicking on a chart bar directly reveals the detailed trading history for that period.
 *   **Data Integrity**
     *   Ensures the integrity of average unit prices and realized profits by fundamentally blocking logically incorrect data inputs at the server level, such as selling more quantity than held or selling non-existent stocks.
@@ -163,6 +164,7 @@ stock-memo/
 │   │   ├── entries.py      # Entry create/update/delete (integrity rules shared by web & bot)
 │   │   ├── migrations.py   # One-time migrations from legacy storage (JSON, mappings, inline images)
 │   │   ├── stats.py        # Trade performance analytics (pure functions)
+│   │   ├── analysis.py     # Period comparison, data quality, groups, distribution, recovery and trade evidence
 │   │   ├── journal.py      # Compact trade index, filtering and portfolio/calendar/chart aggregates
 │   │   ├── prices.py       # Price lookup service (per-provider with fallbacks)
 │   │   ├── news.py         # Ticker news lookup (Google News RSS + cache)
@@ -301,6 +303,39 @@ The screens, statistics and sell validation share the rules in `app/domain/trade
 Writes use `db_conn(write=True)` before validation, covering concurrent sales and first-admin selection. Web edits merge only allowed fields and preserve omitted bot metadata. Invalid numbers, including booleans and non-finite values, are rejected; numeric strings remain accepted. Backups and attachment changes also share user locks (`app/utils/userlocks.py`), under the existing single-process deployment requirement.
 
 Schema initialization records `PRAGMA user_version` and stops on a newer DB version or an actual DDL error. Calling `start_all()` repeatedly does not duplicate live background jobs. `tests/test_reliability.py` and the browser currency/edit test cover these failure cases.
+
+The analysis panel supports all history, this month, the last three months, this year,
+and a custom inclusive date range. The three-month preset begins the day after the
+same calendar day three months ago, clamped to month-end when needed. A selected range
+is compared with the immediately preceding **equal number of days**, in the same currency.
+Analysis dates are independent of chart navigation; monthly/weekly controls only change
+table grouping. Earlier fills still determine average cost and FIFO holding periods.
+
+`app/services/analysis.py` uses trade facts produced by the existing `stats.py` calculation
+to build data-quality, classification/account, distribution and drawdown-recovery views.
+
+* Win rate, expectancy and distribution use **individual sell records**, not complete
+  position lifecycles. Distribution and the top-three share of gross gains exclude
+  dividends and costs.
+* Account comparisons use account identity even when aliases match. Groups in different
+  currencies remain separate and are not ranked against each other by monetary value.
+  Tables include each currency matching the current filters; an explicit API currency
+  restricts them to that currency.
+* Data quality shows review flags, insufficient purchase history and cost coverage.
+  Both fee and tax must be recorded for complete coverage; an explicit zero differs
+  from a missing value. Net P&L deducts only buy/sell/dividend costs recorded in the period.
+* Drawdown uses cumulative realized P&L including dividends, before costs, rather than
+  total account equity. Recovery days run from the worst trough to recovery of its peak.
+  Current underwater duration runs from the latest peak to the selected end date, or
+  the last trade date for all-history analysis. Future fills never recover a past period.
+* P&L cards and stock/period/holding-period/group rows open supporting trades through
+  `/api/journal/stats/trades`, 30 at a time without bodies or attachments. Notes load only
+  when opened, via `/api/entry/<id>`. A changed data version requires refreshing analysis
+  before continuing to prevent mixing summary and detail versions.
+
+Analysis API ranges use `from=YYYY-MM-DD&to=YYYY-MM-DD`, including the end date.
+`tests/test_analysis.py` covers calculations and API boundaries; browser tests cover
+period changes, lazy notes, competing responses and mobile layout.
 
 ### Loading large journals
 

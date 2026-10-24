@@ -158,6 +158,7 @@ window.setMonthlyChartType = function(type) {
     const btnStats = document.getElementById('btnStats');
     if (inlineStatsContainer && monthlyProfitChartContainer) {
         inlineStatsContainer.style.display = 'none';
+        syncStatsControls();
         monthlyProfitChartContainer.style.display = 'block';
         if (btnStats) {
             btnStats.style.backgroundColor = 'transparent';
@@ -293,6 +294,7 @@ window.renderChartDetailList = function(periodLabel, sections, currency = displa
     const inlineStatsContainer = document.getElementById('inlineStatsContainer');
     if (inlineStatsContainer) {
         inlineStatsContainer.style.display = 'none';
+        syncStatsControls();
         const btnStats = document.getElementById('btnStats');
         if (btnStats) {
             btnStats.style.backgroundColor = 'transparent';
@@ -558,7 +560,7 @@ window.renderMonthlyProfitChart = async function() {
 
     // ⭐️ 지금 화면이 보고 있는 구간을 확정한다.
     //    주간: 첫 주 월요일 ~ 마지막 주 일요일 / 월간: 첫 달 1일 ~ 마지막 달 말일
-    //    (분석 탭은 이 구간과 무관하게 전체 기간을 집계한다 — 07-stats.js 참고)
+    //    (분석 탭은 자체 기간 선택을 사용한다 — 07-stats.js 참고)
     let rangeText = '';
     window.chartPeriodRange = null;
     if (labels.length) {
@@ -592,7 +594,7 @@ window.renderMonthlyProfitChart = async function() {
         });
     }
 
-    // ⭐️ 구간이 확정된 뒤에 분석 탭을 다시 불러온다 (차트와 같은 기간으로 맞추기 위함)
+    // 필터와 월간/주간 묶음이 바뀌면 분석도 자체 선택 기간으로 다시 조회한다.
     if (statsViewOpen) window.loadTradeStats();
 
     const ctx = document.getElementById('monthlyProfitChart');

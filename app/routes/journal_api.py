@@ -8,7 +8,7 @@ from flask import Blueprint, current_app, jsonify, request, session
 from itsdangerous import URLSafeSerializer
 
 from app.database.db import db_conn
-from app.services import journal
+from app.services import analysis, journal
 from app.utils import statscache
 
 bp = Blueprint('journal', __name__)
@@ -108,8 +108,25 @@ def chart():
 
 @bp.get('/api/journal/stats')
 def stats():
+    query, granularity, start, end = _stats_query()
+    return _response(lambda model: journal.trade_stats(model, query, granularity, start, end))
+
+
+def _stats_query():
     query = journal.filters(request.args)
     granularity = request.args.get('granularity', 'monthly')
     if granularity not in ('monthly', 'weekly'):
         raise ValueError('통계 집계 단위가 올바르지 않습니다.')
-    return _response(lambda model: journal.trade_stats(model, query, granularity))
+    start, end = analysis.period_bounds(request.args)
+    return query, granularity, start, end
+
+
+@bp.get('/api/journal/stats/trades')
+def stats_trades():
+    query, granularity, start, end = _stats_query()
+    options = analysis.detail_options(request.args)
+    version = request.args.get('version', '')
+    if len(version) > 200:
+        raise ValueError('데이터 버전이 올바르지 않습니다.')
+    return _response(lambda model: journal.stats_trades(
+        model, query, granularity, start, end, options, version))
