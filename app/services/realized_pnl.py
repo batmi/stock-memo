@@ -15,7 +15,7 @@ from app.domain.trades import (
 def refresh(conn, username):
     """호출자가 커밋한다. 제공된 금액을 보호하고 재구성한 금액만 이력 정정에 맞춰 갱신한다."""
     columns = ('id,tradeSequence,type,stockName,stockCode,brokerAccount,subAccount,accountName,currency,tradeType,quantity,price,'
-               'rawDate,date,tradeStatus,realizedPnl,realizedPnlSource')
+               'rawDate,date,tradeDate,tradeStatus,realizedPnl,realizedPnlSource')
     rows = [dict(row) for row in conn.execute(
         f'SELECT {columns} FROM entries WHERE username=? AND type=\'trade\'', (username,))]
     from app.services import ledger
@@ -50,9 +50,9 @@ def backfill():
     from app.utils import statscache
     changed = []
     with db_conn(write=True) as conn:
-        migration = 'shared_splits_sequence_v3'
+        migration = 'exchange_day_splits_v1'
         repair = conn.execute('SELECT 1 FROM data_migrations WHERE name=?', (migration,)).fetchone() is None
-        # 구버전이 다른 증권사를 합쳐 저장한 재구성 손익도 1회 정정한다.
+        # 현지 거래일을 누락해 분할 단위를 잘못 적용한 재구성 손익도 1회 정정한다.
         # recorded 금액은 refresh에서 보호한다. 완료 표시는 손익 변경과 함께 커밋한다.
         usernames = [row[0] for row in conn.execute('''SELECT DISTINCT username FROM entries
             WHERE type='trade' AND tradeType='매도' AND (? OR realizedPnlSource IS NULL)

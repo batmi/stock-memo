@@ -553,3 +553,10 @@ Account mappings distinguish brokers sharing the same number. Account deletion s
 requests check the persistent user ID so an old session cannot attach to a recreated account of the same name.
 The first upgrade expires existing sessions once, since old cookies lack the persistent user ID; sign in again.
 TTL caches now enforce their maximum size, evicting expired entries first and least recently used entries next.
+
+Additional boundary checks ensure migrated entries increase their revision on the first update as well.
+Startup replaces existing audit triggers with the current definition. Split calculations and sell validation
+use the exchange-local `tradeDate`, including US after-hours fills whose Korean date differs.
+The `exchange_day_splits_v1` migration repairs existing reconstructed profit once and preserves supplied values.
+Legacy browser sessions redirect to login, while API requests receive HTTP 401. Bot authentication acquires
+the user lock before checking key revocation and account availability, so changes during the wait take effect.

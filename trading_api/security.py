@@ -69,6 +69,10 @@ def require_token(*required_scopes):
             if not username or not key_id:
                 return _err(401, 'TOKEN_INVALID', '토큰 페이로드가 유효하지 않습니다.')
 
+            # 인증 조회부터 잠금 안에서 수행한다. 기다리는 동안 폐기된 키의
+            # 이전 조회 결과로 요청을 계속 처리하지 않는다.
+            from app.routes.ownership import lock_request
+            lock_request(username)
             with db_conn() as conn:
                 c = conn.cursor()
                 c.execute(
@@ -104,11 +108,7 @@ def require_token(*required_scopes):
                 resp.headers['Retry-After'] = str(retry_after)
                 return resp, status
 
-            from app.routes.ownership import lock_request, validate_owner
-            lock_request(username)
             g.account_identity = (username, key_row['user_id'])
-            with db_conn() as conn:
-                validate_owner(conn)
             result = f(*args, username=username, scopes=scopes, **kwargs)
             return _with_ratelimit_headers(result, remaining)
 

@@ -164,7 +164,7 @@ def is_bot_entry(row):
 
 def _position_context(c, username, stock_name, stock_code, exclude_id=None, scope=None):
     # 먼저 같은 이름의 모든 코드를 확인해야 동명 종목을 잘못 연결하지 않는다.
-    columns = ('id, tradeSequence, stockName, stockCode, type, tradeType, quantity, rawDate, date, '
+    columns = ('id, tradeSequence, stockName, stockCode, type, tradeType, quantity, rawDate, date, tradeDate, '
                'brokerAccount, subAccount, accountName, currency, tradeStatus')
     rows = [dict(row) for row in c.execute(
         f"SELECT {columns} FROM entries WHERE username=? AND type='trade'", (username,))

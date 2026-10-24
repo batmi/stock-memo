@@ -106,7 +106,9 @@ def check_login():
             owner = conn.execute('SELECT id,is_allowed FROM users WHERE username=?', (sess_user,)).fetchone()
         if owner is None or not owner['is_allowed'] or session.get('user_id') != owner['id']:
             session.clear()
-            return jsonify(error='계정이 변경되었습니다. 다시 로그인해주세요.'), 401
+            if request.path.startswith('/api/'):
+                return jsonify(error='계정이 변경되었습니다. 다시 로그인해주세요.'), 401
+            return redirect(url_for('auth.login', timeout=1))
         session['user_id'] = owner['id']
         g.account_identity = (sess_user, owner['id'])
     elif request.endpoint == 'auth.signup' and request.method == 'POST':

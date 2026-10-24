@@ -30,9 +30,13 @@ def install_triggers(conn):
         condition = f'WHEN {row}.username IS NOT NULL'
         if action == 'update':
             condition += f' AND ({changed})'
-        revision = ('UPDATE entries SET revision=last_insert_rowid() WHERE id=NEW.id;'
-                    if action != 'delete' else '')
-        conn.execute(f'''CREATE TRIGGER IF NOT EXISTS entries_audit_{action}
+        revision = ''
+        if action != 'delete':
+            value = 'MAX(OLD.revision+1,last_insert_rowid())' if action == 'update' else 'last_insert_rowid()'
+            revision = f'UPDATE entries SET revision={value} WHERE id=NEW.id;'
+        # 이전 버전의 트리거도 기동 시 현재 정의로 교체한다(호출자의 트랜잭션 안).
+        conn.execute(f'DROP TRIGGER IF EXISTS entries_audit_{action}')
+        conn.execute(f'''CREATE TRIGGER entries_audit_{action}
             AFTER {action.upper()} ON entries {condition} BEGIN
                 INSERT INTO entry_changes(username,entry_id,action,origin,before_json,after_json)
                 VALUES ({row}.username,{row}.id,'{action}',change_origin(),{before},{after});

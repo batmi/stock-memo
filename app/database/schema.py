@@ -341,9 +341,9 @@ def init(conn, logger=None):
 
     _create_exec_id_unique_index(conn, logger)
     _backfill_owner_username(conn)
+    audit.install_triggers(conn)
     conn.execute("UPDATE entries SET tradeSequence=id WHERE tradeSequence IS NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_changes_user_id ON entry_changes(username,id)")
-    audit.install_triggers(conn)
     conn.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
     conn.commit()
 
