@@ -21,7 +21,7 @@ from app.services import migrations
 import logging
 from app.utils import ratelimit
 from app.database.db import db_conn
-from app.services.users import (current_session_epoch, forget_session_epoch, is_valid_username,
+from app.services.users import (forget_session_epoch, is_valid_username,
                                 validate_password)
 
 log = logging.getLogger('auth')
@@ -31,6 +31,14 @@ bp = Blueprint('auth', __name__)
 # 세션 검사를 면제받는 엔드포인트 (로그인하지 않은 사람이 닿아야 하는 화면)
 PUBLIC_ENDPOINTS = frozenset({
     'auth.login', 'auth.signup', 'auth.logout', 'auth.request_password_reset',
+})
+
+# HTTP POST지만 사용자 데이터를 변경하지 않는 외부 조회다. 네트워크를 기다리는
+# 동안 거래 저장·키 폐기·계정 삭제까지 막지 않는다.
+READ_ONLY_POST_ENDPOINTS = frozenset({'api.get_current_price', 'api.get_news'})
+TARGET_ACCOUNT_ENDPOINTS = frozenset({
+    'admin.admin_delete_user', 'admin.admin_toggle_allow',
+    'admin.admin_reset_password', 'admin.admin_dismiss_reset_request',
 })
 
 class _SessionInterface(SecureCookieSessionInterface):
@@ -58,6 +66,14 @@ def register(app):
     app.before_request(check_login)
     from app.routes.ownership import release_request
     app.teardown_request(release_request)
+    from werkzeug.exceptions import Unauthorized
+
+    @app.errorhandler(Unauthorized)
+    def account_changed(error):
+        session.clear()
+        if request.path.startswith('/api/'):
+            return jsonify(error='계정이 변경되었습니다. 다시 로그인해주세요.'), 401
+        return redirect(url_for('auth.login', timeout=1))
 
 
 def check_login():
@@ -83,35 +99,31 @@ def check_login():
                 return jsonify({"error": "Unauthorized"}), 401
             return redirect(url_for('auth.login', timeout=1))
 
-        # ⭐️ 비밀번호가 바뀌었으면(epoch 증가) 이 세션은 즉시 끊는다.
-        #    비밀번호 변경이 '다른 기기·침입자 로그아웃'으로 실제 작동하게 하는 장치.
-        #    epoch 이 없는 세션(이 기능 도입 전에 로그인한 쿠키)은 0 으로 본다.
-        #    배포하자마자 전원이 로그아웃되는 일은 피하면서, 이후 비밀번호가 한 번이라도
-        #    바뀌면(epoch >= 1) 그 옛 쿠키는 그때 끊긴다.
         sess_user = session.get('username')
-        if sess_user and session.get('epoch', 0) != current_session_epoch(sess_user):
-            session.clear()
-            if request.path.startswith('/api/'):
-                return jsonify({"error": "Unauthorized"}), 401
-            return redirect(url_for('auth.login', timeout=1))
-
-        # 사용자 ID를 세션에 묶는다. 삭제 후 같은 이름으로 가입한 계정은 다른 세대다.
+        # 잠금을 기다린 뒤 신원과 비밀번호 세대를 함께 읽는다. 잠금 전에 읽은
+        # epoch로 통과시키면 기다리는 사이 변경된 비밀번호의 옛 세션이 쓰기를 한다.
         from app.routes.ownership import lock_request, lock_request_users
-        if request.method not in ('GET', 'HEAD', 'OPTIONS'):
-            if request.endpoint == 'admin.admin_delete_user':
+        if (request.method not in ('GET', 'HEAD', 'OPTIONS')
+                and request.endpoint not in READ_ONLY_POST_ENDPOINTS):
+            if request.endpoint in TARGET_ACCOUNT_ENDPOINTS:
                 lock_request_users(sess_user, request.view_args['target_username'])
             else:
                 lock_request(sess_user)
         with db_conn() as conn:
-            owner = conn.execute('SELECT id,is_allowed FROM users WHERE username=?', (sess_user,)).fetchone()
-        if owner is None or not owner['is_allowed'] or session.get('user_id') != owner['id']:
+            owner = conn.execute('SELECT id,is_allowed,session_epoch FROM users WHERE username=?',
+                                 (sess_user,)).fetchone()
+        if (owner is None or not owner['is_allowed'] or session.get('user_id') != owner['id']
+                or session.get('epoch', 0) != (owner['session_epoch'] or 0)):
             session.clear()
             if request.path.startswith('/api/'):
                 return jsonify(error='계정이 변경되었습니다. 다시 로그인해주세요.'), 401
             return redirect(url_for('auth.login', timeout=1))
         session['user_id'] = owner['id']
+        from app.services.restore_recovery import assert_account_ready
+        assert_account_ready(sess_user)
         g.account_identity = (sess_user, owner['id'])
-    elif request.endpoint == 'auth.signup' and request.method == 'POST':
+        g.account_epoch = owner['session_epoch'] or 0
+    elif request.endpoint in ('auth.signup', 'auth.login') and request.method == 'POST':
         from app.routes.ownership import lock_request
         lock_request((request.form.get('username') or '').strip())
 
@@ -166,7 +178,8 @@ def login():
             # DB에서 입력한 아이디와 일치하는 암호화된 비밀번호 조회
             with db_conn() as conn:
                 c = conn.cursor()
-                c.execute("SELECT id, password_hash, is_allowed, is_admin FROM users WHERE username = ?", (username,))
+                c.execute("SELECT id, password_hash, is_allowed, is_admin, session_epoch "
+                          "FROM users WHERE username = ?", (username,))
                 user_record = c.fetchone()
 
             # 계정이 존재하고, 입력한 비밀번호와 DB의 해시값이 일치하는지 검증
@@ -196,7 +209,8 @@ def login():
                     session['logged_in'] = True
                     session['username'] = username  # ⭐️ 계정별 설정 저장을 위해 세션에 저장
                     session['is_admin'] = bool(user_record['is_admin'])
-                    session['epoch'] = current_session_epoch(username)
+                    # 반드시 검증한 비밀번호와 같은 행의 세대를 사용한다.
+                    session['epoch'] = user_record['session_epoch'] or 0
                     session['user_id'] = user_record['id']
                     return redirect(url_for('api.index'))
             else:

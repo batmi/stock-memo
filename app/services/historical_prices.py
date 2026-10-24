@@ -10,12 +10,15 @@ import logging
 import time
 
 from app.database.db import db_conn
+from app.domain.trades import currency_of
 from app.services import historical_provider as provider
+from app.utils.memcache import TTLCache
 
 log = logging.getLogger(__name__)
 DAY = 86400
 MAX_ATTEMPTS = 5
 LEASE_SECONDS = 180
+_plans = TTLCache(DAY, max_size=1000, name='historical-plans')
 
 
 def days_between(start, end):
@@ -80,6 +83,28 @@ def enqueue(needs, *, now=None, retry=False):
         conn.commit()
 
 
+def enqueue_assets(assets, *, now=None):
+    """보유 종목의 분할 정보만 예약한다. 일별 종가의 전체 백필과 별개다."""
+    now = time.time() if now is None else now
+    with db_conn(write=True) as conn:
+        for code, currency in sorted(set(assets)):
+            if not provider.supports(code, currency):
+                continue
+            asset = conn.execute('SELECT checked_at FROM historical_assets WHERE code=? AND currency=?',
+                                 (code, currency)).fetchone()
+            if asset and asset['checked_at'] >= now - DAY:
+                continue
+            job = conn.execute("SELECT * FROM historical_jobs WHERE code=? AND currency=? AND start='' AND end=''",
+                               (code, currency)).fetchone()
+            if job and (job['status'] in ('queued', 'running') or job['next_attempt'] > now):
+                continue
+            # 빈 범위는 메타데이터 전용 작업이다. 가격 작업과 동일한 lease/재시도 정책을 쓴다.
+            conn.execute('''INSERT INTO historical_jobs(code,currency,start,end) VALUES (?,?,'','')
+                ON CONFLICT(code,currency,start,end) DO UPDATE SET status='queued',attempts=0,
+                next_attempt=0,lease_until=0,error='' ''', (code, currency))
+        conn.commit()
+
+
 def progress(needs):
     pending = failed = 0
     total = sum(len(days) for days in needs.values())
@@ -136,13 +161,14 @@ def run_one():
         return False
     key = (job['code'], job['currency'])
     now = time.time()
+    metadata_only = not job['start']
     try:
         quotes, metadata = read([key], job['start'], job['end'])
         asset = metadata.get(key)
         if not asset or asset['checked_at'] < now - DAY:
             asset = dict(provider.fetch_asset(*key), checked_at=now)
-        closes = provider.fetch_closes(asset, job['currency'], date.fromisoformat(job['start']),
-                                       date.fromisoformat(job['end']))
+        closes = {} if metadata_only else provider.fetch_closes(
+            asset, job['currency'], date.fromisoformat(job['start']), date.fromisoformat(job['end']))
         with db_conn(write=True) as conn:
             # lease를 잃은 오래된 워커는 새 결과를 덮어쓰지 않는다.
             current = conn.execute('SELECT status,lease_until FROM historical_jobs WHERE id=?', (job['id'],)).fetchone()
@@ -155,7 +181,7 @@ def run_one():
                 VALUES (?,?,?,?,?,?) ON CONFLICT(code,currency) DO UPDATE SET symbol=excluded.symbol,
                 timezone=excluded.timezone,splits=excluded.splits,checked_at=excluded.checked_at''',
                 (*key, asset['symbol'], asset['timezone'], json.dumps(asset['splits']), asset['checked_at']))
-            for day in days_between(job['start'], job['end']):
+            for day in (() if metadata_only else days_between(job['start'], job['end'])):
                 close = closes.get(day)
                 old = quotes[key].get(day)
                 if close is None and old and old['checked_at'] > 0 and not changed_splits:
@@ -213,7 +239,7 @@ def schedule_watchers():
             model = journal.snapshot(username)
             for currency in ('KRW', 'USD'):
                 rows = [r for r in model['rows'] if r.get('type') == 'trade' and r['_settled']
-                        and not r['_excluded'] and (r.get('currency') or 'KRW') == currency]
+                        and not r['_excluded'] and currency_of(r) == currency]
                 identities = sorted({r['_identity'] for r in rows
                                      if provider.supports(r['_identity'], currency)})
                 # 큰 일지도 요청 처리의 메모리 한도를 넘지 않게 100종목·1년씩 계획한다.
@@ -222,13 +248,43 @@ def schedule_watchers():
                     subset = [r for r in rows if r['_identity'] in group]
                     first = max(date(1970, 1, 1), min(r['_day'].date() for r in subset))
                     last = provider.completed_day(currency)
+                    plan_key = (username, model.get('ownerId'), currency, tuple(sorted(group)))
+                    prior = _plans.get(plan_key)
+                    if prior and prior['version'] == model['version']:
+                        # 정정·누락 재확인을 위해 최근 7일은 겹친다. 하루 한 번은 전체를
+                        # 재계획하여 오래된 누락과 실패 작업도 자동 복구한다.
+                        first = max(first, date.fromisoformat(prior['last']) - timedelta(days=7))
                     while first <= last:
                         end = min(first + timedelta(days=365), last)
                         valuation.report(dict(model, rows=subset), journal.filters({'currency': currency}),
                                          first.isoformat(), end.isoformat(), schedule=True)
                         first = end + timedelta(days=1)
+                    if prior is None or prior['version'] != model['version']:
+                        _plans.put(plan_key, {'version': model['version'], 'last': last.isoformat()})
         except Exception:
             log.exception('과거 시세 정기 수집 예약 실패')
+
+
+def schedule_held_assets():
+    """분석 화면을 열지 않아도 실제 보유 종목의 기업행사를 주기적으로 확인한다."""
+    from app.services import integrity, journal
+    with db_conn() as conn:
+        usernames = [r[0] for r in conn.execute('''SELECT DISTINCT e.username FROM entries e
+            JOIN users u ON u.username=e.username WHERE e.type='trade' AND u.is_allowed=1''')]
+    assets = set()
+    for username in usernames:
+        try:
+            rows = journal.snapshot(username)['rows']
+            assets.update((key[-1], key[-2]) for key, holding in integrity.positions(rows).items()
+                          if holding['qty'] > 1e-9)
+            # 분할을 아직 몰라 초과 매도로 보이는 계좌도 확인한다. 수량을 0으로
+            # 표시한 상태라는 이유로 메타데이터 수집 대상에서 영구 누락하지 않는다.
+            assets.update((r['_identity'], currency_of(r)) for r in rows
+                          if r.get('type') == 'trade' and r['_settled']
+                          and (r.get('needsReview') or r.get('realizedPnlSource') == 'unavailable'))
+        except Exception:
+            log.exception('보유 종목의 분할 정보 예약 실패')
+    enqueue_assets(assets)
 
 
 def worker():
@@ -236,6 +292,7 @@ def worker():
     while True:
         try:
             if time.monotonic() >= next_schedule:
+                schedule_held_assets()
                 schedule_watchers()
                 next_schedule = time.monotonic() + 3600
             worked = run_one()

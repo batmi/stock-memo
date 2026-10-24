@@ -28,8 +28,9 @@ import time
 PROCESS_LOCAL_STATE = (
     ('app.utils.ratelimit',  '요청 제한·로그인 잠금 (워커 수만큼 한도가 늘어난다)'),
     ('app.utils.statscache', '통계 캐시·데이터 버전 (한쪽에서 무효화해도 다른 쪽은 옛 값)'),
-    ('app.services.users',   '세션 epoch 캐시 (비밀번호 변경 반영이 워커마다 늦을 수 있다)'),
     ('app.services.prices',  '시세 단기 캐시 (외부 API 중복 호출 흡수 효과가 줄어든다)'),
+    ('app.services.quotes', '시세 요청 합치기·대기 상한 (워커 수만큼 외부 요청이 늘어난다)'),
+    ('app.services.restore_recovery', '복구 대기 계정 차단 (재시작 전 사용자 작업을 보호한다)'),
     ('app.services.news',    '뉴스 캐시 (같음)'),
     ('app.routes.middleware', '정적 자산 gzip 캐시 (워커마다 한 번씩 압축한다)'),
 )

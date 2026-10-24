@@ -17,12 +17,28 @@ window.scrollToFilterBox = function() {
 };
 
 let customModalTimeout = null; // ⭐️ 연속 모달 호출 시 타이머 꼬임 방지용 전역 변수
+const customModalQueue = [];
+let customModalActive = false;
 
 // ⭐️ 커스텀 공통 모달 (Alert, Confirm, Prompt 대체용)
 window.customModal = function({ type = 'alert', title = '알림', message = '', inputPlaceholder = '' }) {
     return new Promise((resolve) => {
+        customModalQueue.push({ type, title, message, inputPlaceholder, resolve });
+        showNextCustomModal();
+    });
+};
+function showNextCustomModal() {
+        if (customModalActive || !customModalQueue.length) return;
+        const { type, title, message, inputPlaceholder, resolve } = customModalQueue.shift();
         const overlay = document.getElementById('customModalOverlay');
-        if (!overlay) return resolve(type === 'prompt' ? null : true); // HTML 로드 전 폴백
+        if (!overlay) {
+            resolve(type === 'prompt' ? null : type === 'alert');
+            showNextCustomModal();
+            return;
+        }
+        customModalActive = true;
+        const previousFocus = document.activeElement;
+        let settled = false;
         
         // ⭐️ 이전 모달의 닫힘 애니메이션(180ms) 타이머가 새 모달을 닫아버리는 버그 완벽 차단
         if (customModalTimeout) clearTimeout(customModalTimeout);
@@ -53,8 +69,17 @@ window.customModal = function({ type = 'alert', title = '알림', message = '', 
             inputEl.removeEventListener('keydown', onInputKeydown);
             document.removeEventListener('keydown', onDocKeydown);
         };
-        const onOk = () => { cleanup(); resolve(type === 'prompt' ? inputEl.value : true); };
-        const onCancel = () => { cleanup(); resolve(type === 'prompt' ? null : false); };
+        const finish = value => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            customModalActive = false;
+            resolve(value);
+            if (customModalQueue.length) showNextCustomModal();
+            else if (previousFocus?.isConnected) previousFocus.focus();
+        };
+        const onOk = () => finish(type === 'prompt' ? inputEl.value : true);
+        const onCancel = () => finish(type === 'prompt' ? null : false);
         const onInputKeydown = (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); onOk(); } };
         const onDocKeydown = (e) => { if (e.key === 'Escape' && overlay.style.display === 'flex') { e.preventDefault(); e.stopPropagation(); onCancel(); } };
 
@@ -62,8 +87,7 @@ window.customModal = function({ type = 'alert', title = '알림', message = '', 
         btnCancel.addEventListener('click', onCancel);
         if (type === 'prompt') inputEl.addEventListener('keydown', onInputKeydown);
         document.addEventListener('keydown', onDocKeydown);
-    });
-};
+}
 window.customAlert = (message, title = '알림') => window.customModal({ type: 'alert', title, message });
 window.customConfirm = (message, title = '확인') => window.customModal({ type: 'confirm', title, message });
 window.customPrompt = (message, title = '입력', placeholder = '') => window.customModal({ type: 'prompt', title, message, inputPlaceholder: placeholder });

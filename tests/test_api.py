@@ -231,7 +231,7 @@ def test_current_price_edge_cases(mock_http_get, client, app):
                 return b'var u_js= { "result": { "nowVal": 95000 } };'
             return b'{"closePrice": "95000"}'
         elif 'ABCDEF' in url:
-            return b'{"chart": {"result": [{"meta": {"regularMarketPrice": 250.5}}]}}'
+            return b'{"chart": {"result": [{"meta": {"symbol":"ABCDEF","currency":"USD","regularMarketPrice":250.5}}]}}'
         elif '123456' in url:
             if 'yahoo' in url:
                 return b'{"chart": {"result": [{"meta": {"regularMarketPrice": 100.0}}]}}'

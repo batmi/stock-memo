@@ -50,7 +50,7 @@ from app.domain.trades import (
 #    다른 사실이고, 분류(tradeClass) 폴백이 정확히 그 구분에 걸려 있다.
 BOT_COLUMNS = [
     'isSimulated', 'tradeStatus', 'confidence', 'orderOrigin', 'source',
-    'orderId', 'originalOrderId', 'realizedPnl', 'realizedPnlSource', 'realizedPnlRate', 'fee', 'tax',
+    'orderId', 'originalOrderId', 'realizedPnl', 'realizedPnlSource', 'realizedPnlBasis', 'realizedPnlRate', 'fee', 'tax',
     'strategyScore', 'stopLossRate', 'executedAtUtc', 'tradeDate', 'needsReview',
     'isSystem', 'reviewReason',
 ]
@@ -58,7 +58,7 @@ BOT_COLUMNS = [
 # entries 테이블 INSERT 시 사용하는 컬럼 순서 (단일 소스)
 INSERT_COLUMNS = [
     'id', 'username', 'type', 'stockName', 'stockCode', 'title', 'thoughts',
-    'date', 'rawDate', 'attachedImage', 'brokerAccount', 'subAccount',
+    'date', 'rawDate', 'attachedImage', 'brokerAccount', 'brokerIdentity', 'subAccount',
     'accountName', 'tradeType', 'price', 'quantity', 'createdAt', 'updatedAt',
     'tags', 'attachedFile', 'attachedFileName', 'isHidden', 'brokerExecutionId',
     'currency', 'exchange', 'assetType', 'tradeClass', 'tradeSequence'
@@ -69,7 +69,7 @@ WEB_UPDATE_COLUMNS = [
     'type', 'stockName', 'stockCode', 'title', 'thoughts', 'date', 'rawDate',
     'attachedImage', 'brokerAccount', 'subAccount', 'accountName', 'tradeType',
     'price', 'quantity', 'updatedAt', 'tags', 'attachedFile', 'attachedFileName',
-    'isHidden', 'currency', 'exchange', 'assetType', 'tradeClass'
+    'isHidden', 'currency', 'exchange', 'assetType', 'tradeClass', 'realizedPnlBasis'
 ]
 _UPDATE_COLUMNS = WEB_UPDATE_COLUMNS
 
@@ -116,6 +116,8 @@ def insert_entry(c, username, entry, attached_image=...):
     attached_image를 명시하면 entry의 attachedImage 대신 그 값을 사용합니다.
     (JSON→DB 마이그레이션 시 base64 이미지를 파일 URL로 치환하는 용도)
     """
+    from app.services import accounts
+    entry = accounts.identify_entry(entry, accounts.load(c.connection, username))
     values = []
     for col in INSERT_COLUMNS:
         if col == 'username':
@@ -132,6 +134,9 @@ def update_entry_row(c, entry_id, username, entry):
     values = [_value_for(entry, col) for col in _UPDATE_COLUMNS]
     values.extend([entry_id, username])
     c.execute(_UPDATE_SQL, values)
+    from app.services import accounts
+    identity = accounts.identify_entry(entry, accounts.load(c.connection, username))['brokerIdentity']
+    c.execute('UPDATE entries SET brokerIdentity=? WHERE id=? AND username=?', (identity, entry_id, username))
 
 
 _PATCHABLE_COLUMNS = frozenset(INSERT_COLUMNS) - {'id', 'username', 'createdAt'}
@@ -165,18 +170,17 @@ def is_bot_entry(row):
 def _position_context(c, username, stock_name, stock_code, exclude_id=None, scope=None):
     # 먼저 같은 이름의 모든 코드를 확인해야 동명 종목을 잘못 연결하지 않는다.
     columns = ('id, tradeSequence, stockName, stockCode, type, tradeType, quantity, rawDate, date, tradeDate, '
-               'brokerAccount, subAccount, accountName, currency, tradeStatus')
+               'brokerAccount, brokerIdentity, subAccount, accountName, currency, tradeStatus')
     rows = [dict(row) for row in c.execute(
         f"SELECT {columns} FROM entries WHERE username=? AND type='trade'", (username,))
             if row['id'] != exclude_id]
-    if scope is not None:
-        rows = [row for row in rows if position_scope(row) == position_scope(scope)]
     probe = dict(scope or {}, type='trade', stockName=stock_name, stockCode=stock_code)
     from app.services import ledger
     resolved = ledger.prepare(c.connection, username, [*rows, probe])
     target = stock_identity(resolved[-1])
     return sorted((row for row in resolved[:-1] if is_settled_trade(row)
-                   and stock_identity(row) == target), key=entry_order), resolved[-1]
+                   and stock_identity(row) == target
+                   and (scope is None or position_scope(row) == position_scope(resolved[-1]))), key=entry_order), resolved[-1]
 
 
 def _position_rows(c, username, stock_name, stock_code, exclude_id=None, scope=None):
@@ -277,6 +281,11 @@ def oversell_after_change(c, username, old_row, new_entry=None):
     old_row = dict(old_row) if old_row is not None else None
     if not _is_live_buy(old_row):
         return None
+    from app.services import accounts
+    mappings = accounts.load(c.connection, username)
+    old_row = accounts.identify_entry(old_row, mappings)
+    if new_entry is not None:
+        new_entry = accounts.identify_entry(new_entry, mappings)
     name = (old_row.get('stockName') or '').strip()
     code = normalize_stock_code(old_row.get('stockCode'))
 

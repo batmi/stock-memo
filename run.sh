@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 1. 스크립트가 위치한 디렉토리로 이동 (경로 의존성 해결)
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 
 # 1-1. 환경변수(SECRET_KEY 등)를 여기서 직접 읽는다.
 #  ~/.htsrc 는 보통 ~/.zshrc 가 읽어 주지만, 그건 **대화형 셸에만** 적용된다.
@@ -71,7 +71,10 @@ if [ -n "$MISSING_LIBS" ]; then
         echo "[진행] 설치를 시작합니다..."
         # ⭐️ 개별 라이브러리를 이름만으로 설치하면 버전이 매번 달라져 재현이 깨진다.
         #    requirements.txt 의 버전 범위를 그대로 따르게 한다.
-        $PIP_PATH install -r requirements.txt $PIP_FLAGS
+        if ! $PIP_PATH install -r requirements.txt -c requirements.lock $PIP_FLAGS; then
+            echo "[실패] 라이브러리 설치에 실패했습니다. 프로그램을 종료합니다." >&2
+            exit 1
+        fi
         echo "[완료] 모든 라이브러리 설치가 끝났습니다."
     else
         echo "[중단] 사용자가 설치를 거절했습니다. 프로그램을 종료합니다."

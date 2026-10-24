@@ -6,7 +6,7 @@
 
 
 
-from helpers import _buy, _ensure_user, _insert_raw, _login, _sell
+from helpers import _buy, _ensure_user, _insert_raw, _login, _sell, _user_id
 
 
 # ─────────────────────────────────────────────────────────────
@@ -162,6 +162,7 @@ def test_stats_index_not_cached_when_data_changes_during_read(client, monkeypatc
     from app.utils import statscache
 
     _login(client, 'statsrace')
+    cache_key = ('statsrace', 'journal-index', _user_id('statsrace'))
     _insert_raw('statsrace', id=1, stockName='A', tradeType='매수', price=100,
                 quantity=1, rawDate='2024-01-10T09:00')
     real_date = journal._date
@@ -172,12 +173,12 @@ def test_stats_index_not_cached_when_data_changes_during_read(client, monkeypatc
 
     monkeypatch.setattr(journal, '_date', read_while_bot_writes)
     assert client.get('/api/journal/stats').status_code == 200
-    assert statscache.get(('statsrace', 'journal-index')) is None
+    assert statscache.get(cache_key) is None
 
     # 데이터가 그대로면 평소처럼 캐시한다
     monkeypatch.setattr(journal, '_date', real_date)
     client.get('/api/journal/stats')
-    assert statscache.get(('statsrace', 'journal-index')) is not None
+    assert statscache.get(cache_key) is not None
 
 
 def test_statscache_put_skips_stale_etag():

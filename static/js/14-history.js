@@ -492,15 +492,19 @@ function renderPage(pageEntries) {
 
 window.editEntry = async function(entry) {
     if (!entry) return;
+    const request = beginUIRequest('edit');
     const ticket = journalRequests.edit = (journalRequests.edit || 0) + 1;
     try { entry = await journalJSON(`/api/entry/${entry.id}`, false); }
-    catch (error) { await customAlert(error.message); return; }
-    if (ticket !== journalRequests.edit) return;
-    editingEntry = entry;
+    catch (error) { if (request.current()) await customAlert(error.message); return; }
+    if (ticket !== journalRequests.edit || !request.current()) return;
     if (entry.type === 'trade') {
         const canOpen = await ensureAccountMapping();
-        if (!canOpen) return;
+        if (!canOpen || !request.current()) return;
     }
+    if (!request.current()) return;
+    ++formGeneration;
+    formModalOverlay.classList.remove('closing');
+    editingEntry = entry;
     editingEntryId = entry.id;
     editingEntryRevision = entry.revision;
 
@@ -517,6 +521,7 @@ window.editEntry = async function(entry) {
     }
 
     document.getElementById('stockName').value = entry.stockName || '';
+    document.getElementById('stockName').dataset.resolvedName = entry.stockName || '';
     document.getElementById('stockCode').value = entry.stockCode || '';
     document.getElementById('brokerAccount').value = entry.brokerAccount || '';
     document.getElementById('subAccount').value = entry.subAccount || '';
@@ -539,7 +544,8 @@ window.editEntry = async function(entry) {
         contentHtml += `<p><br></p><p><img src="${escapeAttr(legacyImage)}"></p>`;
     }
     // ⭐️ 편집기 본문도 살아 있는 문서라 정화 없이 넣으면 그 자리에서 실행된다.
-    if (window.quill) window.setEditorHtml(sanitizeHtml(contentHtml)); // 에디터에 기존 내용 불러오기
+    if (window.quill) window.setEditorHtml(sanitizeHtml(contentHtml));
+    else window.pendingEditorHtml = sanitizeHtml(contentHtml);
     
     currentTags = entry.tags ? entry.tags.split(',').filter(Boolean) : [];
     renderTags();
@@ -567,6 +573,7 @@ window.editEntry = async function(entry) {
     toggleFormUI(entry.type || 'trade');
 
     submitBtn.innerText = "수정";
+    window.offerEditorDraft?.();
 }
 
 async function deleteEntry(id) {

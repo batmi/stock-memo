@@ -173,7 +173,8 @@ def test_chart_fifo_consumes_sells_after_the_visible_period(client):
     seed(id=2, rawDate='2026-01-01T09:00', quantity=10, price=200)
     seed(id=3, rawDate='2026-03-01T09:00', tradeType='매도', quantity=15, price=300)
     chart = get(client, 'chart', period='2026-01').json
-    assert chart['evaluation'] == [{'period': '2026-01', 'stock': '종목', 'stockCode': '005930', 'quantity': 5, 'cost': 1000}]
+    assert chart['evaluation'] == [{'period': '2026-01', 'stock': '종목', 'stockCode': '005930',
+                                   'quantity': 5, 'cost': 1000, 'currency': 'KRW', 'exchange': ''}]
     assert chart['monthlyData']['2026-01']['buy_volume'] == 2000
 
 

@@ -8,25 +8,30 @@ from datetime import datetime
 import json
 import math
 
-from app.domain.trades import KST, currency_of, resolve_trade_identities, stock_identity, trade_day
+from app.domain.trades import KST, currency_of, resolve_trade_identities, split_scope, stock_identity, trade_day
 
 
-def prepare(conn, username, rows, as_of=None, rules=None):
-    rows = resolve_trade_identities(rows)
+def prepare(conn, username, rows, as_of=None, rules=None, mappings=None):
+    from app.services import accounts
+    mappings = accounts.load(conn, username) if mappings is None else mappings
+    aliases = accounts.broker_aliases(mappings)
+    rows = resolve_trade_identities([accounts.identify_entry(row, mappings, aliases) for row in rows])
     last = as_of or datetime.now(KST).date().isoformat()
     if rules is None:
         rules = list(conn.execute('SELECT * FROM split_rules WHERE username=?', (username,)))
-    rules = {(r['code'], r['currency'], r['day']): r['mode'] for r in rules}
+    rules = {(r['code'], r['currency'], r['day'], r.get('scope', '')): r['mode'] for r in map(dict, rules)}
     actions = {}
     for key in {(stock_identity(r), currency_of(r)) for r in rows if r.get('type') == 'trade'}:
         asset = conn.execute('SELECT splits FROM historical_assets WHERE code=? AND currency=?', key).fetchone()
         splits = json.loads(asset['splits']) if asset else {}
-        actions[key] = {day: ratio for day, ratio in splits.items()
-                        if day <= last and rules.get((*key, day)) != 'recorded'}
+        actions[key] = {day: ratio for day, ratio in splits.items() if day <= last}
     result = []
     for source in rows:
         row = dict(source)
-        splits = actions.get((stock_identity(row), currency_of(row)), {})
+        key = stock_identity(row), currency_of(row)
+        scope = split_scope(row)
+        splits = {day: ratio for day, ratio in actions.get(key, {}).items()
+                  if rules.get((*key, day, scope), rules.get((*key, day, ''), 'apply')) != 'recorded'}
         stamp = trade_day(row)
         factor = math.prod(ratio for day, ratio in splits.items() if stamp and day > stamp.date().isoformat())
         if not math.isfinite(factor) or factor <= 0:

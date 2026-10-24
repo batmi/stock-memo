@@ -66,7 +66,8 @@ def require_token(*required_scopes):
 
             username = payload.get('u') if isinstance(payload, dict) else None
             key_id = payload.get('k') if isinstance(payload, dict) else None
-            if not username or not key_id:
+            if (not isinstance(username, str) or not username
+                    or isinstance(key_id, bool) or not isinstance(key_id, int) or key_id <= 0):
                 return _err(401, 'TOKEN_INVALID', '토큰 페이로드가 유효하지 않습니다.')
 
             # 인증 조회부터 잠금 안에서 수행한다. 기다리는 동안 폐기된 키의
@@ -88,6 +89,8 @@ def require_token(*required_scopes):
                 #    키를 살려 두면 차단이 봇 쪽으로 새어 나간다.
                 if not key_row['is_allowed']:
                     return _account_disabled()
+                from app.services.restore_recovery import assert_account_ready
+                assert_account_ready(username)
                 scopes = set((key_row['scopes'] or '').split())
                 # ⭐️ 위 SELECT 에 last_used_at 을 함께 담았으므로 추가 쿼리 없이 판정한다.
                 if _should_touch_last_used(key_row['last_used_at']):

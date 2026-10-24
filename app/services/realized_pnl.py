@@ -14,8 +14,10 @@ from app.domain.trades import (
 
 def refresh(conn, username):
     """호출자가 커밋한다. 제공된 금액을 보호하고 재구성한 금액만 이력 정정에 맞춰 갱신한다."""
-    columns = ('id,tradeSequence,type,stockName,stockCode,brokerAccount,subAccount,accountName,currency,tradeType,quantity,price,'
-               'rawDate,date,tradeDate,tradeStatus,realizedPnl,realizedPnlSource')
+    from app.services import accounts
+    identity_changes = accounts.refresh_identities(conn, username)
+    columns = ('id,tradeSequence,type,stockName,stockCode,brokerAccount,brokerIdentity,subAccount,accountName,currency,tradeType,quantity,price,'
+               'rawDate,date,tradeDate,tradeStatus,realizedPnl,realizedPnlSource,realizedPnlBasis')
     rows = [dict(row) for row in conn.execute(
         f'SELECT {columns} FROM entries WHERE username=? AND type=\'trade\'', (username,))]
     from app.services import ledger
@@ -23,12 +25,12 @@ def refresh(conn, username):
     holdings = defaultdict(empty_holding)
     changes = []
     for row in rows:
-        old = (row['realizedPnl'], row['realizedPnlSource'])
+        old = (row['realizedPnl'], row['realizedPnlSource'], row['realizedPnlBasis'])
         provided = row['realizedPnl'] is not None and row['realizedPnlSource'] not in ('reconstructed', 'unavailable')
         if provided:
-            new = (row['realizedPnl'], 'recorded')
+            new = (row['realizedPnl'], 'recorded', row['realizedPnlBasis'] or 'unknown')
         else:
-            new = (None, None)
+            new = (None, None, None)
         if is_settled_trade(row):
             holding = holdings[position_key(row)]
             qty = float(row.get('quantity') or 0)
@@ -36,12 +38,12 @@ def refresh(conn, username):
             # 재구성에는 저장 손익을 사용하지 않고 매도 당시까지의 체결가격만 사용한다.
             profit, _, _ = apply_trade(holding, dict(row, realizedPnl=None, realizedPnlSource=None))
             if row['tradeType'] == '매도' and not provided:
-                new = (profit, 'reconstructed') if enough and isfinite(profit) else (None, 'unavailable')
+                new = (profit, 'reconstructed', 'gross') if enough and isfinite(profit) else (None, 'unavailable', None)
         if new != old:
             changes.append((*new, row['id'], username))
     if changes:
-        conn.executemany('UPDATE entries SET realizedPnl=?,realizedPnlSource=? WHERE id=? AND username=?', changes)
-    return len(changes)
+        conn.executemany('UPDATE entries SET realizedPnl=?,realizedPnlSource=?,realizedPnlBasis=? WHERE id=? AND username=?', changes)
+    return len(changes) + identity_changes
 
 
 def backfill():
@@ -50,12 +52,12 @@ def backfill():
     from app.utils import statscache
     changed = []
     with db_conn(write=True) as conn:
-        migration = 'exchange_day_splits_v1'
+        migration = 'canonical_broker_pnl_basis_v1'
         repair = conn.execute('SELECT 1 FROM data_migrations WHERE name=?', (migration,)).fetchone() is None
-        # 현지 거래일을 누락해 분할 단위를 잘못 적용한 재구성 손익도 1회 정정한다.
+        # 명확한 증권사 코드/이름을 연결하고 기존 손익의 비용 기준을 1회 분류한다.
         # recorded 금액은 refresh에서 보호한다. 완료 표시는 손익 변경과 함께 커밋한다.
         usernames = [row[0] for row in conn.execute('''SELECT DISTINCT username FROM entries
-            WHERE type='trade' AND tradeType='매도' AND (? OR realizedPnlSource IS NULL)
+            WHERE type='trade' AND (? OR (tradeType='매도' AND realizedPnlSource IS NULL))
             AND COALESCE(tradeStatus,'FILLED') NOT IN ('CANCELED','SUBMITTED')''', (repair,))]
         for username in usernames:
             if refresh(conn, username):

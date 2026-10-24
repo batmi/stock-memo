@@ -33,7 +33,7 @@ def register(app):
 @bp.route('/api/admin/users', methods=['GET'])
 @admin_required
 def admin_get_users():
-    with db_conn() as conn:
+    with db_conn(read=True) as conn:
         c = conn.cursor()
         # ⭐️ 비밀번호 재설정 요청(로그인 화면에서 접수)을 같은 표에 실어 보낸다.
         c.execute('''
@@ -56,7 +56,7 @@ def admin_get_users():
 @admin_required
 def admin_dismiss_reset_request(target_username):
     """초기화하지 않고 요청만 내린다 (본인이 다시 기억해냈다거나 장난 요청인 경우)."""
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         conn.execute("DELETE FROM password_reset_requests WHERE username = ?",
                      (target_username,))
         conn.commit()
@@ -70,7 +70,7 @@ def admin_dismiss_reset_request(target_username):
 def admin_delete_user(target_username):
     from app.routes.ownership import lock_request
     lock_request(target_username)
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         c = conn.cursor()
 
         c.execute("SELECT is_admin FROM users WHERE username = ?", (target_username,))
@@ -97,7 +97,7 @@ def admin_delete_user(target_username):
 @bp.route('/api/admin/users/<target_username>/toggle_allow', methods=['POST'])
 @admin_required
 def admin_toggle_allow(target_username):
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         c = conn.cursor()
         c.execute("SELECT is_allowed, is_admin FROM users WHERE username = ?", (target_username,))
         user = c.fetchone()
@@ -111,8 +111,7 @@ def admin_toggle_allow(target_username):
         c.execute("UPDATE users SET is_allowed = ? WHERE username = ?", (new_status, target_username))
         conn.commit()
 
-    # ⭐️ 차단은 '지금 로그인해 있는 세션'에도 들어야 한다. epoch 캐시가 허용 여부까지
-    #    담고 있으므로 비워 두면 다음 요청이 DB 를 다시 읽고, 차단됐으면 끊긴다.
+    # 승인 상태는 다음 인증에서 DB로 확인한다. 아래 호출은 이전 도구와의 호환이다.
     forget_session_epoch(target_username)
 
     return jsonify({"status": "success", "is_allowed": new_status})
@@ -125,7 +124,7 @@ def admin_reset_password(target_username):
     new_password = generate_temp_password(12)
     hashed_pw = generate_password_hash(new_password)
 
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         c = conn.cursor()
         row = c.execute("SELECT username FROM users WHERE username = ?",
                         (target_username,)).fetchone()

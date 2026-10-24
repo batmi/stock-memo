@@ -141,6 +141,8 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
     # 수수료·세금. 봇(증권사 연동)이 넣은 기록에만 있고 손으로 쓴 기록에는 보통 없다.
     total_fee = total_tax = 0.0
     cost_record_count = 0
+    deductible_cost = 0.0
+    unknown_cost_basis = 0
 
     EPS = 1e-9
 
@@ -160,6 +162,8 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
         p = portfolio.setdefault(position_key(t), dict(empty_holding(), lots=deque()))
         inw = in_window(day) and (include is None or include(t))
         known_pnl = t.get('realizedPnlSource') != 'unavailable'
+        pnl_basis = t.get('realizedPnlBasis') or (
+            'unknown' if t.get('realizedPnl') is not None and t.get('realizedPnlSource') != 'reconstructed' else 'gross')
         profit = basis = dividend = 0.0
         holding_days = None
         missing_qty = max(0.0, qty - p['qty']) if ttype == '매도' else 0.0
@@ -168,6 +172,12 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
             cost_record_count += 1
             total_fee += float(t.get('fee') or 0)
             total_tax += float(t.get('tax') or 0)
+            # net은 해당 매도행 fee/tax를 반영한 값이라는 계약이다. 매수 비용까지
+            # 포함한 금액은 공급자가 unknown으로 보내야 순손익을 잘못 확정하지 않는다.
+            if ttype != '매도' or pnl_basis == 'gross':
+                deductible_cost += float(t.get('fee') or 0) + float(t.get('tax') or 0)
+        if inw and ttype == '매도' and known_pnl and pnl_basis == 'unknown':
+            unknown_cost_basis += 1
 
         if ttype == '매수':
             vol = price * qty
@@ -298,6 +308,7 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
                     if holding_days is not None else None,
                 'missingBuyQuantity': missing_qty / t.get('_splitFactor', 1), 'needsReview': bool(t.get('needsReview')),
                 'fee': t.get('fee'), 'tax': t.get('tax'), 'currency': currency_of(t),
+                'realizedPnlBasis': pnl_basis if ttype == '매도' else None,
                 'tradeClass': t.get('tradeClass') or '', 'accountKey': account_group_key(t),
                 'broker': t.get('brokerAccount') or '',
                 'accountNumber': t.get('subAccount') or '',
@@ -416,7 +427,8 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
         'totalTax': total_tax,
         'totalCost': total_cost,
         'costRecordCount': cost_record_count,
-        'netPnl': total_realized + total_dividend - total_cost,
+        'netPnl': None if unknown_cost_basis else total_realized + total_dividend - deductible_cost,
+        'netPnlUnavailableCount': unknown_cost_basis,
         'equityCurve': equity_curve,
         'holdingBuckets': holding_buckets,
         'monthly': monthly_list,

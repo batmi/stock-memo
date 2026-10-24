@@ -231,6 +231,16 @@
 
                 <div class="form-group">
                     <label for="thoughts" id="thoughtsLabel">생각의 흐름 / 계획</label>
+                    <div id="editorLoadNotice" class="editor-notice" role="alert" hidden>
+                        편집기를 불러오지 못했습니다. 목록은 계속 조회할 수 있습니다.
+                        <button type="button" id="btnRetryEditor">편집기 다시 불러오기</button>
+                    </div>
+                    <div id="editorDraftNotice" class="editor-notice" hidden>
+                        <span id="editorDraftMessage"></span>
+                        <button type="button" id="btnRestoreDraft">초안 복구</button>
+                        <button type="button" id="btnDiscardDraft">초안 삭제</button>
+                    </div>
+                    <div id="editorDraftStatus" class="editor-draft-status" role="status"></div>
                     <div id="editor-container" style="min-height: 100px; height: auto; font-family: inherit; font-size: 13px; background-color: var(--bg-color); color: var(--text-color);"></div>
                 </div>
                 <div class="form-group">
@@ -282,6 +292,7 @@
                     </div>
                     <!-- ⭐️ 커스텀 HTML 범례 영역 추가 (도넛 크기 고정용) -->
                     <div id="customChartLegend" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 15px; padding: 0 5px;"></div>
+                    <div id="portfolioQuoteStatus" role="status" style="font-size:10px;color:var(--text-muted-color);text-align:center;margin-top:6px;"></div>
                 </div>
                 <div class="portfolio-details">
                     <div style="display: flex; width: 100%; margin-bottom: 10px; gap: 8px;">
@@ -611,6 +622,12 @@
                 <span style="color: var(--warning-color);">키 원문은 발급 직후 한 번만 표시됩니다.</span> 서버에는 해시만 저장되어 다시 볼 수 없습니다.
             </div>
             <div id="apiKeyList" style="font-size: 10px; color: var(--text-muted-color); margin-bottom: 5px; line-height: 1.6;"></div>
+            <fieldset id="apiKeyScopes" class="api-key-scopes">
+                <legend>새 키의 허용 기능</legend>
+                <label><input type="checkbox" value="trades:read" checked>거래 조회</label>
+                <label><input type="checkbox" value="trades:write" checked>거래 기록</label>
+                <label><input type="checkbox" value="bot:write" checked>봇 상태·명령</label>
+            </fieldset>
             <div style="display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-bottom: 5px;">
                 <button type="button" id="btnResync" class="modal-outline-btn" title="웹에서 지운 기록을 봇의 거래기록에서 다시 받아옵니다" style="margin: 0; padding: 5px 10px; font-size: 11px; width: auto; border: 1px solid var(--success-color); color: var(--success-color); border-radius: 4px; cursor: pointer;">재동기화</button>
                 <button type="button" id="btnGenerateApiKey" class="modal-outline-btn" style="margin: 0; padding: 5px 10px; font-size: 11px; width: auto; border: 1px solid var(--primary-color); color: var(--primary-color); border-radius: 4px; cursor: pointer;">새 API 키 발급</button>
@@ -772,6 +789,8 @@
     <script>
         window.SESSION_EXPIRES_AT_MS = Number("{{ session_expires_at }}") * 1000;
         window.SESSION_KEEP_LOGGED_IN = "{{ 'true' if keep_logged_in else 'false' }}" === "true";
+        window.JOURNAL_USERNAME = {{ session.get('username', '') | tojson }};
+        window.JOURNAL_USER_ID = {{ session.get('user_id', '') | tojson }};
     </script>
 
     <!-- ⭐️ 외부 JS 파일 연결 -->

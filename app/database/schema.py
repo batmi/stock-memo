@@ -37,6 +37,7 @@ CREATE_TABLES = [
         rawDate TEXT,
         attachedImage TEXT,
         brokerAccount TEXT,
+        brokerIdentity TEXT,
         subAccount TEXT,
         accountName TEXT,
         tradeType TEXT,
@@ -62,6 +63,7 @@ CREATE_TABLES = [
         originalOrderId TEXT,
         realizedPnl REAL,
         realizedPnlSource TEXT,
+        realizedPnlBasis TEXT,
         realizedPnlRate REAL,
         fee REAL,
         tax REAL,
@@ -127,7 +129,15 @@ CREATE_TABLES = [
     '''CREATE TABLE IF NOT EXISTS split_rules (
         username TEXT NOT NULL, code TEXT NOT NULL, currency TEXT NOT NULL, day TEXT NOT NULL,
         mode TEXT NOT NULL CHECK(mode IN ('apply','recorded')),
-        PRIMARY KEY(username,code,currency,day)
+        scope TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY(username,code,currency,day,scope)
+    )''',
+    '''CREATE TABLE IF NOT EXISTS restore_commits (
+        operation_id TEXT PRIMARY KEY, username TEXT NOT NULL, user_id INTEGER NOT NULL
+    )''',
+    '''CREATE TABLE IF NOT EXISTS quote_cache (
+        asset_key TEXT NOT NULL, market_mode TEXT NOT NULL, payload TEXT NOT NULL, checked_at REAL NOT NULL,
+        PRIMARY KEY(asset_key,market_mode)
     )''',
 
     # 스키마 버전과 별도로 성공한 데이터 이관을 기록한다. 실패한 이관은 다음 기동 때 재시도한다.
@@ -219,6 +229,8 @@ CREATE_TABLES = [
 # ---------------------------------------------------------------------------
 
 ADDED_COLUMNS = [
+    ('entries', 'brokerIdentity', 'TEXT'),
+    ('entries', 'realizedPnlBasis', 'TEXT'),
     ('entries', 'tradeSequence', 'INTEGER'),
     ('entries', 'revision', 'INTEGER NOT NULL DEFAULT 1'),
     # (table, column, type)
@@ -310,7 +322,7 @@ EXEC_ID_UNIQUE_INDEX = (
 # 적용
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def init(conn, logger=None):
@@ -334,6 +346,8 @@ def init(conn, logger=None):
         if column not in columns:
             c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
 
+    _upgrade_split_rules(conn)
+
     for ddl in INDEXES:
         c.execute(ddl)
 
@@ -346,6 +360,29 @@ def init(conn, logger=None):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_changes_user_id ON entry_changes(username,id)")
     conn.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
     conn.commit()
+
+
+def _upgrade_split_rules(conn):
+    """이름 변경·새 테이블·데이터 복사를 한 트랜잭션으로 묶어 중단 후 재실행한다."""
+    if 'scope' in {row[1] for row in conn.execute('PRAGMA table_info(split_rules)')}:
+        return
+    # sqlite3의 암묵 트랜잭션은 DDL 앞에서 시작되지 않는다. SAVEPOINT로
+    # 명시적으로 시작해야 INSERT 이전의 종료도 원본 테이블로 복구된다.
+    conn.execute('SAVEPOINT split_rules_upgrade')
+    try:
+        conn.execute('ALTER TABLE split_rules RENAME TO split_rules_legacy')
+        conn.execute('''CREATE TABLE split_rules (
+            username TEXT NOT NULL, code TEXT NOT NULL, currency TEXT NOT NULL, day TEXT NOT NULL,
+            mode TEXT NOT NULL CHECK(mode IN ('apply','recorded')), scope TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(username,code,currency,day,scope))''')
+        conn.execute('''INSERT INTO split_rules(username,code,currency,day,mode)
+            SELECT username,code,currency,day,mode FROM split_rules_legacy''')
+        conn.execute('DROP TABLE split_rules_legacy')
+    except BaseException:
+        conn.execute('ROLLBACK TO SAVEPOINT split_rules_upgrade')
+        conn.execute('RELEASE SAVEPOINT split_rules_upgrade')
+        raise
+    conn.execute('RELEASE SAVEPOINT split_rules_upgrade')
 
 
 def _rebuild_price_cache_if_legacy(c, logger):

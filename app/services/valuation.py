@@ -40,10 +40,16 @@ def report(model, query, start=None, end=None, *, schedule=False, retry=False):
     quotes, metadata = history.read(assets, quote_start.isoformat(), last.isoformat())
     # split은 당일 체결보다 먼저 반영한다. 당시 체결 단가/수량은 원본 그대로 보존한다.
     events = [(r['_day'].date(), 1, r['_dt'], r.get('tradeSequence') or r['id'], r) for r in rows]
-    for (code, _), info in metadata.items():
-        accepted = next((r['_splits'] for r in rows if r.get('stockCode') == code and '_splits' in r), info['splits'])
-        for day, ratio in accepted.items():
-            events.append((date.fromisoformat(day), 0, None, 0, (code, ratio)))
+    split_events = set()
+    for row in rows:
+        info = metadata.get((normalize_stock_code(row.get('stockCode')), currency))
+        if not info:
+            continue
+        ident = position_key(row)
+        for day, ratio in row.get('_splits', info['splits']).items():
+            if (ident, day) not in split_events:
+                split_events.add((ident, day))
+                events.append((date.fromisoformat(day), 0, None, 0, (ident, ratio)))
     events.sort(key=lambda event: event[:4])
     holdings = {}
     needs = defaultdict(set)
@@ -61,15 +67,15 @@ def report(model, query, start=None, end=None, *, schedule=False, retry=False):
             _, kind, _, _, event = events[cursor]
             cursor += 1
             if kind == 0:
-                code, ratio = event
-                for p in holdings.values():
-                    if p['code'] == code and p['qty'] > EPS:
-                        p['qty'] *= ratio
-                        p['avgPrice'] /= ratio
-                        p['selectedQty'] *= ratio
-                        for lot in p['lots']:
-                            lot[0] *= ratio
-                        split_applied = True
+                ident, ratio = event
+                p = holdings.get(ident)
+                if p and p['qty'] > EPS:
+                    p['qty'] *= ratio
+                    p['avgPrice'] /= ratio
+                    p['selectedQty'] *= ratio
+                    for lot in p['lots']:
+                        lot[0] *= ratio
+                    split_applied = True
                 continue
             row = event
             ident = position_key(row)

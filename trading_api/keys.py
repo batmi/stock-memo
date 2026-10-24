@@ -11,7 +11,7 @@ import sqlite3
 from app.database.db import db_conn
 
 from .common import (
-    API_KEY_PREFIX, DEFAULT_SCOPES, LAST_USED_WRITE_INTERVAL_SECONDS,
+    ALL_SCOPES, API_KEY_PREFIX, DEFAULT_SCOPES, LAST_USED_WRITE_INTERVAL_SECONDS,
     _log, _now_kst, _now_kst_str, _parse_stored_dt,
 )
 
@@ -42,7 +42,7 @@ def _generate_api_key():
 
 
 def list_api_keys(username):
-    with db_conn() as conn:
+    with db_conn(read=True) as conn:
         c = conn.cursor()
         c.execute(
             "SELECT id, key_prefix, label, scopes, created_at, last_used_at, revoked_at "
@@ -50,21 +50,36 @@ def list_api_keys(username):
         return [dict(r) for r in c.fetchall()]
 
 
-def create_api_key(username, label=None, scopes=None):
+def normalize_scopes(scopes):
+    if scopes is None:
+        return list(ALL_SCOPES)
+    if (not isinstance(scopes, (list, tuple)) or not scopes
+            or any(not isinstance(scope, str) or scope not in ALL_SCOPES for scope in scopes)):
+        raise ValueError('API 키 권한을 하나 이상 선택해주세요. 지원하지 않는 권한은 사용할 수 없습니다.')
+    return [scope for scope in ALL_SCOPES if scope in scopes]
+
+
+def create_api_key(username, label=None, scopes=None, *, replace_existing=False):
     """새 키를 발급합니다. **평문은 이 반환값에서 단 한 번만 볼 수 있습니다.**"""
     raw = _generate_api_key()
-    scope_str = ' '.join(scopes) if scopes else DEFAULT_SCOPES
-    with db_conn() as conn:
+    if label is not None and (not isinstance(label, str) or len(label) > 100):
+        raise ValueError('API 키 이름은 100자 이하의 문자열이어야 합니다.')
+    label = (label or '').strip() or 'HTS 연동 키'
+    scope_str = ' '.join(normalize_scopes(scopes))
+    with db_conn(write=True) as conn:
         c = conn.cursor()
+        if replace_existing:
+            c.execute("UPDATE api_keys SET revoked_at=? WHERE username=? AND revoked_at IS NULL",
+                      (_now_kst_str(), username))
         c.execute(
             "INSERT INTO api_keys (username, key_hash, key_prefix, label, scopes, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (username, _hash_key(raw), _display_prefix(raw),
-             label or 'HTS 연동 키', scope_str, _now_kst_str()))
+             label, scope_str, _now_kst_str()))
         key_id = c.lastrowid
         conn.commit()
     return {'id': key_id, 'api_key': raw, 'key_prefix': _display_prefix(raw),
-            'scopes': scope_str.split(), 'label': label or 'HTS 연동 키'}
+            'scopes': scope_str.split(), 'label': label}
 
 
 def revoke_api_key(username, key_id):

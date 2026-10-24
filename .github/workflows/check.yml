@@ -1,0 +1,31 @@
+name: 검증
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    env:
+      SECRET_KEY: stock-memo-ci-test-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r requirements-dev.txt -c requirements.lock
+      - run: python -m playwright install --with-deps chromium
+      - run: ruff check .
+      - run: node --test tests/*.test.js
+      - run: python -m pytest -q
+      - run: git diff --check

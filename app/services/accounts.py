@@ -72,6 +72,47 @@ def find_account_mapping(accounts, raw_sub, broker=None):
     return matches[0] if len(matches) == 1 else (None, None)
 
 
+def broker_identity(value, mappings):
+    """표시 이름은 보존하고 명확한 코드/이름 쌍만 같은 증권사로 연결한다."""
+    raw = str(value or '').strip()
+    return broker_aliases(mappings).get(raw, raw)
+
+
+def broker_aliases(mappings):
+    mappings = normalize(mappings)
+    pairs = {(str(code).strip(), str(name).strip()) for code, name in mappings['brokers'].items()
+             if isinstance(name, str)}
+    pairs.update((str(info.get('broker_code') or '').strip(), str(info.get('broker_name') or '').strip())
+                 for info in mappings['accounts'].values() if isinstance(info, dict))
+    candidates = {}
+    for code, name in pairs:
+        if code:
+            for alias in (code, name):
+                if alias:
+                    candidates.setdefault(alias, set()).add(code)
+    return {alias: next(iter(codes)) for alias, codes in candidates.items() if len(codes) == 1}
+
+
+def identify_entry(entry, mappings, aliases=None):
+    row = dict(entry)
+    raw = str(row.get('brokerAccount') or '').strip()
+    identity = (broker_aliases(mappings) if aliases is None else aliases).get(raw, raw)
+    row['brokerIdentity'] = identity if identity != raw else row.get('brokerIdentity') or identity
+    return row
+
+
+def refresh_identities(conn, username):
+    mappings = load(conn, username)
+    aliases = broker_aliases(mappings)
+    changes = []
+    for row in conn.execute('SELECT id,brokerAccount,brokerIdentity FROM entries WHERE username=?', (username,)):
+        identity = identify_entry(dict(row), mappings, aliases)['brokerIdentity']
+        if identity != row['brokerIdentity']:
+            changes.append((identity, row['id']))
+    conn.executemany('UPDATE entries SET brokerIdentity=? WHERE id=?', changes)
+    return len(changes)
+
+
 def normalize(data):
     """어떤 입력이 들어와도 {'brokers': dict, 'accounts': dict} 형태로 맞춘다.
 
@@ -117,7 +158,7 @@ def load_for(username):
        다른 도메인 모듈이 그걸 참조할 방법이 주입밖에 없었던 것이다. 매핑을 아는
        모듈이 갖고 있으면 양쪽 다 그냥 임포트하면 된다.
     """
-    with db_conn() as conn:
+    with db_conn(read=True) as conn:
         return load(conn, username)
 
 
@@ -125,7 +166,7 @@ class UnknownUserError(LookupError):
     """계정 행이 없어 매핑을 저장할 곳이 없을 때."""
 
 
-def save(conn, username, data):
+def save(conn, username, data, *, recalculate=True):
     """사용자의 계좌 매핑을 DB 에 저장한다. commit 은 호출자 몫.
 
     저장된 정규화 결과를 돌려주므로, 호출자가 응답에 그대로 쓸 수 있다.
@@ -141,6 +182,9 @@ def save(conn, username, data):
     )
     if cur.rowcount == 0:
         raise UnknownUserError(username)
+    if recalculate:
+        from app.services import realized_pnl
+        realized_pnl.refresh(conn, username)
     return normalized
 
 

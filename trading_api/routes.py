@@ -5,7 +5,7 @@
 """
 
 import sqlite3
-from datetime import timezone
+from datetime import datetime, time, timedelta, timezone
 
 from flask import request, jsonify
 
@@ -33,6 +33,38 @@ from .security import _account_disabled, _client_ip, _serializer, require_token
 from .validation import (
     ValidationError, _normalize_enum, _num, _parse_executed_at, _text, _VALID_CONFIDENCE, _VALID_STATUS,
 )
+
+
+# 기존 웹 기록의 rawDate는 KST이고 executedAtUtc는 UTC다. 같은 시간축으로
+# 비교해야 해외 오프셋 조회와 레거시 기록의 마지막 동기화 지점이 일치한다.
+_RAW_TIME_SQL = "COALESCE(NULLIF(rawDate, ''), date)"
+_LEGACY_TIME_SQL = (
+    f"CASE WHEN substr({_RAW_TIME_SQL}, -5, 1) IN ('+', '-') "
+    f"THEN substr({_RAW_TIME_SQL}, 1, length({_RAW_TIME_SQL}) - 2) || ':' || substr({_RAW_TIME_SQL}, -2) "
+    f"ELSE {_RAW_TIME_SQL} END")
+_LEGACY_OFFSET_SQL = (
+    f"CASE WHEN instr(substr({_RAW_TIME_SQL}, 11), '+') > 0 "
+    f"OR instr(substr({_RAW_TIME_SQL}, 11), '-') > 0 OR upper(substr({_RAW_TIME_SQL}, -1)) = 'Z' "
+    "THEN '+0 hours' ELSE '-9 hours' END")
+_TRADE_TIME_SQL = ("COALESCE(julianday(NULLIF(executedAtUtc, '')), "
+                   f"julianday({_LEGACY_TIME_SQL}, {_LEGACY_OFFSET_SQL}))")
+
+
+def _query_time(value, field):
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        if len(value) == 10:
+            day = datetime.strptime(value, '%Y-%m-%d').date()
+            # 기존 날짜 전용 필터의 UTC 기준을 유지하고 계약에 명시한다.
+            if field == 'to':
+                day += timedelta(days=1)
+            return datetime.combine(day, time.min, timezone.utc)
+        parsed, _ = _parse_executed_at(value)
+        return parsed.astimezone(timezone.utc)
+    except (ValueError, OverflowError, ValidationError) as exc:
+        raise ValidationError('INVALID_FIELD', f'{field} 시각이 올바르지 않습니다.', field) from exc
 
 
 @bp.route('/health', methods=['GET'])
@@ -279,15 +311,19 @@ def list_trades(username, scopes):
     conditions = ["username = ?", "type = 'trade'"]
     params = [username]
 
-    from_val = args.get('from')
-    to_val = args.get('to')
+    try:
+        from_val, to_val = (_query_time(args.get(field), field) for field in ('from', 'to'))
+        exclusive_end = bool(args.get('to') and len(args['to'].strip()) == 10)
+        if from_val and to_val and (from_val > to_val or exclusive_end and from_val == to_val):
+            raise ValidationError('INVALID_FIELD', '조회 시작은 종료 시각보다 늦을 수 없습니다.', 'from')
+    except ValidationError as exc:
+        return _err(400, exc.code, exc.message, field=exc.field)
     if from_val:
-        conditions.append("COALESCE(executedAtUtc, rawDate) >= ?")
-        params.append(from_val)
+        conditions.append(f'{_TRADE_TIME_SQL} >= julianday(?)')
+        params.append(from_val.isoformat())
     if to_val:
-        # 날짜만 주면 그날 끝까지 포함
-        conditions.append("COALESCE(executedAtUtc, rawDate) <= ?")
-        params.append(to_val if len(to_val) > 10 else to_val + 'T23:59:59Z')
+        conditions.append(f"{_TRADE_TIME_SQL} {'<' if exclusive_end else '<='} julianday(?)")
+        params.append(to_val.isoformat())
     if args.get('source'):
         conditions.append("source = ?")
         params.append(args.get('source'))
@@ -356,16 +392,22 @@ def last_sync(username, scopes):
     where = " AND ".join(conditions)
     with db_conn() as conn:
         c = conn.cursor()
-        # executedAtUtc 는 오프셋이 통일된 UTC 문자열이라 사전순 비교가 곧 시간순이다.
         c.execute(f"SELECT COUNT(*) AS cnt FROM entries WHERE {where}", params)
         count = c.fetchone()['cnt']
         c.execute(
-            f"SELECT executedAtUtc, rawDate, brokerExecutionId FROM entries WHERE {where} "
-            "ORDER BY COALESCE(executedAtUtc, rawDate) DESC, id DESC LIMIT 1", params)
+            f"SELECT executedAtUtc, rawDate, date, brokerExecutionId FROM entries WHERE {where} "
+            f"ORDER BY {_TRADE_TIME_SQL} DESC, id DESC LIMIT 1", params)
         row = c.fetchone()
 
+    last_time = row['executedAtUtc'] if row else None
+    if row and not last_time:
+        try:
+            parsed, _ = _parse_executed_at(row['rawDate'] or row['date'])
+            last_time = parsed.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        except ValidationError:
+            last_time = None
     return jsonify({
-        'lastExecutedAt': (row['executedAtUtc'] or row['rawDate']) if row else None,
+        'lastExecutedAt': last_time,
         'lastBrokerExecutionId': (row['brokerExecutionId'] or None) if row else None,
         'count': count,
     }), 200
@@ -389,6 +431,7 @@ _PATCHABLE = {
     'status': 'tradeStatus',
     'confidence': 'confidence',
     'realizedPnl': 'realizedPnl',
+    'realizedPnlBasis': 'realizedPnlBasis',
     'realizedPnlRate': 'realizedPnlRate',
     'fee': 'fee',
     'tax': 'tax',
@@ -419,6 +462,10 @@ def patch_trade(username, scopes, trade_id):
                 value = _num(value, 'volume', allow_none=False, exclusive_min=0)
             elif field in ('realizedPnl', 'realizedPnlRate', 'strategyScore', 'stopLossRate'):
                 value = _num(value, field)
+            elif field == 'realizedPnlBasis':
+                from app.domain.validation import PNL_BASES
+                if value not in PNL_BASES:
+                    raise ValidationError('INVALID_FIELD', 'realizedPnlBasis는 gross, net, unknown 중 하나여야 합니다.', field)
             elif field in ('fee', 'tax'):
                 value = _num(value, field, minimum=0)
             elif field == 'status':

@@ -213,13 +213,13 @@
           {
             "name": "from",
             "in": "query",
-            "description": "조회 시작 (체결 시각 기준, RFC3339 또는 YYYY-MM-DD)",
+            "description": "조회 시작 (포함). RFC3339 오프셋을 UTC로 정규화합니다. YYYY-MM-DD만 입력하면 해당 날짜 UTC 00:00:00 기준입니다. 오프셋 없는 시각은 하위 호환을 위해 KST로 간주합니다.",
             "schema": { "type": "string" }
           },
           {
             "name": "to",
             "in": "query",
-            "description": "조회 종료 (포함)",
+            "description": "조회 종료. RFC3339 시각은 해당 시각을 포함합니다. YYYY-MM-DD는 해당 날짜 UTC의 소수초 체결까지 포함하고 다음날 UTC 00:00:00은 제외합니다. 시작보다 이른 종료 시각은 거절합니다.",
             "schema": { "type": "string" }
           },
           {
@@ -692,7 +692,7 @@
           "isSimulated": {
             "type": "boolean",
             "default": false,
-            "description": "(강력 권장) 모의투자 체결 여부. `true`면 실거래 통계·포트폴리오 집계에서 제외됩니다.\n**이 값을 보내지 않으면 모의투자 체결이 실거래 일지를 오염시킵니다.**"
+            "description": "(강력 권장) 모의투자 체결 표시. true는 배지·태그 및 명시적인 isSimulated 조회 필터에 사용되며, 통계·포트폴리오에서 자동 제외하지 않습니다. 실거래와 모의투자는 사용자 계정을 분리하거나 해당 계좌를 통계 제외(exclude_from_stats)로 설정하세요."
           },
           "isSystem": {
             "type": ["boolean", "null"],
@@ -740,6 +740,12 @@
             "enum": ["recorded", "reconstructed", "unavailable", null],
             "readOnly": true,
             "description": "실현손익 출처: 제공된 금액, 체결 이력 재구성, 매수 이력 부족으로 미확정. 서버가 설정합니다."
+          },
+          "realizedPnlBasis": {
+            "type": "string",
+            "enum": ["gross", "net", "unknown"],
+            "default": "unknown",
+            "description": "실현손익 비용 기준. gross는 해당 매도행의 fee/tax 차감 전, net은 해당 매도행에 함께 기록한 fee/tax만 차감한 손익, unknown은 비용 포함 범위 미확인입니다. 매수행 비용은 분석 기간에서 별도 차감하므로 매수 비용까지 포함한 증권사 순손익은 unknown으로 보내세요. unknown 매도가 있으면 netPnl은 null이며 원본 실현손익 합계는 유지합니다. 미지정된 기존 기록은 unknown, 체결 이력 재구성 손익은 gross입니다."
           },
           "realizedPnlRate": {
             "type": ["number", "null"],
@@ -832,6 +838,7 @@
           },
           "confidence": { "type": "string", "enum": ["CONFIRMED", "ESTIMATED"] },
           "realizedPnl": { "type": ["number", "null"] },
+          "realizedPnlBasis": { "type": "string", "enum": ["gross", "net", "unknown"] },
           "realizedPnlRate": { "type": ["number", "null"] },
           "fee": { "type": ["number", "null"] },
           "tax": { "type": ["number", "null"] },

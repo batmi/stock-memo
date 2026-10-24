@@ -5,7 +5,8 @@
 전체를 봐야 아는 무결성**은 entry_logic 이 본다.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
+import re
 
 from app.services import accounts
 from app.domain.validation import finite_number, normalize_currency
@@ -49,25 +50,26 @@ def _parse_executed_at(value):
     if not isinstance(value, str) or not value.strip():
         raise ValidationError('MISSING_FIELD', 'executedAt 이 필요합니다.', 'executedAt')
 
-    raw = value.strip().replace('Z', '+00:00').replace(' ', 'T', 1)
+    raw = value.strip()
     try:
+        # 날짜만/오프셋 없는 과거 형식은 허용하되, 입력 전체가 맞아야 한다.
+        # 잘못된 시각을 잘라 날짜 자정으로 저장하면 거래 순서와 원가가 바뀐다.
+        if not re.fullmatch(
+                r'\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?'
+                r'(?:Z|[+-](?:[01]\d|2[0-3]):?[0-5]\d)?)?', raw):
+            raise ValueError
         dt = datetime.fromisoformat(raw)
-    except ValueError:
-        for fmt in ('%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M', '%Y-%m-%d'):
-            try:
-                dt = datetime.strptime(raw[:len(datetime.now().strftime(fmt))], fmt)
-                break
-            except ValueError:
-                continue
-        else:
-            raise ValidationError(
-                'INVALID_FIELD',
-                f"executedAt 형식이 올바르지 않습니다: {value!r} "
-                "(예: 2026-08-01T09:30:00+09:00)", 'executedAt')
-
-    has_offset = dt.tzinfo is not None
-    if not has_offset:
-        dt = dt.replace(tzinfo=KST)
+        has_offset = dt.tzinfo is not None
+        if not has_offset:
+            dt = dt.replace(tzinfo=KST)
+        # 저장 시 사용하는 두 시간대로 변환할 수 없는 최솟값/최댓값도 거절한다.
+        dt.astimezone(KST)
+        dt.astimezone(timezone.utc)
+    except (ValueError, OverflowError) as exc:
+        raise ValidationError(
+            'INVALID_FIELD',
+            f"executedAt 형식이 올바르지 않습니다: {value!r} "
+            "(예: 2026-08-01T09:30:00+09:00)", 'executedAt') from exc
     return dt, has_offset
 
 

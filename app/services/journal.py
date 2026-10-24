@@ -11,6 +11,8 @@ import hashlib
 import html
 import json
 import re
+import uuid
+from copy import deepcopy
 
 from app.database.db import db_conn
 from app.domain.trades import (
@@ -19,12 +21,15 @@ from app.domain.trades import (
 )
 from app.services import accounts, analysis, stats, ledger
 from app.utils import statscache
+from app.utils.memcache import TTLCache
+
+_analysis_cache = TTLCache(300, max_size=64, name='analysis')
 
 INDEX_COLUMNS = (
     'id', 'tradeSequence', 'revision', 'type', 'stockName', 'stockCode', 'date', 'rawDate', 'brokerAccount',
-    'subAccount', 'accountName', 'tradeClass', 'tradeType', 'price', 'quantity',
+    'brokerIdentity', 'subAccount', 'accountName', 'tradeClass', 'tradeType', 'price', 'quantity',
     'createdAt', 'updatedAt', 'isHidden', 'needsReview', 'tradeStatus', 'fee', 'tax',
-    'currency', 'exchange', 'tradeDate', 'realizedPnl', 'realizedPnlSource',
+    'currency', 'exchange', 'tradeDate', 'realizedPnl', 'realizedPnlSource', 'realizedPnlBasis',
 )
 PAGE_COLUMNS = INDEX_COLUMNS + ('title', 'tags', 'reviewReason')
 EPS = 1e-9
@@ -51,29 +56,35 @@ def _stamp(value):
 
 
 def snapshot(username):
-    key = (username, 'journal-index')
-    cached = statscache.get(key)
-    if cached is not None:
-        return cached
     version = statscache.data_etag(username)
-    with db_conn() as conn:
-        conn.execute('BEGIN')
+    with db_conn(read=True) as conn:
+        owner = conn.execute('SELECT id FROM users WHERE username=?', (username,)).fetchone()
+        owner_id = owner['id'] if owner else None
+        key = (username, 'journal-index', owner_id)
+        cached = statscache.get(key)
+        if cached is not None:
+            return cached
         rows = [dict(r) for r in conn.execute(
             f"SELECT {', '.join(INDEX_COLUMNS)} FROM entries WHERE username = ?", (username,))]
         mappings = accounts.load(conn, username)
         rows = ledger.prepare(conn, username, rows)
     result = build_model(rows, mappings, version)
+    result['ownerId'] = owner_id
+    result['username'] = username
+    result['cacheId'] = uuid.uuid4().hex
     statscache.put(key, result, etag=version)
     return result
 
 
 def build_model(rows, mappings, version="preview"):
-    rows = resolve_trade_identities(rows)
+    broker_aliases = accounts.broker_aliases(mappings)
+    rows = resolve_trade_identities([accounts.identify_entry(row, mappings, broker_aliases) for row in rows])
     excluded, aliases = accounts.excluded_accounts(mappings)
     known = accounts.known_account_keys(mappings)
     by_name, names, hidden, latest_hidden = {}, {}, set(), {}
     for row in rows:
         row['_dt'] = _date(row)
+        row['_brokerAliases'] = broker_aliases
         row['_day'] = trade_day(row) or datetime.min
         row['_identity'] = stats.stock_identity(row)
         row['_excluded'] = accounts.is_excluded_row(row, excluded, aliases, known, mappings=mappings)
@@ -130,7 +141,7 @@ def metadata(model):
         'hasAnyTrade': any(r.get('type') == 'trade' and r.get('stockName') for r in rows),
         'stockIdentityByName': model['by_name'], 'stockNameByIdentity': model['names'],
         'hiddenStocks': sorted(model['hidden']), 'stocks': sorted(stock_options.values()),
-        'stockNames': values('stockName'), 'brokers': values('brokerAccount'),
+        'stockNames': values('stockName'), 'brokers': values('brokerIdentity'),
         'rawSubAccounts': values('subAccount'), 'subAccounts': values('_account'),
         'chartSubAccounts': values('_account', [r for r in rows if not r['_excluded']]),
         'tradeClasses': values('tradeClass'), 'recentEntries': recent,
@@ -164,7 +175,8 @@ def matches(row, query):
     return (row.get('type') == 'memo' or not query.get('currency') or currency_of(row) == query['currency']) and (
         not query['stock'] or row['_identity'] == query['stock']) and (
         not query['tradeClass'] or row.get('tradeClass') == query['tradeClass']) and (
-        not query['brokers'] or row.get('brokerAccount') in query['brokers']) and (
+        not query['brokers'] or any(row.get('_brokerAliases', {}).get(broker, broker)
+            == (row.get('brokerIdentity') or row.get('brokerAccount')) for broker in query['brokers'])) and (
         not query['subAccount'] or row['_account'] == query['subAccount'])
 
 
@@ -221,9 +233,10 @@ def portfolio(model, query, month):
             **_empty_holding(), stock=model['names'].get(row['_identity'], row['stockName']),
             identity=row['_identity'], isExcluded=row['_excluded'],
             excludeLabel='제외' if row['_excluded'] else '', realizedProfit=0.0, realizedCost=0.0,
-            accountName='', tradeClass='', traded=False, stockCode='', currency=query['currency']))
+            accountName='', tradeClass='', traded=False, stockCode='', currency=query['currency'], exchange=''))
         p['tradeClass'] = row.get('tradeClass') or p['tradeClass']
         p['stockCode'] = row.get('stockCode') or p['stockCode']
+        p['exchange'] = row.get('exchange') or p['exchange']
         if kind in ('매수', '매도', '배당'):
             p['traded'] = True
             p['realizedProfit'] += profit + dividend
@@ -313,7 +326,7 @@ def history(username, model, query, limit, cursor, signer):
             raise StalePage('기록이 변경되었습니다. 목록을 새로 불러옵니다.')
         after = payload.get('after')
     rows = _history_rows(model, query)
-    with db_conn() as conn:
+    with db_conn(read=True) as conn:
         if query['keywords']:
             # 제목·태그·본문 검색은 서버에서 수행한다. SQL 매개변수로 전달하므로
             # %, _, 따옴표도 검색어 그대로이며, HTML 태그는 검색 대상에서 뺀다.
@@ -404,6 +417,7 @@ def chart(model, query, labels, weekly):
         kind = row.get('tradeType')
         profit, _, dividend = _apply(holdings[ident], row)
         holdings[ident]['stockCode'] = row.get('stockCode') or holdings[ident].get('stockCode', '')
+        holdings[ident]['exchange'] = row.get('exchange') or holdings[ident].get('exchange', '')
         if kind == '매수':
             lots[ident].append([qty, key, price, selected])
         elif kind == '매도':
@@ -447,18 +461,27 @@ def chart(model, query, labels, weekly):
                 continue
             item = evaluation.setdefault((ident[-1], key), {
                 'period': key, 'stock': model['names'].get(ident[-1], ident[-1]),
-                'stockCode': holdings[ident].get('stockCode'), 'quantity': 0.0, 'cost': 0.0})
+                'stockCode': holdings[ident].get('stockCode'), 'quantity': 0.0, 'cost': 0.0,
+                'currency': query['currency'], 'exchange': holdings[ident].get('exchange', '')})
             item['quantity'] += qty
             item['cost'] += qty * price
     return {'monthlyData': monthly, 'evaluation': list(evaluation.values()), 'currency': query['currency']}
 
 
 def trade_stats(model, query, granularity='monthly', start=None, end=None):
+    key = (model.get('username'), model.get('ownerId'), model.get('cacheId'), model['version'],
+           json.dumps([query, granularity, start, end], sort_keys=True))
+    cached = _analysis_cache.get(key) if model.get('username') else None
+    if cached is not None:
+        return deepcopy(cached)
     result = analysis.report(
         [r for r in model['rows'] if not r['_excluded']], resolve_currency(model, query),
         lambda row: matches(row, query), granularity, start, end,
         all_currencies=not query.get('currency'))
-    return dict(result, version=model['version'])
+    result = dict(result, version=model['version'])
+    if model.get('username') and len(json.dumps(result)) <= 1_000_000:
+        _analysis_cache.put(key, deepcopy(result))
+    return result
 
 
 def stats_trades(model, query, granularity, start, end, options, version):

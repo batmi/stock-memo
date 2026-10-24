@@ -11,7 +11,6 @@ import os
 import re
 import secrets
 import string
-import threading
 
 from app.database.db import db_conn
 
@@ -92,10 +91,8 @@ def user_dir(base, username):
 # ⭐️ 비밀번호를 바꿔도 예전 세션 쿠키가 만료 시각까지(최대 24시간) 그대로 살아
 #    있어서, '유출이 의심돼 비밀번호를 바꿨는데 침입자가 그대로 로그인 상태'인
 #    상황이 가능했다. 로그인 시 세션에 epoch 을 심고 매 요청 대조한다.
-#    요청마다 DB 를 읽지 않도록 메모리에 캐시하고, 값이 바뀌는 지점에서만 갱신한다.
-
-_session_epochs = {}
-_session_epoch_lock = threading.Lock()
+#    인증은 사용자 ID·승인 상태·epoch를 같은 DB 행에서 읽는다. 캐시를 쓰면
+#    비밀번호 변경보다 늦게 끝난 옛 조회가 새 epoch를 덮어쓸 수 있다.
 
 # ⭐️ 계정이 없거나(삭제) 로그인 차단(is_allowed=0)이면 이 값을 돌려준다. 세션에 심긴
 #    epoch 은 항상 0 이상이라 절대 일치하지 않으므로, 그 계정의 모든 세션이 다음
@@ -105,32 +102,14 @@ REVOKED_EPOCH = -1
 
 
 def current_session_epoch(username):
-    with _session_epoch_lock:
-        if username in _session_epochs:
-            return _session_epochs[username]
-    epoch = REVOKED_EPOCH
-    try:
-        with db_conn() as conn:
-            row = conn.execute(
-                "SELECT session_epoch, is_allowed FROM users WHERE username = ?",
-                (username,)).fetchone()
-            if row and row['is_allowed']:
-                epoch = int(row['session_epoch'] or 0)
-    except Exception:
-        return 0
-    with _session_epoch_lock:
-        _session_epochs[username] = epoch
-    return epoch
+    with db_conn(read=True) as conn:
+        row = conn.execute('SELECT session_epoch,is_allowed FROM users WHERE username=?',
+                           (username,)).fetchone()
+    return int(row['session_epoch'] or 0) if row and row['is_allowed'] else REVOKED_EPOCH
 
 
 def forget_session_epoch(username):
-    """계정 상태(가입·승인·차단·삭제)가 바뀌었을 때 캐시를 비운다.
-
-    epoch 캐시는 '계정이 살아 있고 허용됐는가'까지 담으므로, 그 사실이 바뀌는
-    지점에서 지워야 다음 요청이 DB 를 다시 읽는다.
-    """
-    with _session_epoch_lock:
-        _session_epochs.pop(username, None)
+    """기존 계정 관리 호출부 호환용. epoch는 더 이상 캐시하지 않는다."""
 
 
 # 계정에 딸린 행이 있는 테이블. 계정을 지울 때 여기 적힌 것을 전부 지운다.
@@ -142,11 +121,7 @@ USER_OWNED_TABLES = ('entries', 'api_keys', 'bots', 'bot_commands',
 
 
 def purge_account(c, username):
-    """계정과 그에 딸린 DB 행을 모두 지운다.
-
-    호출자가 commit 한 **뒤에** forget_session_epoch() 를 불러야 한다. 커밋 전에
-    캐시를 비우면 그 사이 들어온 요청이 아직 남아 있는 행을 다시 캐시에 올린다.
-    """
+    """계정과 그에 딸린 DB 행을 모두 지운다. commit은 호출자가 수행한다."""
     for table in USER_OWNED_TABLES:
         c.execute(f"DELETE FROM {table} WHERE username = ?", (username,))
 
@@ -162,12 +137,8 @@ def bump_session_epoch(c, username):
     row = c.execute("SELECT session_epoch FROM users WHERE username = ?",
                     (username,)).fetchone()
     epoch = int(row['session_epoch']) if row and row['session_epoch'] is not None else 0
-    with _session_epoch_lock:
-        _session_epochs[username] = epoch
     return epoch
 
 
 def clear_epoch_cache():
-    """테스트용 — 앞 테스트의 캐시가 다음 테스트로 새지 않도록."""
-    with _session_epoch_lock:
-        _session_epochs.clear()
+    """기존 테스트·운영 도구 호환용. epoch는 더 이상 캐시하지 않는다."""

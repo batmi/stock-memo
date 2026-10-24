@@ -140,136 +140,130 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
-// ⭐️ 백엔드 API를 통해 현재가와 평가금액을 가져와 DOM에 반영하는 함수
-window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
-    if (isAuto && document.hidden) {
-        pricesSkippedWhileHidden = true;
-        return;
-    }
-    if (currentPortfolioArrayForPrice.length === 0) return;
-    
-    const requestedGeneration = journalGeneration;
-    const requestedPortfolio = currentPortfolioArrayForPrice;
-    const currency = portfolioCurrency;
-    const displayMarket = currentMarketMode; // ⭐️ 토글된 시장 모드(KRX 또는 AFT) 사용
-    
-    const marketStatus = window.getMarketStatus();
-    window.renderMarketModeButton(); // 프리마켓 진입/이탈에 맞춰 AFT↔NXT 라벨 갱신
-    let codesToFetch = [];
-    
-    currentPortfolioArrayForPrice.forEach(p => {
-        if (p.isClosed || !p.stockCode) return;
-        
-        const codeStr = String(p.stockCode).trim().toUpperCase();
-        // 국가 구분 로직 (백엔드와 동일하게 적용)
-        const isUS = /^[A-Z\.\-]{1,6}$/.test(codeStr);
-        const isKR = (codeStr.length === 6 && /^[0-9A-Z]{6}$/.test(codeStr)) || codeStr === 'KRXGOLD' || codeStr === 'GOLD';
-        
-        if (isAuto) {
-            if (isKR && !marketStatus.kr) return; // 한국장 닫혀있으면 건너뜀
-            if (isUS && !marketStatus.us) return; // 미국장 닫혀있으면 건너뜀
-            if (!isKR && !isUS && !marketStatus.kr && !marketStatus.us) return; // 기타 종목은 두 시장 모두 닫혀있을 때만 건너뜀
-        }
-        
-        codesToFetch.push(p.stockCode);
+// Quotes are keyed by exchange, currency, code and requested session, never by code alone.
+window.currentQuoteCache = new Map();
+function quoteAsset(entry, currency = portfolioCurrency) {
+    return { code: String(entry.stockCode || entry.code || '').trim().toUpperCase(),
+        currency: String(entry.currency || currency || 'KRW').trim().toUpperCase(),
+        exchange: String(entry.exchange || '').trim().toUpperCase() };
+}
+function quoteAssetKey(asset) {
+    return JSON.stringify([asset.exchange || '', asset.currency || 'KRW', asset.code]);
+}
+function quoteCacheKey(asset, mode = currentMarketMode) {
+    return JSON.stringify([mode, quoteAssetKey(asset)]);
+}
+function cachedQuote(asset, mode = currentMarketMode) {
+    return window.currentQuoteCache.get(quoteCacheKey(asset, mode)) || null;
+}
+function rememberQuotes(quotes, mode) {
+    quotes.forEach(quote => {
+        const key = quoteCacheKey(quote, mode);
+        const old = window.currentQuoteCache.get(key);
+        // A transient failure preserves the last verified price and marks it explicitly stale.
+        const value = !Number.isFinite(quote.price) && Number.isFinite(old?.price)
+            ? { ...old, stale: true, status: 'stale' } : quote;
+        window.currentQuoteCache.delete(key);
+        window.currentQuoteCache.set(key, value);
+        if (window.currentQuoteCache.size > 1000) window.currentQuoteCache.delete(window.currentQuoteCache.keys().next().value);
+        // Kept for older integrations; all application calculations use the scoped quote cache.
+        if (Number.isFinite(value.price)) window.currentPriceCache[value.code] = value.price;
     });
-    
-    codesToFetch = [...new Set(codesToFetch)];
-    if (codesToFetch.length === 0) return; // ⭐️ 업데이트할 종목이 없으면 리턴 (평가액 유지를 위해 기존 UI 상태 유지)
-    const requestedCodes = new Set(codesToFetch); // 아래 루프에서 종목마다 조회하므로 Set 으로 둔다
-    
-    try {
-        // ⭐️ allow_cached: 60초 자동 폴링(isAuto)만 서버측 단기 캐시를 허용한다.
-        //    수동 새로고침은 항상 false → 서버가 외부 API 를 라이브 조회하여 "진짜 현재가"를 보장.
-        // ⭐️ 서버가 다단계 폴백을 도는 동안 응답이 늦어지면 60초 폴링이 겹쳐 쌓인다.
-        //    다른 요청들과 동일하게 fetchWithTimeout 으로 상한을 둔다.
-        const res = await fetchWithTimeout('/api/current_price', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ codes: codesToFetch, market_mode: displayMarket, allow_cached: isAuto === true })
+}
+async function fetchAssetQuotes(assets, { mode = currentMarketMode, signal, allowCached = true } = {}) {
+    const unique = [...new Map(assets.filter(asset => asset.code).map(asset => [quoteAssetKey(asset), asset])).values()];
+    const result = [];
+    for (let i = 0; i < unique.length; i += 100) {
+        const batch = unique.slice(i, i + 100);
+        const response = await fetchWithTimeout('/api/current_price', {
+            method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ assets: batch, codes: batch.map(asset => asset.code), market_mode: mode, allow_cached: allowCached })
         }, 20000);
-        
-        // ⭐️ 서버가 외부 API 실패로 DB 캐시를 반환한 경우 알림 표시
-        if (res.headers.get('X-API-Fallback') === 'true') {
-            const banner = document.getElementById('apiFallbackBanner');
-            if (banner) {
-                banner.style.display = 'block';
-                // 10초 후 자동 숨김
-                setTimeout(() => { banner.style.display = 'none'; }, 10000);
-            }
-        }
-        
-        const prices = await res.json();
-        if (requestedGeneration !== journalGeneration || requestedPortfolio !== currentPortfolioArrayForPrice) return;
-        
-        let totalEval = 0;
-        currentPortfolioArrayForPrice.forEach(data => {
-            if (data.isClosed) return;
-            
-            let cp;
-            let isFresh = false;
-            
-            // 이번 요청에 포함된 종목이면 새로 가져온 가격을 캐시에 저장
-            if (requestedCodes.has(data.stockCode)) {
-                cp = prices[data.stockCode];
-                // ⭐️ 조회 실패(null)로 캐시를 덮지 않는다. 서버가 null 을 준다는 건 DB
-                //    캐시까지 전부 실패했다는 뜻이지만, 이 화면은 직전 폴링에서 받은
-                //    정상 가격을 이미 갖고 있다. 그걸 지우면 차트 탭 평가손익이 해당
-                //    종목을 '빠진 종목'으로 빼버려, 일시적 네트워크 오류 한 번에
-                //    멀쩡하던 손익이 사라진다.
-                //    카드 자체는 cp 가 null 인 채로 '조회 실패'를 그대로 보여준다 —
-                //    캐시된 옛 가격을 현재가인 척 띄우지는 않는다.
-                if (Number.isFinite(cp)) window.currentPriceCache[data.stockCode] = cp;
-                isFresh = true;
-            } else {
-                // 요청에서 제외된 종목(장 종료)은 캐시된 가격을 사용
-                cp = window.currentPriceCache[data.stockCode];
-            }
-            
-            // ⭐️ 카드 단위 식별자로 찾는다. 같은 종목의 실거래·모의 카드가 함께 있을 때
-            //    data-code 로 찾으면 두 카드가 서로의 평가금액·손익을 덮어쓴다.
-            const sel = `[data-pkey="${escapeAttrSelector(data.key)}"]`;
-            const pEls = document.querySelectorAll(`.cp-price${sel}`);
-            const eEls = document.querySelectorAll(`.cp-eval${sel}`);
-            const pfEls = document.querySelectorAll(`.cp-profit${sel}`);
-
-            if (cp !== undefined && cp !== null) {
-                const evalAmount = cp * data.qty;
-                const profitAmount = evalAmount - data.totalCost;
-                const profitRate = data.totalCost > 0 ? (profitAmount / data.totalCost) * 100 : 0;
-                
-                if (isFresh) {
-                    pEls.forEach(el => el.innerText = moneyText(cp, currency));
-                    eEls.forEach(el => el.innerText = moneyText(evalAmount, currency));
-                    
-                    const pColor = profitAmount > 0 ? 'var(--danger-color)' : (profitAmount < 0 ? 'var(--primary-color)' : 'var(--text-strong-color)');
-                    pfEls.forEach(el => el.innerHTML = `<span style="color: ${pColor}; font-weight: bold; text-align: right; display: inline-block;"><span class="masked-amount">${profitAmount > 0 ? '+' : ''}${moneyText(profitAmount, currency)}</span><br>(${profitRate > 0 ? '+' : ''}${profitRate.toFixed(2)}%)</span>`);
-                    
-                    // ⭐️ 값이 새로 업데이트될 때만 카드 배경 반짝임(Flash) 애니메이션 적용
-                    pEls.forEach(el => {
-                        const section = el.closest('.current-price-section');
-                        if (section) {
-                            section.classList.remove('flash');
-                            void section.offsetWidth; // 브라우저 리플로우 강제 발생
-                            section.classList.add('flash');
-                        }
-                    });
-                }
-                // ⭐️ 제외 계좌 카드에도 현재가·평가손익은 보여주되(시세는 실제 시세다),
-                //    총 평가금액 합계에는 넣지 않는다.
-                if (!data.isExcluded) totalEval += evalAmount;
-            } else {
-                if (isFresh) {
-                    pEls.forEach(el => el.innerText = '조회 실패');
-                }
-                if (!data.isExcluded) totalEval += data.totalCost; // 조회 실패 시 기본 투자원금으로 임시 합산
-            }
+        if (!response.ok) throw new Error('현재가를 확인하지 못했습니다. 잠시 후 다시 확인해주세요.');
+        const data = await response.json();
+        batch.forEach(asset => {
+            const supplied = Array.isArray(data.quotes)
+                ? data.quotes.find(item => quoteAssetKey(item) === quoteAssetKey(asset)) : null;
+            // Compatibility with an older server while deploying. Foreign numeric codes must not be guessed.
+            const legacyAllowed = asset.currency === 'USD' && /^[A-Z.\-]{1,15}$/.test(asset.code)
+                || asset.currency === 'KRW' && (/^[0-9A-Z]{6}$/.test(asset.code) || ['KRXGOLD', 'GOLD'].includes(asset.code));
+            const legacy = !Array.isArray(data.quotes) && legacyAllowed ? data[asset.code] : null;
+            const quote = supplied || { ...asset, price: Number.isFinite(legacy) ? legacy : null,
+                asOf: null, market: mode, stale: true, status: Number.isFinite(legacy) ? 'stale' : 'unavailable' };
+            result.push({ ...quote, ...asset, price: Number.isFinite(quote.price) && quote.price > 0 ? quote.price : null });
         });
-        
-        const centerEvalEl = document.getElementById('centerTotalEvaluation');
-        if (centerEvalEl) {
-            animateValue(centerEvalEl, totalEval, 1000, false, currency);
+    }
+    return result;
+}
+function quoteStatusText(quote) {
+    if (!Number.isFinite(quote?.price)) return '시세 미확인';
+    const when = quote.asOf && !isNaN(Date.parse(quote.asOf))
+        ? new Date(quote.asOf).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '확인 시각 미상';
+    return `${quote.stale ? '이전 시세 · ' : ''}${quote.market || ''} · 시세 확인 ${when}`;
+}
+function renderPortfolioQuotes() {
+    let totalEval = 0, missing = 0, stale = 0;
+    currentPortfolioArrayForPrice.forEach(data => {
+        if (data.isClosed) return;
+        const asset = quoteAsset(data), quote = cachedQuote(asset);
+        const select = `[data-pkey="${escapeAttrSelector(data.key)}"]`;
+        const prices = document.querySelectorAll(`.cp-price${select}`);
+        const evaluations = document.querySelectorAll(`.cp-eval${select}`);
+        const profits = document.querySelectorAll(`.cp-profit${select}`);
+        document.querySelectorAll(`.cp-status${select}`).forEach(element => { element.textContent = quoteStatusText(quote); });
+        if (!Number.isFinite(quote?.price)) {
+            prices.forEach(element => { element.textContent = '시세 미확인'; });
+            [...evaluations, ...profits].forEach(element => { element.textContent = '—'; });
+            if (!data.isExcluded) missing++;
+            return;
         }
-    } catch(e) { console.error("현재가 가져오기 실패", e); }
+        const value = quote.price * data.qty, profit = value - data.totalCost;
+        const rate = data.totalCost > 0 ? profit / data.totalCost * 100 : 0;
+        prices.forEach(element => { element.textContent = moneyText(quote.price, asset.currency); });
+        evaluations.forEach(element => { element.textContent = moneyText(value, asset.currency); });
+        const color = profit > 0 ? 'var(--danger-color)' : profit < 0 ? 'var(--primary-color)' : 'var(--text-strong-color)';
+        profits.forEach(element => { element.innerHTML = `<span style="color:${color};font-weight:bold;text-align:right;display:inline-block"><span class="masked-amount">${profit > 0 ? '+' : ''}${moneyText(profit, asset.currency)}</span><br>(${rate > 0 ? '+' : ''}${rate.toFixed(2)}%)</span>`; });
+        if (!data.isExcluded) {
+            totalEval += value;
+            if (quote.stale) stale++;
+        }
+    });
+    const total = document.getElementById('centerTotalEvaluation');
+    if (total) {
+        if (missing) {
+            if (total.dataset.animId) cancelAnimationFrame(total.dataset.animId);
+            total.textContent = '확인 필요';
+        } else animateValue(total, totalEval, 1000, false, portfolioCurrency);
+    }
+    const status = document.getElementById('portfolioQuoteStatus');
+    if (status) status.textContent = [missing ? `시세 미확인 ${missing}종목 · 총 평가금액을 확정하지 못했습니다.` : '',
+        stale ? `이전 시세 ${stale}종목 포함` : ''].filter(Boolean).join(' ');
+}
+window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
+    if (isAuto && document.hidden) { pricesSkippedWhileHidden = true; return; }
+    const mode = currentMarketMode, portfolio = currentPortfolioArrayForPrice, generation = journalGeneration;
+    const market = window.getMarketStatus();
+    window.renderMarketModeButton();
+    const assets = portfolio.filter(position => !position.isClosed && position.stockCode)
+        .map(position => quoteAsset(position))
+        .filter(asset => !isAuto || (asset.currency === 'KRW' ? market.kr : asset.currency === 'USD' ? market.us : true));
+    if (!assets.length) { renderPortfolioQuotes(); return; }
+    const request = beginUIRequest('portfolio-quotes');
+    const current = () => request.current() && mode === currentMarketMode
+        && portfolio === currentPortfolioArrayForPrice && generation === journalGeneration;
+    try {
+        const quotes = await fetchAssetQuotes(assets, { mode, signal: request.signal, allowCached: isAuto });
+        if (!current()) return;
+        rememberQuotes(quotes, mode);
+    } catch (error) {
+        if (!current()) return;
+        rememberQuotes(assets.map(asset => ({ ...asset, price: null, asOf: null, market: mode, stale: false, status: 'unavailable' })), mode);
+        console.warn('현재가 조회 실패', error);
+    }
+    if (!current()) return;
+    renderPortfolioQuotes();
+    if (document.getElementById('btnChartView')?.classList.contains('active')
+            && inlineStatsContainer?.style.display !== 'block' && window.currentMonthlyChartType === 'evaluated') {
+        window.renderMonthlyProfitChart();
+    }
 };
-

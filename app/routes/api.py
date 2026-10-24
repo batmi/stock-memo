@@ -26,6 +26,7 @@ from app.services import prices
 from app.utils import scriptbundle, statscache
 import trading_api
 from app.database.db import db_conn
+from app.routes.ownership import lock_request, response_owner_version
 from app.services.users import (bump_session_epoch, forget_session_epoch, purge_account,
                                 user_dir, validate_password)
 
@@ -122,13 +123,19 @@ def generate_api_key():
     if not username:
         return jsonify({"error": "Unauthorized"}), 401
 
-    body = request.get_json(silent=True) or {}
-    label = (body.get('label') or 'HTS 연동 키')[:100]
-    # 기본 동작은 '기존 키 전부 폐기 후 재발급' — 예전 UI 의 재발급 버튼과 의미가 같다.
-    if body.get('keep_existing') is not True:
-        trading_api.revoke_all_api_keys(username)
-
-    created = trading_api.create_api_key(username, label=label)
+    body = _json_object()
+    if body is None:
+        return _bad_body()
+    if ('keep_existing' in body and not isinstance(body['keep_existing'], bool)
+            or 'scopes' in body and body['scopes'] is None):
+        return jsonify(error='API 키 발급 옵션을 확인해주세요.'), 400
+    # 폐기와 발급은 같은 트랜잭션이다. 새 키 저장이 실패하면 기존 키도 유지된다.
+    try:
+        created = trading_api.create_api_key(
+            username, label=body.get('label'), scopes=body.get('scopes'),
+            replace_existing=not body.get('keep_existing', False))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
     return jsonify({
         "status": "success",
         "api_key": created['api_key'],   # 원문 노출은 이 응답이 유일하다
@@ -269,7 +276,7 @@ def save_mappings_frontend():
     if not isinstance(data, dict):
         return jsonify({"error": "잘못된 데이터 형식입니다."}), 400
 
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         try:
             accounts.save(conn, username, data)
         except accounts.UnknownUserError:
@@ -295,7 +302,7 @@ def get_me():
     bot_last_seen = None
 
     if username:
-        with db_conn() as conn:
+        with db_conn(read=True) as conn:
             c = conn.cursor()
             # ⭐️ 매 요청 시마다 DB에서 최신 관리자 권한을 조회하여 세션 동기화
             c.execute("SELECT is_admin, bot_status, bot_last_seen, must_change_password "
@@ -363,7 +370,7 @@ def delete_account():
     if not password:
         return jsonify({"error": "비밀번호를 입력해주세요."}), 400
 
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         c = conn.cursor()
         c.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
         user_record = c.fetchone()
@@ -394,6 +401,11 @@ def uploaded_file(req_username, filename):
     # 사용자 격리된 파일 접근 제어
     if req_username != session.get('username'):
         return jsonify({"error": "Unauthorized"}), 403
+    # 파일을 여는 짧은 구간만 삭제/재가입과 직렬화한다. 응답 스트림은 이미 열린
+    # 파일을 사용하므로 전체 다운로드 시간 동안 사용자 잠금을 잡을 필요가 없다.
+    lock_request(req_username)
+    with db_conn(read=True):
+        pass
     user_folder = os.path.join(config.UPLOAD_FOLDER, req_username)
     # ⭐️ 브라우저(특히 Safari)가 다운로드된 ZIP 파일을 강제로 자동 압축 해제하지 않도록 attachment로 전송
     return send_from_directory(user_folder, filename, as_attachment=True)
@@ -408,14 +420,14 @@ def get_data():
     # ⭐️ ETag 기반 조건부 응답: 데이터가 바뀌지 않았으면 본문 없이 304 만 반환.
     #    브라우저가 If-None-Match 를 자동으로 보내고 304 수신 시 캐시 본문을 그대로
     #    사용하므로 프론트엔드 수정 없이 재방문 전송량과 서버 직렬화 비용이 사라진다.
-    etag = statscache.data_etag(username)
+    etag = response_owner_version(statscache.data_etag(username))
     if request.if_none_match.contains(etag):
         response = current_app.make_response(('', 304))
         response.set_etag(etag)
         response.headers['Cache-Control'] = 'no-cache, private'
         return response
 
-    with db_conn() as conn:
+    with db_conn(read=True) as conn:
         c = conn.cursor()
         c.execute("SELECT * FROM entries WHERE username = ? ORDER BY id DESC", (username,))
         data = [dict(row) for row in c.fetchall()]
@@ -516,6 +528,17 @@ def get_market_calendar():
 @bp.route('/api/current_price', methods=['POST'])
 def get_current_price():
     data = _json_object() or {}
+    if 'assets' in data:
+        from app.services import quotes
+        assets = data['assets']
+        if not isinstance(assets, list) or len(assets) > MAX_PRICE_CODES:
+            return jsonify(error=f'assets는 {MAX_PRICE_CODES}개 이하의 배열이어야 합니다.'), 400
+        try:
+            result = quotes.get_quotes(assets, data.get('market_mode', 'AUTO'),
+                                       allow_cached=data.get('allow_cached') is True)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        return jsonify(quotes=result)
     codes = data.get('codes') or []
     if not isinstance(codes, list):
         return jsonify({"error": "codes 는 배열이어야 합니다."}), 400
@@ -554,7 +577,7 @@ def change_password():
     if new_password == current_password:
         return jsonify({"error": "새 비밀번호가 기존 비밀번호와 같습니다."}), 400
 
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         c = conn.cursor()
         c.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
         user_record = c.fetchone()
@@ -607,7 +630,7 @@ def get_preferences():
     username = session.get('username')
     if not username:
         return jsonify({}), 401
-    with db_conn() as conn:
+    with db_conn(read=True) as conn:
         c = conn.cursor()
         c.execute("SELECT preferences FROM users WHERE username = ?", (username,))
         row = c.fetchone()
@@ -628,7 +651,7 @@ def save_preferences():
     prefs = _json_object()
     if prefs is None:
         return _bad_body()
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         c = conn.cursor()
         c.execute("UPDATE users SET preferences = ? WHERE username = ?", (json.dumps(prefs), username))
         conn.commit()

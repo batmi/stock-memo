@@ -418,6 +418,9 @@ window.addEventListener('DOMContentLoaded', () => {
     if (btnLogoutNow) btnLogoutNow.addEventListener('click', () => window.location.href = '/logout');
 
     // ⭐️ 커스텀 글자 크기(medium) 추가
+    window.initializeJournalEditor = function() {
+    if (window.quill) return true;
+    try {
     const Size = Quill.import('formats/size');
     Size.whitelist = ['small', false, 'medium', 'large', 'huge'];
     Quill.register(Size, true);
@@ -621,6 +624,21 @@ window.addEventListener('DOMContentLoaded', () => {
             }
         }
     }, true); // ⭐️ capture 플래그 적용: Quill 내부 핸들러보다 우선 실행하여 락 걸림 방지
+    document.getElementById('editorLoadNotice').hidden = true;
+    if (window.pendingEditorHtml) {
+        window.setEditorHtml(window.pendingEditorHtml);
+        window.pendingEditorHtml = '';
+    }
+    window.attachEditorDraftEvents?.();
+    return true;
+    } catch (error) {
+        console.warn('편집기 초기화 실패', error);
+        window.quill = null;
+        document.getElementById('editorLoadNotice').hidden = false;
+        return false;
+    }
+    };
+    window.initializeJournalEditor();
 
     const imageViewerModal = document.getElementById('imageViewerModal');
     const fullSizeImage = document.getElementById('fullSizeImage');

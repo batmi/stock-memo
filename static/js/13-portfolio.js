@@ -183,6 +183,7 @@ function renderPortfolioSummary(summary) {
                     <div class="stat-row" style="align-items: center;"><span>현재가</span><span class="cp-price" data-pkey="${pkey}" data-code="${code}">조회 중...</span></div>
                     <div class="stat-row" style="align-items: center;"><span>평가금액</span><span class="cp-eval masked-amount" data-pkey="${pkey}" data-code="${code}">-</span></div>
                     <div class="stat-row" style="align-items: center;"><span>평가손익</span><span class="cp-profit" data-pkey="${pkey}" data-code="${code}">-</span></div>
+                    <div class="cp-status" data-pkey="${pkey}" style="font-size:10px;color:var(--text-muted-color);margin-top:4px;"></div>
                 </div>
             `;
         }
@@ -305,7 +306,7 @@ function renderPortfolioSummary(summary) {
         portfolioSortable = null;
     }
     
-    if (portfolioArray.length > 0 && !isDashboardCollapsed) {
+    if (portfolioArray.length > 0 && !isDashboardCollapsed && typeof Sortable !== 'undefined') {
         portfolioSortable = Sortable.create(portfolioGrid, {
             animation: 300, // ⭐️ 카드가 밀려날 때 더 부드럽고 천천히 이동
             easing: "cubic-bezier(0.25, 1, 0.5, 1)", // ⭐️ 부드러운 가감속 효과
@@ -384,6 +385,7 @@ function renderPortfolioSummary(summary) {
         //    여기에 묶어 두면 그 화면의 카드가 영영 '조회 중...' 에서 멈춘다.
         window.fetchCurrentPricesAndUpdateUI();
 
+        if (typeof Chart === 'undefined') return;
         const ctx = document.getElementById('portfolioChart').getContext('2d');
         if (portfolioChartInstance) portfolioChartInstance.destroy();
         portfolioChartInstance = new Chart(ctx, {

@@ -19,6 +19,19 @@ function ensureExcelLoaded() {
     });
 }
 
+const JOURNAL_EXPORT_HEADERS = ['작성일', '기록 종류', '종목명', '종목코드', '거래소', '통화', '증권사', '계좌번호', '계좌명', '투자 분류', '매매 종류', '체결 상태', '단가', '수량', '실현손익', '손익 출처', '손익 비용 기준', '수수료', '세금', '제목', '태그', '메모/생각'];
+function journalExportRow(entry) {
+    const text = new DOMParser().parseFromString(String(entry.thoughts || '').replace(/<br\s*\/?>(?:\n)?|<\/p>/gi, '\n'), 'text/html').body.textContent || '';
+    const optionalNumber = value => value == null || value === '' ? null : Number(value);
+    return [entry.rawDate || entry.tradeDate || entry.date || '', entry.type || '', entry.stockName || '',
+        entry.stockCode || '', entry.exchange || '', entry.currency || 'KRW', getMappedBroker(entry.brokerAccount),
+        entry.subAccount || '', entry.accountName || '', entry.tradeClass || '', entry.tradeType || '', entry.tradeStatus || '',
+        optionalNumber(entry.price), optionalNumber(entry.quantity), optionalNumber(entry.realizedPnl),
+        { recorded: '저장 손익', reconstructed: '체결 이력 재구성', unavailable: '미확정' }[entry.realizedPnlSource] || entry.realizedPnlSource || '',
+        { gross: '비용 차감 전', net: '비용 차감 후', unknown: '확인 필요' }[entry.realizedPnlBasis] || '',
+        optionalNumber(entry.fee), optionalNumber(entry.tax), entry.title || '', entry.tags || '', text.trim()];
+}
+
 document.getElementById('btnModalExportExcel').addEventListener('click', async () => {
     if (await customConfirm('모든 매매 기록을 엑셀 파일(.xlsx)로 \n다운로드하시겠습니까?')) {
         window.showLoadingOverlay('엑셀 파일을 생성 중입니다...\n잠시만 기다려주세요.');
@@ -33,11 +46,11 @@ document.getElementById('btnModalExportExcel').addEventListener('click', async (
                     views: [{ state: 'frozen', xSplit: 0, ySplit: 1, topLeftCell: 'A2' }]
                 });
                 
-                const header = ['작성일', '분류', '종목명', '증권사', '증권계좌', '계좌분류', '매매종류', '단가', '수량', '태그', '메모/생각'];
+                const header = JOURNAL_EXPORT_HEADERS;
                 worksheet.addRow(header);
                 
                 // 1행 틀고정 및 헤더 스타일/필터 적용
-                worksheet.autoFilter = 'A1:K1';
+                worksheet.autoFilter = 'A1:V1';
                 const headerRow = worksheet.getRow(1);
                 headerRow.font = { bold: true };
                 headerRow.fill = {
@@ -50,16 +63,10 @@ document.getElementById('btnModalExportExcel').addEventListener('click', async (
                 // 전체 내보내기는 사용자가 요청한 때만 원문 전체를 읽는다.
                 const exportEntries = await journalJSON('/api/data', false);
                 exportEntries.forEach(e => {
-                    const rowData = [
-                        e.date, (e.type || '').toUpperCase(), e.stockName||'', getMappedBroker(e.brokerAccount)||'', e.subAccount||'', e.accountName||'',
-                        e.tradeType||'', Number(e.price)||0, Number(e.quantity)||0, 
-                        e.tags||'', (e.thoughts||'').replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ')
-                    ];
-                    const addedRow = worksheet.addRow(rowData);
-                    
-                    // 단가, 수량 컬럼 숫자 포맷 지정
-                    addedRow.getCell(8).numFmt = '#,##0'; // H열 (단가)
-                    addedRow.getCell(9).numFmt = '#,##0'; // I열 (수량)
+                    const addedRow = worksheet.addRow(journalExportRow(e));
+                    [13, 14, 15, 18, 19].forEach(column => {
+                        addedRow.getCell(column).numFmt = '#,##0.##########';
+                    });
                 });
                 
                 // 내용에 맞게 열 너비 자동 조절

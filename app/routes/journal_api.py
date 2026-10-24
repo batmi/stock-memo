@@ -10,6 +10,7 @@ from itsdangerous import URLSafeSerializer
 from app.database.db import db_conn
 from app.services import analysis, journal, historical_prices, valuation, integrity
 from app.utils import statscache
+from app.routes.ownership import response_owner_version
 
 bp = Blueprint('journal', __name__)
 
@@ -33,7 +34,7 @@ def _month():
 
 def _response(build):
     username = session['username']
-    version = statscache.data_etag(username)
+    version = response_owner_version(statscache.data_etag(username))
     # URL 은 필터·월·페이지를 포함한다. 서로 다른 응답이 같은 ETag 를 쓰지 않는다.
     etag = hashlib.sha256((version + request.full_path).encode()).hexdigest()
     if request.if_none_match.contains(etag):
@@ -75,7 +76,7 @@ def history():
 
 @bp.get('/api/entry/<int:entry_id>')
 def detail(entry_id):
-    with db_conn() as conn:
+    with db_conn(read=True) as conn:
         row = conn.execute('SELECT * FROM entries WHERE username = ? AND id = ?',
                            (session['username'], entry_id)).fetchone()
     if row is None:
@@ -167,3 +168,8 @@ def change_history():
 def update_split_rule():
     integrity.set_split_rule(session['username'], request.get_json(silent=True))
     return jsonify(status='success')
+
+
+@bp.post('/api/journal/split-rule/preview')
+def preview_split_rule():
+    return jsonify(integrity.preview_split_rule(session['username'], request.get_json(silent=True)))

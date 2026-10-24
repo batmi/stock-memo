@@ -22,7 +22,7 @@ import config  # noqa: E402
 config.LOG_DIR = tempfile.mkdtemp(prefix='stock-memo-test-logs-')
 
 import backend_app  # noqa: E402
-from app.services import news  # noqa: E402
+from app.services import historical_prices, journal, news  # noqa: E402
 from app.utils import ratelimit  # noqa: E402
 from app.utils import statscache  # noqa: E402
 from app.services import users  # noqa: E402
@@ -64,6 +64,8 @@ def app(tmp_path):
     news.clear_cache()
     users.clear_epoch_cache()
     statscache.clear_all()
+    journal._analysis_cache.clear()
+    historical_prices._plans.clear()
 
     with flask_app.app_context():
         backend_app.init_db()

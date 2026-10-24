@@ -1703,3 +1703,10 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 .data-audit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px; }
 .data-audit-split { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0; }
 .data-audit-split select { width: auto; height: auto; font-size: 12px; padding: 5px; }
+.editor-notice { margin: 6px 0; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 11px; line-height: 1.5; }
+.editor-notice[hidden] { display: none; }
+.editor-notice button { width: auto; margin: 3px 4px 0 0; padding: 2px 7px; font-size: 11px; }
+.editor-draft-status { font-size: 10px; color: var(--text-muted-color); margin: 4px 0; }
+.api-key-scopes { margin: 8px 0; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 11px; }
+.api-key-scopes label { display: inline-flex; align-items: center; gap: 4px; margin: 2px 8px 2px 0; font-size: inherit; }
+.api-key-scopes input { width: auto; margin: 0; }

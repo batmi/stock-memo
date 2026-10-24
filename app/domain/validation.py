@@ -33,7 +33,7 @@ def normalize_currency(value, default='KRW'):
 TEXT_LIMITS = {
     'type': 20, 'tradeType': 20, 'stockName': 200, 'stockCode': 32,
     'title': 1000, 'thoughts': 16 * 1024 * 1024, 'tags': 5000,
-    'brokerAccount': 200, 'subAccount': 200, 'accountName': 200, 'tradeClass': 200,
+    'brokerAccount': 200, 'brokerIdentity': 200, 'subAccount': 200, 'accountName': 200, 'tradeClass': 200,
     'currency': 10, 'exchange': 20, 'assetType': 20, 'brokerExecutionId': 200,
     'rawDate': 64, 'date': 100, 'createdAt': 64, 'updatedAt': 64,
     'attachedImage': 16 * 1024 * 1024, 'attachedFile': 16 * 1024 * 1024,
@@ -42,6 +42,7 @@ TEXT_LIMITS = {
 
 OPTIONAL_NUMBERS = frozenset({'realizedPnl', 'realizedPnlRate', 'fee', 'tax', 'strategyScore', 'stopLossRate'})
 PNL_SOURCES = ('recorded', 'reconstructed', 'unavailable')
+PNL_BASES = ('gross', 'net', 'unknown')
 
 
 def normalize_trade_numbers(entry):
@@ -61,6 +62,9 @@ def normalize_trade_numbers(entry):
     source = entry.get('realizedPnlSource')
     if source is not None and source not in PNL_SOURCES:
         raise ValueError('realizedPnlSource: 손익 출처가 올바르지 않습니다.')
+    basis = entry.get('realizedPnlBasis')
+    if basis is not None and basis not in PNL_BASES:
+        raise ValueError('realizedPnlBasis: gross, net, unknown 중 하나여야 합니다.')
 
 
 def normalize_web_entry(data):

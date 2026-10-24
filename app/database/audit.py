@@ -1,9 +1,9 @@
 """거래 변경 이력과 버전. 모든 SQL 쓰기 경로를 같은 트리거로 기록한다."""
 
-FIELDS = ('type', 'stockName', 'stockCode', 'brokerAccount', 'subAccount', 'accountName',
+FIELDS = ('type', 'stockName', 'stockCode', 'brokerAccount', 'brokerIdentity', 'subAccount', 'accountName',
           'currency', 'tradeType', 'price', 'quantity', 'rawDate', 'tradeDate', 'tradeSequence',
           'title', 'thoughts', 'tags', 'tradeClass', 'tradeStatus', 'realizedPnl',
-          'realizedPnlSource', 'needsReview', 'reviewReason', 'date', 'fee', 'tax', 'exchange',
+          'realizedPnlSource', 'realizedPnlBasis', 'needsReview', 'reviewReason', 'date', 'fee', 'tax', 'exchange',
           'assetType', 'isHidden', 'attachedFileName', 'isSimulated', 'isSystem', 'confidence',
           'orderOrigin', 'source', 'orderId', 'originalOrderId', 'realizedPnlRate',
           'strategyScore', 'stopLossRate', 'executedAtUtc', 'brokerExecutionId')

@@ -19,6 +19,7 @@ const btnCloseForm = document.getElementById('btnCloseForm');
 const submitBtn = journalForm.querySelector('button[type="submit"]');
 let editingEntryId = null;
 let editingEntryRevision = null;
+let formGeneration = 0;
 let portfolioChartInstance = null;
 let currentTags = [];
 
@@ -173,11 +174,15 @@ function syncJournalAccountSelect(rawVal) {
 }
 
 btnFab.addEventListener('click', async () => {
+    const request = beginUIRequest('edit');
     const isTrade = document.querySelector('input[name="recordType"]:checked')?.value === 'trade';
     if (isTrade || !document.querySelector('input[name="recordType"]:checked')) {
         const canOpen = await ensureAccountMapping();
-        if (!canOpen) return;
+        if (!canOpen || !request.current()) return;
     }
+    if (!request.current()) return;
+    ++formGeneration;
+    formModalOverlay.classList.remove('closing');
     
     formModalOverlay.style.display = 'flex';
     document.body.style.overflow = 'hidden'; // ⭐️ 모달 열림 시 배경 스크롤 방지
@@ -193,6 +198,7 @@ btnFab.addEventListener('click', async () => {
     } else {
         document.getElementById('tradeDate').value = currentNow.toISOString().slice(0,16);
     }
+    window.offerEditorDraft?.();
 });
 
 // ⭐️ 화살표로 감싸 **클릭 시점에** 이름을 찾게 한다.

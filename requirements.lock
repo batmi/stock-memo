@@ -1,0 +1,35 @@
+# 검증 환경의 런타임·테스트 의존성. tools/lock_dependencies.py로 갱신한다.
+# 설치: python -m pip install -r requirements-dev.txt -c requirements.lock
+blinker==1.9.0
+certifi==2026.6.17
+charset-normalizer==3.4.7
+click==8.4.1
+coverage==7.14.1
+flask==3.1.3
+greenlet==3.5.2
+holidays==0.103
+idna==3.18
+iniconfig==2.3.0
+itsdangerous==2.2.0
+jinja2==3.1.6
+markupsafe==3.0.3
+packaging==26.2
+playwright==1.60.0
+pluggy==1.6.0
+pyee==13.0.1
+pygments==2.20.0
+pytest==9.1.0
+pytest-base-url==2.1.0
+pytest-cov==7.1.0
+pytest-playwright==0.8.0
+python-dateutil==2.9.0.post0
+python-slugify==8.0.4
+requests==2.34.2
+ruff==0.16.4
+six==1.17.0
+text-unidecode==1.3
+types-ratelimit==2.2.0.20260508
+typing-extensions==4.15.0
+urllib3==2.7.0
+waitress==3.0.2
+werkzeug==3.1.8

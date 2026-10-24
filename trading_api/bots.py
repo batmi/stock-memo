@@ -74,7 +74,7 @@ def _upsert_bot(c, username, bot_id, status, now, *, label=None,
 
 def list_bots(username, now=None):
     """이 사용자의 봇 인스턴스 목록. 각 행에 서버가 확정한 state 를 붙여 돌려준다."""
-    with db_conn() as conn:
+    with db_conn(read=True) as conn:
         c = conn.cursor()
         c.execute(
             "SELECT bot_id, label, status, last_seen, is_simulated, message, first_seen "
@@ -255,7 +255,7 @@ def request_bot_command(username, command, params=None, bot_id=None):
 
 def latest_bot_command(username, command=None, bot_id=None):
     """웹 화면 표시용 — 가장 최근 명령의 상태. 없으면 None."""
-    with db_conn() as conn:
+    with db_conn(read=True) as conn:
         c = conn.cursor()
         sql = ("SELECT id, command, params_json, requested_at, delivered_at, "
                "acked_at, result, result_count, result_message, bot_id "

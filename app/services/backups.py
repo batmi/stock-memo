@@ -6,6 +6,7 @@
 """
 import json
 import os
+import tempfile
 import zipfile
 
 import config
@@ -29,12 +30,11 @@ def _write_user_backup(target, username):
     # ⭐️ 기록과 계좌 매핑을 **같은 연결에서** 읽는다. 예전 자동 백업은 닫힌 연결로
     #    accounts.load() 를 불렀고, load() 가 조회 실패를 '매핑 없음'으로 삼켜 자동 백업
     #    ZIP 에서만 account_info.json 이 빠졌다(복원하면 계좌 매핑만 사라졌다).
-    with db_conn() as conn:
-        conn.execute('BEGIN')
+    with db_conn(read=True) as conn:
         rows = [dict(row) for row in conn.execute(
             "SELECT * FROM entries WHERE username = ?", (username,)).fetchall()]
         mappings = accounts.load(conn, username)
-        rules = [dict(r) for r in conn.execute('SELECT code,currency,day,mode FROM split_rules WHERE username=?', (username,))]
+        rules = [dict(r) for r in conn.execute('SELECT code,currency,day,mode,scope FROM split_rules WHERE username=?', (username,))]
 
     with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as zf:
         zf.writestr('data.json', json.dumps(rows, ensure_ascii=False, indent=2))
@@ -45,19 +45,13 @@ def _write_user_backup(target, username):
                     zf.write(os.path.join(root, file), arcname=os.path.join('uploads', file))
         zf.writestr(accounts.BACKUP_ARCNAME, accounts.dumps(mappings))
         zf.writestr('split_rules.json', json.dumps(rules))
-        zf.writestr('manifest.json', json.dumps({'formatVersion': 2}))
+        # 구버전 앱이 계좌별 규칙을 전체 계좌 규칙으로 해석하지 않게 형식을 구분한다.
+        zf.writestr('manifest.json', json.dumps({'formatVersion': 3}))
     return len(rows)
 
 
 def verify_backup_zip(filepath, expected_count):
-    """백업 ZIP 파일의 무결성을 검증합니다.
-
-    1) ZIP 아카이브가 손상되지 않고 열람 가능한지 (CRC 검사)
-    2) data.json 항목이 존재하고 정상적으로 파싱되는지
-    3) 복원될 레코드 수가 백업 시점의 레코드 수와 일치하는지
-
-    (성공 여부 bool, 메시지 str) 튜플을 반환합니다.
-    """
+    """압축 무결성, 복원 계약, 예상 기록 수를 같은 복원 파서로 검증한다."""
     try:
         with zipfile.ZipFile(filepath, 'r') as zf:
             corrupt = zf.testzip()
@@ -71,6 +65,10 @@ def verify_backup_zip(filepath, expected_count):
                 return False, "data.json 형식이 올바르지 않습니다."
             if len(data) != expected_count:
                 return False, f"레코드 수 불일치 (기대 {expected_count}건, 실제 {len(data)}건)"
+        from app.services.restores import _extract, _read_rules
+        with tempfile.TemporaryDirectory(prefix='stock-memo-backup-check-') as folder:
+            _extract(filepath, folder)
+            _read_rules(folder)
         return True, f"{len(data)}건 검증 통과"
     except Exception as e:
         return False, str(e)

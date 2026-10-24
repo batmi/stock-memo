@@ -38,7 +38,10 @@ _ver() { $PYTHON_PATH -c "import holidays; print(holidays.__version__)" 2>/dev/n
 
 BEFORE="$(_ver)"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] holidays 갱신 시작 (현재 $BEFORE)"
-$PIP_PATH install --upgrade holidays $PIP_FLAGS
+if ! $PIP_PATH install --upgrade holidays $PIP_FLAGS; then
+    echo "[실패] holidays 갱신에 실패했습니다. 기존 버전을 유지합니다." >&2
+    exit 1
+fi
 AFTER="$(_ver)"
 
 if [ "$BEFORE" = "$AFTER" ]; then

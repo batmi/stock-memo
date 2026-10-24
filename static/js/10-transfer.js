@@ -38,6 +38,11 @@ clearFilterBtn.addEventListener('click', () => {
 journalForm.addEventListener('submit', async function(e) {
     e.preventDefault();
 
+    if (!window.quill) {
+        await customAlert('편집기를 불러온 뒤 다시 저장해주세요. 작성 화면에서 다시 불러올 수 있습니다.');
+        return;
+    }
+
     // ⭐️ 중복 제출 방지 (더블 클릭 등으로 인한 동일 데이터 복제 현상 해결)
     if (submitBtn.disabled) return;
     submitBtn.disabled = true;
@@ -121,9 +126,10 @@ journalForm.addEventListener('submit', async function(e) {
         if (res === null) return;   // 보유 초과 경고에서 사용자가 취소했다 — 폼은 그대로 둔다
 
         if (res.ok) {
+            window.clearEditorDraft?.(currentEditingId);
             editingEntryId = null;
             editingEntry = null;
-            resetAndCloseForm();
+            resetAndCloseForm({ saved: true });
             await refreshEntriesFromServer();
             await displayEntries();
         } else {
@@ -196,23 +202,29 @@ if (btnFullBackup) {
 
 const btnFullRestore = document.getElementById('btnModalFullRestore');
 const restoreFileInput = document.getElementById('restoreFileInput');
+let restoreWriting = false;
 if (btnFullRestore && restoreFileInput) {
     btnFullRestore.addEventListener('click', () => restoreFileInput.click());
     restoreFileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
-        if (!file) return;
+        if (!file || restoreWriting) return;
+        const request = beginUIRequest('restore-preview');
+        if (auditCancel) closeDataAudit();
 
         const formData = new FormData();
         formData.append('file', file);
 
         try {
             document.body.style.cursor = 'wait'; // 로딩 커서
-            const previewResponse = await fetch('/api/restore/preview', { method: 'POST', body: formData });
+            const previewResponse = await fetchWithTimeout('/api/restore/preview', { method: 'POST', body: formData, signal: request.signal }, 60000);
             const preview = await previewResponse.json();
+            if (!request.current()) return;
             document.body.style.cursor = 'default';
             if (!previewResponse.ok) throw new Error(preview.error || '복원 파일을 확인하지 못했습니다.');
-            if (!(await showRestorePreview(preview))) return;
+            if (!(await showRestorePreview(preview, file.name)) || !request.current()) return;
             formData.append('previewToken', preview.previewToken);
+            restoreWriting = true;
+            btnFullRestore.disabled = true;
             document.body.style.cursor = 'wait';
             window.showLoadingOverlay('데이터를 원복하고 있습니다...\n진행 중 창을 닫거나 새로고침하지 마세요.');
             const response = await fetch('/api/restore', {
@@ -239,11 +251,15 @@ if (btnFullRestore && restoreFileInput) {
                 await customAlert('원복 실패: ' + (result.error || '알 수 없는 오류가 발생했습니다.'));
             }
         } catch (err) {
+            if (!request.current()) return;
             console.error(err);
             document.body.style.cursor = 'default';
             await window.hideLoadingOverlay();
             await customAlert(err.message || '서버와 통신 중 오류가 발생했습니다.');
         } finally {
+            if (!request.current()) return;
+            restoreWriting = false;
+            btnFullRestore.disabled = false;
             document.body.style.cursor = 'default';
             await window.hideLoadingOverlay();
             e.target.value = '';

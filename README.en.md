@@ -75,7 +75,7 @@ Beyond simple recording, it aims to maximize investment review and strategy form
 
 ### Running the Server
 Navigate to the project folder and start the local server using the provided script.
-If required packages are missing, the script asks to install them using the version ranges in `requirements.txt`.
+If required packages are missing, the script installs `requirements.txt` using the tested constraints in `requirements.lock`. Installation failure stops startup.
 
 **Mac / Linux Environment**
 Grant execution permission once, then run it conveniently as a shell script:
@@ -101,8 +101,8 @@ http://127.0.0.1:9094
 ## 5. Backup & Security
 
 ### Data Backup & Restoration
-*   **Easy Web Backup (Recommended)**: **[Full Backup]** downloads the current user's entries (`data.json`), attachments and account mappings as a ZIP. It does not include user accounts, API keys, preferences or the DB file itself. **[Restore]** validates and stages the archive before replacing entries, mappings and attachments; processing errors trigger rollback. Attachment URLs from another user's backup are moved to the restoring user. Limits are 513MiB uploaded and 512MiB expanded. DB/file atomicity does not cover process termination or power failure; retain DB snapshots for server migration.
-*   **Automatic Backup**: Every day at 3 AM, a compressed backup file for each user is generated in the `backup/` folder on the server, and a self-integrity check (CRC, record count) confirms it can be restored. A snapshot of the DB file itself — including accounts, API keys and preferences — is also kept in `backup/_db/`. Both are kept for 7 days, and old backups are not pruned on a day when verification fails.
+*   **Easy Web Backup (Recommended)**: **[Full Backup]** downloads entries, attachments, account mappings and split settings. Accounts, API keys, preferences and the database itself are excluded. **[Restore]** validates and stages the archive before replacement; errors trigger rollback. Cross-account attachment URLs are reassigned to the restoring account. Limits are 513MiB uploaded and 512MiB expanded. A filesystem journal and database commit marker recover interrupted restores at startup. This covers process termination, not storage failure or power loss; retain DB snapshots for server migration.
+*   **Automatic Backup**: At 3 AM, user ZIPs are created in `backup/` and checked with the actual restore parser, including CRC, record count, field types, settings and format version. A database snapshot containing accounts, API keys and preferences is kept in `backup/_db/`. Both are retained for seven days; failed verification prevents pruning older backups.
 *   **Manual Backup**: If you are migrating the server manually, simply copy the `db/` and `uploads/` folders within the project.
 
 Restore validates numeric, text and currency fields before deleting existing entries. Invalid values reject the entire restore with the entry number and field. Missing legacy fields, optional NULL values and numeric strings remain supported; legacy buy/sell types are normalized to the current trade format.
@@ -390,8 +390,12 @@ to build data-quality, classification/account, distribution and drawdown-recover
   restricts them to that currency.
 * Data quality shows review flags, insufficient purchase history and cost coverage.
   Both fee and tax must be recorded for complete coverage; an explicit zero differs
-  from a missing value. Net P&L deducts only buy/sell/dividend costs recorded in the period.
-* Drawdown uses cumulative realized P&L including dividends, before costs, rather than
+  from a missing value. Net P&L is available only when `realizedPnlBasis` is known: `gross`
+  precedes that sale row's fees/taxes, while `net` already includes that row's fees/taxes.
+  Buy/dividend costs are deducted separately. Broker totals including purchase costs must
+  use `unknown` unless their basis is reconciled. Unknown values preserve realized totals
+  but leave net P&L unset. Existing supplied values use `unknown`; reconstructed values use `gross`.
+* Drawdown uses stored cumulative realized P&L including dividends, rather than
   total account equity. Recovery days run from the worst trough to recovery of its peak.
   Current underwater duration runs from the latest peak to the selected end date, or
   the last trade date for all-history analysis. Future fills never recover a past period.
@@ -536,13 +540,16 @@ The **D** menu now includes integrity checks (missing buys, unresolved stock cod
 unavailable realized profit and review flags), plus paginated change history recorded from this upgrade onward.
 Cached split data is shared by holdings, monthly valuation, reconstructed profit and sell validation.
 Original fills and explicitly supplied realized profit remain unchanged. If a split was already recorded manually,
-disable automatic application in the integrity screen; the setting covers every account for that symbol and currency.
+preview the effect and disable automatic application in the integrity screen. Account overrides take priority
+over the symbol/currency default. Old settings retain their all-account scope.
 New or corrected split metadata refreshes reconstructed profit and invalidates cached balances.
 
 Restore previews show record/account counts and position quantity/cost changes before confirmation.
 The signed preview expires after 10 minutes and rejects changes to the file, account, entries, account mappings or split data.
 Use `/api/restore/preview` and pass its `previewToken` to `/api/restore`; legacy clients without a token remain supported.
-Backup format 2 always includes empty account mappings and split settings. Missing settings in older archives restore
+New backups use format 3 to preserve account-scoped split rules and P&L cost basis and to prevent older apps
+from interpreting account overrides as global rules. Format 2 and legacy archives remain readable.
+Empty account mappings and split settings are always included. Missing settings in older archives restore
 as empty settings. `tradeSequence` preserves same-time fill ordering even when IDs collide with another user's entries.
 Restores retain local change history; portable ZIPs do not export change history, while full SQLite backups include it.
 
@@ -560,3 +567,46 @@ use the exchange-local `tradeDate`, including US after-hours fills whose Korean 
 The `exchange_day_splits_v1` migration repairs existing reconstructed profit once and preserves supplied values.
 Legacy browser sessions redirect to login, while API requests receive HTTP 401. Bot authentication acquires
 the user lock before checking key revocation and account availability, so changes during the wait take effect.
+
+### Quote, editing and authentication consistency
+
+Current quotes use exchange/currency/symbol/session identity, include the last successful check time,
+and explicitly mark stale or unavailable values. Missing quotes do not silently become purchase cost;
+portfolio totals remain unconfirmed until every included position can be valued. Monthly valuation
+keeps FIFO lot semantics and requests its own symbols independently of the portfolio filter.
+
+`POST /api/current_price` accepts `assets: [{code, currency, exchange}]` and returns
+`quotes: [{key, code, currency, exchange, price, asOf, market, stale, status}]`.
+`asOf` is the last successful lookup time, not the last exchange execution time.
+Statuses are `ok`, `stale` and `unavailable`. The legacy `codes` request remains supported,
+but bare Asian numeric codes require explicit asset identity instead of guessing a market.
+Concurrent requests for the same quote share work, with a bounded pending queue.
+
+Held and unresolved positions refresh corporate-action metadata without opening the historical chart.
+Historical scheduling revisits the latest seven days incrementally and all missing ranges daily.
+Analysis caching is bounded by size/time and keyed by account identity, data version and filters.
+
+Editor failures do not prevent reading the journal. Local drafts are isolated by immutable user ID
+and record, with explicit recovery; drafts do not sync between devices. Spreadsheet export includes
+currency, symbol, trade status, stored P&L and provenance, with fractional prices and quantities.
+API key creation exposes read/write/bot scopes and rotates keys atomically. Authentication reads the
+current account ID, approval and password epoch from the database; private reads use one snapshot.
+
+Schema v4 adds broker identity, P&L cost basis, account-scoped split settings, quote metadata and
+restore commit markers. Supplied P&L and original trade descriptions remain preserved.
+
+### Reproducible validation
+
+```bash
+python -m pip install -r requirements-dev.txt -c requirements.lock
+python -m playwright install chromium
+SECRET_KEY=stock-memo-test-only python -m pytest -q
+node --test tests/*.test.js
+ruff check .
+git diff --check
+```
+
+GitHub Actions runs these checks on Python 3.11 and 3.13. Regenerate constraints with
+`python tools/lock_dependencies.py` in a tested environment, then rerun validation.
+Regressions include concurrent authentication, browser response ordering, asset identity,
+corporate actions and actual process exits during restoration. Tests prohibit production-data access.

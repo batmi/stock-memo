@@ -262,7 +262,7 @@ window.updateChartEvalNotice = function(info) {
 
     const statsEl = document.getElementById('inlineStatsContainer');
     const statsOpen = !!statsEl && statsEl.style.display === 'block';
-    const { type, missingStocks = [], offset = 0, periodWord = '월' } = info || {};
+    const { type, missingStocks = [], staleStocks = [], checkedAt = '', offset = 0, periodWord = '월' } = info || {};
 
     const esc = (t) => String(t).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
     const notes = [];
@@ -287,8 +287,11 @@ window.updateChartEvalNotice = function(info) {
         if (missingStocks.length) {
             const shown = missingStocks.slice(0, 5).map(esc).join(', ');
             const more = missingStocks.length > 5 ? ` 외 ${missingStocks.length - 5}개` : '';
-            notes.push(`⚠️ 현재가를 불러오지 못한 <b>${missingStocks.length}개 종목</b>(${shown}${more})은 평가손익에서 <b>제외</b>됐습니다. 종목코드가 없거나 대시보드 필터에서 빠진 종목일 수 있습니다.`);
+            notes.push(`⚠️ 현재가를 확인하지 못한 <b>${missingStocks.length}개 종목</b>(${shown}${more})은 평가손익에서 <b>제외</b>됐습니다. 종목코드·거래소와 통화를 확인해주세요.`);
         }
+        if (staleStocks.length) notes.push(`이전 시세 ${staleStocks.length}개 종목 포함: ${staleStocks.slice(0, 5).map(esc).join(', ')}`);
+        if (checkedAt) notes.push(`최근 시세 확인: ${esc(new Date(checkedAt).toLocaleString('ko-KR'))}`);
+        if (missingStocks.length || staleStocks.length) notes.push('<button type="button" id="btnChartQuoteRefresh" class="stats-curve-button">시세 다시 확인</button>');
     }
 
     if (!notes.length) {
@@ -298,6 +301,10 @@ window.updateChartEvalNotice = function(info) {
     }
     el.innerHTML = notes.map(t => `<div style="margin-top:4px;">${t}</div>`).join('');
     el.style.display = 'block';
+    document.getElementById('btnChartQuoteRefresh')?.addEventListener('click', () => {
+        window.forceChartQuotes = true;
+        window.renderMonthlyProfitChart();
+    });
 };
 
 // ⭐️ 차트 막대 클릭 시 하단에 종목별 상세 내역을 그려주는 함수 (다중 섹션 지원)
@@ -375,6 +382,7 @@ window.renderChartDetailList = function(periodLabel, sections, currency = displa
 // ⭐️ 최근 12개월 월별 실현손익/평가손익/매매금액 바 차트 렌더링 함수 (통합)
 window.renderMonthlyProfitChart = async function() {
     if (!journalMeta) return;
+    const quoteRequest = beginUIRequest('chart-quotes');
     const ticket = journalRequests.chart = (journalRequests.chart || 0) + 1;
     const generation = journalGeneration;
     console.log("[Chart] 월별 실현/평가/매매금액 차트 렌더링 시작...");
@@ -455,10 +463,36 @@ window.renderMonthlyProfitChart = async function() {
     document.getElementById('monthlyProfitChartContainer-load-error')?.remove();
     const currency = result.currency || displayCurrency;
     const monthlyData = result.monthlyData;
+    const type = window.currentMonthlyChartType || 'realized';
+    const marketMode = currentMarketMode;
+    if (type === 'evaluated' && !statsViewOpen) {
+        const assets = result.evaluation.map(lot => quoteAsset(lot, currency)).filter(asset => {
+            const quote = cachedQuote(asset, marketMode);
+            return asset.code && (window.forceChartQuotes || !quote || !Number.isFinite(quote.price)
+                || quote.asOf && Date.now() - Date.parse(quote.asOf) > 60000);
+        });
+        const allowCached = !window.forceChartQuotes;
+        window.forceChartQuotes = false;
+        if (assets.length) {
+            let quotes;
+            try { quotes = await fetchAssetQuotes(assets, { mode: marketMode, signal: quoteRequest.signal, allowCached }); }
+            catch (error) {
+                if (!quoteRequest.current()) return;
+                quotes = assets.map(asset => ({ ...asset, price: null, asOf: null, market: marketMode, stale: false, status: 'unavailable' }));
+            }
+            if (!quoteRequest.current() || ticket !== journalRequests.chart || generation !== journalGeneration || marketMode !== currentMarketMode) return;
+            rememberQuotes(quotes, marketMode);
+        }
+    }
     const missing = new Set();
+    const stale = new Set();
+    let checkedAt = '';
     result.evaluation.forEach(lot => {
-        const price = lot.stockCode ? window.currentPriceCache[lot.stockCode] : undefined;
+        const quote = cachedQuote(quoteAsset(lot, currency), marketMode);
+        const price = quote?.price;
         if (price === undefined || price === null) { missing.add(lot.stock); return; }
+        if (quote.stale) stale.add(lot.stock);
+        if (quote.asOf && quote.asOf > checkedAt) checkedAt = quote.asOf;
         const period = monthlyData[lot.period];
         const profit = price * lot.quantity - lot.cost;
         period.evaluated += profit;
@@ -469,7 +503,6 @@ window.renderMonthlyProfitChart = async function() {
     const theme = document.documentElement.getAttribute('data-theme') || 'light';
     const isDark = theme === 'dark';
     
-    const type = window.currentMonthlyChartType || 'realized';
     let datasets = [];
 
     // ⭐️ 막대 최소 높이(px): 값이 너무 작아 막대가 보이지 않는 경우에도 운용자가 인지할 수 있도록 최소 픽셀만큼 그린다.
@@ -600,6 +633,7 @@ window.renderMonthlyProfitChart = async function() {
         window.updateChartEvalNotice({
             type,
             missingStocks: evalMissingStocks,
+            staleStocks: [...stale], checkedAt,
             offset: rangeCfg.offset,
             periodWord
         });
@@ -616,6 +650,10 @@ window.renderMonthlyProfitChart = async function() {
 
     if (window.monthlyProfitChartInstance) window.monthlyProfitChartInstance.destroy();
     
+    if (typeof Chart === 'undefined') {
+        journalError('monthlyProfitChartContainer', new Error('차트 모듈을 불러오지 못했습니다. 새로고침 후 다시 확인해주세요.'), () => window.location.reload());
+        return;
+    }
     Chart.defaults.color = isDark ? '#aaaaaa' : '#7f8c8d';
 
     window.monthlyProfitChartInstance = new Chart(ctx, {

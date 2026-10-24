@@ -142,7 +142,7 @@ function renderTradeStats(s) {
         card('배당 수익', statsMoney(s.totalDividend, currency), statsColor(s.totalDividend), '', 'dividend'),
         card('실현 수익률 (원금 대비)', statsRate(s.realizedReturnRate), statsColor(s.realizedReturnRate || 0)),
     ];
-    if (hasCost) pnlCards.push(card('순손익 (비용 차감)', statsMoney(s.netPnl, currency), statsColor(s.netPnl)));
+    if (hasCost) pnlCards.push(card('순손익 (비용 차감)', s.netPnl == null ? '비용 기준 확인 필요' : statsMoney(s.netPnl, currency), statsColor(s.netPnl)));
     // ⭐️ 매수는 빨강, 매도는 파랑 (국내 호가창 관행)
     pnlCards.push(card('총 매수금', `${moneyText(s.totalBuyAmount, currency)}`, 'var(--danger-color, #e74c3c)'));
     pnlCards.push(card('총 매도금', `${moneyText(s.totalSellAmount, currency)}`, 'var(--primary-color, #3b82f6)'));

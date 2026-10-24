@@ -29,6 +29,17 @@ def validate_owner(conn):
     if not has_request_context() or not getattr(g, 'account_identity', None):
         return
     username, user_id = g.account_identity
-    row = conn.execute('SELECT id,is_allowed FROM users WHERE username=?', (username,)).fetchone()
-    if row is None or row['id'] != user_id or not row['is_allowed']:
+    from app.services.restore_recovery import assert_account_ready
+    assert_account_ready(username)
+    row = conn.execute('SELECT id,is_allowed,session_epoch FROM users WHERE username=?',
+                       (username,)).fetchone()
+    epoch = getattr(g, 'account_epoch', None)
+    if (row is None or row['id'] != user_id or not row['is_allowed']
+            or epoch is not None and (row['session_epoch'] or 0) != epoch):
         raise Unauthorized('계정이 변경되었습니다. 다시 로그인해주세요.')
+
+
+def response_owner_version(version):
+    """HTTP 캐시도 동명이인 계정 간에 재사용되지 않도록 신원을 포함한다."""
+    identity = getattr(g, 'account_identity', None)
+    return f'{version}-owner-{identity[1]}' if identity else version

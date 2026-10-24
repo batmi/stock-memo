@@ -265,7 +265,7 @@ def test_fetch_gold_all_fail_returns_none(conn):
 # _fetch_yahoo
 # ─────────────────────────────────────────────────────────────
 def test_fetch_yahoo_success(conn):
-    body = b'{"chart": {"result": [{"meta": {"regularMarketPrice": 250.5}}]}}'
+    body = b'{"chart": {"result": [{"meta": {"symbol":"AAPL","currency":"USD","regularMarketPrice":250.5}}]}}'
     with patch.object(prices, '_http_get', return_value=body):
         assert prices._fetch_yahoo(conn, 'AAPL') == 250.5
     assert prices.load_price_cache(conn, 'AAPL', 'KRX') == 250.5
@@ -723,33 +723,32 @@ def test_yahoo_candidates_us_is_bare():
 
 
 def test_yahoo_candidates_other_asian():
-    assert prices._yahoo_symbol_candidates('7203') == ['7203.T', '7203.HK', '7203']
+    assert prices._yahoo_symbol_candidates('7203') == []
+    assert prices._yahoo_symbol_candidates('7203.T') == ['7203.T']
 
 
-def test_fetch_yahoo_falls_through_to_next_suffix(conn):
-    body = b'{"chart": {"result": [{"meta": {"regularMarketPrice": 41000}}]}}'
-    calls = []
-
-    def fake_get(url, headers):
-        calls.append(url)
-        if url.endswith('.T'):
-            raise Exception('404')
-        return body
-
-    with patch.object(prices, '_http_get', side_effect=fake_get):
-        assert prices._fetch_yahoo(conn, '7203') == 41000.0
-    assert calls[0].endswith('7203.T')
-    assert calls[1].endswith('7203.HK')
-    # 성공한 심볼을 기억해 다음 조회는 한 번만 호출한다
-    assert prices._yahoo_symbol_hint['7203'] == '7203.HK'
+def test_fetch_yahoo_does_not_guess_an_ambiguous_numeric_market(conn):
+    prices.save_price_cache(conn, '7203', 41000)
+    with patch.object(prices, '_http_get') as request:
+        assert prices._fetch_yahoo(conn, '7203') is None
+        assert prices._fetch_price_uncached(conn, '7203', 'KRX') is None
+    request.assert_not_called()
 
 
 def test_fetch_yahoo_uses_remembered_symbol(conn):
-    prices._yahoo_symbol_hint['7203'] = '7203.HK'
-    body = b'{"chart": {"result": [{"meta": {"regularMarketPrice": 41000}}]}}'
+    prices._yahoo_symbol_hint['7203.T'] = '7203.T'
+    body = b'{"chart": {"result": [{"meta": {"symbol":"7203.T","currency":"JPY","regularMarketPrice":41000}}]}}'
     with patch.object(prices, '_http_get', return_value=body) as g:
-        assert prices._fetch_yahoo(conn, '7203') == 41000.0
+        assert prices._fetch_yahoo(conn, '7203.T') == 41000.0
     assert g.call_count == 1
+
+
+def test_fetch_yahoo_discards_legacy_guessed_symbol(conn):
+    prices._yahoo_symbol_hint['7203'] = '7203.HK'
+    with patch.object(prices, '_http_get') as request:
+        assert prices._fetch_yahoo(conn, '7203') is None
+    request.assert_not_called()
+    assert '7203' not in prices._yahoo_symbol_hint
 
 
 def test_fetch_yahoo_forgets_stale_symbol(conn):

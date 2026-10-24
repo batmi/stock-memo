@@ -28,17 +28,19 @@ def get_db():
 
 
 @contextmanager
-def db_conn(*, write=False):
+def db_conn(*, write=False, read=False):
     """요청 핸들러용 DB 연결 컨텍스트 매니저.
 
     예외/조기 반환과 무관하게 연결을 반드시 닫아 누수를 방지합니다.
     commit 은 호출자가 명시적으로 수행합니다. write=True면 첫 조회 전에 쓰기
     트랜잭션을 시작하여 '검사 → 변경' 사이에 다른 쓰기가 끼어들지 못하게 합니다.
+    read=True는 신원과 데이터를 같은 읽기 스냅샷에서 확인합니다. 계정이 삭제된
+    뒤 같은 이름으로 재가입해도 진행 중인 옛 요청이 새 소유자의 행을 읽지 않습니다.
     """
     conn = get_db()
     try:
-        if write:
-            conn.execute('BEGIN IMMEDIATE')
+        if write or read:
+            conn.execute('BEGIN IMMEDIATE' if write else 'BEGIN')
             from app.routes.ownership import validate_owner
             validate_owner(conn)
         yield conn

@@ -61,11 +61,12 @@ window.onMarkdownPasteButton = async function() {
     window.quill.focus();
 };
 
-window.addEventListener('DOMContentLoaded', () => {
+window.initializeMarkdownEditor = function() {
     // 04-init.js 의 DOMContentLoaded 가 먼저 등록돼 있어 이 시점엔 편집기가 만들어져 있다.
     const q = window.quill;
     const container = document.getElementById('editor-container');
-    if (!q || !container || !window.marked) return;
+    if (!q || !container || !window.marked || q.__markdownReady) return;
+    q.__markdownReady = true;
 
     const btn = document.querySelector('#journalForm .ql-toolbar button.ql-markdown');
     if (btn) { btn.textContent = 'MD'; btn.setAttribute('aria-label', '마크다운으로 붙여넣기'); }
@@ -103,4 +104,5 @@ window.addEventListener('DOMContentLoaded', () => {
         e.stopPropagation();
         window.insertMarkdownToQuill(text);
     }, true);
-});
+};
+window.addEventListener('DOMContentLoaded', () => window.initializeMarkdownEditor());

@@ -16,7 +16,7 @@ import backend_app
 import config
 from app.services import accounts, images, jobs
 from app.utils import statscache
-from helpers import _ensure_user, _login
+from helpers import _ensure_user, _login, _user_id
 
 
 def _make_admin(client, username='boss'):
@@ -130,7 +130,7 @@ def test_stats_cache_is_bounded_by_granularity(app):
         assert client.get('/api/journal/stats', query_string={'granularity': f'junk-{i}'}).status_code == 400
     client.get('/api/journal/stats', query_string={'granularity': 'weekly'})
     keys = [k for k in statscache._stats_cache if k[0] == 'trader']
-    assert keys == [('trader', 'journal-index')]  # 집계 단위와 무관한 거래 인덱스 하나뿐
+    assert keys == [('trader', 'journal-index', _user_id('trader'))]  # 계정 세대마다 거래 인덱스 하나뿐
 
 
 # ---------------------------------------------------------------------------

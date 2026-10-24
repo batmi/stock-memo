@@ -27,6 +27,11 @@ setupAutocomplete('stockName', 'stockNameList', getStockOptions);
 function autoFillStockInfo(e) {
     const val = (e.type === 'itemSelected' && e.detail) ? e.detail.value : this.value.trim();
     if (!val) return;
+    const previousName = this.dataset.resolvedName || editingEntry?.stockName || '';
+    if (previousName === val) return;
+    this.dataset.resolvedName = val;
+    // A changed name must never retain the code of the previously selected stock.
+    if (previousName) document.getElementById('stockCode').value = '';
 
     // ⭐️ 이미 숨김 처리된 종목이면 체크박스를 켜둔 상태로 시작한다.
     //    (기록을 하나 추가했다는 이유만으로 숨김이 풀리는 것을 방지)
@@ -36,18 +41,19 @@ function autoFillStockInfo(e) {
     const recentEntry = journalMeta?.recentEntries[val];
 
     if (recentEntry) {
-        if (recentEntry.stockCode) document.getElementById('stockCode').value = recentEntry.stockCode;
+        document.getElementById('stockCode').value = recentEntry.stockCode || '';
         setEntryCurrency(recentEntry.currency);
-        if (recentEntry.brokerAccount) document.getElementById('brokerAccount').value = recentEntry.brokerAccount;
-        if (recentEntry.subAccount) document.getElementById('subAccount').value = recentEntry.subAccount;
-        if (recentEntry.accountName) document.getElementById('accountName').value = recentEntry.accountName;
-
-        // ⭐️ 계좌는 화면상 '매매 계좌' 드롭다운으로 입력되므로 숨김 필드와 함께 선택값도 맞춰준다.
-        syncJournalAccountSelect(recentEntry.subAccount);
+        // Only fill an empty new form; an existing trade or explicitly chosen account owns its values.
+        if (!editingEntryId && !document.getElementById('subAccount').value) {
+            document.getElementById('brokerAccount').value = recentEntry.brokerAccount || '';
+            document.getElementById('subAccount').value = recentEntry.subAccount || '';
+            document.getElementById('accountName').value = recentEntry.accountName || '';
+            syncJournalAccountSelect(recentEntry.subAccount);
+        }
 
         // ⭐️ 투자 분류도 직전 기록 값으로 자동 선택 (목록에 없는 이전 값은 건드리지 않음)
         const classSelect = document.getElementById('tradeClass');
-        if (classSelect && recentEntry.tradeClass) {
+        if (classSelect && !classSelect.value && recentEntry.tradeClass) {
             const hasOption = Array.from(classSelect.options).some(opt => opt.value === recentEntry.tradeClass);
             if (hasOption) classSelect.value = recentEntry.tradeClass;
         }
@@ -85,9 +91,14 @@ stockNameInput.addEventListener('keydown', function(e) {
     }
 });
 
-function resetAndCloseForm() {
+function resetAndCloseForm({ saved = false } = {}) {
+    if (submitBtn.disabled && !saved) return;
+    if (!saved) window.saveEditorDraft?.();
+    cancelUIRequest('edit');
+    const generation = ++formGeneration;
     formModalOverlay.classList.add('closing');
     setTimeout(() => {
+        if (generation !== formGeneration) return;
         formModalOverlay.style.display = 'none';
         formModalOverlay.classList.remove('closing');
         document.body.style.overflow = ''; // ⭐️ 모달 닫힘 시 배경 스크롤 복구
@@ -98,8 +109,11 @@ function resetAndCloseForm() {
         calcTotalAmount();
         
         if (window.quill) window.quill.setContents([]); // 에디터 초기화
+        window.pendingEditorHtml = '';
         editingEntryId = null;
-    editingEntry = null;
+        editingEntryRevision = null;
+        editingEntry = null;
+        delete document.getElementById('stockName').dataset.resolvedName;
         submitBtn.innerText = "기록";
         const tradeRadio = document.querySelector('input[name="recordType"][value="trade"]');
         if(tradeRadio) { tradeRadio.checked = true; toggleFormUI('trade'); }
@@ -116,7 +130,7 @@ function resetAndCloseForm() {
 }
 
 // ⭐️ Flatpickr 초기화 (날짜 및 시간 선택기)
-window.tradeDatePicker = flatpickr("#tradeDate", {
+window.tradeDatePicker = typeof flatpickr === 'function' ? flatpickr("#tradeDate", {
     enableTime: true,
     dateFormat: "Y-m-d\\TH:i",
     locale: "ko",
@@ -165,11 +179,13 @@ window.tradeDatePicker = flatpickr("#tradeDate", {
             instance.timeContainer.appendChild(nowBtn);
         }
     }
-});
+}) : null;
+if (!window.tradeDatePicker) document.getElementById('tradeDate').type = 'datetime-local';
 
 const now = new Date();
 now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-window.tradeDatePicker.setDate(now.toISOString().slice(0,16));
+if (window.tradeDatePicker) window.tradeDatePicker.setDate(now.toISOString().slice(0,16));
+else document.getElementById('tradeDate').value = now.toISOString().slice(0,16);
 
 // ⭐️ 총 금액 자동 계산 로직
 function calcTotalAmount() {
@@ -276,6 +292,8 @@ document.getElementById('tagInput').addEventListener('keydown', function(e) {
 
 // ⭐️ 에디터 내부에 이미지를 압축하여 삽입하는 함수
 window.resizeAndInsertImageToQuill = function(file, customIndex) {
+    const generation = formGeneration;
+    if (!window.quill) return;
     // ⭐️ 캡처된 커서 위치(customIndex)가 없으면 현재 위치 사용
     let insertIndex = customIndex;
     if (insertIndex === undefined) {
@@ -288,6 +306,7 @@ window.resizeAndInsertImageToQuill = function(file, customIndex) {
     reader.onload = function(event) {
         const img = new Image();
         img.onload = function() {
+            if (generation !== formGeneration || !window.quill) return;
             const canvas = document.createElement('canvas');
             const MAX_WIDTH = 1200; // 본문 삽입용 최대 해상도 제한
             let width = img.width;

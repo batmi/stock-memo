@@ -17,6 +17,7 @@ import re
 import json
 import time
 import logging
+import math
 import http.client
 import threading
 import datetime as _dt
@@ -29,6 +30,10 @@ from app.utils.memcache import TTLCache
 class FallbackPrice(float):
     """API 통신 실패로 인해 DB 캐시에서 읽어온 가격임을 프시하기 위한 커스텀 float 클래스."""
     pass
+
+
+class CachedPrice(float):
+    """통신은 성공했지만 아직 새 체결이 없어 이전 시세를 사용하는 상태."""
 
 logger = logging.getLogger('prices')
 
@@ -500,7 +505,7 @@ def _fetch_kr(conn, code_str, market_mode):
             #       NXT 체결이 없는 정상 상황이라, '외부 API 지연' 배너를 띄우면 틀린 안내다.
             cached_nxt = load_price_cache(conn, code_str, 'NXT')
             if cached_nxt:
-                return cached_nxt
+                return CachedPrice(cached_nxt)
 
         # 3) KRX 시세 (정규장·애프터마켓 실시간, 마감 후에는 종가).
         #    프리마켓에서 NXT 가 없을 때의 폴백이기도 하다 — NXT 슬롯을
@@ -533,22 +538,18 @@ def _fetch_kr(conn, code_str, market_mode):
 #    시장별 후보 접미사를 순서대로 시도하고, 성공한 심볼은 기억해 두어 다음
 #    조회부터는 곧바로 맞는 심볼 하나만 호출한다. (불필요한 404 왕복 제거)
 #    국내 종목은 야후로 조회하지 않는다(_fetch_price_uncached 참고)라 'KR' 은 없다.
-_YAHOO_SUFFIXES = {
-    'OTHER_ASIAN': ('.T', '.HK'),   # 일본(도쿄) / 홍콩
-}
 _yahoo_symbol_hint = {}  # code_str -> 실제로 성공했던 야후 심볼
 
 
 def _yahoo_symbol_candidates(code_str):
-    """야후에 질의할 심볼 후보를 우선순위대로 반환."""
+    """명시된 심볼만 조회한다. 숫자 코드는 거래소가 포함된 assets API를 사용한다."""
+    if detect_market(code_str) == 'OTHER_ASIAN':
+        _yahoo_symbol_hint.pop(code_str, None)
+        return []
     hint = _yahoo_symbol_hint.get(code_str)
     if hint:
         return [hint]
-    suffixes = _YAHOO_SUFFIXES.get(detect_market(code_str))
-    if not suffixes:
-        return [code_str]
-    # 접미사 후보를 먼저, 마지막으로 원본 코드(접미사 없는 심볼)도 시도
-    return [code_str + sfx for sfx in suffixes] + [code_str]
+    return [code_str]
 
 
 def _fetch_yahoo(conn, code_str):
@@ -557,8 +558,12 @@ def _fetch_yahoo(conn, code_str):
         try:
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
             res_data = json.loads(_http_get(url, _YAHOO_HEADERS))
-            price = res_data['chart']['result'][0]['meta']['regularMarketPrice']
-            if price is None:
+            meta = res_data['chart']['result'][0]['meta']
+            expected_currency = 'HKD' if symbol.endswith('.HK') else 'JPY' if symbol.endswith('.T') else 'USD'
+            if (meta.get('currency') != expected_currency or meta.get('symbol') != symbol):
+                continue
+            price = meta['regularMarketPrice']
+            if isinstance(price, bool) or not isinstance(price, (int, float)) or not math.isfinite(price) or price <= 0:
                 continue
             _yahoo_symbol_hint[code_str] = symbol
             save_price_cache(conn, code_str, float(price), DEFAULT_CACHE_MARKET)
@@ -576,6 +581,9 @@ def _fetch_price_uncached(conn, code_str, market_mode):
         return _fetch_gold(conn, code_str)
 
     market_type = detect_market(code_str)
+    if market_type == 'OTHER_ASIAN':
+        # 이전 버전이 다른 거래소 값으로 저장한 캐시도 재사용하지 않는다.
+        return None
 
     # ⭐️ 국내 종목은 네이버만 쓴다. 야후 폴백을 두었지만 _fetch_kr 이 통신 실패 때
     #    먼저 캐시를 돌려주므로 캐시가 있으면 닿지 않았고, 닿더라도 야후의 국내 시세는

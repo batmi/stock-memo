@@ -133,6 +133,12 @@ def register(app):
         #    413 대신 500 이 됐다. 클라이언트가 '잘못된 요청'과 '서버 장애'를 구분할 수
         #    없었고, 평범한 404 한 건마다 스택 트레이스가 ERROR 로 쌓였다.
         if isinstance(e, HTTPException):
+            if e.code == 503 and request.path.startswith('/api/'):
+                response = jsonify(error=e.description)
+                response.status_code = 503
+                if getattr(e, 'retry_after', None) is not None:
+                    response.headers['Retry-After'] = str(e.retry_after)
+                return response
             return e
 
         app.logger.error(f"Unhandled Exception: {e}", exc_info=True)

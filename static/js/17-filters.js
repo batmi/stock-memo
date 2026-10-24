@@ -249,7 +249,11 @@ if (btnChartViewEl) {
     });
 }
 
-document.getElementById('btnPrevMonth').addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); renderCalendar(); });
-document.getElementById('btnNextMonth').addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); renderCalendar(); });
+function shiftCalendarMonth(delta) {
+    currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + delta, 1);
+    renderCalendar();
+}
+document.getElementById('btnPrevMonth').addEventListener('click', () => shiftCalendarMonth(-1));
+document.getElementById('btnNextMonth').addEventListener('click', () => shiftCalendarMonth(1));
 
 // ⭐️ 모바일 당겨서 새로고침 (Pull-to-Refresh) 기능

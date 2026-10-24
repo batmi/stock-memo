@@ -115,7 +115,7 @@ if (btnChangePassword && passwordModalOverlay) {
             // 죽은 봇만 지울 수 있게 한다 — 살아 있는 봇은 지워도 10초 뒤 되살아나
             // 버튼이 아무 일도 안 한 것처럼 보인다.
             const removable = b.state !== 'running'
-                ? `<button type="button" class="bot-forget" data-bot-id="${escapeHtml(b.botId)}"`
+                ? `<button type="button" class="bot-forget" data-bot-id="${escapeAttr(escapeHtml(b.botId))}"`
                   + ` title="목록에서 지우기 (가동 중이면 다시 등록됩니다)"`
                   + ` style="margin: 0; padding: 0 4px; width: auto; background: none; border: none;`
                   + ` box-shadow: none; color: var(--text-muted-color); font-size: 11px; cursor: pointer;">✕</button>`
@@ -129,7 +129,7 @@ if (btnChangePassword && passwordModalOverlay) {
             const extra = rest.map(part =>
                 `<div style="color: ${color}; padding-left: 1.4em; overflow: hidden;`
                 + ` text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(part)}</div>`).join('');
-            return `<div title="${escapeHtml(b.botId)}">`
+            return `<div title="${escapeAttr(escapeHtml(b.botId))}">`
                  + '<div style="display: flex; justify-content: space-between; gap: 8px; align-items: center;">'
                  + `<span style="color: ${color}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">`
                  + `${dot} ${escapeHtml(head || name)}</span>`
@@ -173,7 +173,7 @@ if (btnChangePassword && passwordModalOverlay) {
         }
         const previous = select.value;
         const options = bots.map(b =>
-            `<option value="${escapeHtml(b.botId)}">${escapeHtml(b.label || b.botId)}</option>`).join('');
+            `<option value="${escapeAttr(escapeHtml(b.botId))}">${escapeHtml(b.label || b.botId)}</option>`).join('');
         // 갱신 때마다 통째로 다시 그리면 사용자가 고르던 항목이 풀린다 — 목록이
         // 실제로 바뀌었을 때만 교체하고, 선택은 살려 둔다.
         if (select.innerHTML !== options) {
@@ -253,6 +253,9 @@ if (btnChangePassword && passwordModalOverlay) {
             return;
         }
 
+        const scopeNames = { 'trades:read': '거래 조회', 'trades:write': '거래 기록', 'bot:write': '봇 상태·명령' };
+        const scopesText = key => (Array.isArray(key.scopes) ? key.scopes : String(key.scopes || '').split(/[\s,]+/))
+            .filter(Boolean).map(scope => scopeNames[scope] || scope).join(' · ');
         box.innerHTML = active.map(k => `
             <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; padding:3px 0;">
                 <div style="display:flex; flex-direction:column; overflow:hidden;">
@@ -260,6 +263,7 @@ if (btnChangePassword && passwordModalOverlay) {
                         <code>${escapeHtml(k.key_prefix)}…</code>
                         ${escapeHtml(k.label || '')}
                     </span>
+                    <span>${escapeHtml(scopesText(k))}</span>
                     <span style="opacity:0.6; font-size:9.5px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                         최근 사용: ${escapeHtml(k.last_used_at || '없음')}
                     </span>
@@ -288,12 +292,16 @@ if (btnChangePassword && passwordModalOverlay) {
     const btnGenerateApiKey = document.getElementById('btnGenerateApiKey');
     if (btnGenerateApiKey) {
         btnGenerateApiKey.addEventListener('click', async () => {
+            if (btnGenerateApiKey.disabled) return;
+            const scopes = [...document.querySelectorAll('#apiKeyScopes input:checked')].map(input => input.value);
+            if (!scopes.length) { await customAlert('허용할 기능을 하나 이상 선택해주세요.'); return; }
             if (!(await customConfirm("새 API 키를 발급하시겠습니까?\n기존 키를 사용하던 모든 연결이 즉시 끊어집니다."))) return;
+            btnGenerateApiKey.disabled = true;
             try {
                 const res = await fetch('/api/me/api-key', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ label: 'HTS 연동 키' })
+                    body: JSON.stringify({ label: 'HTS 연동 키', scopes })
                 });
                 if(res.ok) {
                     const data = await res.json();
@@ -302,11 +310,12 @@ if (btnChangePassword && passwordModalOverlay) {
                     await customAlert("새 API 키가 발급되었습니다.\n\n⚠️ 이 키는 지금 화면에 표시된 것이 마지막입니다.\n창을 닫기 전에 반드시 복사해 두세요.");
                     fetchApiKeyStatus();
                 } else {
-                    await customAlert("API 키 발급에 실패했습니다.");
+                    const error = await res.json().catch(() => ({}));
+                    await customAlert(error.error || "API 키 발급에 실패했습니다.");
                 }
             } catch(e) {
                 await customAlert("오류가 발생했습니다.");
-            }
+            } finally { btnGenerateApiKey.disabled = false; }
         });
     }
     

@@ -12,7 +12,9 @@ import sqlite3
 from datetime import timezone
 
 from app.database import entry_logic
+from app.services import accounts
 from app.domain.trades import account_identity, currency_of, position_scope, trade_date_for
+from app.domain.validation import PNL_BASES
 
 from .common import KST, _now_kst_str
 from .validation import (
@@ -76,6 +78,9 @@ def build_entry(c, username, data, mappings, *, default_source=None):
 
     price = _num(data['price'], 'price', allow_none=False, minimum=0)
     volume = _num(data['volume'], 'volume', allow_none=False, exclusive_min=0)
+    pnl_basis = data.get('realizedPnlBasis') or 'unknown'
+    if pnl_basis not in PNL_BASES:
+        raise ValidationError('INVALID_FIELD', 'realizedPnlBasis는 gross, net, unknown 중 하나여야 합니다.', 'realizedPnlBasis')
 
     executed_dt, _ = _parse_executed_at(data['executedAt'])
     exchange = _text(data.get('exchange'), 'exchange', 20)
@@ -134,6 +139,7 @@ def build_entry(c, username, data, mappings, *, default_source=None):
         'date': local_kst.strftime('%Y-%m-%d'),
         'rawDate': raw_date,
         'brokerAccount': broker,
+        'brokerIdentity': accounts.broker_identity(broker, mappings),
         'subAccount': sub_account,
         'accountName': account_name,
         'tradeClass': trade_class,
@@ -156,6 +162,7 @@ def build_entry(c, username, data, mappings, *, default_source=None):
         'orderId': _text(data.get('orderId'), 'orderId', 100),
         'originalOrderId': _text(data.get('originalOrderId'), 'originalOrderId', 100),
         'realizedPnl': _num(data.get('realizedPnl'), 'realizedPnl'),
+        'realizedPnlBasis': pnl_basis,
         'realizedPnlRate': _num(data.get('realizedPnlRate'), 'realizedPnlRate'),
         'fee': _num(data.get('fee'), 'fee', minimum=0),
         'tax': _num(data.get('tax'), 'tax', minimum=0),
@@ -193,6 +200,7 @@ def entry_to_response(row):
         'originalOrderId': row.get('originalOrderId') or None,
         'realizedPnl': row.get('realizedPnl'),
         'realizedPnlSource': row.get('realizedPnlSource'),
+        'realizedPnlBasis': row.get('realizedPnlBasis') or 'unknown',
         'realizedPnlRate': row.get('realizedPnlRate'),
         'fee': row.get('fee'),
         'tax': row.get('tax'),

@@ -25,7 +25,7 @@ from app.database import entry_logic
 from app.database.db import db_conn
 from app.domain.validation import normalize_web_entry
 from app.domain.trades import KST, parse_entry_dt, trade_date_for
-from app.services import images, realized_pnl
+from app.services import accounts, images, realized_pnl
 from app.utils import statscache
 from app.utils.userlocks import serialized_user_change
 
@@ -49,8 +49,9 @@ class OversellConflict(Exception):
 # 봇 PATCH 가 이 칸들을 건드릴 때만 매도 자신을 다시 잰다. 메모 한 줄 고쳤다고
 # 사람이 이미 확인을 마친 옛 매도에 표시가 되살아나면 안 된다.
 _HOLDING_COLUMNS = frozenset({'quantity', 'tradeStatus', 'stockName', 'stockCode', 'tradeType', 'type',
-                              'brokerAccount', 'subAccount', 'accountName', 'currency', 'rawDate', 'date'})
-_PNL_COLUMNS = _HOLDING_COLUMNS | {'price', 'realizedPnl', 'realizedPnlSource'}
+                              'brokerAccount', 'brokerIdentity', 'subAccount', 'accountName', 'currency',
+                              'rawDate', 'date', 'tradeDate', 'exchange'})
+_PNL_COLUMNS = _HOLDING_COLUMNS | {'price', 'realizedPnl', 'realizedPnlSource', 'realizedPnlBasis'}
 
 
 def _refresh_pnl_if_changed(conn, username, before, after):
@@ -166,10 +167,19 @@ def update(username, entry_id, entry, *, force=False):
         # 연동 원본과 누락된 값은 보존한다. 웹 폼은 체결 ID·통화 등을 보내지 않는다.
         allowed = set(entry_logic.WEB_UPDATE_COLUMNS)
         entry = dict(old, **{k: v for k, v in entry.items() if k in allowed})
+        if entry.get('brokerAccount') != old['brokerAccount']:
+            entry['brokerIdentity'] = None
+        entry = accounts.identify_entry(entry, accounts.load(conn, username))
         try:
             entry = normalize_web_entry(entry)
         except ValueError as exc:
             raise InvalidEntry(str(exc)) from exc
+
+        derived = {}
+        if (old['executedAtUtc'] or old['tradeDate']) and (
+                entry.get('rawDate') != old['rawDate'] or entry.get('exchange') != old['exchange']):
+            derived = _derived_time_fields(entry)
+            entry.update(derived)
 
         # 수정 중인 기록 자신은 집계에서 뺀다.
         error = (entry_logic.validate_trade_entry(c, username, entry, exclude_id=entry_id)
@@ -187,9 +197,8 @@ def update(username, entry_id, entry, *, force=False):
         entry, created = images.store_inline_images(username, entry)
         try:
             entry_logic.update_entry_row(c, entry_id, username, entry)
-            if (old['executedAtUtc'] or old['tradeDate']) and (
-                    entry.get('rawDate') != old['rawDate'] or entry.get('exchange') != old['exchange']):
-                entry_logic.update_columns(c, entry_id, username, _derived_time_fields(entry))
+            if derived:
+                entry_logic.update_columns(c, entry_id, username, derived)
             flagged = _flag_oversold(c, username, old, conflict) if conflict else []
             if old['type'] == 'trade' or entry.get('type') == 'trade':
                 _refresh_pnl_if_changed(conn, username, dict(old), entry)

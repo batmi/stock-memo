@@ -20,9 +20,29 @@ window.addEventListener('unhandledrejection', function(e) {
 //    화면이 로딩 상태로 영영 고착된다. AbortController로 타임아웃을 강제해 무한 대기를 방지한다.
 function fetchWithTimeout(url, options = {}, timeout = 15000) {
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    if (options.signal?.aborted) abort();
+    else options.signal?.addEventListener('abort', abort, { once: true });
     const id = setTimeout(() => controller.abort(), timeout);
     return fetch(url, { ...options, signal: controller.signal })
-        .finally(() => clearTimeout(id));
+        .finally(() => {
+            clearTimeout(id);
+            options.signal?.removeEventListener('abort', abort);
+        });
+}
+
+// A later action owns its screen. Closing that screen also invalidates pending work.
+const uiRequestScopes = new Map();
+function cancelUIRequest(slot) {
+    uiRequestScopes.get(slot)?.abort();
+    uiRequestScopes.delete(slot);
+}
+function beginUIRequest(slot) {
+    cancelUIRequest(slot);
+    const controller = new AbortController();
+    uiRequestScopes.set(slot, controller);
+    return { signal: controller.signal,
+        current: () => uiRequestScopes.get(slot) === controller && !controller.signal.aborted };
 }
 
 // ⭐️ HTML head 인라인 스크립트(window.__initialFetches)가 문서 파싱 시작 시점에

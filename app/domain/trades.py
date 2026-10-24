@@ -30,7 +30,7 @@ def account_identity(entry):
 
 
 def position_scope(entry):
-    return (entry.get('brokerAccount') or '').strip(), account_identity(entry), currency_of(entry)
+    return (entry.get('brokerIdentity') or entry.get('brokerAccount') or '').strip(), account_identity(entry), currency_of(entry)
 
 
 def position_key(entry):
@@ -41,6 +41,10 @@ def account_group_key(entry):
     """화면의 계좌 그룹도 증권사를 구분한다. 번호만 있던 기존 필터는 유지한다."""
     broker, account, _ = position_scope(entry)
     return json.dumps([broker, account], ensure_ascii=False, separators=(',', ':')) if broker else account
+
+
+def split_scope(entry):
+    return json.dumps(list(position_scope(entry)[:2]), ensure_ascii=False, separators=(',', ':'))
 
 
 def resolve_trade_identities(rows):
