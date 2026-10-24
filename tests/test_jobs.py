@@ -23,8 +23,8 @@ def test_repeated_start_does_not_duplicate_live_jobs(monkeypatch):
         thread.return_value.is_alive.return_value = True
         jobs.start_all()
         jobs.start_all()
-        assert thread.call_count == 2
-        assert thread.return_value.start.call_count == 2
+        assert thread.call_count == 3
+        assert thread.return_value.start.call_count == 3
 
 
 @patch('time.sleep')
@@ -186,7 +186,7 @@ def test_backup_job_skips_unsafe_username(client, tmp_path, monkeypatch):
 @patch('threading.Thread.start')
 def test_start_all(mock_start):
     jobs.start_all()
-    assert mock_start.call_count == 2
+    assert mock_start.call_count == 3
 
 
 @patch('time.sleep')

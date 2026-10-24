@@ -62,6 +62,7 @@ function statsMoney(v, currency = displayCurrency) {
 
 window.loadTradeStats = async function() {
     if (!inlineStatsContainer) return;
+    resetStatsCurveRequest();
     syncStatsControls();
     ++statsDetailTicket;
     statsLastQuery = statsLastReport = null;
@@ -108,7 +109,9 @@ function renderTradeStats(s) {
     if (!s || (s.sellCount === 0 && s.buyCount === 0 && s.dividendCount === 0)) {
         inlineStatsContainer.innerHTML = (s ? statsPeriodSummary(s) + renderStatsComparison(s) + renderStatsGroups(s) : '')
             + '<p class="stats-empty">선택한 조건에 분석할 매매 기록이 없습니다.</p>'
+            + (s ? statsCurveSection() : '')
             + '<section id="statsTradeDetails" class="stats-section" hidden aria-live="polite"></section>';
+        if (s) showStatsCurve(s);
         return;
     }
 
@@ -131,16 +134,13 @@ function renderTradeStats(s) {
     // 분석 기간은 차트 이동과 독립적이며, 월간/주간은 표의 묶음 단위다.
     let html = statsPeriodSummary(s) + renderStatsComparison(s);
 
-    // 손익 — 수수료·세금은 기록된 건만 더하므로, 기록이 없으면 0원이 아니라 '기록 없음'이다
+    // 손익 — 비용 기록이 있으면 차감 후 순손익을 별도로 표시한다.
     const hasCost = s.costRecordCount > 0;
     const pnlCards = [
         card('총 손익 (실현+배당)', statsMoney(s.totalPnl, currency), statsColor(s.totalPnl), '', 'pnl'),
         card('실현 손익', statsMoney(s.totalRealized, currency), statsColor(s.totalRealized), '', 'sell'),
         card('배당 수익', statsMoney(s.totalDividend, currency), statsColor(s.totalDividend), '', 'dividend'),
         card('실현 수익률 (원금 대비)', statsRate(s.realizedReturnRate), statsColor(s.realizedReturnRate || 0)),
-        card('수수료·세금', hasCost ? statsMoney(-s.totalCost, currency) : '기록 없음',
-            hasCost ? statsColor(-s.totalCost) : 'var(--text-muted-color)',
-            hasCost ? `${s.costRecordCount.toLocaleString()}건 기준` : ''),
     ];
     if (hasCost) pnlCards.push(card('순손익 (비용 차감)', statsMoney(s.netPnl, currency), statsColor(s.netPnl)));
     // ⭐️ 매수는 빨강, 매도는 파랑 (국내 호가창 관행)
@@ -178,15 +178,7 @@ function renderTradeStats(s) {
         card('손실 거래 보유기간', statsDays(s.avgHoldingDaysLoss), 'var(--primary-color, #3b82f6)'),
     ], holdNote);
 
-    // 누적 실현손익 곡선 — 날짜가 이틀 이상이어야 선이 된다
-    const curve = s.equityCurve || [];
-    if (curve.length >= 2) {
-        html += '<h4 style="font-size:13px; margin:18px 0 4px; color:var(--text-strong-color);">📈 누적 실현손익 (배당 포함)</h4>';
-        if (s.maxDrawdownTroughDate) {
-            html += '<div style="font-size:11px; color:var(--text-muted-color); margin-bottom:6px;"><span style="color:var(--warning-color, #f39c12); font-weight:bold;">━</span> 최대 낙폭 구간</div>';
-        }
-        html += '<div style="position:relative; height:180px;"><canvas id="statsEquityChart"></canvas></div>';
-    }
+    html += statsCurveSection();
 
     const thStyle = 'padding:8px; text-align:right; font-weight:bold; color:var(--text-strong-color); border-bottom:2px solid var(--border-color); white-space:nowrap;';
     const tdStyle = 'padding:7px 8px; text-align:right; border-bottom:1px solid var(--border-color); white-space:nowrap;';
@@ -254,19 +246,21 @@ function renderTradeStats(s) {
     html += renderStatsQuality(s) + renderStatsGroups(s) + renderStatsDistribution(s) + renderStatsRecovery(s);
     html += '<section id="statsTradeDetails" class="stats-section" hidden aria-live="polite"></section>';
     html += '<p style="font-size:11px; color:var(--text-muted-color); margin-top:14px; line-height:1.5;">'
-        + '※ 실현손익은 이동평균단가 방식으로 계산되며, 보유기간은 선입선출(FIFO) 기준 추정치입니다. 미실현(평가) 손익은 포함되지 않습니다.<br>'
+        + '※ 실현손익은 매도 거래에 저장된 금액을 합산합니다. 금액이 없는 기록은 당시 체결 이력으로 재구성해 저장하며, 근거 거래에서 구분합니다. 보유기간은 선입선출(FIFO) 기준 추정치입니다.<br>'
         + '※ 수익률은 매도 수량의 평단 원금 대비이며, 매수 기록이 없는 매도는 수익률 계산에서 제외됩니다.<br>'
         + '※ 수수료·세금은 기록에 입력된 건만 합산합니다. 최대 낙폭은 누적 실현손익(배당 포함)이 고점에서 내려간 최대 금액입니다.'
         + '</p>';
 
     inlineStatsContainer.innerHTML = html;
-    if (curve.length >= 2) renderStatsEquityChart(s);
+    showStatsCurve(s);
 }
 
 // 누적 실현손익 곡선. 0원 위는 빨강, 아래는 파랑으로 칠하고 최대 낙폭 구간을 주황 선으로 겹친다.
-function renderStatsEquityChart(s) {
+function renderStatsEquityChart(s, evaluated = false) {
     const canvas = document.getElementById('statsEquityChart');
     if (!canvas || typeof Chart === 'undefined') return;
+    window.statsEquityChartInstance?.destroy();
+    window.statsEquityChartInstance = null;
 
     const css = getComputedStyle(document.documentElement);
     const up = css.getPropertyValue('--danger-color').trim() || '#e74c3c';
@@ -277,11 +271,17 @@ function renderStatsEquityChart(s) {
     const curve = s.equityCurve;
     const labels = curve.map(p => p.date);
     const datasets = [{
-        label: '누적 실현손익',
+        label: evaluated ? '평가손익' : '누적 실현손익',
         data: curve.map(p => p.value),
         borderColor: up,
         borderWidth: 2,
-        pointRadius: 0,
+        // 누락 사이의 하루짜리 값은 연결할 선이 없으므로 점으로 표시한다.
+        pointRadius: evaluated ? curve.map((p, i) => p.value !== null
+            && curve[i - 1]?.value == null && curve[i + 1]?.value == null ? 3 : 0) : (curve.length === 1 ? 3 : 0),
+        pointBackgroundColor: curve.map(p => p.value < 0 ? down : up),
+        pointBorderColor: curve.map(p => p.value < 0 ? down : up),
+        pointHoverRadius: 3,
+        spanGaps: false,
         tension: 0,
         segment: { borderColor: ctx => (ctx.p1.parsed.y < 0 ? down : up) },
     }];

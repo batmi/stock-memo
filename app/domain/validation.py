@@ -92,7 +92,7 @@ def normalize_restored_entry(data):
     entry = dict(data)
     text_fields = set(TEXT_LIMITS) | {
         'tradeStatus', 'confidence', 'orderOrigin', 'source', 'orderId',
-        'originalOrderId', 'executedAtUtc', 'tradeDate', 'reviewReason',
+        'originalOrderId', 'executedAtUtc', 'tradeDate', 'reviewReason', 'realizedPnlSource',
     }
     for field in text_fields:
         if entry.get(field) is not None and not isinstance(entry[field], str):

@@ -188,6 +188,7 @@ def entry_to_response(row):
         'orderId': row.get('orderId') or None,
         'originalOrderId': row.get('originalOrderId') or None,
         'realizedPnl': row.get('realizedPnl'),
+        'realizedPnlSource': row.get('realizedPnlSource'),
         'realizedPnlRate': row.get('realizedPnlRate'),
         'fee': row.get('fee'),
         'tax': row.get('tax'),

@@ -282,8 +282,9 @@ functions directly; switching to modules would break all of them.)
     changes when the content does.
 
 Performance metrics are calculated by `app/services/stats.py`; portfolio, calendar and
-chart aggregates are calculated by `app/services/journal.py`. The browser renders those
-results and applies current prices to the chart's remaining positions. Stock identity
+chart aggregates are calculated by `app/services/journal.py`. Historical valuation is
+calculated by `app/services/valuation.py` using dated holdings and closes. Current prices
+are used for portfolio quotes and monthly/weekly valuation bars. Stock identity
 and flat-position checks still use `static/calc.js`. The existing statistics snapshots
 and `tests/test_journal_api.py` check calculation parity.
 
@@ -297,7 +298,7 @@ The screens, statistics and sell validation share the rules in `app/domain/trade
     entry id (creation time) (`stats.parse_entry_dt`). Average cost depends on the order of
     fills, so the screens and statistics must use the same order to agree on realized profit.
 *   **Accounts and currencies**: calculate cost per account, currency and stock before combining results. Sell validation cannot borrow another account's holdings, another currency or a future purchase. The main screen has no currency selector. Portfolio, chart and statistics aggregates choose a currency from trades matching the selected stock, account and classification: KRW if present, otherwise the first currency in code order. Selecting a USD stock or account therefore shows USD even when other entries use KRW. Each view formats amounts using its response currency; the calendar keeps the default currency for the entire journal. Unfiltered history includes every currency, and an explicit API `currency` filter overrides automatic selection. There is no FX conversion; legacy entries without a currency use KRW.
-*   **Classification filters**: cost and holding periods use the complete fill history for each account, currency and stock; only metric accumulation is filtered. Purchases under another classification still contribute to the cost of a sale. Remaining quantities belong to their purchase records and all subsequent sales consume them in FIFO order. Portfolio cost uses the account's moving average; chart evaluation of purchase lots uses their original cost.
+*   **Classification filters**: cost and holding periods use the complete fill history for each account, currency and stock; only metric accumulation is filtered. Purchases under another classification still contribute to the cost of a sale. Remaining quantities belong to their purchase records and subsequent sales consume them in FIFO order. Portfolio and historical valuation in analysis use the account's moving-average cost; monthly/weekly bars use each remaining purchase lot's original cost.
 *   **Trading day**: when present, `tradeDate` determines daily, monthly and weekly aggregates and history date filters using the exchange's local date. Other entries use their recorded time. Editing a bot entry's time also updates its UTC timestamp and trading day.
 
 Writes use `db_conn(write=True)` before validation, covering concurrent sales and first-admin selection. Web edits merge only allowed fields and preserve omitted bot metadata. Invalid numbers, including booleans and non-finite values, are rejected; numeric strings remain accepted. Backups and attachment changes also share user locks (`app/utils/userlocks.py`), under the existing single-process deployment requirement.
@@ -310,6 +311,55 @@ same calendar day three months ago, clamped to month-end when needed. A selected
 is compared with the immediately preceding **equal number of days**, in the same currency.
 Analysis dates are independent of chart navigation; monthly/weekly controls only change
 table grouping. Earlier fills still determine average cost and FIFO holding periods.
+
+Analysis charts switch between cumulative realized P&L and **historical unrealized P&L**.
+The latter replays daily holdings and average cost against that day's closing prices,
+excluding dividends, realized gains and costs. Monthly/weekly valuation bars retain
+their original behavior: current remaining positions are grouped by purchase period,
+then valued at current prices against FIFO purchase-lot cost. They do not fetch historical
+closes. Clicking a bar shows the stock breakdown. The fee/tax summary card is hidden;
+cost calculations and supporting records remain available.
+
+`historical_provider.py` fetches Yahoo Finance daily closes for Korean stocks/ETFs
+(`.KS`/`.KQ`, KRW) and US tickers (USD), validating their currency and market timezone.
+Alphanumeric Korean stock codes are supported. KRX spot gold (`KRXGOLD`/`GOLD`, KRW)
+uses Naver's domestic gold closes in **KRW per gram**, validating the exchange and unit
+and seeking the relevant history pages instead of fetching the entire history.
+It reverses split adjustment, including splits after the requested range, and applies
+splits to historical holdings without changing trade records. Dividend-adjusted prices
+are not used. Separately recorded quantity adjustments require checking for duplicates.
+Unsupported symbols, delistings and unavailable history remain explicitly incomplete.
+See [Yahoo's adjusted-price explanation](https://in.help.yahoo.com/kb/adjusted-close-sln28256.html).
+
+Realized P&L uses each trade's stored `realizedPnl` consistently across the portfolio,
+calendar, charts and analysis. `realized_pnl.py` backfills missing amounts at startup,
+then refreshes reconstructed amounts within trade write, correction, deletion and restore
+transactions. It replays actual fills up to each sale using account/currency/stock-specific
+average cost, without future purchases or current quotes. `realizedPnlSource` distinguishes
+provided amounts (`recorded`, including zero) from `reconstructed` values. Provided amounts
+are never replaced by reconstruction. Insufficient purchase history leaves `unavailable`
+P&L excluded from totals, with provenance shown in analysis quality and trade details.
+
+* SQLite stores daily prices, missing/closed dates and a persistent collection queue.
+  Requests return cached results and enqueue missing ranges; external collection runs
+  one job at a time across processes, in chunks of at most one year.
+* Viewing valuation subscribes the user to scheduled collection. At startup and hourly,
+  the worker checks records and fills gaps. Exchange-local closes become eligible after
+  18:00. The latest seven days are rechecked daily; changed split data invalidates older
+  cached ranges. Scheduling itself is bounded to 100 symbols and one year per batch.
+* Failures retry up to five times with exponential backoff starting at 30 seconds, then
+  wait one day. Missing prices are rechecked daily. Manual retries have a 60-second
+  cooldown. A persisted 180-second lease recovers interrupted jobs without duplicate writes.
+* Holidays use the preceding session's close. Any required missing quote makes that
+  day's total `null`, creating a gap rather than a fabricated zero or interpolated P&L.
+* Interactive queries support 30 years and 300 symbols, with a 500,000 symbol-calendar-day
+  limit for daily charts. Larger journals can narrow the range or account/stock filters.
+
+`/api/journal/stats/evaluation` accepts analysis filters, dates and a data version. POST
+subscribes and reads; GET polls and fills missing cache ranges. This API serves the
+analysis panel's daily valuation graph. Responses are `no-store` because quotes update independently
+of trades. Tables are created at startup. Rebuildable quote caches are excluded from user
+ZIP exports and included in full database snapshots.
 
 `app/services/analysis.py` uses trade facts produced by the existing `stats.py` calculation
 to build data-quality, classification/account, distribution and drawdown-recovery views.

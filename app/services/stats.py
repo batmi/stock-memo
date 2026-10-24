@@ -56,8 +56,8 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
                         trade_facts=None):
     """매매 기록 리스트로부터 성과 분석 지표를 계산합니다.
 
-    실현손익은 프론트엔드 대시보드와 동일한 이동평균단가(average-cost) 방식으로,
-    보유기간은 FIFO 로트 매칭으로 추정합니다.
+    실현손익은 거래별 저장 금액을 사용하며, 보유기간은 FIFO 로트 매칭으로 추정합니다.
+    저장 금액이 없는 구버전 입력만 당시 이동평균 원가로 계산합니다.
 
     period_start / period_end ('YYYY-MM-DD', 종료일 포함)를 주면 해당 구간의 체결만
     집계합니다. 단, 평단(avgPrice)은 구간 이전 매수까지 모두 반영해야 실현손익이
@@ -117,6 +117,7 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
     total_realized = 0.0      # 매도 실현손익 합계
     total_dividend = 0.0      # 배당 수익 합계
     buy_count = sell_count = dividend_count = 0
+    known_pnl_sell_count = 0
     win_count = loss_count = 0
     gross_profit = 0.0        # 이익 매도건 손익 합
     gross_loss = 0.0          # 손실 매도건 손익 절댓값 합
@@ -157,6 +158,7 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
 
         p = portfolio.setdefault(position_key(t), dict(empty_holding(), lots=deque()))
         inw = in_window(day) and (include is None or include(t))
+        known_pnl = t.get('realizedPnlSource') != 'unavailable'
         profit = basis = dividend = 0.0
         holding_days = None
         missing_qty = max(0.0, qty - p['qty']) if ttype == '매도' else 0.0
@@ -199,6 +201,7 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
 
             if inw:
                 sell_count += 1
+                known_pnl_sell_count += known_pnl
                 total_realized += profit
                 monthly[mkey]['realized'] += profit
                 monthly[mkey]['sellAmount'] += vol
@@ -230,10 +233,10 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
                     loss_streak += 1
                     win_streak = 0
                     max_loss_streak = max(max_loss_streak, loss_streak)
-                if dt:
+                if dt and known_pnl:
                     realized_events.append((day, profit))
 
-                sell_rate = _rate(profit, basis)
+                sell_rate = _rate(profit, basis) if known_pnl else None
                 if sell_rate is not None:
                     sold_basis += basis
                     basis_profit += profit
@@ -286,7 +289,9 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
                 'period': mkey, 'stock': t['stockName'].strip(), 'identity': stock,
                 'stockCode': normalize_stock_code(t.get('stockCode')), 'tradeType': ttype,
                 'quantity': qty, 'price': price, 'realized': profit, 'basis': basis,
-                'dividend': dividend, 'returnRate': _rate(profit, basis) if ttype == '매도' else None,
+                'realizedSource': (t.get('realizedPnlSource') or (
+                    'recorded' if t.get('realizedPnl') is not None else 'reconstructed')) if ttype == '매도' else None,
+                'dividend': dividend, 'returnRate': _rate(profit, basis) if ttype == '매도' and known_pnl else None,
                 'holdingDays': holding_days,
                 'holdingBucket': HOLDING_BUCKETS[_holding_bucket(holding_days)][1]
                     if holding_days is not None else None,
@@ -332,7 +337,7 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
     #    승률이 낮아도 손익비가 크면 남고, 승률이 높아도 손익비가 작으면 잃는다.
     payoff_ratio = (avg_win / avg_loss) if (avg_win > 0 and avg_loss > 0) else None
     # 기대값: 매도 1건당 평균 실현손익 (= 승률×평균수익 − 패율×평균손실, 손익 0 매도 포함)
-    expectancy = (total_realized / sell_count) if sell_count else None
+    expectancy = (total_realized / known_pnl_sell_count) if known_pnl_sell_count else None
     total_cost = total_fee + total_tax
 
     def win_rate_of(v):

@@ -25,7 +25,7 @@ from app.database import entry_logic
 from app.database.db import db_conn
 from app.domain.validation import normalize_web_entry
 from app.domain.trades import KST, parse_entry_dt, trade_date_for
-from app.services import images
+from app.services import images, realized_pnl
 from app.utils import statscache
 from app.utils.userlocks import serialized_user_change
 
@@ -124,6 +124,8 @@ def create(username, entry):
         entry, created = images.store_inline_images(username, dict(entry, id=entry_id))
         try:
             entry_logic.insert_entry(c, username, entry)
+            if entry.get('type') == 'trade':
+                realized_pnl.refresh(conn, username)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -172,6 +174,8 @@ def update(username, entry_id, entry, *, force=False):
                     entry.get('rawDate') != old['rawDate'] or entry.get('exchange') != old['exchange']):
                 entry_logic.update_columns(c, entry_id, username, _derived_time_fields(entry))
             flagged = _flag_oversold(c, username, old, conflict) if conflict else []
+            if old['type'] == 'trade' or entry.get('type') == 'trade':
+                realized_pnl.refresh(conn, username)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -197,6 +201,8 @@ def delete(username, entry_id, *, force=False):
             c.execute("DELETE FROM entries WHERE id = ? AND username = ?", (entry_id, username))
             if conflict:
                 flagged = _flag_oversold(c, username, old, conflict)
+            if old['type'] == 'trade':
+                realized_pnl.refresh(conn, username)
             conn.commit()
     _release_uploads(username, old)
     statscache.invalidate(username)
@@ -236,6 +242,8 @@ def patch_bot_trade(username, entry_id, changes, *, executed_at=None):
         c = conn.cursor()
         old = _load_bot_entry(c, username, entry_id)
         changes = dict(changes)
+        if 'realizedPnl' in changes:
+            changes['realizedPnlSource'] = 'recorded' if changes['realizedPnl'] is not None else None
         after = dict(old, **changes)
         if 'rawDate' in changes:
             changes.update(_derived_time_fields(after, executed_at))
@@ -253,6 +261,7 @@ def patch_bot_trade(username, entry_id, changes, *, executed_at=None):
         if conflict:
             _flag_oversold(c, username, old, conflict)
             warnings.append(conflict[1])
+        realized_pnl.refresh(conn, username)
         conn.commit()
         row = _load(c, username, entry_id)
     # memo 를 바꾸면 웹에서 붙였던 본문 이미지가 빠질 수 있다.
@@ -273,6 +282,7 @@ def delete_bot_trade(username, entry_id):
         if conflict:
             _flag_oversold(c, username, old, conflict)
             warnings.append(conflict[1])
+        realized_pnl.refresh(conn, username)
         conn.commit()
     # 웹에서 이 봇 기록에 본문 이미지를 붙였을 수 있다.
     _release_uploads(username, old)

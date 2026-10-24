@@ -16,7 +16,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import config
-from app.services import prices
+from app.services import prices, historical_prices
 from app.services.backups import verify_backup_zip, write_user_backup
 from app.database.db import db_conn, get_db
 from app.services.users import user_dir
@@ -29,7 +29,8 @@ _threads = {}
 def start_all():
     """데몬 스레드로 백그라운드 작업을 띄운다. 프로세스 종료를 막지 않는다."""
     with _start_lock:
-        for name, target in (('auto-backup', auto_backup_job), ('nxt-close', auto_fetch_nxt_close_job)):
+        for name, target in (('auto-backup', auto_backup_job), ('nxt-close', auto_fetch_nxt_close_job),
+                             ('historical-prices', historical_prices.worker)):
             if name not in _threads or not _threads[name].is_alive():
                 thread = threading.Thread(target=target, daemon=True, name=name)
                 thread.start()

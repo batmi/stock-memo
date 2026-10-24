@@ -26,7 +26,7 @@ from flask import (Flask)
 import config
 import trading_api
 from app.routes import admin, api, auth, backup_api, journal_api, middleware
-from app.services import jobs, migrations, prices
+from app.services import jobs, migrations, prices, realized_pnl
 from app.database import entry_logic, schema
 from app.database.db import get_db, db_conn
 from app.utils import applog, memcache, scriptbundle
@@ -116,6 +116,7 @@ def bootstrap(start_jobs=True):
     # ⭐️ 옛 저장소에서 옮겨 오는 1회성 이관 (이미 끝났으면 즉시 통과)
     migrations.migrate_inline_images()      # 본문 내장 base64 이미지 → 파일
     migrations.migrate_account_mappings()   # json/<username>/account_info.json → DB
+    realized_pnl.backfill()                 # 실현손익이 없는 과거 매도를 체결 이력으로 재구성
 
     if start_jobs:
         jobs.start_all()

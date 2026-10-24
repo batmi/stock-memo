@@ -13,7 +13,7 @@ import config
 from app.database import entry_logic
 from app.database.db import db_conn
 from app.domain.validation import normalize_restored_entry
-from app.services import accounts, images
+from app.services import accounts, images, realized_pnl
 from app.services.users import user_dir
 from app.utils import statscache
 from app.utils.userlocks import serialized_user_change
@@ -113,6 +113,7 @@ def restore_user_backup(username, stream):
                         row = dict(row, id=next_id)
                     taken.add(row['id'])
                     entry_logic.insert_entry(c, username, row)
+                realized_pnl.refresh(conn, username)
                 if mappings is not None:
                     accounts.save(conn, username, mappings)
                 state['cleanup'] = False

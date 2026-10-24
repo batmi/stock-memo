@@ -255,8 +255,7 @@ window.updateChartRangeNav = function(rangeText) {
 };
 
 // ⭐️ 차트 하단 안내문 — 평가손익의 계산 기준과, 현재가를 못 구해 빠진 종목을 알린다.
-//    평가손익은 개별 매수건 단가(FIFO), 실현손익은 이동평균단가라 기준이 다르다.
-//    월별 귀속을 유지하려면 로트 단위 단가가 필요해 통일할 수 없으므로, 대신 명시한다.
+//    평가손익은 잔여 매수 로트의 원가를, 실현손익은 거래별 저장 금액을 사용한다.
 window.updateChartEvalNotice = function(info) {
     const el = document.getElementById('chartEvalNotice');
     if (!el) return;
@@ -269,9 +268,21 @@ window.updateChartEvalNotice = function(info) {
     const notes = [];
 
     if (!statsOpen && type === 'evaluated') {
-        notes.push(`※ 막대는 <b>해당 ${periodWord}에 매수해 아직 보유 중인 물량</b>을 <b>오늘 현재가</b>로 평가한 값입니다. 이미 매도한 매수분은 표시되지 않습니다.`);
-        notes.push('※ 평가손익은 <b>개별 매수건 단가(FIFO)</b> 기준, 실현손익은 <b>이동평균단가</b> 기준이라 서로 기준이 다릅니다.');
-        if (offset > 0) notes.push('※ 과거 구간일수록 이미 매도된 물량이 많아 막대가 비어 보일 수 있습니다.');
+        const periodName = periodWord === '주' ? '주' : '달';
+        notes.push(`※ 각 막대는 <b>해당 ${periodName}에 산 물량 중 지금도 보유 중인 물량</b>의 현재 손익입니다.`);
+        notes.push('※ 매수한 건마다 <b>(현재가 − 실제 매수단가) × 지금 남아 있는 수량</b>을 계산해 합산합니다.');
+        notes.push('※ 일부를 팔았다면 <b>먼저 산 물량부터 판 것으로 계산</b>합니다(선입선출/FIFO).');
+        notes.push(`※ 현재가가 바뀌면 과거 ${periodName}의 막대도 바뀝니다. 모두 판 매수분은 막대에서 빠집니다.`);
+        if (offset > 0) notes.push('※ 과거에 산 물량을 이미 모두 팔았다면 해당 구간의 막대가 비어 있을 수 있습니다.');
+
+        const firstPeriod = periodWord === '주' ? '첫째 주' : '2월';
+        const secondPeriod = periodWord === '주' ? '둘째 주' : '3월';
+        notes.push('<details><summary style="cursor:pointer;">계산 예시 보기</summary>'
+            + `<div style="margin-top:4px;">${firstPeriod}에 100주를 10,000원에 사고, ${secondPeriod}에 100주를 12,000원에 샀다고 가정합니다.</div>`
+            + `<div>이후 80주를 팔면 먼저 산 ${firstPeriod} 물량에서 차감해, ${firstPeriod} 매수분은 20주, ${secondPeriod} 매수분은 100주가 남습니다.</div>`
+            + `<div>현재가가 9,000원이라면:<br>${firstPeriod} 막대: (9,000 − 10,000) × 20주 = <b>−20,000원</b>`
+            + `<br>${secondPeriod} 막대: (9,000 − 12,000) × 100주 = <b>−300,000원</b></div>`
+            + '<div style="margin-top:4px;">이미 판 물량의 실현손익은 ‘실현손익’에서 확인할 수 있으며, 매도 거래에 저장된 손익을 합산합니다.</div></details>');
 
         if (missingStocks.length) {
             const shown = missingStocks.slice(0, 5).map(esc).join(', ');

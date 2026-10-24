@@ -733,7 +733,13 @@
           },
           "realizedPnl": {
             "type": ["number", "null"],
-            "description": "(매도) 실현손익 금액. 봇이 이미 계산해 갖고 있다면 보내는 편이 서버 통계 정확도에 유리합니다."
+            "description": "(매도) 거래별 실현손익 금액. 제공된 값은 0원을 포함해 그대로 저장·집계하며 이력 재구성으로 덮어쓰지 않습니다. 미제공 시 충분한 매수 이력이 있으면 당시 원가로 재구성합니다."
+          },
+          "realizedPnlSource": {
+            "type": ["string", "null"],
+            "enum": ["recorded", "reconstructed", "unavailable", null],
+            "readOnly": true,
+            "description": "실현손익 출처: 제공된 금액, 체결 이력 재구성, 매수 이력 부족으로 미확정. 서버가 설정합니다."
           },
           "realizedPnlRate": {
             "type": ["number", "null"],

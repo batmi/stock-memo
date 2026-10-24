@@ -100,7 +100,9 @@ function renderStatsQuality(s) {
         + `<p>일부만 입력: ${q.partialCostCount}건 · 모두 미입력: ${q.missingCostCount}건 `
         + (q.partialCostCount + q.missingCostCount ? statsDetailButton('비용 미완료 거래', { metric: 'missing-cost' }) : '') + '</p>'
         + '<p class="stats-muted">미입력 비용은 0원으로 확인된 비용과 구분합니다. 순손익은 해당 기간에 기록된 매수·매도·배당 비용만 차감합니다.</p>'
-        + (q.missingBuyCount || q.zeroBasisCount ? `<p class="stats-muted">매수 이력이 부족한 매도는 손익에 포함됩니다. 매도 원가가 0인 ${q.zeroBasisCount}건은 수익률에서 제외됩니다.</p>` : '')
+        + `<p>체결 이력으로 재구성한 손익: ${q.reconstructedRealizedCount || 0}건</p>`
+        + (q.missingRealizedCount ? `<p class="stats-muted">손익 미확정 ${q.missingRealizedCount}건은 실현손익 합계에서 제외됩니다. 매수 이력을 보완하거나 확정 손익을 동기화해주세요.</p>` : '')
+        + (q.missingBuyCount || q.zeroBasisCount ? `<p class="stats-muted">매수 이력이 부족해도 저장된 손익이 있으면 합산합니다. 매도 원가가 0인 ${q.zeroBasisCount}건은 수익률에서 제외됩니다.</p>` : '')
         + '</details>';
 }
 
@@ -176,7 +178,7 @@ async function openStatsTrades(options, title) {
                         + `<td>${escapeHtml(f.account)}<small>${escapeHtml(f.tradeClass || '미분류')}</small></td>`
                         + `<td>${escapeHtml(f.tradeType)} ${f.quantity.toLocaleString()}주</td><td>${moneyText(f.price, f.currency)}</td>`
                         + `<td>${f.tradeType === '매도' ? moneyText(f.basis, f.currency) : '—'}</td>`
-                        + `<td>${f.tradeType === '매수' ? '—' : statsMoney(f.realized + f.dividend, f.currency)}${f.missingBuyQuantity > 1e-9 ? '<small>매수 이력 부족</small>' : ''}${f.needsReview ? '<small>검토 필요</small>' : ''}</td>`
+                        + `<td>${f.tradeType === '매수' ? '—' : f.realizedSource === 'unavailable' ? '미확정' : statsMoney(f.realized + f.dividend, f.currency)}${f.realizedSource === 'reconstructed' ? '<small>체결 이력 재구성</small>' : f.realizedSource === 'recorded' ? '<small>저장 손익</small>' : ''}${f.missingBuyQuantity > 1e-9 ? '<small>매수 이력 부족</small>' : ''}${f.needsReview ? '<small>검토 필요</small>' : ''}</td>`
                         + `<td>${f.fee == null ? '미입력' : moneyText(f.fee, f.currency)}<small>${f.tax == null ? '미입력' : moneyText(f.tax, f.currency)}</small></td>`
                         + `<td>${statsDays(f.holdingDays)}</td><td><button type="button" class="stats-link" data-stats-entry="${Number(f.id)}">메모 보기</button></td></tr>`
                         + `<tr class="stats-note-row" hidden data-stats-note="${Number(f.id)}"><td colspan="9"></td></tr>`).join('')

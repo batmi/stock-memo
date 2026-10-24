@@ -24,7 +24,7 @@ INDEX_COLUMNS = (
     'id', 'type', 'stockName', 'stockCode', 'date', 'rawDate', 'brokerAccount',
     'subAccount', 'accountName', 'tradeClass', 'tradeType', 'price', 'quantity',
     'createdAt', 'updatedAt', 'isHidden', 'needsReview', 'tradeStatus', 'fee', 'tax',
-    'currency', 'exchange', 'tradeDate',
+    'currency', 'exchange', 'tradeDate', 'realizedPnl', 'realizedPnlSource',
 )
 PAGE_COLUMNS = INDEX_COLUMNS + ('title', 'tags', 'reviewReason')
 EPS = 1e-9

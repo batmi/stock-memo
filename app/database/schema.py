@@ -61,6 +61,7 @@ CREATE_TABLES = [
         orderId TEXT,
         originalOrderId TEXT,
         realizedPnl REAL,
+        realizedPnlSource TEXT,
         realizedPnlRate REAL,
         fee REAL,
         tax REAL,
@@ -115,6 +116,28 @@ CREATE_TABLES = [
         PRIMARY KEY (code, market_type)
     )
     ''',
+
+    # 과거 종가와 수집 작업은 사용자 기록과 분리한 재생성 가능한 공유 캐시다.
+    '''CREATE TABLE IF NOT EXISTS historical_assets (
+        code TEXT NOT NULL, currency TEXT NOT NULL, symbol TEXT NOT NULL,
+        timezone TEXT NOT NULL, splits TEXT NOT NULL DEFAULT '{}', checked_at REAL NOT NULL,
+        PRIMARY KEY (code, currency)
+    )''',
+    '''CREATE TABLE IF NOT EXISTS historical_prices (
+        code TEXT NOT NULL, currency TEXT NOT NULL, day TEXT NOT NULL,
+        close REAL, status TEXT NOT NULL, checked_at REAL NOT NULL,
+        PRIMARY KEY (code, currency, day)
+    )''',
+    '''CREATE TABLE IF NOT EXISTS historical_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL, currency TEXT NOT NULL,
+        start TEXT NOT NULL, end TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
+        attempts INTEGER NOT NULL DEFAULT 0, next_attempt REAL NOT NULL DEFAULT 0,
+        lease_until REAL NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '',
+        UNIQUE (code, currency, start, end)
+    )''',
+    '''CREATE TABLE IF NOT EXISTS historical_watchers (
+        username TEXT PRIMARY KEY
+    )''',
 
     '''
     CREATE TABLE IF NOT EXISTS api_keys (
@@ -203,6 +226,7 @@ ADDED_COLUMNS = [
     ('entries', 'orderId', 'TEXT'),
     ('entries', 'originalOrderId', 'TEXT'),
     ('entries', 'realizedPnl', 'REAL'),
+    ('entries', 'realizedPnlSource', 'TEXT'),
     ('entries', 'realizedPnlRate', 'REAL'),
     ('entries', 'fee', 'REAL'),
     ('entries', 'tax', 'REAL'),

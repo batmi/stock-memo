@@ -383,13 +383,182 @@ def test_stats_panel_shows_grouped_metrics_and_equity_curve(page):
     page.locator('#btnChartView').click()
     page.locator('#btnStats').click()
     stats = page.locator('#inlineStatsContainer')
+    expect(stats.get_by_text('수수료·세금', exact=True)).to_have_count(0)
     for text in ('💰 손익', '🎯 매매 효율', '⚠️ 위험', '⏱️ 보유 습관', '⏳ 보유기간별 성과',
-                 '-57원', '+93원', '손익비 (평균수익÷평균손실)', '2.50', '1연승 / 1연패',
+                 '+93원', '손익비 (평균수익÷평균손실)', '2.50', '1연승 / 1연패',
                  '최대 낙폭 (MDD)', '-100원', '+15.0%', '51.0일 더 오래'):
         expect(stats).to_contain_text(text)
     page.wait_for_function('() => window.statsEquityChartInstance?.data.datasets.length === 2')
     curve = page.evaluate('() => window.statsEquityChartInstance.data.datasets[0].data')
     assert curve == [250, 150]
+
+
+def test_historical_evaluation_is_separate_from_current_price_chart(page):
+    from test_valuation import cache
+    entries.create(USER_ID, _buy(id=1, qty=2, price=100, rawDate='2026-01-05T09:00'))
+    entries.create(USER_ID, _sell(id=2, qty=1, price=130, rawDate='2026-01-07T09:00'))
+    entries.create(USER_ID, _sell(id=3, qty=1, price=120, rawDate='2026-02-05T09:00'))
+    cache({'2026-01-05': 110, '2026-01-06': None, '2026-01-07': 140, '2026-01-30': 150})
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    ready(page)
+    page.locator('#btnChartView').click()
+    page.locator('#btnStats').click()
+    _select_analysis_period(page, '2026-01-05', '2026-01-07')
+    page.locator('[data-stats-curve="evaluated"]').click()
+    expect(page.locator('#statsCurveStatus')).to_contain_text('시세 미확인 1일')
+    page.wait_for_function('() => window.statsEquityChartInstance?.data.datasets[0].label === "평가손익"')
+    assert page.evaluate('() => window.statsEquityChartInstance.data.datasets[0].data') == [20, None, 40]
+    # 빈 종가를 0으로 채우거나 앞뒤 점을 연결하지 않는다.
+    assert page.evaluate('() => window.statsEquityChartInstance.data.datasets[0].spanGaps') is False
+    # 선으로 연결할 수 없는 양쪽의 유효한 값도 실제 캔버스 점으로 표시한다.
+    points = page.evaluate('''() => window.statsEquityChartInstance.getDatasetMeta(0).data.map(
+        point => ({skip: point.skip, radius: point.options.radius}))''')
+    assert not points[0]['skip'] and points[0]['radius'] > 0
+    assert points[1]['skip']
+    assert not points[2]['skip'] and points[2]['radius'] > 0
+    page.locator('[data-stats-curve="realized"]').click()
+    assert page.evaluate('() => window.statsEquityChartInstance.data.datasets[0].data') == [30]
+    page.locator('[data-stats-curve="evaluated"]').click()
+    _select_analysis_period(page, '2026-01-30', '2026-01-30')  # 매매가 없는 날에도 보유분 평가
+    page.wait_for_function('() => window.statsEquityChartInstance?.data.datasets[0].data[0] === 50')
+    page.set_viewport_size({'width': 390, 'height': 844})
+    page.wait_for_function('''() => {
+        const el = document.getElementById('monthlyChartSection');
+        return el.scrollWidth <= el.clientWidth + 1;
+    }''')
+    evaluation_requests = []
+    page.on('request', lambda request: evaluation_requests.append(request.url)
+            if '/stats/evaluation' in request.url else None)
+    page.locator('.chart-type-btn[data-type="evaluated"]').click()
+    page.wait_for_function('''() => window.monthlyProfitChartInstance?.data.datasets[0].label
+        === '해당 월 매수분의 현재 평가 손익' ''')
+    expect(page.locator('#chartEvalNotice')).to_contain_text('(현재가 − 실제 매수단가) × 지금 남아 있는 수량')
+    # 과거 분석에서는 50원이지만 현재는 전량 청산했으므로 매수분 막대가 없다.
+    assert page.evaluate('() => window.monthlyProfitChartInstance.data.datasets[0].data.every(v => v === null)')
+    assert not evaluation_requests
+    expect(page.locator('#chartEvalRetry')).to_have_count(0)
+    assert not errors
+
+
+def test_monthly_and_weekly_evaluation_use_current_quotes_and_fifo_lots(page):
+    from datetime import datetime, timezone
+    page.clock.set_fixed_time(datetime(2026, 10, 24, 3, tzinfo=timezone.utc))
+    entries.create(USER_ID, _buy(id=1, qty=5, price=100, rawDate='2026-01-15T09:00'))
+    entries.create(USER_ID, _buy(id=2, qty=5, price=200, rawDate='2026-02-16T09:00'))
+    entries.create(USER_ID, _sell(id=3, qty=4, price=300, rawDate='2026-03-02T09:00'))
+    entries.create(USER_ID, _buy(id=4, stock='KRX 금현물', stockCode='KRXGOLD', qty=1,
+                                price=50, rawDate='2026-01-15T10:00'))
+    page.route('**/api/current_price', lambda route: route.fulfill(json={'005930': 250, 'KRXGOLD': 80}))
+    evaluation_requests = []
+    page.on('request', lambda request: evaluation_requests.append(request.url)
+            if '/stats/evaluation' in request.url else None)
+    ready(page)
+    page.evaluate("() => { window.currentPriceCache = {'005930': 250, 'KRXGOLD': 80}; }")
+    page.locator('#btnChartView').click()
+    page.locator('.chart-type-btn[data-type="evaluated"]').click()
+    page.wait_for_function('''() => {
+        const dataset = window.monthlyProfitChartInstance?.data.datasets[0];
+        return dataset?.label === '해당 월 매수분의 현재 평가 손익' && dataset.data.includes(180);
+    }''')
+    assert page.evaluate('() => window.monthlyProfitChartInstance.data.datasets[0].data.filter(v => v !== null)') == [180, 250]
+    expect(page.locator('#chartEvalNotice')).to_contain_text('먼저 산 물량부터 판 것으로 계산')
+    example = page.locator('#chartEvalNotice details')
+    expect(example).not_to_have_attribute('open', '')
+    example.locator('summary').click()
+    expect(example.get_by_text('−20,000원', exact=True)).to_be_visible()
+    expect(example).to_contain_text('2월 매수분은 20주, 3월 매수분은 100주')
+    page.evaluate('''() => {
+        const chart = window.monthlyProfitChartInstance;
+        chart.options.onClick({}, [{index: chart.data.datasets[0].data.indexOf(180), datasetIndex: 0}], chart);
+    }''')
+    expect(page.locator('#chartDetailList')).to_contain_text('매수분 평가 손익')
+    expect(page.locator('#chartDetailList')).to_contain_text('KRX 금현물')
+    expect(page.locator('#chartDetailList')).to_contain_text('+30원')
+    page.evaluate('''() => {
+        window.currentChartGranularity = 'weekly';
+        window.chartWeekOffset = 30;
+        return window.renderMonthlyProfitChart();
+    }''')
+    expect(page.locator('#chartEvalNotice')).to_contain_text('해당 주에 산 물량 중 지금도 보유 중인 물량')
+    expect(page.locator('#chartEvalNotice details')).to_contain_text('첫째 주 매수분은 20주, 둘째 주 매수분은 100주')
+    assert page.evaluate('() => window.monthlyProfitChartInstance.data.datasets[0].data.filter(v => v !== null)') == [180, 250]
+    assert not evaluation_requests
+
+
+def test_historical_evaluation_polls_and_discards_late_response(page):
+    _analysis_trades()
+    ready(page)
+    page.locator('#btnChartView').click()
+    page.locator('#btnStats').click()
+    page.wait_for_function('() => window.statsEquityChartInstance?.data.datasets[0].data.length === 2')
+    page.evaluate('''() => {
+        window.originalEvaluationFetch = fetchWithTimeout;
+        window.fetchWithTimeout = (url, ...args) => {
+            if (!url.includes('/stats/evaluation')) return originalEvaluationFetch(url, ...args);
+            return new Promise(resolve => { window.releaseEvaluation = () => resolve(new Response('{}')); });
+        };
+    }''')
+    page.locator('[data-stats-curve="evaluated"]').click()
+    page.wait_for_function('() => typeof window.releaseEvaluation === "function"')
+    page.locator('[data-stats-curve="realized"]').click()
+    page.evaluate('''async () => {
+        window.releaseEvaluation();
+        window.fetchWithTimeout = window.originalEvaluationFetch;
+        await new Promise(resolve => requestAnimationFrame(resolve));
+    }''')
+    assert page.evaluate('() => window.statsEquityChartInstance.data.datasets[0].data') == [40, -20]
+    calls = []
+    def respond(route):
+        calls.append(route.request.method)
+        pending = len(calls) == 1
+        route.fulfill(json={
+            'curve': [{'date': '2026-01-05', 'value': None if pending else 22}],
+            'currency': 'KRW', 'period': {'from': '2026-01-05', 'to': '2026-01-05'},
+            'progress': {'ready': 0 if pending else 1, 'total': 1, 'pending': int(pending), 'failed': 0},
+            'pending': pending, 'missingDays': int(pending), 'missingStocks': [], 'notes': [], 'hasHoldings': True})
+    page.route('**/api/journal/stats/evaluation?*', respond)
+    page.locator('[data-stats-curve="evaluated"]').click()
+    expect(page.locator('#statsCurveStatus')).to_contain_text('시세 수집 중')
+    page.wait_for_function('() => window.statsEquityChartInstance?.data.datasets[0].data[0] === 22')
+    assert calls == ['POST', 'GET']
+
+
+def test_historical_evaluation_refreshes_changed_summary(page):
+    from test_valuation import cache
+    entries.create(USER_ID, _buy(id=1, qty=2, price=100, rawDate='2026-01-05T09:00'))
+    cache({'2026-01-05': 110})
+    ready(page)
+    page.locator('#btnChartView').click()
+    page.locator('#btnStats').click()
+    _select_analysis_period(page, '2026-01-05', '2026-01-05')
+    entries.create(USER_ID, _buy(id=2, qty=1, price=100, rawDate='2026-01-05T10:00'))
+    page.locator('[data-stats-curve="evaluated"]').click()
+    expect(page.locator('#statsCurveStatus')).to_contain_text('기록이 변경되었습니다')
+    page.locator('#statsCurveRetry').click()
+    page.wait_for_function('() => window.statsEquityChartInstance?.data.datasets[0].data[0] === 30')
+
+
+def test_realized_chart_uses_saved_pnl_and_shows_provenance(page):
+    entries.create(USER_ID, _buy(id=1, qty=10, price=100, rawDate='2026-01-05T09:00'))
+    entries.create(USER_ID, _sell(id=2, qty=2, price=150, realizedPnl=-35, rawDate='2026-01-06T09:00'))
+    entries.create(USER_ID, _sell(id=3, qty=1, price=120, rawDate='2026-01-07T09:00'))
+    ready(page)
+    page.locator('#btnChartView').click()
+    page.locator('#btnStats').click()
+    page.wait_for_function('() => window.statsEquityChartInstance?.data.datasets[0].data.length === 2')
+    assert page.evaluate('() => window.statsEquityChartInstance.data.datasets[0].data') == [-35, -15]
+    stats = page.locator('#inlineStatsContainer')
+    expect(stats).to_contain_text('매도 거래에 저장된 금액을 합산')
+    stats.locator('[data-stats-title="실현 손익"]').click()
+    details = page.locator('#statsTradeDetails')
+    expect(details).to_contain_text('저장 손익')
+    expect(details).to_contain_text('체결 이력 재구성')
+    expect(details).to_contain_text('-35원')
+    expect(details).to_contain_text('+20원')
+    page.locator('.chart-type-btn[data-type="evaluated"]').click()
+    expect(page.locator('#chartEvalNotice')).to_contain_text('매도 거래에 저장된 손익')
+    expect(page.locator('#chartEvalNotice')).not_to_contain_text('실현손익은 이동평균단가')
 
 
 def _analysis_trades():

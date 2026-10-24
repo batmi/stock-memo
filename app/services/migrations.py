@@ -21,7 +21,7 @@ import shutil
 import config
 from app.database import entry_logic
 from app.database.db import db_conn, get_db
-from app.services import accounts, images
+from app.services import accounts, images, realized_pnl
 
 log = logging.getLogger('migrations')
 
@@ -46,6 +46,7 @@ def import_legacy_json(conn, username):
             img_url = images.process_image(username, entry.get('attachedImage'), entry.get('id'))
             entry = images.extract_inline_images(username, entry)
             entry_logic.insert_entry(c, username, entry, attached_image=img_url)
+        realized_pnl.refresh(conn, username)
         conn.commit()
     except Exception as e:
         conn.rollback()

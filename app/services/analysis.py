@@ -44,6 +44,8 @@ def quality(facts):
         'tradeCount': len(facts), 'reviewCount': sum(f['needsReview'] for f in facts),
         'missingBuyCount': sum(f['missingBuyQuantity'] > 1e-9 for f in facts),
         'zeroBasisCount': sum(f['tradeType'] == '매도' and f['basis'] <= 1e-9 for f in facts),
+        'missingRealizedCount': sum(f.get('realizedSource') == 'unavailable' for f in facts),
+        'reconstructedRealizedCount': sum(f.get('realizedSource') == 'reconstructed' for f in facts),
         'completeCostCount': complete, 'partialCostCount': len(facts) - complete - missing,
         'missingCostCount': missing,
         'costCoverage': complete / len(facts) * 100 if facts else None,
@@ -51,7 +53,8 @@ def quality(facts):
 
 
 def distribution(facts):
-    values = sorted(f['realized'] for f in facts if f['tradeType'] == '매도')
+    values = sorted(f['realized'] for f in facts if f['tradeType'] == '매도'
+                    and f.get('realizedSource') != 'unavailable')
     wins = [v for v in values if v > 0]
     bins = []
     if values:
@@ -116,7 +119,7 @@ def groups(facts, field):
         sells = [f for f in items if f['tradeType'] == '매도']
         wins = sum(f['realized'] > 0 for f in sells)
         losses = sum(f['realized'] < 0 for f in sells)
-        known_basis = [f for f in sells if f['basis'] > 1e-9]
+        known_basis = [f for f in sells if f['basis'] > 1e-9 and f.get('realizedSource') != 'unavailable']
         basis = sum(f['basis'] for f in known_basis)
         held = [f for f in sells if f['holdingDays'] is not None]
         held_qty = sum(f['quantity'] - f['missingBuyQuantity'] for f in held)

@@ -88,7 +88,11 @@ def apply_trade(holding, entry):
             holding['avgPrice'] = holding['totalCost'] / holding['qty']
     elif entry.get('tradeType') == '매도':
         cost = holding['avgPrice'] * qty
-        realized = (price - holding['avgPrice']) * qty
+        # 체결 기록의 실현손익이 있으면 그 금액이 정본이다. 0원도 저장된 값이다.
+        # 평단은 잔여 보유 원가를 갱신하는 데만 사용하며 저장된 손익을 덮어쓰지 않는다.
+        stored = entry.get('realizedPnl')
+        realized = (float(stored) if stored is not None else 0.0
+                    if entry.get('realizedPnlSource') == 'unavailable' else (price - holding['avgPrice']) * qty)
         holding['qty'] -= qty
         holding['totalCost'] -= cost
         if holding['qty'] <= EPS:

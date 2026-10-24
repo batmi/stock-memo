@@ -9,7 +9,7 @@ from datetime import timezone
 
 from flask import request, jsonify
 
-from app.services import accounts
+from app.services import accounts, realized_pnl
 from app.services import entries as entry_service
 from app.utils import ratelimit
 from app.utils import statscache
@@ -163,6 +163,8 @@ def create_trade(username, scopes):
         except sqlite3.Error as e:
             _log().error(f"[trading_api] 매매 기록 저장 실패: {e}")
             return _err(500, 'INTERNAL_ERROR', '기록 저장 중 오류가 발생했습니다.')
+        if created:
+            realized_pnl.refresh(conn, username)
         conn.commit()
 
         c.execute("SELECT * FROM entries WHERE id = ?", (entry_id,))
@@ -253,6 +255,8 @@ def create_trades_batch(username, scopes):
                 row['warnings'] = warnings
             results.append(row)
 
+        if inserted:
+            realized_pnl.refresh(conn, username)
         conn.commit()
 
     if inserted:
@@ -560,6 +564,8 @@ def create_opening_positions(username, scopes):
             results.append({'index': index,
                             'status': 'created' if created else 'duplicate',
                             'id': str(entry_id), 'errorCode': None, 'error': None})
+        if inserted:
+            realized_pnl.refresh(conn, username)
         conn.commit()
 
     if inserted:

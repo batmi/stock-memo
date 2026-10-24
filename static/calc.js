@@ -3,7 +3,8 @@
  *
  * 포트폴리오·달력·차트의 평단·실현손익은 서버(app/services/journal.py)가 계산합니다.
  * 화면이 이 파일에서 쓰는 것은 종목 동일성(stockIdentity)과 청산 판정(isFlatQty)이고,
- * applyTradeToHolding 은 서버와 같은 이동평균단가 규칙의 기준 구현으로 남아 있습니다
+ * applyTradeToHolding 은 평균 매입원가와 손익 재구성 규칙의 기준 구현으로 남아 있습니다.
+ * 서버는 거래별 저장 손익이 있으면 그 값을 우선 집계합니다
  * (tests/calc.test.js 가 그 상태전이 규칙을 고정합니다. 05-data.js 의
  * ensureCalcLoaded 는 이 함수가 있는지로 calc.js 로드 여부를 판단합니다).
  *

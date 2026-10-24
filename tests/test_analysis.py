@@ -95,6 +95,7 @@ def test_quality_reports_partial_costs_and_unmatched_buys_without_counting_inact
     assert result['quality'] == {
         'tradeCount': 3, 'reviewCount': 1, 'missingBuyCount': 2, 'zeroBasisCount': 1,
         'completeCostCount': 1, 'partialCostCount': 1, 'missingCostCount': 1,
+        'missingRealizedCount': 0, 'reconstructedRealizedCount': 2,
         'costCoverage': pytest.approx(100 / 3),
     }
     detail = get(client, 'stats/trades', metric='missing-buy').json['items']

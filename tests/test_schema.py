@@ -41,6 +41,7 @@ def test_init_creates_every_table(fresh):
     assert set(tables) == {
         'entries', 'users', 'password_reset_requests', 'price_cache',
         'api_keys', 'bot_commands', 'bots',
+        'historical_assets', 'historical_prices', 'historical_jobs', 'historical_watchers',
     }
 
 

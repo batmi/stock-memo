@@ -50,7 +50,7 @@ from app.domain.trades import (
 #    다른 사실이고, 분류(tradeClass) 폴백이 정확히 그 구분에 걸려 있다.
 BOT_COLUMNS = [
     'isSimulated', 'tradeStatus', 'confidence', 'orderOrigin', 'source',
-    'orderId', 'originalOrderId', 'realizedPnl', 'realizedPnlRate', 'fee', 'tax',
+    'orderId', 'originalOrderId', 'realizedPnl', 'realizedPnlSource', 'realizedPnlRate', 'fee', 'tax',
     'strategyScore', 'stopLossRate', 'executedAtUtc', 'tradeDate', 'needsReview',
     'isSystem', 'reviewReason',
 ]

@@ -8,7 +8,7 @@ from flask import Blueprint, current_app, jsonify, request, session
 from itsdangerous import URLSafeSerializer
 
 from app.database.db import db_conn
-from app.services import analysis, journal
+from app.services import analysis, journal, historical_prices, valuation
 from app.utils import statscache
 
 bp = Blueprint('journal', __name__)
@@ -130,3 +130,21 @@ def stats_trades():
         raise ValueError('데이터 버전이 올바르지 않습니다.')
     return _response(lambda model: journal.stats_trades(
         model, query, granularity, start, end, options, version))
+
+
+@bp.route('/api/journal/stats/evaluation', methods=['GET', 'POST'])
+def evaluation():
+    query, _, start, end = _stats_query()
+    username = session['username']
+    model = journal.snapshot(username)
+    version = request.args.get('version', '')
+    if version and version != model['version']:
+        raise journal.StalePage('기록이 변경되었습니다. 분석을 새로 조회해주세요.')
+    result = valuation.report(model, query, start, end, schedule=True,
+                              retry=request.method == 'POST' and request.args.get('retry') == '1')
+    if request.method == 'POST':
+        historical_prices.watch(username)
+    response = jsonify(result)
+    # 기록 버전과 별개로 시세 수집이 진행되므로 기존 통계 ETag를 재사용하지 않는다.
+    response.headers['Cache-Control'] = 'no-store'
+    return response
