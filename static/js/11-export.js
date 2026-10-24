@@ -129,9 +129,8 @@ function setAmountMasked(masked) {
 }
 
 // ⭐️ 숫자 카운트업 애니메이션 함수 (차트 중앙 텍스트용)
-function animateValue(element, endValue, duration, isProfit = false) {
+function animateValue(element, endValue, duration, isProfit = false, currency = displayCurrency) {
     if (element.dataset.animId) cancelAnimationFrame(element.dataset.animId);
-    const currency = displayCurrency;
     let startValue = Number(element.getAttribute('data-val')) || 0;
     if (startValue === endValue) {
         const prefix = isProfit && endValue > 0 ? '+' : '';

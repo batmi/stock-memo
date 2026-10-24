@@ -6,15 +6,17 @@
    INSERT 컬럼 목록 자체는 entry_logic 이 단독으로 소유한다(웹과 공용).
 """
 
+import hashlib
+import json
 import sqlite3
 from datetime import timezone
 
 from app.database import entry_logic
-from app.domain.trades import trade_date_for
+from app.domain.trades import position_scope, trade_date_for
 
 from .common import KST, _now_kst_str
 from .validation import (
-    ValidationError, _inherit_trade_class, _normalize_enum, _normalize_trade_class,
+    ValidationError, _currency, _inherit_trade_class, _normalize_enum, _normalize_trade_class,
     _num, _parse_executed_at, _resolve_account, _text,
     _VALID_CONFIDENCE, _VALID_ORIGIN, _VALID_STATUS,
 )
@@ -32,6 +34,19 @@ def _lookup_stock_name(c, username, symbol):
         (username, symbol))
     row = c.fetchone()
     return row['stockName'] if row else symbol
+
+def opening_execution_id(c, username, entry):
+    """기초잔고는 날짜·종목·계좌·통화별로 멱등이며, 기존 키도 보존한다."""
+    legacy_key = entry['brokerExecutionId']
+    existing = _fetch_by_exec_id(c, username, legacy_key)
+    scope = position_scope(entry)
+    if existing is not None and position_scope(dict(existing)) == scope:
+        return legacy_key
+    # 번호의 공백·하이픈과 통화 대소문자는 정규화한다. 길이 제한 안에서
+    # 계좌 구분자가 포함된 값도 충돌 없이 표현한다.
+    digest = hashlib.sha256(json.dumps(scope).encode()).hexdigest()
+    return f'{legacy_key}:v2:{digest}'
+
 
 def build_entry(c, username, data, mappings, *, default_source=None):
     """API 입력(dict)을 entries 행(dict)으로 정규화합니다.
@@ -125,7 +140,7 @@ def build_entry(c, username, data, mappings, *, default_source=None):
         'createdAt': now,
         'updatedAt': now,
         'brokerExecutionId': _text(data.get('brokerExecutionId'), 'brokerExecutionId', 200),
-        'currency': _text(data.get('currency'), 'currency', 10) or 'KRW',
+        'currency': _currency(data.get('currency')),
         'exchange': exchange,
         'assetType': _text(data.get('assetType'), 'assetType', 20),
         # ── 확장 컬럼 ──

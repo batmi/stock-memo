@@ -9,7 +9,7 @@ from app.database.db import db_conn
 from app.services import accounts, entries
 from app.utils import statscache
 from test_editor_table import USER_ID, _login, live_server as live_server
-from helpers import _buy
+from helpers import _buy, _sell
 
 
 @pytest.fixture(autouse=True)
@@ -65,6 +65,83 @@ def test_currency_switches_automatically_without_main_screen_control(page):
         assert row['brokerExecutionId'] == 'usd-exec'
         assert row['exchange'] == 'NASDAQ'
         assert '메모만 수정' in row['thoughts']
+
+
+def test_mixed_currency_filters_keep_dashboard_chart_and_stats_independent(page):
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    entries.create(USER_ID, _buy(id=1, qty=1, price=10000, currency='KRW', subAccount='KR',
+                                accountName='국내계좌', rawDate='2026-10-01T09:00'))
+    usd = {'stock': 'Apple', 'stockCode': 'AAPL', 'currency': 'USD', 'subAccount': 'US', 'accountName': '미국계좌'}
+    entries.create(USER_ID, _buy(id=2, qty=2, price=12.5, rawDate='2026-10-01T09:00', **usd))
+    entries.create(USER_ID, _sell(id=3, qty=1, price=15, rawDate='2026-10-02T09:00', **usd))
+    page.route('**/api/current_price', lambda route: route.fulfill(json={'005930': 11000, 'AAPL': 16.25}))
+    ready(page)
+    expect(page.locator('#centerTotalInvested')).to_have_text('10,000원')
+    page.locator('#btnChartView').click()
+    page.locator('#chartStockFilter').select_option('Apple')
+    page.wait_for_function("() => window.monthlyProfitChartInstance?.data.datasets.some(d => d.data.includes(2.5))")
+    tooltip = page.evaluate('''() => {
+        const chart = window.monthlyProfitChartInstance;
+        const dataset = chart.data.datasets.find(d => d.label === '매매 실현손익');
+        const index = dataset.data.indexOf(2.5);
+        chart.options.onClick(null, [{index}], chart);
+        return chart.options.plugins.tooltip.callbacks.label({parsed: {y: 2.5}, raw: 2.5, dataset});
+    }''')
+    assert '2.5 USD' in tooltip
+    expect(page.locator('#chartDetailList')).to_contain_text('2.5 USD')
+    page.locator('#btnStats').click()
+    expect(page.locator('#inlineStatsContainer')).to_contain_text('25 USD')
+    expect(page.locator('#inlineStatsContainer')).to_contain_text('+2.5 USD')
+    expect(page.locator('#centerTotalInvested')).to_have_text('10,000원')
+
+    page.locator('#dashboardSubAccountFilter').select_option('미국계좌')
+    card = page.locator('#portfolioGrid .portfolio-card[data-id="AAPL"]')
+    expect(card).to_contain_text('12.5 USD')
+    expect(card.locator('.cp-price')).to_have_text('16.25 USD')
+    expect(page.locator('#centerTotalInvested')).to_have_text('12.5 USD')
+    expect(page.locator('#centerTotalEvaluation')).to_have_text('16.25 USD')
+    expect(page.locator('#centerTotalProfit')).to_have_text('+2.5 USD')
+    page.locator('#dashboardSubAccountFilter').select_option('all')
+    expect(page.locator('#centerTotalInvested')).to_have_text('10,000원')
+    expect(page.locator('#inlineStatsContainer')).to_contain_text('25 USD')
+    expect(page.locator('#displayCurrency')).to_have_count(0)
+    assert errors == []
+
+
+def test_prices_from_previous_account_cannot_overwrite_new_currency(page):
+    entries.create(USER_ID, _buy(id=1, qty=1, price=10000, currency='KRW', subAccount='KR',
+                                accountName='국내계좌', rawDate='2026-10-01T09:00'))
+    entries.create(USER_ID, _buy(id=2, qty=2, price=12.5, currency='USD', subAccount='US',
+                                stock='Apple', stockCode='AAPL', accountName='미국계좌', rawDate='2026-10-01T09:00'))
+    ready(page)
+    page.evaluate('''async () => {
+        const original = fetchWithTimeout;
+        let release;
+        const gate = new Promise(resolve => { release = resolve; });
+        window.fetchWithTimeout = async (url, ...args) => {
+            if (url !== '/api/current_price') return original(url, ...args);
+            const {codes} = JSON.parse(args[0].body);
+            if (codes.includes('005930')) {
+                await gate;
+                return new Response(JSON.stringify({'005930': 11000}));
+            }
+            return new Response(JSON.stringify({AAPL: 16.25}));
+        };
+        try {
+            const older = window.fetchCurrentPricesAndUpdateUI();
+            currentDashboardSubAccount = '미국계좌';
+            await updatePortfolioSummary();
+            await window.fetchCurrentPricesAndUpdateUI();
+            release();
+            await older;
+        } finally {
+            release();
+            window.fetchWithTimeout = original;
+        }
+    }''')
+    expect(page.locator('#centerTotalEvaluation')).to_have_text('32.5 USD')
+    expect(page.locator('#portfolioGrid .cp-price')).to_have_text('16.25 USD')
 
 
 def test_first_page_is_small_and_search_opens_old_body_on_demand(page):

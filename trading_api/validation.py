@@ -8,7 +8,7 @@
 from datetime import datetime
 
 from app.services import accounts
-from app.domain.validation import finite_number
+from app.domain.validation import finite_number, normalize_currency
 
 from .common import KST
 
@@ -31,6 +31,13 @@ class ValidationError(Exception):
         self.code = code
         self.message = message
         self.field = field
+
+
+def _currency(value):
+    try:
+        return normalize_currency(value)
+    except ValueError as exc:
+        raise ValidationError('INVALID_FIELD', str(exc), 'currency') from exc
 
 
 def _parse_executed_at(value):

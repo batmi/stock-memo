@@ -54,9 +54,9 @@ function statsColor(v) {
     if (v < 0) return 'var(--primary-color, #3b82f6)';
     return 'var(--text-color)';
 }
-function statsMoney(v) {
+function statsMoney(v, currency = displayCurrency) {
     const n = Number(v) || 0;
-    return (n > 0 ? '+' : '') + moneyText(n);
+    return (n > 0 ? '+' : '') + moneyText(n, currency);
 }
 
 window.loadTradeStats = async function() {
@@ -99,6 +99,7 @@ function renderTradeStats(s) {
         return;
     }
 
+    const currency = s.currency || displayCurrency;
     const strong = 'var(--text-strong-color)';
     const card = (label, value, color, sub) =>
         `<div style="background: var(--bg-color); border:1px solid var(--border-color); border-radius:6px; padding:6px 4px; text-align:center;">
@@ -121,36 +122,36 @@ function renderTradeStats(s) {
     // 손익 — 수수료·세금은 기록된 건만 더하므로, 기록이 없으면 0원이 아니라 '기록 없음'이다
     const hasCost = s.costRecordCount > 0;
     const pnlCards = [
-        card('총 손익 (실현+배당)', statsMoney(s.totalPnl), statsColor(s.totalPnl)),
-        card('실현 손익', statsMoney(s.totalRealized), statsColor(s.totalRealized)),
-        card('배당 수익', statsMoney(s.totalDividend), statsColor(s.totalDividend)),
+        card('총 손익 (실현+배당)', statsMoney(s.totalPnl, currency), statsColor(s.totalPnl)),
+        card('실현 손익', statsMoney(s.totalRealized, currency), statsColor(s.totalRealized)),
+        card('배당 수익', statsMoney(s.totalDividend, currency), statsColor(s.totalDividend)),
         card('실현 수익률 (원금 대비)', statsRate(s.realizedReturnRate), statsColor(s.realizedReturnRate || 0)),
-        card('수수료·세금', hasCost ? statsMoney(-s.totalCost) : '기록 없음',
+        card('수수료·세금', hasCost ? statsMoney(-s.totalCost, currency) : '기록 없음',
             hasCost ? statsColor(-s.totalCost) : 'var(--text-muted-color)',
             hasCost ? `${s.costRecordCount.toLocaleString()}건 기준` : ''),
     ];
-    if (hasCost) pnlCards.push(card('순손익 (비용 차감)', statsMoney(s.netPnl), statsColor(s.netPnl)));
+    if (hasCost) pnlCards.push(card('순손익 (비용 차감)', statsMoney(s.netPnl, currency), statsColor(s.netPnl)));
     // ⭐️ 매수는 빨강, 매도는 파랑 (국내 호가창 관행)
-    pnlCards.push(card('총 매수금', `${moneyText(s.totalBuyAmount)}`, 'var(--danger-color, #e74c3c)'));
-    pnlCards.push(card('총 매도금', `${moneyText(s.totalSellAmount)}`, 'var(--primary-color, #3b82f6)'));
+    pnlCards.push(card('총 매수금', `${moneyText(s.totalBuyAmount, currency)}`, 'var(--danger-color, #e74c3c)'));
+    pnlCards.push(card('총 매도금', `${moneyText(s.totalSellAmount, currency)}`, 'var(--primary-color, #3b82f6)'));
     html += section('💰 손익', pnlCards);
 
     html += section('🎯 매매 효율', [
         card('승률', `${s.winRate.toFixed(1)}% (${s.winCount}승 ${s.lossCount}패)`),
         card('손익비 (평균수익÷평균손실)', statsRatio(s.payoffRatio)),
         card('Profit Factor (총이익÷총손실)', statsRatio(s.profitFactor)),
-        card('거래당 기대값', s.expectancy === null ? '—' : statsMoney(s.expectancy), statsColor(s.expectancy || 0)),
+        card('거래당 기대값', s.expectancy === null ? '—' : statsMoney(s.expectancy, currency), statsColor(s.expectancy || 0)),
         card('거래당 평균 수익률', statsRate(s.avgReturnRate), statsColor(s.avgReturnRate || 0)),
-        card('평균 수익 (이익 거래)', statsMoney(s.avgWin), statsColor(s.avgWin)),
-        card('평균 손실 (손실 거래)', statsMoney(-s.avgLoss), statsColor(-s.avgLoss)),
+        card('평균 수익 (이익 거래)', statsMoney(s.avgWin, currency), statsColor(s.avgWin)),
+        card('평균 손실 (손실 거래)', statsMoney(-s.avgLoss, currency), statsColor(-s.avgLoss)),
     ]);
 
     const mddSub = s.maxDrawdownTroughDate
         ? `${shortDate(s.maxDrawdownPeakDate)} → ${shortDate(s.maxDrawdownTroughDate)}` : '';
     html += section('⚠️ 위험', [
-        card('최대 낙폭 (MDD)', statsMoney(-s.maxDrawdown), statsColor(-s.maxDrawdown), mddSub),
-        card('최대 단일 수익', statsMoney(s.maxSingleWin), statsColor(s.maxSingleWin)),
-        card('최대 단일 손실', statsMoney(s.maxSingleLoss), statsColor(s.maxSingleLoss)),
+        card('최대 낙폭 (MDD)', statsMoney(-s.maxDrawdown, currency), statsColor(-s.maxDrawdown), mddSub),
+        card('최대 단일 수익', statsMoney(s.maxSingleWin, currency), statsColor(s.maxSingleWin)),
+        card('최대 단일 손실', statsMoney(s.maxSingleLoss, currency), statsColor(s.maxSingleLoss)),
         card('최대 연승 / 연패', `${s.maxWinStreak}연승 / ${s.maxLossStreak}연패`),
     ]);
 
@@ -196,7 +197,7 @@ function renderTradeStats(s) {
             html += `<tr><td style="${tdLeft}">${escapeHtml(b.label)}</td>`
                 + `<td style="${tdStyle}">${b.sellCount}</td>`
                 + `<td style="${tdStyle}">${winRateCell(b.winRate)}</td>`
-                + `<td style="${tdStyle} color:${statsColor(b.realized)};">${statsMoney(b.realized)}</td>`
+                + `<td style="${tdStyle} color:${statsColor(b.realized)};">${statsMoney(b.realized, currency)}</td>`
                 + `<td style="${tdStyle} color:${statsColor(b.returnRate || 0)};">${statsRate(b.returnRate)}</td></tr>`;
         });
         html += '</tbody></table></div>';
@@ -213,11 +214,11 @@ function renderTradeStats(s) {
         // ⭐️ 최근 기간이 위로 오도록 뒤집어 보여준다 (서버는 과거→최근 순으로 준다)
         s.monthly.slice().reverse().forEach(m => {
             html += `<tr><td style="${tdLeft}">${escapeHtml(m.month)}</td>`
-                + `<td style="${tdStyle} color:${statsColor(m.realized)};">${statsMoney(m.realized)}</td>`
-                + `<td style="${tdStyle} color:${statsColor(m.dividend)};">${statsMoney(m.dividend)}</td>`
+                + `<td style="${tdStyle} color:${statsColor(m.realized)};">${statsMoney(m.realized, currency)}</td>`
+                + `<td style="${tdStyle} color:${statsColor(m.dividend)};">${statsMoney(m.dividend, currency)}</td>`
                 + `<td style="${tdStyle}">${m.sellCount}</td>`
                 + `<td style="${tdStyle}">${winRateCell(m.winRate)}</td>`
-                + `<td style="${tdStyle}">${moneyText(m.sellAmount)}</td></tr>`;
+                + `<td style="${tdStyle}">${moneyText(m.sellAmount, currency)}</td></tr>`;
         });
         html += '</tbody></table></div>';
     }
@@ -229,7 +230,7 @@ function renderTradeStats(s) {
         html += `<th style="${thLeft}">종목</th><th style="${thSticky}">합계(실현+배당)</th><th style="${thSticky}">수익률</th><th style="${thSticky}">매도</th><th style="${thSticky}">승률</th><th style="${thSticky}">평균 보유</th></tr></thead><tbody>`;
         s.perStock.forEach(p => {
             html += `<tr><td style="${tdLeft}">${escapeHtml(p.stock)}</td>`
-                + `<td style="${tdStyle} color:${statsColor(p.total)};">${statsMoney(p.total)}</td>`
+                + `<td style="${tdStyle} color:${statsColor(p.total)};">${statsMoney(p.total, currency)}</td>`
                 + `<td style="${tdStyle} color:${statsColor(p.returnRate || 0)};">${statsRate(p.returnRate)}</td>`
                 + `<td style="${tdStyle}">${p.sellCount}</td>`
                 + `<td style="${tdStyle}">${p.sellCount ? p.winRate.toFixed(0) + '%' : '—'}</td>`
@@ -299,7 +300,7 @@ function renderStatsEquityChart(s) {
                     // 낙폭 선은 같은 값을 겹쳐 그린 것이라 툴팁에서는 본선만 보여준다
                     filter: item => item.datasetIndex === 0,
                     callbacks: {
-                        label: ctx => `${ctx.dataset.label}: ${statsMoney(ctx.parsed.y)}`,
+                        label: ctx => `${ctx.dataset.label}: ${statsMoney(ctx.parsed.y, s.currency || displayCurrency)}`,
                     },
                 },
             },

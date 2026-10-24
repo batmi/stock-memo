@@ -12,6 +12,7 @@ import zipfile
 import config
 from app.database import entry_logic
 from app.database.db import db_conn
+from app.domain.validation import normalize_restored_entry
 from app.services import accounts, images
 from app.services.users import user_dir
 from app.utils import statscache
@@ -54,6 +55,11 @@ def _extract(stream, folder):
         raise RestoreError('손상된 백업 파일입니다. (data.json을 찾을 수 없습니다)') from exc
     if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
         raise RestoreError('손상된 백업 파일입니다. (data.json은 기록 목록이어야 합니다)')
+    for index, row in enumerate(rows):
+        try:
+            rows[index] = normalize_restored_entry(row)
+        except ValueError as exc:
+            raise RestoreError(f'백업의 {index + 1}번째 기록이 올바르지 않습니다. ({exc})') from exc
     mappings = None
     path = os.path.join(folder, accounts.BACKUP_ARCNAME)
     if os.path.exists(path):

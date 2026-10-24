@@ -289,7 +289,7 @@ window.updateChartEvalNotice = function(info) {
 };
 
 // ⭐️ 차트 막대 클릭 시 하단에 종목별 상세 내역을 그려주는 함수 (다중 섹션 지원)
-window.renderChartDetailList = function(periodLabel, sections) {
+window.renderChartDetailList = function(periodLabel, sections, currency = displayCurrency) {
     const inlineStatsContainer = document.getElementById('inlineStatsContainer');
     if (inlineStatsContainer) {
         inlineStatsContainer.style.display = 'none';
@@ -337,14 +337,14 @@ window.renderChartDetailList = function(periodLabel, sections) {
             
             html += `<div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 15px; margin-bottom: 8px;">
                         <span style="font-size: 12px; font-weight: bold; color: var(--text-muted-color);">[ ${title} ]</span>
-                        <span style="font-size: 13px; font-weight: bold; color: ${totalDeco.color};">${totalDeco.prefix}${moneyText(totalDeco.amount)}</span>
+                        <span style="font-size: 13px; font-weight: bold; color: ${totalDeco.color};">${totalDeco.prefix}${moneyText(totalDeco.amount, currency)}</span>
                      </div>`;
             html += `<div style="display: grid; gap: 6px;">`;
             stocks.forEach(s => {
                 const { color, prefix, amount } = decorate(breakdown[s]);
                 html += `<div style="display: flex; justify-content: space-between; font-size: 12px; padding: 6px 10px; background: var(--bg-color); border-radius: 6px; border: 1px solid var(--border-light-color);">
                     <span style="font-weight: bold; color: var(--text-strong-color);">${escapeHtml(s)}</span>
-                    <span style="color: ${color};">${prefix}${moneyText(amount)}</span>
+                    <span style="color: ${color};">${prefix}${moneyText(amount, currency)}</span>
                 </div>`;
             });
             html += `</div>`;
@@ -440,6 +440,7 @@ window.renderMonthlyProfitChart = async function() {
     }
     if (ticket !== journalRequests.chart || generation !== journalGeneration) return;
     document.getElementById('monthlyProfitChartContainer-load-error')?.remove();
+    const currency = result.currency || displayCurrency;
     const monthlyData = result.monthlyData;
     const missing = new Set();
     result.evaluation.forEach(lot => {
@@ -630,13 +631,13 @@ window.renderMonthlyProfitChart = async function() {
                             if (context.raw === null) return null;
                             if (type === 'volume') {
                                 let prefix = context.datasetIndex === 0 ? '매수: ' : '매도: ';
-                                return prefix + moneyText(value);
+                                return prefix + moneyText(value, currency);
                             }
                             if (type === 'realized' || type === 'cumulative') {
                                 const labelStr = context.dataset.label;
-                                return labelStr + ': ' + (value > 0 ? '+' : '') + moneyText(value);
+                                return labelStr + ': ' + (value > 0 ? '+' : '') + moneyText(value, currency);
                             }
-                            return (value > 0 ? '+' : '') + moneyText(value);
+                            return (value > 0 ? '+' : '') + moneyText(value, currency);
                         }
                     }
                 }
@@ -684,7 +685,7 @@ window.renderMonthlyProfitChart = async function() {
                 }
                 
                 // 계산된 내역을 하단 영역에 렌더링
-                window.renderChartDetailList(periodLabel, sections);
+                window.renderChartDetailList(periodLabel, sections, currency);
             }
         }
     });

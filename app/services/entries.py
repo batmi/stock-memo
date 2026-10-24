@@ -87,6 +87,18 @@ def _release_uploads(username, old_row, new_row=None):
         username, images.entry_uploads(username, old_row) - images.entry_uploads(username, new_row))
 
 
+def _derived_time_fields(entry, executed_at=None):
+    dt = executed_at if executed_at is not None else parse_entry_dt(entry)
+    if dt is None:
+        raise InvalidEntry('거래 일시를 입력해주세요.')
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=KST)
+    return {
+        'executedAtUtc': dt.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'tradeDate': trade_date_for(dt, entry.get('exchange')),
+    }
+
+
 # ---------------------------------------------------------------------------
 # 웹 화면
 # ---------------------------------------------------------------------------
@@ -158,15 +170,7 @@ def update(username, entry_id, entry, *, force=False):
             entry_logic.update_entry_row(c, entry_id, username, entry)
             if (old['executedAtUtc'] or old['tradeDate']) and (
                     entry.get('rawDate') != old['rawDate'] or entry.get('exchange') != old['exchange']):
-                dt = parse_entry_dt(entry)
-                if dt is None:
-                    raise InvalidEntry('거래 일시를 입력해주세요.')
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=KST)
-                entry_logic.update_columns(c, entry_id, username, {
-                    'executedAtUtc': dt.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-                    'tradeDate': trade_date_for(dt, entry.get('exchange')),
-                })
+                entry_logic.update_columns(c, entry_id, username, _derived_time_fields(entry))
             flagged = _flag_oversold(c, username, old, conflict) if conflict else []
             conn.commit()
         except Exception:
@@ -225,7 +229,7 @@ def _load_bot_entry(c, username, entry_id):
 
 
 @serialized_user_change
-def patch_bot_trade(username, entry_id, changes):
+def patch_bot_trade(username, entry_id, changes, *, executed_at=None):
     """봇이 만든 기록의 일부 칸(DB 컬럼 → 값)만 고친다. (고친 행, 경고 목록)을 돌려준다."""
     warnings = []
     with db_conn(write=True) as conn:
@@ -233,6 +237,9 @@ def patch_bot_trade(username, entry_id, changes):
         old = _load_bot_entry(c, username, entry_id)
         changes = dict(changes)
         after = dict(old, **changes)
+        if 'rawDate' in changes:
+            changes.update(_derived_time_fields(after, executed_at))
+            after.update(changes)
 
         if _HOLDING_COLUMNS & set(changes):
             integrity = entry_logic.check_sell_integrity(c, username, after, exclude_id=entry_id)

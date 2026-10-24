@@ -149,6 +149,8 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
     if (currentPortfolioArrayForPrice.length === 0) return;
     
     const requestedGeneration = journalGeneration;
+    const requestedPortfolio = currentPortfolioArrayForPrice;
+    const currency = portfolioCurrency;
     const displayMarket = currentMarketMode; // ⭐️ 토글된 시장 모드(KRX 또는 AFT) 사용
     
     const marketStatus = window.getMarketStatus();
@@ -198,7 +200,7 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
         }
         
         const prices = await res.json();
-        if (requestedGeneration !== journalGeneration) return;
+        if (requestedGeneration !== journalGeneration || requestedPortfolio !== currentPortfolioArrayForPrice) return;
         
         let totalEval = 0;
         currentPortfolioArrayForPrice.forEach(data => {
@@ -237,11 +239,11 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
                 const profitRate = data.totalCost > 0 ? (profitAmount / data.totalCost) * 100 : 0;
                 
                 if (isFresh) {
-                    pEls.forEach(el => el.innerText = moneyText(cp));
-                    eEls.forEach(el => el.innerText = moneyText(evalAmount));
+                    pEls.forEach(el => el.innerText = moneyText(cp, currency));
+                    eEls.forEach(el => el.innerText = moneyText(evalAmount, currency));
                     
                     const pColor = profitAmount > 0 ? 'var(--danger-color)' : (profitAmount < 0 ? 'var(--primary-color)' : 'var(--text-strong-color)');
-                    pfEls.forEach(el => el.innerHTML = `<span style="color: ${pColor}; font-weight: bold; text-align: right; display: inline-block;"><span class="masked-amount">${profitAmount > 0 ? '+' : ''}${moneyText(profitAmount)}</span><br>(${profitRate > 0 ? '+' : ''}${profitRate.toFixed(2)}%)</span>`);
+                    pfEls.forEach(el => el.innerHTML = `<span style="color: ${pColor}; font-weight: bold; text-align: right; display: inline-block;"><span class="masked-amount">${profitAmount > 0 ? '+' : ''}${moneyText(profitAmount, currency)}</span><br>(${profitRate > 0 ? '+' : ''}${profitRate.toFixed(2)}%)</span>`);
                     
                     // ⭐️ 값이 새로 업데이트될 때만 카드 배경 반짝임(Flash) 애니메이션 적용
                     pEls.forEach(el => {
@@ -266,7 +268,7 @@ window.fetchCurrentPricesAndUpdateUI = async function(isAuto = false) {
         
         const centerEvalEl = document.getElementById('centerTotalEvaluation');
         if (centerEvalEl) {
-            animateValue(centerEvalEl, totalEval, 1000, false);
+            animateValue(centerEvalEl, totalEval, 1000, false, currency);
         }
     } catch(e) { console.error("현재가 가져오기 실패", e); }
 };

@@ -166,17 +166,51 @@ def _holding_key(row):
     return row['_identity'] + ('::제외' if row['_excluded'] else '')
 
 
+def resolve_currency(model, query):
+    """명시한 통화를 우선하고, 생략하면 조회 조건에 해당하는 거래에서 고른다."""
+    if query.get('currency'):
+        return query['currency']
+    currencies = {currency_of(row) for row in model['rows']
+                  if row.get('type') == 'trade' and row['_settled'] and matches(row, query)}
+    return 'KRW' if not currencies or 'KRW' in currencies else min(currencies)
+
+
+def _consume_lots(lots, qty):
+    """필터 밖 매도도 같은 계좌의 잔여 매수 수량을 FIFO로 소진한다."""
+    while qty > EPS and lots:
+        lot = lots[0]
+        used = min(qty, lot[0])
+        qty -= used
+        lot[0] -= used
+        if lot[0] <= EPS:
+            lots.popleft()
+
+
 def portfolio(model, query, month):
-    query = dict(query, currency=query.get('currency') or 'KRW')
+    query = dict(query, currency=resolve_currency(model, query))
     holdings = {}
     positions = defaultdict(_empty_holding)
+    lots = defaultdict(deque)
     realized = 0.0
     buys = sells = 0
     for row in model['rows']:
         if (row.get('type') != 'trade' or not row.get('stockName') or not row['_settled']
-                or not matches(row, query)):
+                or currency_of(row) != query['currency']):
             continue
         key = _holding_key(row)
+        ident = position_key(row), key
+        selected = matches(row, query)
+        kind = row.get('tradeType')
+        qty = float(row.get('quantity') or 0)
+        profit, cost, dividend = _apply(positions[ident], row)
+        if kind == '매수':
+            lots[ident].append([qty, selected])
+        elif kind == '매도':
+            _consume_lots(lots[ident], qty)
+            if positions[ident]['qty'] <= EPS:
+                lots[ident].clear()
+        if not selected:
+            continue
         p = holdings.setdefault(key, dict(
             **_empty_holding(), stock=model['names'].get(row['_identity'], row['stockName']),
             identity=row['_identity'], isExcluded=row['_excluded'],
@@ -184,14 +218,8 @@ def portfolio(model, query, month):
             accountName='', tradeClass='', traded=False, stockCode='', currency=query['currency']))
         p['tradeClass'] = row.get('tradeClass') or p['tradeClass']
         p['stockCode'] = row.get('stockCode') or p['stockCode']
-        if row.get('tradeType') in ('매수', '매도', '배당'):
+        if kind in ('매수', '매도', '배당'):
             p['traded'] = True
-            position = positions[position_key(row)]
-            old_qty, old_cost = position['qty'], position['totalCost']
-            profit, cost, dividend = _apply(position, row)
-            p['qty'] += position['qty'] - old_qty
-            p['totalCost'] += position['totalCost'] - old_cost
-            p['avgPrice'] = p['totalCost'] / p['qty'] if p['qty'] > EPS else 0
             p['realizedProfit'] += profit + dividend
             p['realizedCost'] += cost
             if not row['_excluded']:
@@ -199,6 +227,16 @@ def portfolio(model, query, month):
                 if row['_day'].strftime('%Y-%m') == month:
                     buys += row.get('tradeType') == '매수'
                     sells += row.get('tradeType') == '매도'
+    # 분류별 잔여 수량은 매수 로트에 귀속한다. 평가 원가는 분류와 무관하게
+    # 전체 체결로 계산한 계좌별 이동평균단가를 적용한다.
+    for ident, remaining in lots.items():
+        qty = sum(qty for qty, selected in remaining if selected)
+        if qty <= EPS:
+            continue
+        p = holdings[ident[1]]
+        p['qty'] += qty
+        p['totalCost'] += qty * positions[ident]['avgPrice']
+        p['avgPrice'] = p['totalCost'] / p['qty']
     return {'holdings': holdings, 'currency': query['currency'], 'totalRealizedProfit': realized,
                 'monthlyBuyCount': buys, 'monthlySellCount': sells}
 
@@ -206,6 +244,7 @@ def portfolio(model, query, month):
 def _history_rows(model, query):
     rows = model['rows']
     quantities = defaultdict(float)
+    positions = defaultdict(_empty_holding)
     related = {k: set() for k in ('tradeClass', 'brokers', 'subAccount')}
     related_queries = {}
     for key in related:
@@ -217,11 +256,14 @@ def _history_rows(model, query):
         if (row.get('type') or 'trade') != 'trade' or not row.get('stockName'):
             continue
         if row.get('tradeType') in ('매수', '매도') and row['_settled']:
-            quantities[_holding_key(row)] += float(row.get('quantity') or 0) * (
-                1 if row['tradeType'] == '매수' else -1)
+            _apply(positions[position_key(row), _holding_key(row)], row)
         for key, probe in related_queries.items():
             if matches(row, probe):
                 related[key].add(row['_identity'])
+    # 다른 계좌의 초과 매도로 정상 계좌의 보유량을 상쇄하지 않는다.
+    # 포트폴리오와 같은 계좌별 청산 판정을 목록에도 적용한다.
+    for (_, holding_key), holding in positions.items():
+        quantities[holding_key] += holding['qty']
     result = []
     for row in reversed(rows):
         kind = row.get('type') or 'trade'
@@ -244,7 +286,7 @@ def _history_rows(model, query):
             keys = [_holding_key(row)] if kind == 'trade' else [
                 row['_identity'], row['_identity'] + '::제외']
             known = [quantities[k] for k in keys if k in quantities]
-            if known and all(q <= 0 for q in known):
+            if known and all(q <= EPS for q in known):
                 continue
         result.append(row)
     return result
@@ -329,7 +371,7 @@ def calendar(model, month, currency='KRW'):
 
 
 def chart(model, query, labels, weekly):
-    query = dict(query, currency=query.get('currency') or 'KRW')
+    query = dict(query, currency=resolve_currency(model, query))
     fields = ('realized', 'evaluated', 'buy_volume', 'sell_volume', 'dividend', 'cumulative', 'cumulative_dividend')
     breakdowns = ('realized', 'evaluated', 'buy_volume', 'sell_volume', 'dividend', 'cumulative', 'cumulative_div')
     monthly = {label: {**dict.fromkeys(fields, 0.0),
@@ -345,8 +387,9 @@ def chart(model, query, labels, weekly):
 
     for row in model['rows']:
         if (row.get('type') != 'trade' or not row.get('stockName') or not row['_settled']
-                or row['_excluded'] or not matches(row, query)):
+                or row['_excluded'] or currency_of(row) != query['currency']):
             continue
+        selected = matches(row, query)
         dt = row['_day']
         key = (dt - timedelta(days=dt.weekday())).strftime('%Y-%m-%d') if weekly else dt.strftime('%Y-%m')
         ident = position_key(row)
@@ -356,16 +399,13 @@ def chart(model, query, labels, weekly):
         profit, _, dividend = _apply(holdings[ident], row)
         holdings[ident]['stockCode'] = row.get('stockCode') or holdings[ident].get('stockCode', '')
         if kind == '매수':
-            lots[ident].append([key, qty, price])
+            lots[ident].append([qty, key, price, selected])
         elif kind == '매도':
-            left = qty
-            while left > 0 and lots[ident]:
-                lot = lots[ident][0]
-                used = min(left, lot[1])
-                left -= used
-                lot[1] -= used
-                if lot[1] <= EPS:
-                    lots[ident].popleft()
+            _consume_lots(lots[ident], qty)
+            if holdings[ident]['qty'] <= EPS:
+                lots[ident].clear()
+        if not selected:
+            continue
         if kind in ('매도', '배당'):
             events.append((key, stock, profit, dividend))
         if key in monthly:
@@ -396,19 +436,20 @@ def chart(model, query, labels, weekly):
     # 보낸다. 구간 밖 매도도 FIFO 에 적용했으므로 과거 잔여 물량이 되살아나지 않는다.
     evaluation = {}
     for ident, remaining in lots.items():
-        for key, qty, price in remaining:
-            if key not in monthly:
+        for qty, key, price, selected in remaining:
+            if not selected or key not in monthly:
                 continue
             item = evaluation.setdefault((ident[-1], key), {
                 'period': key, 'stock': model['names'].get(ident[-1], ident[-1]),
                 'stockCode': holdings[ident].get('stockCode'), 'quantity': 0.0, 'cost': 0.0})
             item['quantity'] += qty
             item['cost'] += qty * price
-    return {'monthlyData': monthly, 'evaluation': list(evaluation.values())}
+    return {'monthlyData': monthly, 'evaluation': list(evaluation.values()), 'currency': query['currency']}
 
 
 def trade_stats(model, query, granularity='monthly'):
-    query = dict(query, currency=query.get('currency') or 'KRW')
+    query = dict(query, currency=resolve_currency(model, query))
     result = stats.compute_trade_stats([
-        r for r in model['rows'] if not r['_excluded'] and matches(r, query)], granularity=granularity)
+        r for r in model['rows'] if not r['_excluded'] and currency_of(r) == query['currency']],
+        granularity=granularity, include=lambda row: matches(row, query))
     return dict(result, currency=query['currency'])

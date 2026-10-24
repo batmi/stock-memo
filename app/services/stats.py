@@ -52,7 +52,7 @@ def _parse_period_bound(value):
     except (ValueError, TypeError):
         return None
 
-def compute_trade_stats(rows, granularity='monthly', period_start=None, period_end=None):
+def compute_trade_stats(rows, granularity='monthly', period_start=None, period_end=None, *, include=None):
     """매매 기록 리스트로부터 성과 분석 지표를 계산합니다.
 
     실현손익은 프론트엔드 대시보드와 동일한 이동평균단가(average-cost) 방식으로,
@@ -61,6 +61,8 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
     period_start / period_end ('YYYY-MM-DD', 종료일 포함)를 주면 해당 구간의 체결만
     집계합니다. 단, 평단(avgPrice)은 구간 이전 매수까지 모두 반영해야 실현손익이
     맞으므로 보유 상태는 전체 기록으로 갱신하고 '지표 누적'만 구간 안으로 제한합니다.
+    include(record)도 같은 방식으로 지표만 제한합니다. 분류가 다른 매수·매도를
+    계산에서 먼저 제거하면 원가와 보유기간이 달라지므로 전체 이력을 전달해야 합니다.
     """
     # 취소·접수 주문은 이력으로만 남고 성과에 넣지 않는다(entry_logic.is_settled_trade).
     trades = [r for r in rows if r.get('type') == 'trade' and (r.get('stockName') or '').strip()
@@ -151,7 +153,7 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
             mkey = get_monday(day) if granularity == 'weekly' else day.strftime('%Y-%m')
 
         p = portfolio.setdefault(position_key(t), dict(empty_holding(), lots=deque()))
-        inw = in_window(day)  # ⭐️ 지표에 반영할 구간인지 (보유 상태 갱신은 구간과 무관하게 항상 수행)
+        inw = in_window(day) and (include is None or include(t))
 
         if inw and (t.get('fee') is not None or t.get('tax') is not None):
             cost_record_count += 1

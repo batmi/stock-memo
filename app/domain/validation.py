@@ -17,6 +17,19 @@ def finite_number(value):
     return number
 
 
+def normalize_currency(value, default='KRW'):
+    if value is None or value == '':
+        return default
+    if not isinstance(value, str):
+        raise ValueError('통화는 KRW, USD 같은 3자리 코드여야 합니다.')
+    value = value.strip().upper()
+    if not value:
+        return default
+    if not re.fullmatch('[A-Z]{3}', value):
+        raise ValueError('통화는 KRW, USD 같은 3자리 코드여야 합니다.')
+    return value
+
+
 TEXT_LIMITS = {
     'type': 20, 'tradeType': 20, 'stockName': 200, 'stockCode': 32,
     'title': 1000, 'thoughts': 16 * 1024 * 1024, 'tags': 5000,
@@ -65,8 +78,42 @@ def normalize_web_entry(data):
             datetime.fromisoformat(entry['rawDate'])
         except ValueError as exc:
             raise ValueError('거래 일시가 올바르지 않습니다.') from exc
-    if entry.get('currency'):
-        entry['currency'] = entry['currency'].strip().upper()
-        if not re.fullmatch('[A-Z]{3}', entry['currency']):
-            raise ValueError('통화는 KRW, USD 같은 3자리 코드여야 합니다.')
+    if 'currency' in entry:
+        entry['currency'] = normalize_currency(entry['currency'], default='')
+    return entry
+
+
+def normalize_restored_entry(data):
+    """구버전의 누락 필드는 허용하되 집계를 깨뜨리는 값은 교체 전에 거부한다.
+
+    복원은 매수보다 먼저 도착한 매도나 수량 없는 옛 메모도 보존해야 하므로
+    새 거래의 필수값·보유 검증과 분리한다. 긴 옛 본문에는 ZIP 크기 한도를 적용한다.
+    """
+    entry = dict(data)
+    text_fields = set(TEXT_LIMITS) | {
+        'tradeStatus', 'confidence', 'orderOrigin', 'source', 'orderId',
+        'originalOrderId', 'executedAtUtc', 'tradeDate', 'reviewReason',
+    }
+    for field in text_fields:
+        if entry.get(field) is not None and not isinstance(entry[field], str):
+            raise ValueError(f'{field}: 문자열이어야 합니다.')
+    nonnegative = {'price', 'quantity', 'fee', 'tax'}
+    numeric_fields = nonnegative | {'realizedPnl', 'realizedPnlRate', 'strategyScore', 'stopLossRate'}
+    for field in numeric_fields:
+        if field not in entry or entry[field] is None:
+            continue
+        if entry[field] == '':
+            entry[field] = 0 if field in ('price', 'quantity') else None
+            continue
+        try:
+            entry[field] = finite_number(entry[field])
+        except ValueError as exc:
+            raise ValueError(f'{field}: {exc}') from exc
+        if field in nonnegative and entry[field] < 0:
+            raise ValueError(f'{field}: 0 이상이어야 합니다.')
+    if entry.get('type') in ('buy', 'sell'):
+        entry['tradeType'] = '매수' if entry['type'] == 'buy' else '매도'
+        entry['type'] = 'trade'
+    if 'currency' in entry:
+        entry['currency'] = normalize_currency(entry['currency'], default='')
     return entry

@@ -26,7 +26,7 @@ from .common import (
     _now_kst_str,
 )
 from .entries import (
-    _fetch_by_exec_id, _insert_trade, build_entry, entry_to_response,
+    _fetch_by_exec_id, _insert_trade, build_entry, entry_to_response, opening_execution_id,
 )
 from .keys import _hash_key
 from .security import _account_disabled, _client_ip, _serializer, require_token
@@ -403,6 +403,7 @@ def patch_trade(username, scopes, trade_id):
         return _err(400, 'INVALID_REQUEST', '갱신할 필드를 1개 이상 보내야 합니다.')
 
     changes = {}
+    executed_dt = None
     try:
         for field, value in data.items():
             column = _PATCHABLE.get(field)
@@ -450,7 +451,7 @@ def patch_trade(username, scopes, trade_id):
     # ⭐️ 정정은 웹 수정과 같은 서비스를 지난다. 매수를 취소·축소하면 이미 한 매도에,
     #    매도를 키우면 그 매도에 '검토 필요'가 붙는다 — 막지는 않는다(유실 금지).
     try:
-        row, warnings = entry_service.patch_bot_trade(username, trade_id, changes)
+        row, warnings = entry_service.patch_bot_trade(username, trade_id, changes, executed_at=executed_dt)
     except entry_service.EntryNotFound:
         return _err(404, 'NOT_FOUND', '해당 기록이 없거나 API 로 수정할 수 없는 기록입니다.')
 
@@ -539,6 +540,7 @@ def create_opening_positions(username, scopes):
             }
             try:
                 entry = build_entry(c, username, trade_input, mappings)
+                entry['brokerExecutionId'] = opening_execution_id(c, username, entry)
                 entry_id, created, _warn = _insert_trade(c, username, entry)
             except ValidationError as e:
                 failed += 1

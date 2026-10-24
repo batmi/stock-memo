@@ -9,6 +9,7 @@ let historyQuery = null;
 let historyLoading = false;
 let editingEntry = null;
 let displayCurrency = 'KRW';
+let portfolioCurrency = 'KRW';
 
 function moneyNumber(value, currency = displayCurrency) {
     return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: currency === 'KRW' ? 0 : 2 });
@@ -41,7 +42,8 @@ function journalFilters(scope) {
     const stock = history ? currentFilterStock : chart ? currentChartStock : 'all';
     const broker = history ? currentFilterBroker : chart ? currentChartBroker : currentDashboardBroker;
     return {
-        currency: history && !currentFilterDate ? '' : displayCurrency,
+        // 집계 통화는 종목·계좌 필터에 맞춰 서버에서 결정한다.
+        currency: history && currentFilterDate ? displayCurrency : '',
         stock: stock === 'all' ? '' : identityForStockName(stock),
         tradeClass: history ? currentFilterAccount : chart ? currentChartAccount : currentDashboardAccount,
         subAccount: history ? currentFilterSubAccount : chart ? currentChartSubAccount : currentDashboardSubAccount,
