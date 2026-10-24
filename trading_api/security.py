@@ -6,7 +6,7 @@
 
 from functools import wraps
 
-from flask import request
+from flask import g, request
 
 from app.utils import ratelimit
 from app.database.db import db_conn
@@ -72,7 +72,7 @@ def require_token(*required_scopes):
             with db_conn() as conn:
                 c = conn.cursor()
                 c.execute(
-                    "SELECT k.scopes, k.revoked_at, k.last_used_at, u.is_allowed "
+                    "SELECT k.scopes, k.revoked_at, k.last_used_at, u.is_allowed, u.id AS user_id "
                     "FROM api_keys k LEFT JOIN users u ON u.username = k.username "
                     "WHERE k.id = ? AND k.username = ?",
                     (key_id, username))
@@ -104,6 +104,11 @@ def require_token(*required_scopes):
                 resp.headers['Retry-After'] = str(retry_after)
                 return resp, status
 
+            from app.routes.ownership import lock_request, validate_owner
+            lock_request(username)
+            g.account_identity = (username, key_row['user_id'])
+            with db_conn() as conn:
+                validate_owner(conn)
             result = f(*args, username=username, scopes=scopes, **kwargs)
             return _with_ratelimit_headers(result, remaining)
 

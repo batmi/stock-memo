@@ -113,6 +113,10 @@ def normalize_restored_entry(data):
     새 거래의 필수값·보유 검증과 분리한다. 긴 옛 본문에는 ZIP 크기 한도를 적용한다.
     """
     entry = dict(data)
+    sequence = entry.get('tradeSequence')
+    if sequence is not None and (isinstance(sequence, bool) or not isinstance(sequence, int)
+                                 or not 0 < sequence < 2**63):
+        raise ValueError('tradeSequence: 양의 정수여야 합니다.')
     text_fields = set(TEXT_LIMITS) | {
         'tradeStatus', 'confidence', 'orderOrigin', 'source', 'orderId',
         'originalOrderId', 'executedAtUtc', 'tradeDate', 'reviewReason', 'realizedPnlSource',

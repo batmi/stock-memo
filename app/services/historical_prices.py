@@ -148,7 +148,7 @@ def run_one():
             current = conn.execute('SELECT status,lease_until FROM historical_jobs WHERE id=?', (job['id'],)).fetchone()
             if current['status'] != 'running' or current['lease_until'] != job['lease_until']:
                 return True
-            changed_splits = key in metadata and metadata[key]['splits'] != asset['splits']
+            changed_splits = metadata.get(key, {}).get('splits', {}) != asset['splits']
             if changed_splits:
                 conn.execute('UPDATE historical_prices SET checked_at=0 WHERE code=? AND currency=?', key)
             conn.execute('''INSERT INTO historical_assets(code,currency,symbol,timezone,splits,checked_at)
@@ -168,7 +168,19 @@ def run_one():
                     status=excluded.status,checked_at=excluded.checked_at''',
                     (*key, day, close, status, now))
             conn.execute("UPDATE historical_jobs SET status='done',lease_until=0,error='' WHERE id=?", (job['id'],))
+            affected = []
+            if changed_splits:
+                from app.services import realized_pnl
+                # 코드 없는 레거시 기록도 같은 계좌의 종목코드에 연결될 수 있다.
+                affected = [r[0] for r in conn.execute("""SELECT DISTINCT username FROM entries
+                    WHERE username IS NOT NULL AND UPPER(TRIM(stockCode))=?
+                    AND UPPER(TRIM(COALESCE(NULLIF(currency,''),'KRW')))=?""", key)]
+                for username in affected:
+                    realized_pnl.refresh(conn, username)
             conn.commit()
+        from app.utils import statscache
+        for username in affected:
+            statscache.invalidate(username)
     except Exception:
         log.warning('과거 시세 수집 실패: %s %s %s~%s', *key, job['start'], job['end'], exc_info=True)
         exhausted = job['attempts'] >= MAX_ATTEMPTS

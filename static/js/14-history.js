@@ -502,6 +502,7 @@ window.editEntry = async function(entry) {
         if (!canOpen) return;
     }
     editingEntryId = entry.id;
+    editingEntryRevision = entry.revision;
 
     formModalOverlay.style.display = 'flex';
     document.body.style.overflow = 'hidden'; // ⭐️ 모달 열림 시 배경 스크롤 방지

@@ -461,6 +461,8 @@ def update_entry(entry_id):
     try:
         flagged = entries.update(session.get('username'), entry_id, entry,
                                  force=request.args.get('force') == '1')
+    except entries.StaleEntry as e:
+        return jsonify(error=str(e), errorCode='STALE_ENTRY'), 409
     except entries.EntryNotFound:
         return jsonify({"error": _ENTRY_NOT_FOUND}), 404
     except entries.InvalidEntry as e:

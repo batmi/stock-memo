@@ -17,7 +17,7 @@ import config
 from app.database import entry_logic
 from app.routes import middleware
 from app.utils import scriptbundle
-from helpers import _ensure_user
+from helpers import _user_id, _ensure_user
 
 
 @pytest.mark.parametrize('suffix', ['', '?v=1'])
@@ -60,6 +60,7 @@ def test_http_errors_keep_their_status_codes(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     assert client.get('/nope').status_code == 404
@@ -73,6 +74,7 @@ def test_oversized_upload_returns_413_not_500(client, monkeypatch):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     limit = 1024
@@ -87,6 +89,7 @@ def test_unhandled_exception_does_not_leak_internals(client, monkeypatch):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     def boom(_username):
@@ -111,6 +114,7 @@ def test_large_json_response_is_still_compressed(client, monkeypatch):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'compressuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     # 상한을 낮춰서 '큰 응답' 상황을 작은 데이터로 재현한다
@@ -138,6 +142,7 @@ def test_response_above_cap_is_not_compressed(client, monkeypatch):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'compressuser2'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     monkeypatch.setattr(middleware, 'MAX_COMPRESS_BYTES', 1024)  # 1KB 로 낮춤
@@ -181,6 +186,7 @@ def test_sensitive_files_are_not_served(client, path):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     assert client.get(path).status_code != 200
@@ -191,6 +197,7 @@ def test_static_assets_are_served(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     for path in ('/static/calc.js', '/static/style.css',
@@ -202,6 +209,7 @@ def _login_testuser(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
 

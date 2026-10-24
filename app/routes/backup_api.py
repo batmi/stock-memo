@@ -39,6 +39,7 @@ def full_backup():
         raise
 
 
+@bp.post('/api/restore/preview')
 @bp.post('/api/restore')
 def full_restore():
     username = session.get('username')
@@ -52,7 +53,9 @@ def full_restore():
     if not file.filename or not file.filename.lower().endswith('.zip'):
         return jsonify(error='유효하지 않은 파일입니다. .zip 백업 파일을 업로드해주세요.'), 400
     try:
-        restores.restore_user_backup(username, file.stream)
+        if request.path.endswith('/preview'):
+            return jsonify(restores.preview(username, file.stream))
+        restores.restore_user_backup(username, file.stream, request.form.get('previewToken'))
     except restores.RestoreError as exc:
         return jsonify(error=str(exc)), exc.status
     except (zipfile.BadZipFile, ValueError):

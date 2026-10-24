@@ -10,7 +10,7 @@ import time
 import backend_app
 import config
 from app.services import images, migrations
-from helpers import _ensure_user
+from helpers import _user_id, _ensure_user
 
 
 def test_image_upload_and_access(client):
@@ -21,6 +21,7 @@ def test_image_upload_and_access(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'imguser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     # 1px 짜리 투명 PNG 더미 파일
@@ -38,6 +39,7 @@ def test_image_upload_and_access(client):
     _ensure_user('otheruser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['username'] = 'otheruser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
     res_file_unauth = client.get(f"/uploads/imguser/{filename}")
     assert res_file_unauth.status_code == 403
@@ -93,6 +95,7 @@ def test_create_entry_extracts_inline_images(client, monkeypatch, tmp_path):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'imgentry'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
 
     encoded = b64.b64encode(b'img-bytes').decode()

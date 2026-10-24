@@ -38,6 +38,10 @@ class EntryNotFound(Exception):
     """없거나, 이 사용자의 것이 아니거나, 이 경로로 고칠 수 없는 기록."""
 
 
+class StaleEntry(Exception):
+    """수정창을 연 뒤 기록이 변경되었다."""
+
+
 class OversellConflict(Exception):
     """이 변경으로 이미 한 매도가 보유를 넘는다(웹). 확인을 받은 뒤 force=True 로 진행한다."""
 
@@ -154,6 +158,10 @@ def update(username, entry_id, entry, *, force=False):
         old = _load(c, username, entry_id)
         if old is None:
             raise EntryNotFound()
+
+        expected = entry.get('revision')
+        if expected is not None and (type(expected) is not int or expected != old['revision']):
+            raise StaleEntry('다른 곳에서 변경된 기록입니다. 내용을 다시 불러온 뒤 수정해주세요.')
 
         # 연동 원본과 누락된 값은 보존한다. 웹 폼은 체결 ID·통화 등을 보내지 않는다.
         allowed = set(entry_logic.WEB_UPDATE_COLUMNS)

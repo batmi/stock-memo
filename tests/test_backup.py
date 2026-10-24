@@ -15,7 +15,7 @@ import backend_app
 from app.services import backups
 import config
 from app.database import entry_logic
-from helpers import _buy, _ensure_user, _login, _sell
+from helpers import _user_id, _buy, _ensure_user, _login, _sell
 
 
 def test_backup_endpoint_requires_auth(client):
@@ -38,6 +38,7 @@ def test_backup_and_restore_workflow(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
 
     # 1. 백업할 원본 테스트 데이터 생성
@@ -87,6 +88,7 @@ def test_restore_exceptions(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     # 1. 파일이 없을 때
@@ -128,6 +130,7 @@ def test_restore_rejects_oversized_uncompressed_zip(client, monkeypatch):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     # 상한을 낮춰, 압축이 잘 되는 큰 데이터를 작은 업로드로 재현한다.
@@ -211,6 +214,7 @@ def test_restore_keeps_existing_uploads_when_copy_fails(client, monkeypatch, tmp
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'restoreuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     # 기존 첨부파일을 심어 둔다
@@ -250,6 +254,7 @@ def test_restore_replaces_uploads_on_success(client, monkeypatch, tmp_path):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'restoreuser2'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     user_folder = os.path.join(config.UPLOAD_FOLDER, 'restoreuser2')
@@ -322,6 +327,7 @@ def test_restore_survives_id_collision_with_other_user(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'restorer'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     # 같은 id 를 담은 백업을 복원한다
@@ -364,6 +370,7 @@ def test_restore_same_account_keeps_original_ids(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'selfrestore'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     payload = [{'id': 555, 'type': 'trade', 'stockName': 'A', 'tradeType': '매수',

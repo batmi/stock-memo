@@ -15,7 +15,7 @@ import backend_app
 from app.utils import ratelimit
 import trading_api
 from trading_api import common, keys, security, validation
-from helpers import _ensure_user
+from helpers import _user_id, _ensure_user
 
 
 @pytest.fixture
@@ -190,6 +190,7 @@ def test_web_ui_still_blocks_oversell(client, app):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'u'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = 9999999999
 
     client.post('/api/entry', json={'type': 'trade', 'tradeType': '매수', 'stockName': '삼성전자',
@@ -678,6 +679,7 @@ def test_api_me_exposes_server_computed_state(api):
     with api['client'].session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'bot'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     data = api['client'].get('/api/me').get_json()
@@ -995,6 +997,7 @@ def _as_web_user(api):
     # 있어야 세션으로 인정한다(auth.check_login).
     with api['client'].session_transaction() as sess:
         sess['username'] = 'bot'
+        sess['user_id'] = _user_id(sess['username'])
         sess['logged_in'] = True
         sess['expires_at'] = time.time() + 3600
     return api['client']

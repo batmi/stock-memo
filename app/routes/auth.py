@@ -12,7 +12,7 @@
 import time
 
 from flask import (Blueprint, jsonify, redirect, render_template, request,
-                   session, url_for)
+                   session, url_for, g)
 from flask.sessions import SecureCookieSessionInterface
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -56,6 +56,8 @@ def register(app):
     # ⭐️ 블루프린트가 아니라 앱에 건다. 정적 파일·업로드·봇 API 를 포함한
     #    모든 요청이 이 검사를 지나야 하기 때문이다.
     app.before_request(check_login)
+    from app.routes.ownership import release_request
+    app.teardown_request(release_request)
 
 
 def check_login():
@@ -92,6 +94,24 @@ def check_login():
             if request.path.startswith('/api/'):
                 return jsonify({"error": "Unauthorized"}), 401
             return redirect(url_for('auth.login', timeout=1))
+
+        # 사용자 ID를 세션에 묶는다. 삭제 후 같은 이름으로 가입한 계정은 다른 세대다.
+        from app.routes.ownership import lock_request, lock_request_users
+        if request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            if request.endpoint == 'admin.admin_delete_user':
+                lock_request_users(sess_user, request.view_args['target_username'])
+            else:
+                lock_request(sess_user)
+        with db_conn() as conn:
+            owner = conn.execute('SELECT id,is_allowed FROM users WHERE username=?', (sess_user,)).fetchone()
+        if owner is None or not owner['is_allowed'] or session.get('user_id') != owner['id']:
+            session.clear()
+            return jsonify(error='계정이 변경되었습니다. 다시 로그인해주세요.'), 401
+        session['user_id'] = owner['id']
+        g.account_identity = (sess_user, owner['id'])
+    elif request.endpoint == 'auth.signup' and request.method == 'POST':
+        from app.routes.ownership import lock_request
+        lock_request((request.form.get('username') or '').strip())
 
 
 # ⭐️ 시스템 트레이딩 API(/api/v1/*)의 토큰 발급·검증은 trading_api 모듈이 담당한다.
@@ -144,7 +164,7 @@ def login():
             # DB에서 입력한 아이디와 일치하는 암호화된 비밀번호 조회
             with db_conn() as conn:
                 c = conn.cursor()
-                c.execute("SELECT password_hash, is_allowed, is_admin FROM users WHERE username = ?", (username,))
+                c.execute("SELECT id, password_hash, is_allowed, is_admin FROM users WHERE username = ?", (username,))
                 user_record = c.fetchone()
 
             # 계정이 존재하고, 입력한 비밀번호와 DB의 해시값이 일치하는지 검증
@@ -175,6 +195,7 @@ def login():
                     session['username'] = username  # ⭐️ 계정별 설정 저장을 위해 세션에 저장
                     session['is_admin'] = bool(user_record['is_admin'])
                     session['epoch'] = current_session_epoch(username)
+                    session['user_id'] = user_record['id']
                     return redirect(url_for('api.index'))
             else:
                 fail_count = ratelimit.record_login_ip_failure(client_ip)

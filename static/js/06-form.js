@@ -18,6 +18,7 @@ const btnFab = document.getElementById('btnFab');
 const btnCloseForm = document.getElementById('btnCloseForm');
 const submitBtn = journalForm.querySelector('button[type="submit"]');
 let editingEntryId = null;
+let editingEntryRevision = null;
 let portfolioChartInstance = null;
 let currentTags = [];
 
@@ -111,7 +112,7 @@ async function ensureAccountMapping() {
             let options = '<option value="" disabled selected>계좌를 선택하세요</option>';
             for (const [code, info] of Object.entries(accounts)) {
                 if (typeof info === 'string') continue;
-                options += `<option value="${escapeAttr(code)}">[${escapeHtml(info.broker_name)}] ${escapeHtml(info.alias)} (${escapeHtml(code)})</option>`;
+                options += `<option value="${escapeAttr(code)}">[${escapeHtml(info.broker_name)}] ${escapeHtml(info.alias)} (${escapeHtml(mappingNumber(code, info))})</option>`;
             }
             select.innerHTML = options;
         }
@@ -141,7 +142,7 @@ if (journalAccountSelect) {
         const accounts = currentAccountMappings.accounts || {};
         if (val && accounts[val]) {
             brokerInput.value = accounts[val].broker_code;
-            subInput.value = val;
+            subInput.value = mappingNumber(val, accounts[val]);
             nameInput.value = accounts[val].alias;
         } else {
             brokerInput.value = '';
@@ -159,7 +160,8 @@ function syncJournalAccountSelect(rawVal) {
     const val = (rawVal || '').trim();
     if (!val) return false;
 
-    let targetOpt = Array.from(select.options).find(opt => opt.value.replace(/-/g, '') === val.replace(/-/g, ''));
+    const key = findAccountMappingKey(val, document.getElementById('brokerAccount').value);
+    let targetOpt = Array.from(select.options).find(opt => opt.value === key);
     if (!targetOpt) {
         targetOpt = document.createElement('option');
         targetOpt.value = val;

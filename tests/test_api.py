@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import backend_app
 import config
-from helpers import _ensure_user, _login
+from helpers import _user_id, _ensure_user, _login
 
 
 def test_get_data_empty(client):
@@ -22,6 +22,7 @@ def test_get_data_empty(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'new_user'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     response = client.get('/api/data')
@@ -36,6 +37,7 @@ def test_create_and_get_entry(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     new_entry = {
@@ -71,6 +73,7 @@ def test_update_and_delete_entry(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     # 1. 테스트용 데이터 생성
@@ -108,6 +111,7 @@ def test_preferences_api(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
@@ -132,6 +136,7 @@ def test_preferences_edge_cases(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
@@ -152,6 +157,7 @@ def test_ping_and_timeout(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
@@ -176,6 +182,7 @@ def test_mock_external_apis(mock_urlopen, mock_http_get, client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
 
     mock_res = MagicMock()
@@ -206,6 +213,7 @@ def test_current_price_edge_cases(mock_http_get, client, app):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
 
     test_state = {'gold_fail_all': False, 'all_fail': False}
@@ -297,6 +305,7 @@ def test_news_api_exceptions(mock_urlopen, client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     mock_urlopen.side_effect = Exception("Network Connection Error")
@@ -311,6 +320,7 @@ def test_uploaded_file_success(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     user_dir = os.path.join(config.UPLOAD_FOLDER, 'admin')
@@ -382,6 +392,7 @@ def test_mappings_rejects_unknown_account(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'ghostuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
     res = client.post('/api/mappings', json={"brokers": {}, "accounts": {}})
     assert res.status_code == 401

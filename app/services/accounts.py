@@ -51,28 +51,25 @@ def account_key(value):
     return re.sub(r'[\s-]', '', str(value or ''))
 
 
-def find_account_mapping(accounts, raw_sub, broker=None):
-    """등록된 계좌 매핑에서 계좌번호를 찾아 (등록키, 매핑값) 을 돌려준다.
+def mapping_number(key, info):
+    return str(info.get('number') or key) if isinstance(info, dict) else str(key)
 
-    정확히 일치하는 키를 먼저 보고, 없으면 하이픈을 무시한 키로 다시 찾는다.
-    """
+
+def find_account_mapping(accounts, raw_sub, broker=None):
+    """증권사와 계좌번호가 유일하게 일치하는 설정만 반환한다. 옛 번호 키도 지원한다."""
     if not isinstance(accounts, dict) or not raw_sub:
         return None, None
-    def matches_broker(info):
-        if not broker or not isinstance(info, dict):
-            return True
-        identities = {str(info.get(key) or '').strip() for key in ('broker_code', 'broker_name')} - {''}
-        return not identities or broker.strip() in identities
-
-    if raw_sub in accounts and matches_broker(accounts[raw_sub]):
-        return raw_sub, accounts[raw_sub]
     target = account_key(raw_sub)
-    if not target:
-        return None, None
+    matches = []
     for key, info in accounts.items():
-        if account_key(key) == target and matches_broker(info):
-            return key, info
-    return None, None
+        if account_key(mapping_number(key, info)) != target:
+            continue
+        identities = ({str(info.get(k) or '').strip() for k in ('broker_code', 'broker_name')} - {''}
+                      if isinstance(info, dict) else set())
+        if broker and identities and broker.strip() not in identities:
+            continue
+        matches.append((key, info))
+    return matches[0] if len(matches) == 1 else (None, None)
 
 
 def normalize(data):
@@ -166,7 +163,7 @@ def _alias_of(info):
 def known_account_keys(mappings):
     """등록된 모든 계좌의 정규화된 계좌번호 집합 (제외 여부와 무관)."""
     accounts = normalize(mappings).get('accounts') or {}
-    return {key for key in (account_key(code) for code in accounts) if key}
+    return {key for key in (account_key(mapping_number(code, info)) for code, info in accounts.items()) if key}
 
 
 def excluded_accounts(mappings):
@@ -185,7 +182,7 @@ def excluded_accounts(mappings):
     for code, info in accounts.items():
         alias = _alias_of(info)
         if isinstance(info, dict) and info.get('exclude_from_stats'):
-            key = account_key(code)
+            key = account_key(mapping_number(code, info))
             if key:
                 codes.add(key)
             if alias:
@@ -205,10 +202,11 @@ def is_excluded_row(row, codes, aliases, known_codes=None, *, mappings=None):
     sub = account_key(row.get('subAccount'))
     if sub and mappings is not None:
         mapped = mappings.get('accounts') or {}
-        _, unscoped = find_account_mapping(mapped, sub)
-        _, scoped = find_account_mapping(mapped, sub, row.get('brokerAccount'))
-        if unscoped is not None and scoped is None:
-            return False  # 다른 증권사의 같은 번호에 등록된 제외 설정을 물려받지 않는다.
+        _, info = find_account_mapping(mapped, sub, row.get('brokerAccount'))
+        if info is not None:
+            return bool(isinstance(info, dict) and info.get('exclude_from_stats'))
+        if any(account_key(mapping_number(key, value)) == sub for key, value in mapped.items()):
+            return False  # 다른 증권사 또는 모호한 설정을 별칭으로 추측하지 않는다.
     if sub and sub in codes:
         return True
     if sub and known_codes and sub in known_codes:

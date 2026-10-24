@@ -70,6 +70,7 @@ journalForm.addEventListener('submit', async function(e) {
     
     // ⭐️ 비동기 요청 중 전역 변수(editingEntryId)가 변경될 가능성을 대비하여 지역 변수로 캡처
     const currentEditingId = editingEntryId;
+    const currentRevision = editingEntryRevision;
     
     if (currentEditingId) {
         const oldEntry = editingEntry;
@@ -105,6 +106,7 @@ journalForm.addEventListener('submit', async function(e) {
         newEntry = { id: currentEditingId || Date.now(), type: 'memo', stockName: '', stockCode: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: '', attachedFileName: '', brokerAccount: '', subAccount: '', isHidden: 0 };
     }
 
+    if (currentEditingId) newEntry.revision = currentRevision;
     const method = currentEditingId ? 'PUT' : 'POST';
     const url = currentEditingId ? `/api/entry/${currentEditingId}` : '/api/entry';
 
@@ -200,16 +202,18 @@ if (btnFullRestore && restoreFileInput) {
         const file = e.target.files[0];
         if (!file) return;
 
-        if (!(await customConfirm('원복을 진행하면 현재 작성된 모든 기록과 이미지가 \n백업 파일(.zip)의 내용으로 "완전히 덮어씌워"집니다.\n\n정말로 복구를 진행하시겠습니까?'))) {
-            e.target.value = '';
-            return;
-        }
-
         const formData = new FormData();
         formData.append('file', file);
 
         try {
             document.body.style.cursor = 'wait'; // 로딩 커서
+            const previewResponse = await fetch('/api/restore/preview', { method: 'POST', body: formData });
+            const preview = await previewResponse.json();
+            document.body.style.cursor = 'default';
+            if (!previewResponse.ok) throw new Error(preview.error || '복원 파일을 확인하지 못했습니다.');
+            if (!(await showRestorePreview(preview))) return;
+            formData.append('previewToken', preview.previewToken);
+            document.body.style.cursor = 'wait';
             window.showLoadingOverlay('데이터를 원복하고 있습니다...\n진행 중 창을 닫거나 새로고침하지 마세요.');
             const response = await fetch('/api/restore', {
                 method: 'POST',
@@ -238,7 +242,7 @@ if (btnFullRestore && restoreFileInput) {
             console.error(err);
             document.body.style.cursor = 'default';
             await window.hideLoadingOverlay();
-            await customAlert('서버와 통신 중 오류가 발생했습니다.');
+            await customAlert(err.message || '서버와 통신 중 오류가 발생했습니다.');
         } finally {
             document.body.style.cursor = 'default';
             await window.hideLoadingOverlay();

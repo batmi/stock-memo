@@ -68,6 +68,8 @@ def admin_dismiss_reset_request(target_username):
 @bp.route('/api/admin/users/<target_username>', methods=['DELETE'])
 @admin_required
 def admin_delete_user(target_username):
+    from app.routes.ownership import lock_request
+    lock_request(target_username)
     with db_conn() as conn:
         c = conn.cursor()
 

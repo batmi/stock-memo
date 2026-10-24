@@ -8,17 +8,18 @@ from collections import defaultdict
 from math import isfinite
 
 from app.domain.trades import (
-    apply_trade, empty_holding, entry_order, is_settled_trade, position_key, resolve_trade_identities, EPS,
+    apply_trade, empty_holding, entry_order, is_settled_trade, position_key, EPS,
 )
 
 
 def refresh(conn, username):
     """호출자가 커밋한다. 제공된 금액을 보호하고 재구성한 금액만 이력 정정에 맞춰 갱신한다."""
-    columns = ('id,type,stockName,stockCode,brokerAccount,subAccount,accountName,currency,tradeType,quantity,price,'
+    columns = ('id,tradeSequence,type,stockName,stockCode,brokerAccount,subAccount,accountName,currency,tradeType,quantity,price,'
                'rawDate,date,tradeStatus,realizedPnl,realizedPnlSource')
     rows = [dict(row) for row in conn.execute(
         f'SELECT {columns} FROM entries WHERE username=? AND type=\'trade\'', (username,))]
-    rows = sorted(resolve_trade_identities(rows), key=entry_order)
+    from app.services import ledger
+    rows = sorted(ledger.prepare(conn, username, rows), key=entry_order)
     holdings = defaultdict(empty_holding)
     changes = []
     for row in rows:
@@ -49,7 +50,7 @@ def backfill():
     from app.utils import statscache
     changed = []
     with db_conn(write=True) as conn:
-        migration = 'broker_and_legacy_stock_identity_v2'
+        migration = 'shared_splits_sequence_v3'
         repair = conn.execute('SELECT 1 FROM data_migrations WHERE name=?', (migration,)).fetchone() is None
         # 구버전이 다른 증권사를 합쳐 저장한 재구성 손익도 1회 정정한다.
         # recorded 금액은 refresh에서 보호한다. 완료 표시는 손익 변경과 함께 커밋한다.

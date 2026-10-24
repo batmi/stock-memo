@@ -71,7 +71,9 @@ CREATE_TABLES = [
         tradeDate TEXT,
         needsReview INTEGER DEFAULT 0,
         isSystem INTEGER,
-        reviewReason TEXT
+        reviewReason TEXT,
+        tradeSequence INTEGER,
+        revision INTEGER NOT NULL DEFAULT 1
     )
     ''',
 
@@ -116,6 +118,17 @@ CREATE_TABLES = [
         PRIMARY KEY (code, market_type)
     )
     ''',
+
+    '''CREATE TABLE IF NOT EXISTS entry_changes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, entry_id INTEGER,
+        action TEXT NOT NULL, origin TEXT NOT NULL, before_json TEXT, after_json TEXT,
+        changed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    )''',
+    '''CREATE TABLE IF NOT EXISTS split_rules (
+        username TEXT NOT NULL, code TEXT NOT NULL, currency TEXT NOT NULL, day TEXT NOT NULL,
+        mode TEXT NOT NULL CHECK(mode IN ('apply','recorded')),
+        PRIMARY KEY(username,code,currency,day)
+    )''',
 
     # 스키마 버전과 별도로 성공한 데이터 이관을 기록한다. 실패한 이관은 다음 기동 때 재시도한다.
     '''CREATE TABLE IF NOT EXISTS data_migrations (
@@ -206,6 +219,8 @@ CREATE_TABLES = [
 # ---------------------------------------------------------------------------
 
 ADDED_COLUMNS = [
+    ('entries', 'tradeSequence', 'INTEGER'),
+    ('entries', 'revision', 'INTEGER NOT NULL DEFAULT 1'),
     # (table, column, type)
     ('entries', 'createdAt', 'TEXT'),
     ('entries', 'updatedAt', 'TEXT'),
@@ -295,11 +310,13 @@ EXEC_ID_UNIQUE_INDEX = (
 # 적용
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def init(conn, logger=None):
     """스키마를 현재 정의에 맞춘다. 몇 번 호출해도 안전하다(멱등)."""
+    from app.database import audit
+    audit.install_functions(conn)
     version = conn.execute('PRAGMA user_version').fetchone()[0]
     if version > SCHEMA_VERSION:
         raise RuntimeError('이 앱보다 새로운 DB 스키마입니다. 앱 버전을 확인해주세요.')
@@ -324,6 +341,9 @@ def init(conn, logger=None):
 
     _create_exec_id_unique_index(conn, logger)
     _backfill_owner_username(conn)
+    conn.execute("UPDATE entries SET tradeSequence=id WHERE tradeSequence IS NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_changes_user_id ON entry_changes(username,id)")
+    audit.install_triggers(conn)
     conn.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
     conn.commit()
 

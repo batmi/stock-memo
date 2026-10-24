@@ -529,3 +529,27 @@ Always branch on `errorCode`. The `error` text may change without notice.
 *   **Serve over HTTPS** so the API key is never transmitted in the clear (reverse proxy such as Nginx + SSL).
 *   Rate limiting is in-process memory. Scaling to multiple processes requires swapping it for a shared store such as Redis.
 
+
+### Data inspection, change history and restore previews
+
+The **D** menu now includes integrity checks (missing buys, unresolved stock codes,
+unavailable realized profit and review flags), plus paginated change history recorded from this upgrade onward.
+Cached split data is shared by holdings, monthly valuation, reconstructed profit and sell validation.
+Original fills and explicitly supplied realized profit remain unchanged. If a split was already recorded manually,
+disable automatic application in the integrity screen; the setting covers every account for that symbol and currency.
+New or corrected split metadata refreshes reconstructed profit and invalidates cached balances.
+
+Restore previews show record/account counts and position quantity/cost changes before confirmation.
+The signed preview expires after 10 minutes and rejects changes to the file, account, entries, account mappings or split data.
+Use `/api/restore/preview` and pass its `previewToken` to `/api/restore`; legacy clients without a token remain supported.
+Backup format 2 always includes empty account mappings and split settings. Missing settings in older archives restore
+as empty settings. `tradeSequence` preserves same-time fill ordering even when IDs collide with another user's entries.
+Restores retain local change history; portable ZIPs do not export change history, while full SQLite backups include it.
+
+Schema v3 adds trade sequences, revisions, change history and per-user split rules. Initial startup repairs reconstructed
+profit once using the shared split/order rules. Editors submit the fetched `revision` and receive HTTP 409 `STALE_ENTRY`
+if another writer or a restore changed the entry. Older clients omitting `revision` retain legacy update behavior.
+Account mappings distinguish brokers sharing the same number. Account deletion serializes writes and attachment work;
+requests check the persistent user ID so an old session cannot attach to a recreated account of the same name.
+The first upgrade expires existing sessions once, since old cookies lack the persistent user ID; sign in again.
+TTL caches now enforce their maximum size, evicting expired entries first and least recently used entries next.

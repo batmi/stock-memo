@@ -133,3 +133,16 @@ def test_process_local_state_is_logged_at_startup(app, caplog):
     logged = ' '.join(r.getMessage() for r in caplog.records)
     for name, _why in memcache.PROCESS_LOCAL_STATE:
         assert name in logged, f"기동 로그에 {name} 이 없습니다"
+
+
+def test_max_size_is_hard_limit_and_recent_reads_survive():
+    c = TTLCache(ttl=1000, max_size=5)
+    for i in range(5):
+        c.put(i, i, now=0)
+    assert c.get(0, now=1) == 0
+    c.put(5, 5, now=1)
+    assert len(c) == 5 and c.get(1, now=1) is None
+    assert c.get(0, now=1) == 0
+    for i in range(6, 2000):
+        c.put(i, i, now=1)
+        assert len(c) <= 5

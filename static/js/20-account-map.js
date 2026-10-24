@@ -8,6 +8,7 @@
 //    → 실행 순서는 파일명 번호 순서다(app/utils/scriptbundle.py 가 그 순서로 이어 붙인다).
 // ═══════════════════════════════════════════════════════════════════
 
+let editingMappingKey = null;
 const accountMappingModalOverlay = document.getElementById('accountMappingModalOverlay');
 const btnCloseAccountMappingModal = document.getElementById('btnCloseAccountMappingModal');
 const btnAccountManagement = document.getElementById('btnAccountManagement');
@@ -61,7 +62,7 @@ function renderAccountMappings() {
             : '';
         return `
             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; padding: 8px 4px; border-bottom: 1px solid var(--border-light-color);">
-                <span style="flex: 1; word-break: break-word; margin-right: 10px; line-height: 1.4;"><strong style="color:var(--text-strong-color);">[${escapeHtml(info.broker_name)}]</strong><br>${escapeHtml(accCode)} &rarr; ${escapeHtml(info.alias)}${excludeBadge}</span>
+                <span style="flex: 1; word-break: break-word; margin-right: 10px; line-height: 1.4;"><strong style="color:var(--text-strong-color);">[${escapeHtml(info.broker_name)}]</strong><br>${escapeHtml(mappingNumber(accCode, info))} &rarr; ${escapeHtml(info.alias)}${excludeBadge}</span>
                 <div style="display: flex; gap: 8px; flex: 0 0 auto;">
                     <button type="button" onclick="editMapping('${escapeJsInAttr(accCode)}')" style="background:none; border:none; color:var(--primary-color); cursor:pointer; font-size:11px; width:auto; padding:0; margin:0; box-shadow:none;">수정</button>
                     <button type="button" onclick="removeMapping('accounts', '${escapeJsInAttr(accCode)}')" style="background:none; border:none; color:var(--danger-color); cursor:pointer; font-size:11px; width:auto; padding:0; margin:0; box-shadow:none;">삭제</button>
@@ -83,6 +84,7 @@ function setAccountFormMode(mode) {
 
 // 입력칸을 비우고 '신규 계좌 등록' 상태로 되돌린다.
 function resetAccountForm() {
+    editingMappingKey = null;
     const select = document.getElementById('unifiedBrokerCode');
     if (select) select.value = '';
     document.getElementById('unifiedAccountCode').value = '';
@@ -109,7 +111,8 @@ window.editMapping = function(code) {
                 break;
             }
         }
-        document.getElementById('unifiedAccountCode').value = code;
+        editingMappingKey = code;
+        document.getElementById('unifiedAccountCode').value = mappingNumber(code, info);
         document.getElementById('unifiedAccountName').value = info.alias;
         const excludeCheckbox = document.getElementById('unifiedAccountExcludeStats');
         if (excludeCheckbox) excludeCheckbox.checked = !!info.exclude_from_stats;
@@ -164,7 +167,15 @@ if (btnAddUnifiedMapping) {
 
         if (broker_code && acc_code && alias) {
             if (!currentAccountMappings.accounts) currentAccountMappings.accounts = {};
-            currentAccountMappings.accounts[acc_code] = {
+            const existing = findAccountMappingKey(acc_code, broker_name);
+            if (existing && existing !== editingMappingKey) {
+                customAlert('이미 등록된 증권사·계좌번호입니다. 기존 계좌를 수정해주세요.');
+                return;
+            }
+            const key = JSON.stringify([broker_name, accountKey(acc_code)]);
+            if (editingMappingKey) delete currentAccountMappings.accounts[editingMappingKey];
+            currentAccountMappings.accounts[key] = {
+                number: acc_code,
                 broker_code: broker_code,
                 broker_name: broker_name,
                 alias: alias,

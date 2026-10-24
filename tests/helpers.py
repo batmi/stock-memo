@@ -14,8 +14,10 @@ def _login(client, username='trader'):
     #    세션을 끊기 위해서다). 그래서 세션만 조작해서는 통과하지 못한다.
     _ensure_user(username)
     with client.session_transaction() as sess:
+        sess.clear()
         sess['logged_in'] = True
         sess['username'] = username
+        sess['user_id'] = _user_id(sess['username'])
         # before_request 가 절대 만료(expires_at)를 검사하므로 없으면 전부 401 이 된다.
         sess['expires_at'] = time.time() + 3600
 
@@ -34,6 +36,13 @@ def _ensure_user(username):
         conn.commit()
     finally:
         conn.close()
+
+def _user_id(username):
+    """실제 로그인과 같은 계정 ID를 테스트 세션에 넣는다. 없는 계정은 만들지 않는다."""
+    with backend_app.db_conn() as conn:
+        row = conn.execute('SELECT id FROM users WHERE username=?', (username,)).fetchone()
+    return row['id'] if row else None
+
 
 def _buy(stock='삼성전자', qty=10, price=80000, **kw):
     e = {"type": "trade", "tradeType": "매수", "stockName": stock,

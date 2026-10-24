@@ -19,6 +19,8 @@ def report(model, query, start=None, end=None, *, schedule=False, retry=False):
     rows = [r for r in model['rows'] if r.get('type') == 'trade' and r.get('stockName')
             and r['_settled'] and not r['_excluded'] and currency_of(r) == currency
             and r['_day'].date() <= last]
+    rows = [dict(r, quantity=r.get('_originalQuantity', r.get('quantity')),
+                 price=r.get('_originalPrice', r.get('price'))) for r in rows]
     selected = [r for r in rows if journal.matches(r, query)]
     first = date.fromisoformat(start) if start else min((r['_day'].date() for r in selected), default=last)
     if first > last:
@@ -37,9 +39,10 @@ def report(model, query, start=None, end=None, *, schedule=False, retry=False):
         quote_start -= timedelta(days=1)
     quotes, metadata = history.read(assets, quote_start.isoformat(), last.isoformat())
     # split은 당일 체결보다 먼저 반영한다. 당시 체결 단가/수량은 원본 그대로 보존한다.
-    events = [(r['_day'].date(), 1, r['_dt'], r['id'], r) for r in rows]
+    events = [(r['_day'].date(), 1, r['_dt'], r.get('tradeSequence') or r['id'], r) for r in rows]
     for (code, _), info in metadata.items():
-        for day, ratio in info['splits'].items():
+        accepted = next((r['_splits'] for r in rows if r.get('stockCode') == code and '_splits' in r), info['splits'])
+        for day, ratio in accepted.items():
             events.append((date.fromisoformat(day), 0, None, 0, (code, ratio)))
     events.sort(key=lambda event: event[:4])
     holdings = {}

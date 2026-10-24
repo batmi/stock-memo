@@ -725,3 +725,88 @@ def test_analysis_presets_use_kst_dates_and_clamp_short_months(page):
         {'from': '2024-03-01', 'to': '2024-05-31'}, {'from': '2024-01-01', 'to': '2024-05-31'},
     ]
     assert bounds('2024-05-31T15:30:00Z')[1] == {'from': '2024-06-01', 'to': '2024-06-01'}
+
+
+def test_data_inspection_history_and_restore_preview_flow(page):
+    import io
+    import zipfile
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    ready(page)
+    page.click('.header-action-icon')
+    page.click('#btnDataManagement')
+    page.click('#btnDataIntegrity')
+    expect(page.locator('#dataAuditContent')).to_contain_text('확인이 필요한 거래 0건')
+    page.click('#dataAuditClose')
+    page.click('#btnDataChanges')
+    expect(page.locator('#dataAuditContent details').first).to_be_visible()
+    page.locator('#dataAuditContent summary').first.click()
+    expect(page.locator('#dataAuditContent table').first).to_be_visible()
+    page.click('#dataAuditClose')
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, 'w') as z:
+        z.writestr('data.json', '[]')
+    payload = {'name': 'empty.zip', 'mimeType': 'application/zip', 'buffer': stream.getvalue()}
+    page.locator('#restoreFileInput').set_input_files(payload)
+    expect(page.locator('#dataAuditTitle')).to_have_text('복원 미리보기')
+    expect(page.locator('#dataAuditContent')).to_contain_text('현재 기록 61건 → 백업 기록 0건')
+    page.locator('#dataAuditActions button', has_text='취소').click()
+    with db_conn() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM entries WHERE username=?', (USER_ID,)).fetchone()[0] == 61
+    page.locator('#restoreFileInput').set_input_files(payload)
+    page.locator('#dataAuditActions button', has_text='이 내용으로 복원').click()
+    expect(page.locator('#customModalMessage')).to_contain_text('성공적으로 원복')
+    page.click('#btnCustomModalOk')
+    expect(page.locator('#historyList .entry-card')).to_have_count(0)
+    assert not errors
+
+
+def test_stale_editor_preserves_draft_and_latest_database_record(page):
+    ready(page)
+    page.locator('#historyList .btn-edit').first.click()
+    expect(page.locator('#formModalOverlay')).to_be_visible()
+    entry_id = page.evaluate('editingEntryId')
+    page.locator('#editor-container .ql-editor').fill('작성 중인 내용')
+    with db_conn(write=True) as conn:
+        conn.execute('UPDATE entries SET title=? WHERE id=?', ('다른 곳에서 정정', entry_id))
+        conn.commit()
+    page.locator('#journalForm button[type="submit"]').click()
+    expect(page.locator('#customModalMessage')).to_contain_text('다른 곳에서 변경된 기록')
+    page.click('#btnCustomModalOk')
+    expect(page.locator('#formModalOverlay')).to_be_visible()
+    expect(page.locator('#editor-container .ql-editor')).to_have_text('작성 중인 내용')
+    with db_conn() as conn:
+        assert conn.execute('SELECT title FROM entries WHERE id=?', (entry_id,)).fetchone()[0] == '다른 곳에서 정정'
+
+
+def test_same_number_accounts_can_be_added_selected_and_renamed(page):
+    ready(page)
+    page.click('.header-action-icon')
+    page.click('#btnAccountManagement')
+    for broker, alias in [('264', '첫 계좌'), ('238', '둘째 계좌')]:
+        page.click('#btnToggleNewAccountForm')
+        page.select_option('#unifiedBrokerCode', broker)
+        page.fill('#unifiedAccountCode', '12-34')
+        page.fill('#unifiedAccountName', alias)
+        page.click('#btnAddUnifiedMapping')
+    expect(page.locator('#unifiedMappingList button', has_text='수정')).to_have_count(2)
+    page.locator('#unifiedMappingList button', has_text='수정').first.click()
+    page.fill('#unifiedAccountCode', '56-78')
+    page.click('#btnAddUnifiedMapping')
+    page.click('#btnSaveAccountMappings')
+    expect(page.locator('#customModalMessage')).to_contain_text('계좌정보가 저장')
+    with page.expect_navigation():
+        page.click('#btnCustomModalOk')
+    page.wait_for_function('typeof ensureAccountMapping === "function"')
+    page.evaluate('ensureAccountMapping()')
+    choices = page.locator('#journalAccountSelect option').evaluate_all('(options) => options.filter(x => !x.disabled).map(x => x.value)')
+    assert len(choices) == 2
+    values = []
+    for choice in choices:
+        page.select_option('#journalAccountSelect', choice, force=True)
+        values.append(page.evaluate("[document.getElementById('brokerAccount').value, document.getElementById('subAccount').value]"))
+    assert sorted(values) == [['238', '12-34'], ['264', '56-78']]
+    with db_conn() as conn:
+        saved = accounts.load(conn, USER_ID)['accounts']
+        assert len(saved) == 2
+        assert sorted(value['number'] for value in saved.values()) == ['12-34', '56-78']

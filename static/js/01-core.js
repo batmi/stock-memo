@@ -90,20 +90,27 @@ function accountKey(value) {
 
 // ⭐️ 등록된 계좌 매핑에서 계좌번호로 매핑 정보를 찾는다.
 //    정확히 일치하는 키를 먼저 보고, 없으면 하이픈을 무시하고 다시 찾는다.
-function findAccountMapping(rawSubAccount) {
-    const accounts = (currentAccountMappings && currentAccountMappings.accounts) || {};
-    if (!rawSubAccount) return null;
-    if (accounts[rawSubAccount]) return accounts[rawSubAccount];
-    const target = accountKey(rawSubAccount);
-    if (!target) return null;
-    const hit = Object.keys(accounts).find(key => accountKey(key) === target);
-    return hit ? accounts[hit] : null;
+function mappingNumber(key, info) {
+    return info && typeof info === 'object' ? (info.number || key) : key;
+}
+function findAccountMappingKey(rawSubAccount, broker = '') {
+    const accounts = currentAccountMappings.accounts || {};
+    const hits = Object.entries(accounts).filter(([key, info]) => {
+        if (accountKey(mappingNumber(key, info)) !== accountKey(rawSubAccount)) return false;
+        const names = info && typeof info === 'object' ? [info.broker_code, info.broker_name].filter(Boolean) : [];
+        return !broker || !names.length || names.includes(broker) || names.includes(getMappedBroker(broker));
+    });
+    return hits.length === 1 ? hits[0][0] : null;
+}
+function findAccountMapping(rawSubAccount, broker = '') {
+    const key = findAccountMappingKey(rawSubAccount, broker);
+    return key === null ? null : currentAccountMappings.accounts[key];
 }
 
-function getMappedSubAccount(rawSubAccount, accountName) {
+function getMappedSubAccount(rawSubAccount, accountName, broker = '') {
     if (accountName) return accountName;
     if (!rawSubAccount) return '';
-    const accInfo = findAccountMapping(rawSubAccount);
+    const accInfo = findAccountMapping(rawSubAccount, broker);
     if (accInfo && accInfo.alias) return accInfo.alias;
     return rawSubAccount;
 }
@@ -159,10 +166,13 @@ function excludedAccountAliases() {
 //    다만 HTS 없이 손으로 적은 기록은 계좌번호 없이 이름만 있을 수 있어, 별칭도 함께 대조한다.
 function isExcludedAccountEntry(entry) {
     if (!entry) return false;
-    const info = findAccountMapping(entry.subAccount);
+    const info = findAccountMapping(entry.subAccount, entry.brokerAccount);
     // 계좌번호로 계좌가 특정되면 그 계좌의 설정이 정답이다. 여기서 이름 대조로 넘어가면
     // 별칭이 같은 다른 증권사 계좌의 기록까지 함께 제외된다.
     if (info) return !!(typeof info === 'object' && info.exclude_from_stats);
+
+    if (Object.entries(currentAccountMappings.accounts || {}).some(([key, value]) =>
+        accountKey(mappingNumber(key, value)) === accountKey(entry.subAccount))) return false;
 
     // 등록된 계좌번호로 찾지 못한 기록(수기 입력 등)만 화면에 보이는 계좌 이름으로 대조한다.
     const label = String(getMappedSubAccount(entry.subAccount, entry.accountName) || '').trim();

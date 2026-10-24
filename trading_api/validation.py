@@ -170,7 +170,7 @@ def _resolve_account(username, data, mappings):
     # ⭐️ 매핑이 잡히면 사용자가 등록한 표기(하이픈 포함)를 그대로 저장한다.
     #    HTS 가 보낸 표기를 그대로 두면 같은 계좌가 두 가지 번호로 쌓인다.
     #    매핑이 없을 때만 기존과 동일하게 하이픈을 제거한 형태로 남긴다.
-    sub_account = matched_key if matched_key else raw_sub.replace('-', '')
+    sub_account = accounts.mapping_number(matched_key, acc_info) if matched_key else raw_sub.replace('-', '')
 
     if isinstance(acc_info, dict):
         broker = acc_info.get('broker_name') or raw_broker

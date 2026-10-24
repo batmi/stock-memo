@@ -9,7 +9,7 @@ import time
 import backend_app
 from app.utils import ratelimit
 import trading_api
-from helpers import _ensure_user, _signup_and_login
+from helpers import _user_id, _ensure_user, _signup_and_login
 
 
 def test_home_page_redirects_without_auth(client):
@@ -31,6 +31,7 @@ def test_home_page_status_with_auth(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
 
     response = client.get('/')
@@ -44,6 +45,7 @@ def test_logout(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     response = client.get('/logout')
@@ -140,6 +142,7 @@ def test_account_deletion_and_change_pw(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
     client.post('/api/admin/users/normal/toggle_allow')
@@ -148,6 +151,7 @@ def test_account_deletion_and_change_pw(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'normal'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = False
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
@@ -168,6 +172,7 @@ def test_account_deletion_and_change_pw(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
     res = client.delete('/api/account', json={'password': 'Passw0rd!'})
@@ -183,6 +188,7 @@ def test_account_deletion_and_password_exceptions(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
@@ -196,6 +202,7 @@ def test_account_deletion_and_password_exceptions(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'normal_user'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = False
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
@@ -228,6 +235,7 @@ def test_change_password_enforces_policy(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'polic'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     res = client.post('/api/change_password',

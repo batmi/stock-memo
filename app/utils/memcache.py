@@ -16,6 +16,7 @@
    (단일 프로세스 구성 전제 — wsgi.py 참고)
 """
 
+from collections import OrderedDict
 import threading
 import time
 
@@ -40,15 +41,17 @@ class TTLCache:
     """키마다 값과 저장 시각을 갖는 스레드 안전 캐시.
 
     ttl        이 시간(초)이 지난 값은 없는 것으로 본다
-    max_size   항목 수 상한. 넘어선 뒤의 쓰기에서만 만료분을 훑어 지운다
-               (매 쓰기마다 전체를 훑으면 캐시가 커질수록 쓰기가 느려진다)
+    max_size   항목 수 상한. 초과 시 만료분을 먼저 지우고, 그래도 넘으면
+               가장 오래 조회하지 않은 항목부터 제거한다.
     """
 
     def __init__(self, ttl, max_size=500, name=''):
+        if max_size < 1:
+            raise ValueError("캐시 크기는 1 이상이어야 합니다.")
         self.ttl = ttl
         self.max_size = max_size
         self._name = name
-        self._items = {}   # key -> (value, stored_at)
+        self._items = OrderedDict()   # key -> (value, stored_at)
         self._lock = threading.Lock()
 
     def get(self, key, default=None, *, allow_stale=False, now=None):
@@ -60,6 +63,8 @@ class TTLCache:
         now = now if now is not None else time.time()
         with self._lock:
             hit = self._items.get(key, _MISS)
+            if hit is not _MISS:
+                self._items.move_to_end(key)
         if hit is _MISS:
             return default
         value, stored_at = hit
@@ -71,6 +76,7 @@ class TTLCache:
         now = now if now is not None else time.time()
         with self._lock:
             self._items[key] = (value, now)
+            self._items.move_to_end(key)
             self._evict(now)
 
     def _evict(self, now):
@@ -83,6 +89,8 @@ class TTLCache:
             return
         for k in [k for k, (_v, ts) in self._items.items() if (now - ts) >= self.ttl]:
             self._items.pop(k, None)
+        while len(self._items) > self.max_size:
+            self._items.popitem(last=False)
 
     def clear(self):
         """테스트용 — 앞 테스트의 캐시가 다음 테스트로 새지 않도록."""

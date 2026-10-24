@@ -138,7 +138,7 @@ def forget_session_epoch(username):
 #    지워서, 봇 목록·봇 명령·재설정 요청이 남았다. 같은 이름으로 다시 가입한
 #    사람이 남의 봇 상태와 대기 명령을 물려받는다. 새 테이블이 생기면 여기에 더한다.
 USER_OWNED_TABLES = ('entries', 'api_keys', 'bots', 'bot_commands',
-                     'password_reset_requests', 'historical_watchers', 'users')
+                     'password_reset_requests', 'historical_watchers', 'entry_changes', 'split_rules', 'users')
 
 
 def purge_account(c, username):

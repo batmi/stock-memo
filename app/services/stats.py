@@ -289,14 +289,14 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
                 'id': t.get('id'), 'date': day.strftime('%Y-%m-%d') if day else None,
                 'period': mkey, 'stock': t['stockName'].strip(), 'identity': stock,
                 'stockCode': normalize_stock_code(t.get('stockCode')), 'tradeType': ttype,
-                'quantity': qty, 'price': price, 'realized': profit, 'basis': basis,
+                'quantity': t.get('_originalQuantity', qty), 'price': t.get('_originalPrice', price), 'realized': profit, 'basis': basis,
                 'realizedSource': (t.get('realizedPnlSource') or (
                     'recorded' if t.get('realizedPnl') is not None else 'reconstructed')) if ttype == '매도' else None,
                 'dividend': dividend, 'returnRate': _rate(profit, basis) if ttype == '매도' and known_pnl else None,
                 'holdingDays': holding_days,
                 'holdingBucket': HOLDING_BUCKETS[_holding_bucket(holding_days)][1]
                     if holding_days is not None else None,
-                'missingBuyQuantity': missing_qty, 'needsReview': bool(t.get('needsReview')),
+                'missingBuyQuantity': missing_qty / t.get('_splitFactor', 1), 'needsReview': bool(t.get('needsReview')),
                 'fee': t.get('fee'), 'tax': t.get('tax'), 'currency': currency_of(t),
                 'tradeClass': t.get('tradeClass') or '', 'accountKey': account_group_key(t),
                 'broker': t.get('brokerAccount') or '',

@@ -13,7 +13,7 @@ from app.routes import authz
 import backend_app
 from app.database import entry_logic
 import trading_api
-from helpers import _ensure_user
+from helpers import _user_id, _ensure_user
 
 
 def _admin_routes(app):
@@ -38,6 +38,7 @@ def test_every_admin_route_is_permission_checked(app):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'ordinary'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
         sess['is_admin'] = False
 
@@ -91,6 +92,7 @@ def test_admin_api_access_control(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'normal_user'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     res_forbidden = client.get('/api/admin/users')
@@ -101,6 +103,7 @@ def test_admin_api_access_control(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
@@ -119,6 +122,7 @@ def test_admin_edge_cases(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'admin'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
@@ -154,6 +158,7 @@ def test_admin_sees_reset_requests_and_reset_clears_them(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'adminy'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600
 
@@ -181,6 +186,7 @@ def test_admin_can_dismiss_reset_request_without_reset(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'adminz'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600
 
@@ -203,6 +209,7 @@ def test_admin_reset_issues_strong_temp_password(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'adminx'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600
 
@@ -257,6 +264,7 @@ def test_admin_reset_only_touches_credentials(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'adminq'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600
     assert client.post('/api/admin/users/keepdata/reset_password').status_code == 200
@@ -281,6 +289,7 @@ def test_badge_counts_clear_after_handling(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'adminb'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600
 
@@ -306,6 +315,7 @@ def test_admin_list_exposes_reset_note_for_display(client):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'adminc'
+        sess['user_id'] = _user_id(sess['username'])
         sess['is_admin'] = True
         sess['expires_at'] = time.time() + 3600
 

@@ -17,11 +17,11 @@ from app.domain.trades import (
     apply_trade as _apply, currency_of, empty_holding as _empty_holding,
     is_settled_trade, position_key, resolve_trade_identities, trade_day,
 )
-from app.services import accounts, analysis, stats
+from app.services import accounts, analysis, stats, ledger
 from app.utils import statscache
 
 INDEX_COLUMNS = (
-    'id', 'type', 'stockName', 'stockCode', 'date', 'rawDate', 'brokerAccount',
+    'id', 'tradeSequence', 'revision', 'type', 'stockName', 'stockCode', 'date', 'rawDate', 'brokerAccount',
     'subAccount', 'accountName', 'tradeClass', 'tradeType', 'price', 'quantity',
     'createdAt', 'updatedAt', 'isHidden', 'needsReview', 'tradeStatus', 'fee', 'tax',
     'currency', 'exchange', 'tradeDate', 'realizedPnl', 'realizedPnlSource',
@@ -61,6 +61,13 @@ def snapshot(username):
         rows = [dict(r) for r in conn.execute(
             f"SELECT {', '.join(INDEX_COLUMNS)} FROM entries WHERE username = ?", (username,))]
         mappings = accounts.load(conn, username)
+        rows = ledger.prepare(conn, username, rows)
+    result = build_model(rows, mappings, version)
+    statscache.put(key, result, etag=version)
+    return result
+
+
+def build_model(rows, mappings, version="preview"):
     rows = resolve_trade_identities(rows)
     excluded, aliases = accounts.excluded_accounts(mappings)
     known = accounts.known_account_keys(mappings)
@@ -76,7 +83,7 @@ def snapshot(username):
         row['_account'] = (row.get('accountName')
                            or (info.get('alias') if isinstance(info, dict) else '')
                            or row.get('subAccount') or '')
-    rows.sort(key=lambda r: (r['_dt'], r['id']))
+    rows.sort(key=lambda r: (r['_dt'], r.get('tradeSequence') or r['id']))
     for row in rows:
         name = (row.get('stockName') or '').strip()
         if not name or (row.get('type') or 'trade') != 'trade':
@@ -93,8 +100,6 @@ def snapshot(username):
             name = (row.get('stockName') or '').strip()
             row['_identity'] = by_name.get(name, name)
     result = {'rows': rows, 'version': version, 'names': names, 'by_name': by_name, 'hidden': hidden}
-    # 계산 도중 변경된 버전은 캐시에 들어가지 않는다.
-    statscache.put(key, result, etag=version)
     return result
 
 

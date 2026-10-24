@@ -14,7 +14,7 @@ from app.services import accounts
 import backend_app
 import config
 from app.services import jobs
-from helpers import _ensure_user
+from helpers import _user_id, _ensure_user
 
 
 def test_repeated_start_does_not_duplicate_live_jobs(monkeypatch):
@@ -45,6 +45,7 @@ def test_auto_backup_job(mock_sleep, client, app, tmp_path, monkeypatch):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'autobackupuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
     client.post('/api/entry', json={"type": "buy", "stockName": "자동백업테스트", "price": 10000, "quantity": 1})
@@ -118,6 +119,7 @@ def test_auto_backup_includes_account_mappings(mock_sleep, client, app, tmp_path
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'mapbackup'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
     mappings = {'brokers': {'KI': '한국투자'},
@@ -203,6 +205,7 @@ def test_auto_backup_job_with_uploads_and_errors(mock_sleep, client, app, tmp_pa
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'fullbackupuser'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
         
     client.post('/api/entry', json={"type": "buy", "stockName": "풀업테스트", "price": 10000, "quantity": 1})
@@ -268,6 +271,7 @@ def test_auto_fetch_nxt_close_job(mock_sleep, mock_datetime, client, app):
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'nxt_user'
+        sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
     client.post('/api/entry', json={"type": "buy", "stockName": "삼성전자", "stockCode": "005930", "price": 10000, "quantity": 1})
     

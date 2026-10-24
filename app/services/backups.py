@@ -34,6 +34,7 @@ def _write_user_backup(target, username):
         rows = [dict(row) for row in conn.execute(
             "SELECT * FROM entries WHERE username = ?", (username,)).fetchall()]
         mappings = accounts.load(conn, username)
+        rules = [dict(r) for r in conn.execute('SELECT code,currency,day,mode FROM split_rules WHERE username=?', (username,))]
 
     with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as zf:
         zf.writestr('data.json', json.dumps(rows, ensure_ascii=False, indent=2))
@@ -42,8 +43,9 @@ def _write_user_backup(target, username):
             for root, _dirs, files in os.walk(user_folder):
                 for file in files:
                     zf.write(os.path.join(root, file), arcname=os.path.join('uploads', file))
-        if mappings.get('brokers') or mappings.get('accounts'):
-            zf.writestr(accounts.BACKUP_ARCNAME, accounts.dumps(mappings))
+        zf.writestr(accounts.BACKUP_ARCNAME, accounts.dumps(mappings))
+        zf.writestr('split_rules.json', json.dumps(rules))
+        zf.writestr('manifest.json', json.dumps({'formatVersion': 2}))
     return len(rows)
 
 

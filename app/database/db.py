@@ -15,6 +15,8 @@ def get_db():
     """설정이 적용된 새 연결. 호출자가 닫아야 한다 (가급적 db_conn() 을 쓸 것)."""
     # 모듈 전역 config.DB_FILE 을 동적으로 참조 (테스트가 경로를 교체할 수 있도록)
     conn = sqlite3.connect(config.DB_FILE)
+    from app.database.audit import install_functions
+    install_functions(conn)
     conn.row_factory = sqlite3.Row  # 결과를 dict 형태로 접근할 수 있게 함
     # journal_mode=WAL 은 DB 파일에 영속되므로 schema.init() 에서 1회만 설정한다.
     # 여기서는 비용이 거의 없는 연결별 설정만 적용한다.
@@ -37,6 +39,8 @@ def db_conn(*, write=False):
     try:
         if write:
             conn.execute('BEGIN IMMEDIATE')
+            from app.routes.ownership import validate_owner
+            validate_owner(conn)
         yield conn
     except BaseException:
         conn.rollback()

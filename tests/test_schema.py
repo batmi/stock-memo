@@ -42,7 +42,7 @@ def test_init_creates_every_table(fresh):
         'entries', 'users', 'password_reset_requests', 'price_cache',
         'api_keys', 'bot_commands', 'bots',
         'historical_assets', 'historical_prices', 'historical_jobs', 'historical_watchers',
-        'data_migrations',
+        'data_migrations', 'entry_changes', 'split_rules',
     }
 
 

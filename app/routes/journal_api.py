@@ -8,7 +8,7 @@ from flask import Blueprint, current_app, jsonify, request, session
 from itsdangerous import URLSafeSerializer
 
 from app.database.db import db_conn
-from app.services import analysis, journal, historical_prices, valuation
+from app.services import analysis, journal, historical_prices, valuation, integrity
 from app.utils import statscache
 
 bp = Blueprint('journal', __name__)
@@ -148,3 +148,22 @@ def evaluation():
     # 기록 버전과 별개로 시세 수집이 진행되므로 기존 통계 ETag를 재사용하지 않는다.
     response.headers['Cache-Control'] = 'no-store'
     return response
+
+
+@bp.get('/api/journal/integrity')
+def inspect_data():
+    return jsonify(integrity.inspect(session['username']))
+
+
+@bp.get('/api/journal/changes')
+def change_history():
+    cursor = request.args.get('before')
+    if cursor is not None and (not cursor.isdigit() or not 0 < int(cursor) < 2**63):
+        raise ValueError('이력 페이지 정보가 올바르지 않습니다.')
+    return jsonify(integrity.changes(session['username'], int(cursor) if cursor else None))
+
+
+@bp.put('/api/journal/split-rule')
+def update_split_rule():
+    integrity.set_split_rule(session['username'], request.get_json(silent=True))
+    return jsonify(status='success')

@@ -36,7 +36,7 @@ entries 에 쓰는 곳은 네 군데이고, **매도 무결성 위반을 어떻�
 import sqlite3
 
 from app.domain.trades import (
-    entry_order, is_settled_trade, normalize_stock_code, position_scope, resolve_trade_identities, stock_identity,
+    entry_order, is_settled_trade, normalize_stock_code, position_scope, stock_identity,
 )
 
 # 시스템 트레이딩 API(v2)가 채우는 확장 컬럼.
@@ -61,7 +61,7 @@ INSERT_COLUMNS = [
     'date', 'rawDate', 'attachedImage', 'brokerAccount', 'subAccount',
     'accountName', 'tradeType', 'price', 'quantity', 'createdAt', 'updatedAt',
     'tags', 'attachedFile', 'attachedFileName', 'isHidden', 'brokerExecutionId',
-    'currency', 'exchange', 'assetType', 'tradeClass'
+    'currency', 'exchange', 'assetType', 'tradeClass', 'tradeSequence'
 ] + BOT_COLUMNS
 
 # UPDATE 시 갱신하는 컬럼 (id/username/createdAt 및 BOT_COLUMNS 제외)
@@ -94,6 +94,8 @@ _UPDATE_SQL = (
 
 
 def _value_for(entry, col):
+    if col == 'tradeSequence':
+        return entry.get('tradeSequence') or entry.get('id')
     if col == 'stockCode':
         # ⭐️ 정규화는 여기 한 곳에서만 한다. 웹 입력·봇 체결·백업 복원·레거시 이관
         #    네 쓰기 경로가 모두 INSERT/UPDATE 를 통해 이 함수를 지나간다.
@@ -160,9 +162,9 @@ def is_bot_entry(row):
     return bool(row['brokerExecutionId'] or row['source'])
 
 
-def _position_rows(c, username, stock_name, stock_code, exclude_id=None, scope=None):
+def _position_context(c, username, stock_name, stock_code, exclude_id=None, scope=None):
     # 먼저 같은 이름의 모든 코드를 확인해야 동명 종목을 잘못 연결하지 않는다.
-    columns = ('id, stockName, stockCode, type, tradeType, quantity, rawDate, date, '
+    columns = ('id, tradeSequence, stockName, stockCode, type, tradeType, quantity, rawDate, date, '
                'brokerAccount, subAccount, accountName, currency, tradeStatus')
     rows = [dict(row) for row in c.execute(
         f"SELECT {columns} FROM entries WHERE username=? AND type='trade'", (username,))
@@ -170,10 +172,15 @@ def _position_rows(c, username, stock_name, stock_code, exclude_id=None, scope=N
     if scope is not None:
         rows = [row for row in rows if position_scope(row) == position_scope(scope)]
     probe = dict(scope or {}, type='trade', stockName=stock_name, stockCode=stock_code)
-    resolved = resolve_trade_identities([*rows, probe])
+    from app.services import ledger
+    resolved = ledger.prepare(c.connection, username, [*rows, probe])
     target = stock_identity(resolved[-1])
     return sorted((row for row in resolved[:-1] if is_settled_trade(row)
-                   and stock_identity(row) == target), key=entry_order)
+                   and stock_identity(row) == target), key=entry_order), resolved[-1]
+
+
+def _position_rows(c, username, stock_name, stock_code, exclude_id=None, scope=None):
+    return _position_context(c, username, stock_name, stock_code, exclude_id, scope)[0]
 
 
 def _quantity_delta(row):
@@ -223,8 +230,8 @@ def check_sell_integrity(c, username, entry, exclude_id=None):
     if sell_qty <= 0:
         return None
 
-    rows = _position_rows(c, username, stock_name, stock_code, exclude_id, entry)
-    candidate = dict(entry)
+    rows, candidate = _position_context(c, username, stock_name, stock_code, exclude_id, entry)
+    sell_qty = float(candidate.get("quantity") or 0)
     candidate.setdefault('id', max((r['id'] for r in rows), default=0) + 1)
     if candidate['id'] is None:
         candidate['id'] = max((r['id'] for r in rows), default=0) + 1
@@ -285,10 +292,11 @@ def oversell_after_change(c, username, old_row, new_entry=None):
     before = deficit_of(rows)
     after_rows = [row for row in rows if row['id'] != old_row['id']]
     if _is_live_buy(new_entry) and position_scope(old_row) == position_scope(new_entry):
-        resolved = resolve_trade_identities([*rows, dict(new_entry)])
+        from app.services import ledger
+        resolved = ledger.prepare(c.connection, username, [*rows, dict(new_entry)])
         previous = next((r for r in rows if r['id'] == old_row['id']), old_row)
         if stock_identity(previous) == stock_identity(resolved[-1]):
-            after_rows.append(dict(new_entry, id=old_row['id']))
+            after_rows.append(dict(resolved[-1], id=old_row['id']))
     deficit = deficit_of(after_rows)
     if deficit <= before + 1e-6:
         return None

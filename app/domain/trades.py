@@ -101,7 +101,11 @@ def trade_day(entry):
 
 
 def entry_order(entry):
-    return parse_entry_dt(entry) or datetime.min, int(entry.get('id') or 0)
+    try:
+        sequence = int(entry.get('tradeSequence') or entry.get('id') or 0)
+    except (TypeError, ValueError, OverflowError):
+        sequence = 0
+    return parse_entry_dt(entry) or datetime.min, sequence
 
 
 def empty_holding():

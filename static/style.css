@@ -1688,3 +1688,18 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 .stats-curve-plot { position: relative; height: 180px; }
 .stats-curve-plot[hidden], #statsCurveRetry[hidden] { display: none; }
 .stats-drawdown-note { color: var(--warning-color); }
+
+/* 데이터 점검·복원 비교: 작은 화면에서도 열과 버튼을 유지한다. */
+.data-audit-panel { width: min(760px, 94vw); max-width: 760px; max-height: 85vh; overflow: auto; font-size: 12px; }
+.data-audit-panel h3 { font-size: 15px; }
+.data-audit-panel p { line-height: 1.6; }
+.data-audit-scroll { overflow-x: auto; }
+.data-audit-panel table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.data-audit-panel th, .data-audit-panel td { padding: 8px; text-align: left; border-bottom: 1px solid var(--border-color); }
+.data-audit-panel details { padding: 8px 0; border-bottom: 1px solid var(--border-color); overflow-wrap: anywhere; }
+.data-audit-panel button:not(.btn-close), #btnDataIntegrity, #btnDataChanges {
+    width: auto; margin: 0; padding: 5px 9px; font-size: 11.5px; line-height: 1.4; min-height: 0;
+}
+.data-audit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px; }
+.data-audit-split { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0; }
+.data-audit-split select { width: auto; height: auto; font-size: 12px; padding: 5px; }
