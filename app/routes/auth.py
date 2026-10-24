@@ -224,9 +224,11 @@ def signup():
         elif not ratelimit.signup_allowed(request.remote_addr):
             error_message = "가입 시도가 너무 잦습니다. 잠시 후 다시 시도해주세요."
         else:
+            # 해싱은 잠금 밖에서, 최초 사용자 판정과 INSERT는 같은 쓰기 트랜잭션에서.
+            hashed_pw = generate_password_hash(password)
             # ⭐️ with 로 감싼다. 예전에는 get_db() 로 열고 끝에서 close() 했는데,
             #    중간에 예외가 나면 연결이 그대로 새어 나갔다.
-            with db_conn() as conn:
+            with db_conn(write=True) as conn:
                 c = conn.cursor()
 
                 c.execute("SELECT COUNT(*) FROM users")
@@ -236,7 +238,6 @@ def signup():
                 if c.fetchone():
                     error_message = "이미 존재하는 아이디입니다."
                 else:
-                    hashed_pw = generate_password_hash(password)
                     current_time = time.strftime('%Y-%m-%d %H:%M:%S')
 
                     # ⭐️ 가장 먼저 가입하는 사용자를 자동으로 최고 관리자로 설정

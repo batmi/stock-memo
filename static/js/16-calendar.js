@@ -12,7 +12,7 @@ let currentDate = new Date();
 function renderCalendar() {
     if (!journalMeta) return Promise.resolve();
     const month = journalMonth(currentDate);
-    const result = readJournalView('calendar', journalUrl('calendar', { month }),
+    const result = readJournalView('calendar', journalUrl('calendar', { month, currency: displayCurrency }),
         renderCalendarSummary, 'calendarGrid', renderCalendar);
     // 차트는 화면에서 열었을 때만 집계한다.
     if (document.getElementById('btnChartView')?.classList.contains('active')) window.renderMonthlyProfitChart();
@@ -21,7 +21,7 @@ function renderCalendar() {
 
 function renderCalendarSummary(dailyStats) {
     const year = currentDate.getFullYear(), month = currentDate.getMonth();
-    document.getElementById('calendarMonthTitle').innerText = `${year}년 ${month + 1}월`;
+    document.getElementById('calendarMonthTitle').innerText = `${year}년 ${month + 1}월${displayCurrency === 'KRW' ? '' : ` · ${displayCurrency}`}`;
     
     const firstDay = new Date(year, month, 1), lastDay = new Date(year, month + 1, 0);
     const calendarGrid = document.getElementById('calendarGrid');
@@ -35,8 +35,8 @@ function renderCalendarSummary(dailyStats) {
         const dStats = dailyStats[key] || { profit: 0, details: {} };
         
         let profitHtml = '';
-        if (dStats.profit > 0) profitHtml = `<div style="color:var(--danger-color); font-size:11px; font-weight:var(--fw-bold, bold); margin-bottom:2px;">+${Math.round(dStats.profit).toLocaleString()}</div>`;
-        else if (dStats.profit < 0) profitHtml = `<div style="color:var(--primary-color); font-size:11px; font-weight:var(--fw-bold, bold); margin-bottom:2px;">${Math.round(dStats.profit).toLocaleString()}</div>`;
+        if (dStats.profit > 0) profitHtml = `<div style="color:var(--danger-color); font-size:11px; font-weight:var(--fw-bold, bold); margin-bottom:2px;">+${moneyNumber(dStats.profit)}</div>`;
+        else if (dStats.profit < 0) profitHtml = `<div style="color:var(--primary-color); font-size:11px; font-weight:var(--fw-bold, bold); margin-bottom:2px;">${moneyNumber(dStats.profit)}</div>`;
         
         let badgesHtml = '';
         for (const [stock, counts] of Object.entries(dStats.details)) {
@@ -337,14 +337,14 @@ window.renderChartDetailList = function(periodLabel, sections) {
             
             html += `<div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 15px; margin-bottom: 8px;">
                         <span style="font-size: 12px; font-weight: bold; color: var(--text-muted-color);">[ ${title} ]</span>
-                        <span style="font-size: 13px; font-weight: bold; color: ${totalDeco.color};">${totalDeco.prefix}${Math.round(totalDeco.amount).toLocaleString()}원</span>
+                        <span style="font-size: 13px; font-weight: bold; color: ${totalDeco.color};">${totalDeco.prefix}${moneyText(totalDeco.amount)}</span>
                      </div>`;
             html += `<div style="display: grid; gap: 6px;">`;
             stocks.forEach(s => {
                 const { color, prefix, amount } = decorate(breakdown[s]);
                 html += `<div style="display: flex; justify-content: space-between; font-size: 12px; padding: 6px 10px; background: var(--bg-color); border-radius: 6px; border: 1px solid var(--border-light-color);">
                     <span style="font-weight: bold; color: var(--text-strong-color);">${escapeHtml(s)}</span>
-                    <span style="color: ${color};">${prefix}${Math.round(amount).toLocaleString()}원</span>
+                    <span style="color: ${color};">${prefix}${moneyText(amount)}</span>
                 </div>`;
             });
             html += `</div>`;
@@ -630,13 +630,13 @@ window.renderMonthlyProfitChart = async function() {
                             if (context.raw === null) return null;
                             if (type === 'volume') {
                                 let prefix = context.datasetIndex === 0 ? '매수: ' : '매도: ';
-                                return prefix + Math.round(value).toLocaleString() + '원';
+                                return prefix + moneyText(value);
                             }
                             if (type === 'realized' || type === 'cumulative') {
                                 const labelStr = context.dataset.label;
-                                return labelStr + ': ' + (value > 0 ? '+' : '') + Math.round(value).toLocaleString() + '원';
+                                return labelStr + ': ' + (value > 0 ? '+' : '') + moneyText(value);
                             }
-                            return (value > 0 ? '+' : '') + Math.round(value).toLocaleString() + '원';
+                            return (value > 0 ? '+' : '') + moneyText(value);
                         }
                     }
                 }

@@ -35,6 +35,10 @@ entries 에 쓰는 곳은 네 군데이고, **매도 무결성 위반을 어떻�
 
 import sqlite3
 
+from app.domain.trades import (
+    INACTIVE_TRADE_STATUSES, entry_order, is_settled_trade, normalize_stock_code, position_scope,
+)
+
 # 시스템 트레이딩 API(v2)가 채우는 확장 컬럼.
 # ⚠️ 이 컬럼들은 INSERT 에만 포함하고 _UPDATE_COLUMNS 에는 넣지 않는다.
 #    웹 UI 의 수정(PUT /api/entry/<id>)은 화면 입력값으로 entry 를 새로 조립하므로
@@ -61,12 +65,13 @@ INSERT_COLUMNS = [
 ] + BOT_COLUMNS
 
 # UPDATE 시 갱신하는 컬럼 (id/username/createdAt 및 BOT_COLUMNS 제외)
-_UPDATE_COLUMNS = [
+WEB_UPDATE_COLUMNS = [
     'type', 'stockName', 'stockCode', 'title', 'thoughts', 'date', 'rawDate',
     'attachedImage', 'brokerAccount', 'subAccount', 'accountName', 'tradeType',
     'price', 'quantity', 'updatedAt', 'tags', 'attachedFile', 'attachedFileName',
-    'isHidden', 'brokerExecutionId', 'currency', 'exchange', 'assetType', 'tradeClass'
+    'isHidden', 'currency', 'exchange', 'assetType', 'tradeClass'
 ]
+_UPDATE_COLUMNS = WEB_UPDATE_COLUMNS
 
 # 문자열 기본값 컬럼(없으면 ''), 숫자 기본값 컬럼(없으면 0)
 _DEFAULT_EMPTY = {'stockCode', 'subAccount', 'tags', 'attachedFile', 'attachedFileName', 'brokerExecutionId', 'currency', 'exchange', 'assetType', 'tradeClass'}
@@ -86,25 +91,6 @@ _UPDATE_SQL = (
         sets=', '.join(f"{c}=?" for c in _UPDATE_COLUMNS)
     )
 )
-
-
-def normalize_stock_code(value):
-    """종목코드 표기 정규화 — 앞뒤 공백을 떼고 **대문자로 접는다**.
-
-    ⭐️ 종목코드는 종목 동일성 판정의 1순위 키다(stats.stock_identity ·
-       calc.js stockIdentity · net_holding_for_stock). 그런데 접는 규칙이 갈려
-       있었다: 통계·화면·시세 조회는 대문자로 접고, 보유 매칭과 매도 검증은
-       저장된 원본 그대로 비교했다. 국내 6자리 숫자 코드에서는 차이가 없어
-       드러나지 않지만, 해외 티커는 봇이 'aapl' 을 보내고 사람이 'AAPL' 로
-       적어 둘 수 있다. 그러면 통계·화면은 한 종목으로 묶는데 매도 검증만
-       '보유 기록 없음'으로 거부한다 — 화면상 멀쩡한 보유가 팔리지 않는다.
-
-       쓰기(_value_for → INSERT/UPDATE)와 읽기(비교) 양쪽이 이 함수 하나를
-       쓴다. 저장된 값이 이미 정규형이므로 SQL 은 그대로 `=` 로 맞춰도 된다.
-    """
-    if value is None:
-        return ''
-    return str(value).strip().upper()
 
 
 def _value_for(entry, col):
@@ -169,14 +155,6 @@ def update_columns(c, entry_id, username, changes):
 #    (API 명세의 status 설명). 매도 검증·화면 집계·통계가 모두 이 판정 하나를 쓴다.
 #    예전에는 매도 검증만 이 상태를 빼고 포트폴리오·달력·차트·통계는 체결로 셌다.
 #    그래서 봇이 추정 체결을 취소로 정정하면 화면 보유 수량과 실현손익이 그대로 남았다.
-INACTIVE_TRADE_STATUSES = ('CANCELED', 'SUBMITTED')
-
-
-def is_settled_trade(row):
-    """잔고·손익에 반영되는 주문 상태인가. 상태가 없는 기록(수동 입력)은 체결로 본다."""
-    return (row.get('tradeStatus') or 'FILLED') not in INACTIVE_TRADE_STATUSES
-
-
 def is_bot_entry(row):
     """봇이 만든 기록인가. 봇 API 는 이런 기록만 고치거나 지울 수 있다(사람이 쓴 기록 보호)."""
     return bool(row['brokerExecutionId'] or row['source'])
@@ -205,7 +183,26 @@ def _stock_conditions(username, stock_name, stock_code):
     return conditions, params
 
 
-def net_holding_for_stock(c, username, stock_name, exclude_id=None, stock_code=None):
+def _position_rows(c, username, stock_name, stock_code, exclude_id=None, scope=None):
+    conditions, params = _stock_conditions(username, stock_name, stock_code)
+    if exclude_id is not None:
+        conditions.append('id != ?')
+        params.append(exclude_id)
+    columns = ('id, stockName, stockCode, type, tradeType, quantity, rawDate, date, '
+               'subAccount, accountName, currency, tradeStatus')
+    rows = [dict(row) for row in c.execute(
+        f'SELECT {columns} FROM entries WHERE ' + ' AND '.join(conditions), params)]
+    if scope is not None:
+        rows = [row for row in rows if position_scope(row) == position_scope(scope)]
+    return sorted(rows, key=entry_order)
+
+
+def _quantity_delta(row):
+    qty = float(row.get('quantity') or 0)
+    return qty if row.get('tradeType') == '매수' else -qty if row.get('tradeType') == '매도' else 0
+
+
+def net_holding_for_stock(c, username, stock_name, exclude_id=None, stock_code=None, *, scope=None):
     """해당 사용자의 특정 종목 현재 순보유 수량(매수 합계 - 매도 합계)을 계산합니다.
 
     종목코드(stock_code)가 주어지면 코드를 1순위 기준으로 집계합니다. 종목명은
@@ -213,22 +210,8 @@ def net_holding_for_stock(c, username, stock_name, exclude_id=None, stock_code=N
     보내오므로, 이름만으로 맞추면 보유 매칭이 어긋나 정상 매도가 거부됩니다.
     코드가 비어 있는 레거시 수동 기록도 함께 잡히도록 이름 조건을 OR 로 유지합니다.
     """
-    conditions, params = _stock_conditions(username, stock_name, stock_code)
-
-    if exclude_id is not None:
-        conditions.append("id != ?")
-        params.append(exclude_id)
-
-    c.execute("SELECT tradeType, quantity FROM entries WHERE " + " AND ".join(conditions), params)
-
-    held = 0.0
-    for row in c.fetchall():
-        qty = float(row['quantity'] or 0)
-        if row['tradeType'] == '매수':
-            held += qty
-        elif row['tradeType'] == '매도':
-            held -= qty
-    return held
+    return sum(_quantity_delta(row) for row in _position_rows(
+        c, username, stock_name, stock_code, exclude_id, scope))
 
 
 def check_sell_integrity(c, username, entry, exclude_id=None):
@@ -260,9 +243,20 @@ def check_sell_integrity(c, username, entry, exclude_id=None):
     if sell_qty <= 0:
         return None
 
-    held = net_holding_for_stock(
-        c, username, stock_name, exclude_id=exclude_id, stock_code=stock_code
-    )
+    rows = _position_rows(c, username, stock_name, stock_code, exclude_id, entry)
+    candidate = dict(entry)
+    candidate.setdefault('id', max((r['id'] for r in rows), default=0) + 1)
+    if candidate['id'] is None:
+        candidate['id'] = max((r['id'] for r in rows), default=0) + 1
+    order = entry_order(candidate)
+    held = sum(_quantity_delta(row) for row in rows if entry_order(row) < order)
+    # 과거 매도를 새로 넣을 때 이후 매도가 사용할 수량까지 써 버리지 않는다.
+    available = held
+    for row in rows:
+        if entry_order(row) >= order:
+            held += _quantity_delta(row)
+            available = min(available, held)
+    held = available
     label = stock_name or stock_code
 
     EPS = 1e-6  # 부동소수점 오차 허용
@@ -306,41 +300,39 @@ def oversell_after_change(c, username, old_row, new_entry=None):
     name = (old_row.get('stockName') or '').strip()
     code = normalize_stock_code(old_row.get('stockCode'))
 
-    held_without = net_holding_for_stock(c, username, name, exclude_id=old_row['id'],
-                                         stock_code=code)
-    held_before = held_without + float(old_row.get('quantity') or 0)
-    held_after = held_without
-    if _is_live_buy(new_entry) and _same_stock(old_row, new_entry):
-        try:
-            held_after += float(new_entry.get('quantity') or 0)
-        except (TypeError, ValueError):
-            pass
+    rows = _position_rows(c, username, name, code, scope=old_row)
 
-    EPS = 1e-6
-    if held_after >= -EPS or held_after >= held_before - EPS:
+    def deficit_of(history):
+        balance = minimum = 0.0
+        for row in sorted(history, key=entry_order):
+            balance += _quantity_delta(row)
+            minimum = min(minimum, balance)
+        return -minimum
+
+    before = deficit_of(rows)
+    after_rows = [row for row in rows if row['id'] != old_row['id']]
+    if (_is_live_buy(new_entry) and _same_stock(old_row, new_entry)
+            and position_scope(old_row) == position_scope(new_entry)):
+        after_rows.append(dict(new_entry, id=old_row['id']))
+    deficit = deficit_of(after_rows)
+    if deficit <= before + 1e-6:
         return None
-    deficit = -held_after
+
     label = name or code
     return deficit, (f"이 변경으로 '{label}'의 매도 수량이 보유 수량을 "
                      f"{deficit:g}주 초과하게 됩니다.")
 
 
-def flag_oversold_sells(c, username, stock_name, stock_code, deficit, reason):
-    """초과분을 덮을 때까지 **가장 최근 매도부터** 검토 필요를 붙인다. 붙인 id 목록을 돌려준다.
-
-    어느 매도가 '틀린' 것인지는 서버가 알 수 없다. 보유를 넘어선 것은 시간상 마지막
-    매도들이므로 거기서부터 표시해, 사람이 확인할 출발점을 준다.
-    """
-    conditions, params = _stock_conditions(username, stock_name, stock_code)
-    conditions.append("tradeType = '매도'")
-    c.execute("SELECT id, quantity FROM entries WHERE " + " AND ".join(conditions)
-              + " ORDER BY COALESCE(rawDate, '') DESC, id DESC", params)
-    flagged, covered = [], 0.0
-    for row in c.fetchall():
-        if covered >= deficit - 1e-6:
-            break
-        flagged.append(row['id'])
-        covered += float(row['quantity'] or 0)
+def flag_oversold_sells(c, username, stock_name, stock_code, deficit, reason, *, scope=None):
+    """해당 계좌·통화에서 시간순 잔고를 음수로 만드는 매도에 검토 필요를 붙인다."""
+    rows = _position_rows(c, username, stock_name, stock_code, scope=scope)
+    # 시간순 잔고가 음수가 되는 매도만 표시한다. 나중의 정상 매도에 경고를 옮기지 않는다.
+    balance = 0.0
+    flagged = []
+    for row in rows:
+        balance += _quantity_delta(row)
+        if row['tradeType'] == '매도' and balance < -1e-6:
+            flagged.append(row['id'])
     for entry_id in flagged:
         c.execute("UPDATE entries SET needsReview = 1, reviewReason = ? WHERE id = ? AND username = ?",
                   (reason, entry_id, username))

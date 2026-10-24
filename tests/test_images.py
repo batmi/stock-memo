@@ -26,7 +26,8 @@ def test_image_upload_and_access(client):
     # 1px 짜리 투명 PNG 더미 파일
     b64_image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
     
-    res = client.post('/api/entry', json={"type": "buy", "stockName": "ImageTest", "attachedImage": b64_image})
+    res = client.post('/api/entry', json={"type": "buy", "stockName": "ImageTest", "price": 1,
+                                           "quantity": 1, "attachedImage": b64_image})
     assert res.status_code == 200
     
     # 이미지 경로 추출

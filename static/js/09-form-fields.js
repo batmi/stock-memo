@@ -37,6 +37,7 @@ function autoFillStockInfo(e) {
 
     if (recentEntry) {
         if (recentEntry.stockCode) document.getElementById('stockCode').value = recentEntry.stockCode;
+        setEntryCurrency(recentEntry.currency);
         if (recentEntry.brokerAccount) document.getElementById('brokerAccount').value = recentEntry.brokerAccount;
         if (recentEntry.subAccount) document.getElementById('subAccount').value = recentEntry.subAccount;
         if (recentEntry.accountName) document.getElementById('accountName').value = recentEntry.accountName;
@@ -190,11 +191,12 @@ function calcTotalAmount() {
     if (price > 0 && qty > 0) {
         totalWrapper.style.display = 'block';
         const textLabel = tradeType === '배당' ? '총 배당 금액' : '총 매매 금액';
-        document.getElementById('totalAmountDisplay').innerText = `${textLabel}: ${(price * qty).toLocaleString()}원`;
+        document.getElementById('totalAmountDisplay').innerText = `${textLabel}: ${moneyText(price * qty, document.getElementById('entryCurrency').value)}`;
     } else { totalWrapper.style.display = 'none'; }
 }
 document.getElementById('price').addEventListener('input', calcTotalAmount);
 document.getElementById('quantity').addEventListener('input', calcTotalAmount);
+document.getElementById('entryCurrency').addEventListener('change', calcTotalAmount);
 
 // ⭐️ 기록 유형(매매/메모)에 따른 폼 UI 전환 함수
 function toggleFormUI(recordType) {

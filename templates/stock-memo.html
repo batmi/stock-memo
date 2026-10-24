@@ -212,12 +212,16 @@
 
                 <div class="form-row" id="tradeRow2">
                     <div class="form-group">
+                        <label for="entryCurrency">통화</label>
+                        <select id="entryCurrency"><option value="KRW">원화</option><option value="USD">USD 달러</option></select>
+                    </div>
+                    <div class="form-group">
                         <label for="price">매매 단가 (원/달러)</label>
-                        <input type="number" id="price" placeholder="예: 75000" required>
+                        <input type="number" id="price" min="0" step="any" placeholder="예: 75000" required>
                     </div>
                     <div class="form-group">
                         <label for="quantity">매매 수량 (주)</label>
-                        <input type="number" id="quantity" placeholder="예: 10" required>
+                        <input type="number" id="quantity" min="0" step="any" placeholder="예: 10" required>
                     </div>
                 </div>
                 <div id="totalAmountWrapper" style="display: none;">
@@ -246,7 +250,7 @@
 
         <div id="portfolioSection" class="portfolio-summary-container" style="display: none;">
             <div class="portfolio-header">
-            <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
                 <span class="section-title">PORTFOLIO</span>
                 <button type="button" id="btnToggleAmountMask" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="금액·수량을 흐리게 가립니다 (화면공유·어깨너머 시선용, 이 기기에 설정이 유지됩니다)">금액 가리기</button>
                 <button type="button" id="btnToggleClosed" style="background: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; width: auto; padding: 2px 8px; font-size: 11px; margin: 0; cursor: pointer; transition: all 0.2s;" title="청산(매도 완료)·숨김 종목 보기">청산종목 보기</button>

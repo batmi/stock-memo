@@ -59,7 +59,8 @@ def test_create_and_get_entry(client):
     
     assert len(data) == 1
     assert data[0]['stockName'] == "삼성전자"
-    assert data[0]['type'] == "buy"
+    assert data[0]['type'] == "trade"
+    assert data[0]['tradeType'] == "매수"
     assert data[0]['username'] == "testuser"
 
 def test_update_and_delete_entry(client):
@@ -82,12 +83,13 @@ def test_update_and_delete_entry(client):
     
     # 2. 데이터 수정 (PUT)
     put_res = client.put(f'/api/entry/{entry_id}', json={
-        "type": "sell", "stockName": "카카오", "price": 55000, "quantity": 10
+        "type": "buy", "stockName": "카카오", "price": 55000, "quantity": 10
     })
     assert put_res.status_code == 200
     
     get_res2 = client.get('/api/data')
-    assert get_res2.json[0]['type'] == 'sell'
+    assert get_res2.json[0]['type'] == 'trade'
+    assert get_res2.json[0]['tradeType'] == '매수'
     assert get_res2.json[0]['price'] == 55000
     
     # 3. 데이터 삭제 (DELETE)

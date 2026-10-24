@@ -32,7 +32,7 @@ Beyond simple recording, it aims to maximize investment review and strategy form
 *   **Multi-User & Security**
     *   Provides sign-up and login features. The first registered user is automatically assigned as the super admin, who can then approve or deny subsequent registrations.
     *   Account blocking for 1 minute after 5 failed login attempts, and automatic logout after 1 hour of inactivity with a 5-minute warning.
-    *   Secure financial data protection against large file uploads (16MB limit) and implements XSS & CSRF security measures.
+    *   Regular requests are limited to 16MiB. Restore requests have separate limits (513MiB uploaded, 512MiB expanded), alongside XSS and CSRF defenses.
 *   **Journal & Smart Editor**
     *   Allows logging of buy, sell, observe, and dividend records, as well as general memos and ideas about specific stocks.
     *   Supports direct image insertion into the editor body (clipboard pasting of screenshots, drag & drop) and resizing. It also automatically cleans up colors/background styles when pasting external text.
@@ -100,7 +100,7 @@ http://127.0.0.1:9094
 ## 5. Backup & Security
 
 ### Data Backup & Restoration
-*   **Easy Web Backup (Recommended)**: Clicking the **[Full Backup]** button at the top of the app screen downloads a ZIP file containing the logged-in account's entire DB (`journal.db`) and attached images, complete with integrity verification. Uploading this ZIP file using the **[Restore]** button in a new environment restores the exact previous state. When restoring another account's backup, links to the restored attachments are moved to the restoring account so images keep working.
+*   **Easy Web Backup (Recommended)**: **[Full Backup]** downloads the current user's entries (`data.json`), attachments and account mappings as a ZIP. It does not include user accounts, API keys, preferences or the DB file itself. **[Restore]** validates and stages the archive before replacing entries, mappings and attachments; processing errors trigger rollback. Attachment URLs from another user's backup are moved to the restoring user. Limits are 513MiB uploaded and 512MiB expanded. DB/file atomicity does not cover process termination or power failure; retain DB snapshots for server migration.
 *   **Automatic Backup**: Every day at 3 AM, a compressed backup file for each user is generated in the `backup/` folder on the server, and a self-integrity check (CRC, record count) confirms it can be restored. A snapshot of the DB file itself — including accounts, API keys and preferences — is also kept in `backup/_db/`. Both are kept for 7 days, and old backups are not pruned on a day when verification fails.
 *   **Manual Backup**: If you are migrating the server manually, simply copy the `db/` and `uploads/` folders within the project.
 
@@ -139,6 +139,10 @@ stock-memo/
 │
 ├── app/                # Application code, grouped by role
 │   │
+│   ├── domain/         # Shared rules without HTTP or DB dependencies
+│   │   ├── trades.py      # Account/currency/stock identity, time, trading day, average cost
+│   │   └── validation.py  # Finite numbers and web input normalization
+│   │
 │   │  ── routes: request layer (Flask blueprints) ───────────────
 │   ├── routes/
 │   │   ├── auth.py         # Login, signup, logout, reset requests + session checks
@@ -152,6 +156,7 @@ stock-memo/
 │   │
 │   │  ── services: domain layer (Flask-independent, unit-testable) ─
 │   ├── services/
+│   │   ├── restores.py     # Validate/stage archives, replace DB/files, roll back on errors
 │   │   ├── accounts.py     # Account-number normalization + account mapping storage
 │   │   ├── entries.py      # Entry create/update/delete (integrity rules shared by web & bot)
 │   │   ├── migrations.py   # One-time migrations from legacy storage (JSON, mappings, inline images)
@@ -278,7 +283,7 @@ results and applies current prices to the chart's remaining positions. Stock ide
 and flat-position checks still use `static/calc.js`. The existing statistics snapshots
 and `tests/test_journal_api.py` check calculation parity.
 
-The screens, statistics and sell validation share two rules.
+The screens, statistics and sell validation share the rules in `app/domain/trades.py`.
 
 *   **Orders that affect holdings**: canceled (`CANCELED`) and submitted-but-unfilled
     (`SUBMITTED`) orders from the bot stay in the history list with a badge, but are left
@@ -287,6 +292,12 @@ The screens, statistics and sell validation share two rules.
 *   **Trade time**: read from `rawDate`, then the legacy display date (`date`), then the
     entry id (creation time) (`stats.parse_entry_dt`). Average cost depends on the order of
     fills, so the screens and statistics must use the same order to agree on realized profit.
+*   **Accounts and currencies**: calculate cost per account, currency and stock before combining results. Sell validation cannot borrow another account's holdings, another currency or a future purchase. The main screen has no currency selector. Aggregates use KRW when KRW entries exist; otherwise they use the first recorded currency in code order. Statistics, calendars and charts share that currency. Unfiltered history includes every currency, and read APIs accept a `currency` filter. There is no FX conversion; legacy entries without a currency use KRW.
+*   **Trading day**: when present, `tradeDate` determines daily, monthly and weekly aggregates and history date filters using the exchange's local date. Other entries use their recorded time. Editing a bot entry's time also updates its UTC timestamp and trading day.
+
+Writes use `db_conn(write=True)` before validation, covering concurrent sales and first-admin selection. Web edits merge only allowed fields and preserve omitted bot metadata. Invalid numbers, including booleans and non-finite values, are rejected; numeric strings remain accepted. Backups and attachment changes also share user locks (`app/utils/userlocks.py`), under the existing single-process deployment requirement.
+
+Schema initialization records `PRAGMA user_version` and stops on a newer DB version or an actual DDL error. Calling `start_all()` repeatedly does not duplicate live background jobs. `tests/test_reliability.py` and the browser currency/edit test cover these failure cases.
 
 ### Loading large journals
 

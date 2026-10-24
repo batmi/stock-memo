@@ -13,6 +13,7 @@ import pytest
 
 from app.routes import api
 import backend_app
+import config
 from app.database import entry_logic
 from app.routes import middleware
 from app.utils import scriptbundle
@@ -33,15 +34,16 @@ def test_http_errors_keep_their_status_codes(client):
     # /api/current_price 는 POST 전용
     assert client.delete('/api/data').status_code == 405
 
-def test_oversized_upload_returns_413_not_500(client):
-    """MAX_CONTENT_LENGTH 초과는 413 이어야 한다 (예전엔 500 + 스택트레이스)."""
+def test_oversized_upload_returns_413_not_500(client, monkeypatch):
+    """복원 전용 크기 제한 초과는 413 이어야 한다."""
     _ensure_user('testuser')  # 세션은 실제 계정이 있어야 통과한다
     with client.session_transaction() as sess:
         sess['logged_in'] = True
         sess['username'] = 'testuser'
         sess['expires_at'] = time.time() + 3600
 
-    limit = backend_app.app.config['MAX_CONTENT_LENGTH']
+    limit = 1024
+    monkeypatch.setattr(config, 'MAX_RESTORE_UPLOAD_BYTES', limit)
     data = {'file': (io.BytesIO(b'x' * (limit + 1024)), 'big.zip')}
     res = client.post('/api/restore', data=data, content_type='multipart/form-data')
     assert res.status_code == 413

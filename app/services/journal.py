@@ -13,7 +13,10 @@ import json
 import re
 
 from app.database.db import db_conn
-from app.database.entry_logic import is_settled_trade
+from app.domain.trades import (
+    apply_trade as _apply, currency_of, empty_holding as _empty_holding,
+    is_settled_trade, position_key, trade_day,
+)
 from app.services import accounts, stats
 from app.utils import statscache
 
@@ -21,8 +24,9 @@ INDEX_COLUMNS = (
     'id', 'type', 'stockName', 'stockCode', 'date', 'rawDate', 'brokerAccount',
     'subAccount', 'accountName', 'tradeClass', 'tradeType', 'price', 'quantity',
     'createdAt', 'updatedAt', 'isHidden', 'needsReview', 'tradeStatus', 'fee', 'tax',
+    'currency', 'exchange', 'tradeDate',
 )
-PAGE_COLUMNS = INDEX_COLUMNS + ('title', 'tags', 'currency', 'reviewReason')
+PAGE_COLUMNS = INDEX_COLUMNS + ('title', 'tags', 'reviewReason')
 EPS = 1e-9
 
 
@@ -62,6 +66,7 @@ def snapshot(username):
     by_name, names, hidden, latest_hidden = {}, {}, set(), {}
     for row in rows:
         row['_dt'] = _date(row)
+        row['_day'] = trade_day(row) or datetime.min
         row['_identity'] = stats.stock_identity(row)
         row['_excluded'] = accounts.is_excluded_row(row, excluded, aliases, known)
         # 취소·접수 주문은 목록에는 이력으로 남지만 수량·손익·건수 집계에서는 뺀다.
@@ -101,7 +106,7 @@ def metadata(model):
             stock_options[row['_identity']] = name
             # 자동완성에 필요한 칸만 종목별 마지막 한 건으로 보낸다.
             item = {k: row.get(k) for k in (
-                'stockName', 'stockCode', 'brokerAccount', 'subAccount', 'accountName', 'tradeClass')}
+                'stockName', 'stockCode', 'brokerAccount', 'subAccount', 'accountName', 'tradeClass', 'currency')}
             recent[name] = item
             if row.get('type') == 'trade':
                 recent_trades[name] = item
@@ -110,8 +115,11 @@ def metadata(model):
     def values(column, source=rows):
         return sorted({r[column] for r in source if r.get(column)})
 
+    currencies = sorted({currency_of(r) for r in rows if r.get('type') == 'trade'})
     return {
         'version': model['version'], 'total': len(rows),
+        'currencies': sorted(set(currencies) | {'KRW'}),
+        'defaultCurrency': 'KRW' if not currencies or 'KRW' in currencies else currencies[0],
         'reviewCount': sum(bool(r.get('needsReview')) for r in rows),
         'hasAnyTrade': any(r.get('type') == 'trade' and r.get('stockName') for r in rows),
         'stockIdentityByName': model['by_name'], 'stockNameByIdentity': model['names'],
@@ -125,7 +133,7 @@ def metadata(model):
 
 def filters(args):
     result = {}
-    for key in ('stock', 'tradeClass', 'subAccount', 'date', 'type'):
+    for key in ('stock', 'tradeClass', 'subAccount', 'date', 'type', 'currency'):
         value = args.get(key, '')
         if len(value) > 200:
             raise ValueError('필터 값이 너무 깁니다.')
@@ -139,13 +147,16 @@ def filters(args):
                 or any(not isinstance(v, str) or len(v) > 200 for v in values)):
             raise ValueError('필터 목록 형식이 올바르지 않습니다.')
         result[key] = values
+    if result['currency'] and not re.fullmatch('[A-Z]{3}', result['currency']):
+        raise ValueError('통화는 KRW, USD 같은 3자리 코드여야 합니다.')
     result['review'] = args.get('review') == '1'
     result['showClosed'] = args.get('showClosed') == '1'
     return result
 
 
 def matches(row, query):
-    return (not query['stock'] or row['_identity'] == query['stock']) and (
+    return (row.get('type') == 'memo' or not query.get('currency') or currency_of(row) == query['currency']) and (
+        not query['stock'] or row['_identity'] == query['stock']) and (
         not query['tradeClass'] or row.get('tradeClass') == query['tradeClass']) and (
         not query['brokers'] or row.get('brokerAccount') in query['brokers']) and (
         not query['subAccount'] or row['_account'] == query['subAccount'])
@@ -155,33 +166,10 @@ def _holding_key(row):
     return row['_identity'] + ('::제외' if row['_excluded'] else '')
 
 
-def _apply(holding, row):
-    qty, price = float(row.get('quantity') or 0), float(row.get('price') or 0)
-    kind = row.get('tradeType')
-    realized = cost = dividend = 0.0
-    if kind == '매수':
-        holding['qty'] += qty
-        holding['totalCost'] += price * qty
-        if holding['qty'] > 0:
-            holding['avgPrice'] = holding['totalCost'] / holding['qty']
-    elif kind == '매도':
-        cost = holding['avgPrice'] * qty
-        realized = (price - holding['avgPrice']) * qty
-        holding['qty'] -= qty
-        holding['totalCost'] -= cost
-        if holding['qty'] <= EPS:
-            holding.update(qty=0.0, totalCost=0.0, avgPrice=0.0)
-    elif kind == '배당':
-        dividend = price * qty
-    return realized, cost, dividend
-
-
-def _empty_holding():
-    return {'qty': 0.0, 'totalCost': 0.0, 'avgPrice': 0.0}
-
-
 def portfolio(model, query, month):
+    query = dict(query, currency=query.get('currency') or 'KRW')
     holdings = {}
+    positions = defaultdict(_empty_holding)
     realized = 0.0
     buys = sells = 0
     for row in model['rows']:
@@ -193,20 +181,25 @@ def portfolio(model, query, month):
             **_empty_holding(), stock=model['names'].get(row['_identity'], row['stockName']),
             identity=row['_identity'], isExcluded=row['_excluded'],
             excludeLabel='제외' if row['_excluded'] else '', realizedProfit=0.0, realizedCost=0.0,
-            accountName='', tradeClass='', traded=False, stockCode=''))
+            accountName='', tradeClass='', traded=False, stockCode='', currency=query['currency']))
         p['tradeClass'] = row.get('tradeClass') or p['tradeClass']
         p['stockCode'] = row.get('stockCode') or p['stockCode']
         if row.get('tradeType') in ('매수', '매도', '배당'):
             p['traded'] = True
-            profit, cost, dividend = _apply(p, row)
+            position = positions[position_key(row)]
+            old_qty, old_cost = position['qty'], position['totalCost']
+            profit, cost, dividend = _apply(position, row)
+            p['qty'] += position['qty'] - old_qty
+            p['totalCost'] += position['totalCost'] - old_cost
+            p['avgPrice'] = p['totalCost'] / p['qty'] if p['qty'] > EPS else 0
             p['realizedProfit'] += profit + dividend
             p['realizedCost'] += cost
             if not row['_excluded']:
                 realized += profit + dividend
-                if row['_dt'].strftime('%Y-%m') == month:
+                if row['_day'].strftime('%Y-%m') == month:
                     buys += row.get('tradeType') == '매수'
                     sells += row.get('tradeType') == '매도'
-    return {'holdings': holdings, 'totalRealizedProfit': realized,
+    return {'holdings': holdings, 'currency': query['currency'], 'totalRealizedProfit': realized,
                 'monthlyBuyCount': buys, 'monthlySellCount': sells}
 
 
@@ -234,7 +227,7 @@ def _history_rows(model, query):
         kind = row.get('type') or 'trade'
         if query['review'] and not row.get('needsReview'):
             continue
-        if query['date'] and row['_dt'].strftime('%Y-%m-%d') != query['date']:
+        if query['date'] and row['_day'].strftime('%Y-%m-%d') != query['date']:
             continue
         if query['type'] and kind != query['type']:
             continue
@@ -310,20 +303,20 @@ def history(username, model, query, limit, cursor, signer):
     return {'items': items, 'total': total, 'nextCursor': next_cursor, 'version': model['version']}
 
 
-def calendar(model, month):
+def calendar(model, month, currency='KRW'):
     daily = {}
     holdings = defaultdict(_empty_holding)
     counts = {'매수': 'buyCount', '매도': 'sellCount', '관망': 'watchCount',
               '주시': 'watchCount', '배당': 'dividendCount'}
     for row in model['rows']:
-        if row.get('type') == 'trade' and not row['_settled']:
+        if row.get('type') == 'trade' and (not row['_settled'] or currency_of(row) != currency):
             continue
         profit = dividend = 0.0
         if row.get('type') == 'trade' and row.get('stockName') and not row['_excluded']:
-            profit, _, dividend = _apply(holdings[row['_identity']], row)
-        if row['_dt'].strftime('%Y-%m') != month:
+            profit, _, dividend = _apply(holdings[position_key(row)], row)
+        if row['_day'].strftime('%Y-%m') != month:
             continue
-        day = daily.setdefault(row['_dt'].strftime('%Y-%m-%d'), {'profit': 0.0, 'details': {}})
+        day = daily.setdefault(row['_day'].strftime('%Y-%m-%d'), {'profit': 0.0, 'details': {}})
         day['profit'] += profit + dividend
         stock = model['names'].get(row['_identity'], row.get('stockName') or '') \
             if row.get('type') == 'trade' else row.get('stockName') or ''
@@ -336,6 +329,7 @@ def calendar(model, month):
 
 
 def chart(model, query, labels, weekly):
+    query = dict(query, currency=query.get('currency') or 'KRW')
     fields = ('realized', 'evaluated', 'buy_volume', 'sell_volume', 'dividend', 'cumulative', 'cumulative_dividend')
     breakdowns = ('realized', 'evaluated', 'buy_volume', 'sell_volume', 'dividend', 'cumulative', 'cumulative_div')
     monthly = {label: {**dict.fromkeys(fields, 0.0),
@@ -353,10 +347,10 @@ def chart(model, query, labels, weekly):
         if (row.get('type') != 'trade' or not row.get('stockName') or not row['_settled']
                 or row['_excluded'] or not matches(row, query)):
             continue
-        dt = row['_dt']
+        dt = row['_day']
         key = (dt - timedelta(days=dt.weekday())).strftime('%Y-%m-%d') if weekly else dt.strftime('%Y-%m')
-        ident = row['_identity']
-        stock = model['names'].get(ident, row['stockName'])
+        ident = position_key(row)
+        stock = model['names'].get(row['_identity'], row['stockName'])
         qty, price = float(row.get('quantity') or 0), float(row.get('price') or 0)
         kind = row.get('tradeType')
         profit, _, dividend = _apply(holdings[ident], row)
@@ -383,6 +377,7 @@ def chart(model, query, labels, weekly):
                 add(period, 'realized', stock, profit)
             elif kind == '배당':
                 add(period, 'dividend', stock, dividend)
+    events.sort(key=lambda event: event[0])
     event_index = 0
     cumulative = cumulative_dividend = 0.0
     cumulative_stocks, cumulative_dividends = defaultdict(float), defaultdict(float)
@@ -404,8 +399,8 @@ def chart(model, query, labels, weekly):
         for key, qty, price in remaining:
             if key not in monthly:
                 continue
-            item = evaluation.setdefault((ident, key), {
-                'period': key, 'stock': model['names'].get(ident, ident),
+            item = evaluation.setdefault((ident[-1], key), {
+                'period': key, 'stock': model['names'].get(ident[-1], ident[-1]),
                 'stockCode': holdings[ident].get('stockCode'), 'quantity': 0.0, 'cost': 0.0})
             item['quantity'] += qty
             item['cost'] += qty * price
@@ -413,5 +408,7 @@ def chart(model, query, labels, weekly):
 
 
 def trade_stats(model, query, granularity='monthly'):
-    return stats.compute_trade_stats([
+    query = dict(query, currency=query.get('currency') or 'KRW')
+    result = stats.compute_trade_stats([
         r for r in model['rows'] if not r['_excluded'] and matches(r, query)], granularity=granularity)
+    return dict(result, currency=query['currency'])

@@ -124,9 +124,9 @@ def test_exec_id_unique_allows_same_key_across_users(fresh):
 def test_init_dedupes_before_applying_unique_index():
     """이미 중복이 쌓인 DB 도 기동돼야 한다 — 가장 오래된 1건만 남긴다."""
     conn = sqlite3.connect(':memory:')
-    conn.execute("CREATE TABLE entries (id INTEGER PRIMARY KEY, username TEXT, brokerExecutionId TEXT)")
+    conn.execute(schema.CREATE_TABLES[0])
     for i in (1, 2, 3):
-        conn.execute("INSERT INTO entries VALUES (?, 'u', 'DUP')", (i,))
+        conn.execute("INSERT INTO entries (id, username, brokerExecutionId) VALUES (?, 'u', 'DUP')", (i,))
     conn.commit()
 
     schema.init(conn)
@@ -134,6 +134,23 @@ def test_init_dedupes_before_applying_unique_index():
     rows = conn.execute("SELECT id FROM entries WHERE brokerExecutionId='DUP'").fetchall()
     assert [r[0] for r in rows] == [1]
     conn.close()
+
+
+def test_schema_version_rejects_newer_database_without_changing_it(fresh):
+    fresh.execute(f'PRAGMA user_version={schema.SCHEMA_VERSION + 1}')
+    before = _dump(fresh)
+    with pytest.raises(RuntimeError, match='새로운 DB 스키마'):
+        schema.init(fresh)
+    assert _dump(fresh) == before
+    assert fresh.execute('PRAGMA user_version').fetchone()[0] == schema.SCHEMA_VERSION + 1
+
+
+def test_migration_error_does_not_claim_success(fresh, monkeypatch):
+    fresh.execute('PRAGMA user_version=0')
+    monkeypatch.setattr(schema, 'ADDED_COLUMNS', [('missing_table', 'new_column', 'TEXT')])
+    with pytest.raises(sqlite3.OperationalError):
+        schema.init(fresh)
+    assert fresh.execute('PRAGMA user_version').fetchone()[0] == 0
 
 
 def test_dedupe_returns_removed_count(fresh):

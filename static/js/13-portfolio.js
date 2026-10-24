@@ -157,13 +157,13 @@ function renderPortfolioSummary(summary) {
             <div class="stock-name" style="margin-bottom: 2px;">${escapeHtml(stock)}</div>
             <div style="margin-bottom: 8px; display: flex; align-items: center; min-height: 16px;">${accountBadgeHtml}${statusBadge}</div>
             <div class="stat-row"><span>보유 수량</span><span class="masked-amount">${data.qty.toLocaleString()}주</span></div>
-            <div class="stat-row"><span>평균 단가</span><span>${Math.round(data.avgPrice).toLocaleString()}</span></div>
-            <div class="stat-row"><span>총 매수금액</span><span class="masked-amount">${Math.round(data.totalCost).toLocaleString()}</span></div>
+            <div class="stat-row"><span>평균 단가</span><span>${moneyText(data.avgPrice)}</span></div>
+            <div class="stat-row"><span>총 매수금액</span><span class="masked-amount">${moneyText(data.totalCost)}</span></div>
         `;
         
         if (data.realizedProfit !== 0) {
             const profitColor = data.realizedProfit > 0 ? 'var(--danger-color)' : 'var(--primary-color)';
-            const profitStr = (data.realizedProfit > 0 ? '+' : '') + Math.round(data.realizedProfit).toLocaleString();
+            const profitStr = (data.realizedProfit > 0 ? '+' : '') + moneyText(data.realizedProfit);
             card.innerHTML += `
                 <div class="stat-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
                     <span>종목 실현손익</span><span class="masked-amount" style="color:${profitColor}">${profitStr}</span>
@@ -347,15 +347,15 @@ function renderPortfolioSummary(summary) {
         chartContainer.style.display = 'block';
         
         // 차트 중앙 텍스트 업데이트
-        const targetInvested = Math.round(totalInvestedAmount);
-        const investedStr = targetInvested.toLocaleString() + '원';
+        const targetInvested = totalInvestedAmount;
+        const investedStr = moneyText(targetInvested);
         const elInvested = document.getElementById('centerTotalInvested');
         animateValue(elInvested, targetInvested, 1000, false); // ⭐️ 1초(1000ms) 동안 카운트업 애니메이션
         elInvested.style.fontSize = investedStr.length > 13 ? '13px' : (investedStr.length > 10 ? '15px' : '17px');
 
         const centerProfit = document.getElementById('centerTotalProfit');
-        const targetProfit = Math.round(totalRealizedProfit);
-        const profitStr = (targetProfit > 0 ? '+' : '') + targetProfit.toLocaleString() + '원';
+        const targetProfit = totalRealizedProfit;
+        const profitStr = (targetProfit > 0 ? '+' : '') + moneyText(targetProfit);
         animateValue(centerProfit, targetProfit, 1000, true); // ⭐️ 1초(1000ms) 동안 카운트업 애니메이션
         centerProfit.style.fontSize = profitStr.length > 13 ? '12px' : (profitStr.length > 10 ? '13px' : '15px');
         centerProfit.style.color = totalRealizedProfit > 0 ? 'var(--danger-color)' : (totalRealizedProfit < 0 ? 'var(--primary-color)' : 'var(--text-strong-color)');
@@ -430,7 +430,7 @@ function renderPortfolioSummary(summary) {
                                 let percentage = total > 0 ? ((value / total) * 100).toFixed(1) + '%' : '0%';
                                     // ⭐️ 툴팁은 canvas 안이라 CSS 로 가릴 수 없다. 금액 가리기 모드에서는 비중만 남긴다.
                                     if (isAmountMasked) return `비중: ${percentage}`;
-                                    return `금액: ${Math.round(value).toLocaleString()}원 (${percentage})`;
+                                    return `금액: ${moneyText(value)} (${percentage})`;
                             }
                         }
                     }

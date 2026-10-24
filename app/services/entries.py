@@ -19,11 +19,15 @@ trading_api.entries 가 맡는다. 정책은 위의 '봇' 그대로다.
 """
 
 import time
+from datetime import datetime, timezone
 
 from app.database import entry_logic
 from app.database.db import db_conn
+from app.domain.validation import normalize_web_entry
+from app.domain.trades import KST, parse_entry_dt, trade_date_for
 from app.services import images
 from app.utils import statscache
+from app.utils.userlocks import serialized_user_change
 
 
 class InvalidEntry(Exception):
@@ -40,7 +44,8 @@ class OversellConflict(Exception):
 
 # 봇 PATCH 가 이 칸들을 건드릴 때만 매도 자신을 다시 잰다. 메모 한 줄 고쳤다고
 # 사람이 이미 확인을 마친 옛 매도에 표시가 되살아나면 안 된다.
-_HOLDING_COLUMNS = frozenset({'quantity', 'tradeStatus', 'stockName', 'stockCode', 'tradeType', 'type'})
+_HOLDING_COLUMNS = frozenset({'quantity', 'tradeStatus', 'stockName', 'stockCode', 'tradeType', 'type',
+                              'subAccount', 'accountName', 'currency', 'rawDate'})
 
 
 def _load(c, username, entry_id):
@@ -57,7 +62,7 @@ def _assign_entry_id(c, entry):
        자기 목록을 고친다.
     """
     entry_id = entry.get('id')
-    if isinstance(entry_id, int) and not isinstance(entry_id, bool):
+    if isinstance(entry_id, int) and not isinstance(entry_id, bool) and 0 < entry_id < 2**53:
         if c.execute("SELECT 1 FROM entries WHERE id = ?", (entry_id,)).fetchone() is None:
             return entry_id
     top = c.execute("SELECT MAX(id) FROM entries").fetchone()[0] or 0
@@ -68,7 +73,7 @@ def _flag_oversold(c, username, old_row, conflict):
     deficit, message = conflict
     return entry_logic.flag_oversold_sells(
         c, username, (old_row['stockName'] or '').strip(), old_row['stockCode'],
-        deficit, message + " (매수 기록을 고치거나 지운 뒤 확인이 필요합니다)")
+        deficit, message + " (매수 기록을 고치거나 지운 뒤 확인이 필요합니다)", scope=dict(old_row))
 
 
 def _release_uploads(username, old_row, new_row=None):
@@ -86,14 +91,22 @@ def _release_uploads(username, old_row, new_row=None):
 # 웹 화면
 # ---------------------------------------------------------------------------
 
+@serialized_user_change
 def create(username, entry):
     """새 기록을 저장하고 최종 id 를 돌려준다. 매도 무결성 위반이면 InvalidEntry."""
-    with db_conn() as conn:
+    try:
+        entry = normalize_web_entry(entry)
+    except ValueError as exc:
+        raise InvalidEntry(str(exc)) from exc
+    with db_conn(write=True) as conn:
         c = conn.cursor()
+        entry_id = _assign_entry_id(c, entry)
+        entry = dict(entry, id=entry_id)
+        if not entry.get('rawDate') and not entry.get('date'):
+            entry['rawDate'] = datetime.now(KST).replace(tzinfo=None).isoformat()
         error = entry_logic.validate_trade_entry(c, username, entry)
         if error:
             raise InvalidEntry(error)
-        entry_id = _assign_entry_id(c, entry)
         # ⭐️ 본문 내장 base64 이미지를 파일로 추출 (초기 로딩 응답 크기 유지).
         #    검증을 통과한 뒤에 한다 — 먼저 하면 거부된 저장의 이미지가 파일로 남는다.
         entry, created = images.store_inline_images(username, dict(entry, id=entry_id))
@@ -108,9 +121,10 @@ def create(username, entry):
     return entry_id
 
 
+@serialized_user_change
 def update(username, entry_id, entry, *, force=False):
     """기록 전체를 화면 입력으로 바꾼다. 검토 필요를 붙인 매도 id 목록을 돌려준다."""
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         c = conn.cursor()
         # ⭐️ 없는(다른 기기에서 지운) 기록을 고치면 예전에는 0건 갱신인데도 성공으로
         #    답해, 사용자는 저장된 줄 알았다. 먼저 있는지 본다.
@@ -118,8 +132,17 @@ def update(username, entry_id, entry, *, force=False):
         if old is None:
             raise EntryNotFound()
 
+        # 연동 원본과 누락된 값은 보존한다. 웹 폼은 체결 ID·통화 등을 보내지 않는다.
+        allowed = set(entry_logic.WEB_UPDATE_COLUMNS)
+        entry = dict(old, **{k: v for k, v in entry.items() if k in allowed})
+        try:
+            entry = normalize_web_entry(entry)
+        except ValueError as exc:
+            raise InvalidEntry(str(exc)) from exc
+
         # 수정 중인 기록 자신은 집계에서 뺀다.
-        error = entry_logic.validate_trade_entry(c, username, entry, exclude_id=entry_id)
+        error = (entry_logic.validate_trade_entry(c, username, entry, exclude_id=entry_id)
+                 if any(entry.get(k) != old[k] for k in _HOLDING_COLUMNS) else None)
         if error:
             raise InvalidEntry(error)
 
@@ -133,6 +156,17 @@ def update(username, entry_id, entry, *, force=False):
         entry, created = images.store_inline_images(username, entry)
         try:
             entry_logic.update_entry_row(c, entry_id, username, entry)
+            if (old['executedAtUtc'] or old['tradeDate']) and (
+                    entry.get('rawDate') != old['rawDate'] or entry.get('exchange') != old['exchange']):
+                dt = parse_entry_dt(entry)
+                if dt is None:
+                    raise InvalidEntry('거래 일시를 입력해주세요.')
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=KST)
+                entry_logic.update_columns(c, entry_id, username, {
+                    'executedAtUtc': dt.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    'tradeDate': trade_date_for(dt, entry.get('exchange')),
+                })
             flagged = _flag_oversold(c, username, old, conflict) if conflict else []
             conn.commit()
         except Exception:
@@ -145,10 +179,11 @@ def update(username, entry_id, entry, *, force=False):
     return flagged
 
 
+@serialized_user_change
 def delete(username, entry_id, *, force=False):
     """기록을 지운다. 이미 없으면 조용히 통과한다(다른 기기에서 먼저 지운 경우)."""
     flagged = []
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         c = conn.cursor()
         old = _load(c, username, entry_id)
         if old is not None:
@@ -189,10 +224,11 @@ def _load_bot_entry(c, username, entry_id):
     return row
 
 
+@serialized_user_change
 def patch_bot_trade(username, entry_id, changes):
     """봇이 만든 기록의 일부 칸(DB 컬럼 → 값)만 고친다. (고친 행, 경고 목록)을 돌려준다."""
     warnings = []
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         c = conn.cursor()
         old = _load_bot_entry(c, username, entry_id)
         changes = dict(changes)
@@ -218,9 +254,10 @@ def patch_bot_trade(username, entry_id, changes):
     return row, warnings
 
 
+@serialized_user_change
 def delete_bot_trade(username, entry_id):
     """봇이 만든 기록을 지운다. 그 매수로 덮이던 매도가 있으면 검토 필요를 붙인다."""
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         c = conn.cursor()
         old = _load_bot_entry(c, username, entry_id)
         conflict = entry_logic.oversell_after_change(c, username, old, None)

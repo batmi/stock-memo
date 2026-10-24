@@ -12,9 +12,15 @@ import config
 from app.database.db import db_conn
 from app.services import accounts
 from app.services.users import user_dir
+from app.utils.userlocks import user_lock
 
 
 def write_user_backup(target, username):
+    with user_lock(username):
+        return _write_user_backup(target, username)
+
+
+def _write_user_backup(target, username):
     """한 사용자의 기록·첨부·계좌 매핑을 ZIP 으로 target(경로나 파일 객체)에 쓴다. 기록 수를 돌려준다.
 
     형식은 복원(backup_api.full_restore)이 읽는 그대로다: data.json, uploads/<파일>,
@@ -24,6 +30,7 @@ def write_user_backup(target, username):
     #    accounts.load() 를 불렀고, load() 가 조회 실패를 '매핑 없음'으로 삼켜 자동 백업
     #    ZIP 에서만 account_info.json 이 빠졌다(복원하면 계좌 매핑만 사라졌다).
     with db_conn() as conn:
+        conn.execute('BEGIN')
         rows = [dict(row) for row in conn.execute(
             "SELECT * FROM entries WHERE username = ?", (username,)).fetchall()]
         mappings = accounts.load(conn, username)

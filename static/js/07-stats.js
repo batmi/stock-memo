@@ -55,8 +55,8 @@ function statsColor(v) {
     return 'var(--text-color)';
 }
 function statsMoney(v) {
-    const n = Math.round(Number(v) || 0);
-    return (n > 0 ? '+' : '') + n.toLocaleString() + '원';
+    const n = Number(v) || 0;
+    return (n > 0 ? '+' : '') + moneyText(n);
 }
 
 window.loadTradeStats = async function() {
@@ -131,8 +131,8 @@ function renderTradeStats(s) {
     ];
     if (hasCost) pnlCards.push(card('순손익 (비용 차감)', statsMoney(s.netPnl), statsColor(s.netPnl)));
     // ⭐️ 매수는 빨강, 매도는 파랑 (국내 호가창 관행)
-    pnlCards.push(card('총 매수금', `${Math.round(s.totalBuyAmount).toLocaleString()}원`, 'var(--danger-color, #e74c3c)'));
-    pnlCards.push(card('총 매도금', `${Math.round(s.totalSellAmount).toLocaleString()}원`, 'var(--primary-color, #3b82f6)'));
+    pnlCards.push(card('총 매수금', `${moneyText(s.totalBuyAmount)}`, 'var(--danger-color, #e74c3c)'));
+    pnlCards.push(card('총 매도금', `${moneyText(s.totalSellAmount)}`, 'var(--primary-color, #3b82f6)'));
     html += section('💰 손익', pnlCards);
 
     html += section('🎯 매매 효율', [
@@ -217,7 +217,7 @@ function renderTradeStats(s) {
                 + `<td style="${tdStyle} color:${statsColor(m.dividend)};">${statsMoney(m.dividend)}</td>`
                 + `<td style="${tdStyle}">${m.sellCount}</td>`
                 + `<td style="${tdStyle}">${winRateCell(m.winRate)}</td>`
-                + `<td style="${tdStyle}">${Math.round(m.sellAmount).toLocaleString()}원</td></tr>`;
+                + `<td style="${tdStyle}">${moneyText(m.sellAmount)}</td></tr>`;
         });
         html += '</tbody></table></div>';
     }

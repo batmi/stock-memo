@@ -266,8 +266,14 @@ EXEC_ID_UNIQUE_INDEX = (
 # 적용
 # ---------------------------------------------------------------------------
 
+SCHEMA_VERSION = 1
+
+
 def init(conn, logger=None):
     """스키마를 현재 정의에 맞춘다. 몇 번 호출해도 안전하다(멱등)."""
+    version = conn.execute('PRAGMA user_version').fetchone()[0]
+    if version > SCHEMA_VERSION:
+        raise RuntimeError('이 앱보다 새로운 DB 스키마입니다. 앱 버전을 확인해주세요.')
     conn.execute('PRAGMA journal_mode=WAL;')  # DB 파일에 영속 — 여기서 1회만
     c = conn.cursor()
 
@@ -278,21 +284,18 @@ def init(conn, logger=None):
         c.execute(ddl)
 
     for table, column, coltype in ADDED_COLUMNS:
-        try:
+        columns = {row[1] for row in c.execute(f'PRAGMA table_info({table})')}
+        if column not in columns:
             c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
-        except sqlite3.OperationalError:
-            pass  # 이미 존재
 
     for ddl in INDEXES:
-        try:
-            c.execute(ddl)
-        except sqlite3.OperationalError:
-            pass
+        c.execute(ddl)
 
     conn.commit()
 
     _create_exec_id_unique_index(conn, logger)
     _backfill_owner_username(conn)
+    conn.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
     conn.commit()
 
 
@@ -301,9 +304,8 @@ def _rebuild_price_cache_if_legacy(c, logger):
 
     캐시라 버려도 되는 데이터이므로 DROP 후 재생성이 가장 단순하고 안전하다.
     """
-    try:
-        c.execute("SELECT market_type FROM price_cache LIMIT 1")
-    except sqlite3.OperationalError:
+    columns = {row[1] for row in c.execute('PRAGMA table_info(price_cache)')}
+    if columns and 'market_type' not in columns:
         c.execute("DROP TABLE IF EXISTS price_cache")
         if logger:
             logger.info("🔄 price_cache 테이블을 KRX/NXT 분리 저장 스키마로 마이그레이션합니다.")
@@ -322,7 +324,7 @@ def _create_exec_id_unique_index(conn, logger):
         c.execute(EXEC_ID_UNIQUE_INDEX)
         conn.commit()
         return
-    except sqlite3.DatabaseError as e:
+    except sqlite3.IntegrityError as e:
         first_error = e
 
     conn.rollback()
@@ -334,6 +336,7 @@ def _create_exec_id_unique_index(conn, logger):
         conn.rollback()
         if logger:
             logger.error(f"⚠️ brokerExecutionId UNIQUE 인덱스 생성 실패: {first_error}")
+        raise
 
 
 def dedupe_execution_ids(conn, logger=None):

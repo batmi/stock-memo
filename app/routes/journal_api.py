@@ -88,7 +88,8 @@ def detail(entry_id):
 @bp.get('/api/journal/calendar')
 def calendar():
     month = _month()
-    return _response(lambda model: journal.calendar(model, month))
+    currency = journal.filters(request.args)['currency'] or 'KRW'
+    return _response(lambda model: journal.calendar(model, month, currency))
 
 
 @bp.get('/api/journal/chart')

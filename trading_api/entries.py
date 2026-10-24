@@ -10,11 +10,12 @@ import sqlite3
 from datetime import timezone
 
 from app.database import entry_logic
+from app.domain.trades import trade_date_for
 
 from .common import KST, _now_kst_str
 from .validation import (
     ValidationError, _inherit_trade_class, _normalize_enum, _normalize_trade_class,
-    _num, _parse_executed_at, _resolve_account, _text, _trade_date_for,
+    _num, _parse_executed_at, _resolve_account, _text,
     _VALID_CONFIDENCE, _VALID_ORIGIN, _VALID_STATUS,
 )
 
@@ -142,7 +143,7 @@ def build_entry(c, username, data, mappings, *, default_source=None):
         'strategyScore': _num(data.get('strategyScore'), 'strategyScore'),
         'stopLossRate': _num(data.get('stopLossRate'), 'stopLossRate'),
         'executedAtUtc': executed_dt.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-        'tradeDate': _trade_date_for(executed_dt, exchange),
+        'tradeDate': trade_date_for(executed_dt, exchange),
         'needsReview': 0,
         # None 을 그대로 저장해 '모른다'를 남긴다 (0 으로 눕히면 False 와 섞인다).
         'isSystem': None if is_system is None else (1 if is_system else 0),

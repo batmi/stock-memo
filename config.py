@@ -41,6 +41,8 @@ MAX_CONTENT_LENGTH = 16 * 1024 * 1024
 
 # ⭐️ 복원 ZIP 의 '압축 해제 후' 크기 상한 — zip bomb 방어.
 MAX_RESTORE_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
+# 복원은 일반 기록(16MiB)과 별도 한도. ZIP 헤더와 multipart 여유도 포함한다.
+MAX_RESTORE_UPLOAD_BYTES = MAX_RESTORE_UNCOMPRESSED_BYTES + 1024 * 1024
 
 # 세션 쿠키
 SESSION_LIFETIME = timedelta(hours=24)

@@ -22,12 +22,18 @@ from app.database.db import db_conn, get_db
 from app.services.users import user_dir
 
 log = logging.getLogger('jobs')
+_start_lock = threading.Lock()
+_threads = {}
 
 
 def start_all():
     """데몬 스레드로 백그라운드 작업을 띄운다. 프로세스 종료를 막지 않는다."""
-    threading.Thread(target=auto_backup_job, daemon=True, name='auto-backup').start()
-    threading.Thread(target=auto_fetch_nxt_close_job, daemon=True, name='nxt-close').start()
+    with _start_lock:
+        for name, target in (('auto-backup', auto_backup_job), ('nxt-close', auto_fetch_nxt_close_job)):
+            if name not in _threads or not _threads[name].is_alive():
+                thread = threading.Thread(target=target, daemon=True, name=name)
+                thread.start()
+                _threads[name] = thread
 
 
 # ⭐️ 자동 백업 스레드 함수

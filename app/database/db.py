@@ -26,14 +26,20 @@ def get_db():
 
 
 @contextmanager
-def db_conn():
+def db_conn(*, write=False):
     """요청 핸들러용 DB 연결 컨텍스트 매니저.
 
     예외/조기 반환과 무관하게 연결을 반드시 닫아 누수를 방지합니다.
-    commit 은 호출자가 명시적으로 수행합니다.
+    commit 은 호출자가 명시적으로 수행합니다. write=True면 첫 조회 전에 쓰기
+    트랜잭션을 시작하여 '검사 → 변경' 사이에 다른 쓰기가 끼어들지 못하게 합니다.
     """
     conn = get_db()
     try:
+        if write:
+            conn.execute('BEGIN IMMEDIATE')
         yield conn
+    except BaseException:
+        conn.rollback()
+        raise
     finally:
         conn.close()

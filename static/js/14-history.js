@@ -134,7 +134,7 @@ function renderHistoryResult(data) {
             activeFilterCount++;
         }
         if (hasDate) {
-            chipsHtml += `<span class="filter-chip">📅 ${currentFilterDate} <span class="chip-close" onclick="clearDateFilter()">&times;</span></span>`;
+            chipsHtml += `<span class="filter-chip">📅 ${currentFilterDate}${displayCurrency === 'KRW' ? '' : ` · ${escapeHtml(displayCurrency)}`} <span class="chip-close" onclick="clearDateFilter()">&times;</span></span>`;
             activeFilterCount++;
         }
         if (hasRecordType) {
@@ -272,6 +272,9 @@ function renderPage(pageEntries) {
         if (parsedDate && !isNaN(parsedDate)) {
             entryMonth = `${parsedDate.getFullYear()}년 ${parsedDate.getMonth() + 1}월`;
         }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(entry.tradeDate || '')) {
+            entryMonth = `${entry.tradeDate.slice(0, 4)}년 ${Number(entry.tradeDate.slice(5, 7))}월`;
+        }
 
         if (entryMonth && entryMonth !== lastRenderedMonth) {
             const divider = document.createElement('div');
@@ -293,6 +296,7 @@ function renderPage(pageEntries) {
         const timeDisplayHtml = `
             <div style="display: flex; flex-direction: column; gap: 3px;">
                 <span style="color: var(--text-strong-color); font-weight: var(--fw-bold, bold);">🕒 기록 일시: ${escapeHtml(entry.date)}</span>
+                ${entry.tradeDate ? `<span>거래일: ${escapeHtml(entry.tradeDate)}${entry.exchange ? ` (${escapeHtml(entry.exchange)})` : ''}</span>` : ''}
                 <span style="font-size: 11px; color: var(--text-muted-color);">최초 작성: ${createdStr}${updatedStr && updatedStr !== createdStr ? ` | 최종 수정: ${updatedStr}` : ''}</span>
             </div>
         `;
@@ -354,8 +358,8 @@ function renderPage(pageEntries) {
             card.style.borderLeftColor = borderColor;
 
             let detailsHtml = '';
-            const cPre = entry.currency === 'USD' ? '$' : '';
-            const cSuf = entry.currency === 'USD' ? '' : ''; // 원화는 원래 생략되어 있었음
+            const cPre = '';
+            const cSuf = !entry.currency || entry.currency === 'KRW' ? '원' : ` ${escapeHtml(entry.currency)}`;
             
             if (entry.tradeType === '배당' && (entry.price > 0 || entry.quantity > 0)) {
                 const totalAmount = escapeHtml((entry.price * (entry.quantity || 1)).toLocaleString());
@@ -516,6 +520,7 @@ window.editEntry = async function(entry) {
     document.getElementById('brokerAccount').value = entry.brokerAccount || '';
     document.getElementById('subAccount').value = entry.subAccount || '';
     document.getElementById('tradeClass').value = entry.tradeClass || '';
+    setEntryCurrency(entry.currency);
     document.getElementById('accountName').value = entry.accountName || '';
 
     if (entry.type === 'trade') {

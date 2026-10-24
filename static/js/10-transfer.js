@@ -95,6 +95,7 @@ journalForm.addEventListener('submit', async function(e) {
         const isHidden = isHiddenEl && isHiddenEl.checked ? 1 : 0;
 
         newEntry = {
+            currency: document.getElementById('entryCurrency').value,
             id: currentEditingId || Date.now(), type: 'trade', stockName, stockCode, brokerAccount, subAccount, accountName, tradeClass,
             tradeType, price: price ? Number(price) : 0, quantity: quantity ? Number(quantity) : 0, thoughts, date, rawDate: tradeDateRaw, attachedImage: null,
             createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: '', attachedFileName: '', isHidden

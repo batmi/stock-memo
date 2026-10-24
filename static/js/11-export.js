@@ -130,30 +130,30 @@ function setAmountMasked(masked) {
 
 // ⭐️ 숫자 카운트업 애니메이션 함수 (차트 중앙 텍스트용)
 function animateValue(element, endValue, duration, isProfit = false) {
-    let startValue = parseInt(element.getAttribute('data-val')) || 0;
+    if (element.dataset.animId) cancelAnimationFrame(element.dataset.animId);
+    const currency = displayCurrency;
+    let startValue = Number(element.getAttribute('data-val')) || 0;
     if (startValue === endValue) {
         const prefix = isProfit && endValue > 0 ? '+' : '';
-        element.innerText = prefix + endValue.toLocaleString() + '원';
+        element.innerText = prefix + moneyText(endValue, currency);
         return;
     }
-    if (element.dataset.animId) cancelAnimationFrame(element.dataset.animId);
-
     let startTime = null;
     const step = (timestamp) => {
         if (!startTime) startTime = timestamp;
         const progress = Math.min((timestamp - startTime) / duration, 1);
         // easeOutExpo (부드럽게 감속)
         const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
-        const current = Math.floor(startValue + (endValue - startValue) * ease);
+        const current = startValue + (endValue - startValue) * ease;
         
         const prefix = isProfit && current > 0 ? '+' : '';
-        element.innerText = prefix + current.toLocaleString() + '원';
+        element.innerText = prefix + moneyText(current, currency);
         
         if (progress < 1) {
             element.dataset.animId = requestAnimationFrame(step);
         } else {
             const finalPrefix = isProfit && endValue > 0 ? '+' : '';
-            element.innerText = finalPrefix + endValue.toLocaleString() + '원';
+            element.innerText = finalPrefix + moneyText(endValue, currency);
             element.setAttribute('data-val', endValue);
         }
     };

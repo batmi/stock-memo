@@ -8,23 +8,11 @@
 from datetime import datetime
 
 from app.services import accounts
+from app.domain.validation import finite_number
 
-from .common import KST, ZoneInfo
+from .common import KST
 
 # ══════════════════════════════════════════════════════════════════════
-
-# 거래소 -> 현지 시간대. 거래일(tradeDate) 귀속에 쓴다.
-# 미국은 프리(04:00)~애프터(20:00)가 모두 같은 ET 날짜이므로 ET 기준 날짜가 곧 거래일이다.
-_EXCHANGE_TZ = {
-    'KRX': 'Asia/Seoul', 'NXT': 'Asia/Seoul', 'KOSPI': 'Asia/Seoul',
-    'KOSDAQ': 'Asia/Seoul', 'KONEX': 'Asia/Seoul',
-    'NASDAQ': 'America/New_York', 'NAS': 'America/New_York',
-    'NYSE': 'America/New_York', 'NYS': 'America/New_York',
-    'AMEX': 'America/New_York', 'AMS': 'America/New_York',
-    'BAQ': 'America/New_York', 'BAY': 'America/New_York', 'BAA': 'America/New_York',
-    'TSE': 'Asia/Tokyo', 'HKEX': 'Asia/Hong_Kong', 'SEHK': 'Asia/Hong_Kong',
-    'SSE': 'Asia/Shanghai', 'SZSE': 'Asia/Shanghai',
-}
 
 _TRADE_CLASS_MAP = {
     1: '장기투자', 2: '중기투자', 3: '단기스윙', 4: '단타(스캘핑)',
@@ -76,31 +64,15 @@ def _parse_executed_at(value):
     return dt, has_offset
 
 
-def _trade_date_for(dt_aware, exchange):
-    """거래소 현지 기준 거래일(YYYY-MM-DD)."""
-    tz_name = _EXCHANGE_TZ.get((exchange or '').strip().upper())
-    if tz_name and ZoneInfo is not None:
-        try:
-            return dt_aware.astimezone(ZoneInfo(tz_name)).strftime('%Y-%m-%d')
-        except Exception:
-            pass
-    # tz 데이터가 없거나 미등록 거래소면 요청에 실려 온 오프셋의 현지 날짜를 쓴다.
-    return dt_aware.strftime('%Y-%m-%d')
-
-
 def _num(value, field, *, allow_none=True, minimum=None, exclusive_min=None):
     if value is None or value == '':
         if allow_none:
             return None
         raise ValidationError('MISSING_FIELD', f'{field} 이(가) 필요합니다.', field)
-    if isinstance(value, bool):
-        raise ValidationError('INVALID_FIELD', f'{field} 은(는) 숫자여야 합니다.', field)
     try:
-        num = float(value)
-    except (TypeError, ValueError) as e:
-        raise ValidationError('INVALID_FIELD', f'{field} 은(는) 숫자여야 합니다.', field) from e
-    if num != num or num in (float('inf'), float('-inf')):
-        raise ValidationError('INVALID_FIELD', f'{field} 값이 유효하지 않습니다.', field)
+        num = finite_number(value)
+    except ValueError as e:
+        raise ValidationError('INVALID_FIELD', f'{field}: {e}', field) from e
     if minimum is not None and num < minimum:
         raise ValidationError('INVALID_FIELD', f'{field} 은(는) {minimum} 이상이어야 합니다.', field)
     if exclusive_min is not None and num <= exclusive_min:

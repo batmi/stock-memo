@@ -17,6 +17,16 @@ from app.services import jobs
 from helpers import _ensure_user
 
 
+def test_repeated_start_does_not_duplicate_live_jobs(monkeypatch):
+    monkeypatch.setattr(jobs, '_threads', {})
+    with patch.object(jobs.threading, 'Thread') as thread:
+        thread.return_value.is_alive.return_value = True
+        jobs.start_all()
+        jobs.start_all()
+        assert thread.call_count == 2
+        assert thread.return_value.start.call_count == 2
+
+
 @patch('time.sleep')
 def test_auto_backup_job(mock_sleep, client, app, tmp_path, monkeypatch):
     """

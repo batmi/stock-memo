@@ -150,9 +150,9 @@ def create_trade(username, scopes):
         if idem:
             data = dict(data, brokerExecutionId=idem.strip()[:200])
 
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         c = conn.cursor()
-        mappings = accounts.load_for(username)
+        mappings = accounts.load(conn, username)
         try:
             entry = build_entry(c, username, data, mappings)
         except ValidationError as e:
@@ -204,9 +204,9 @@ def create_trades_batch(username, scopes):
     legacy_errors = []
     seen_exec_ids = set()  # 같은 배치 안의 중복도 걸러낸다
 
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         c = conn.cursor()
-        mappings = accounts.load_for(username)
+        mappings = accounts.load(conn, username)
 
         for index, item in enumerate(trades):
             try:
@@ -499,9 +499,9 @@ def create_opening_positions(username, scopes):
 
     results = []
     inserted = skipped = failed = 0
-    with db_conn() as conn:
+    with db_conn(write=True) as conn:
         c = conn.cursor()
-        mappings = accounts.load_for(username)
+        mappings = accounts.load(conn, username)
 
         for index, pos in enumerate(positions):
             if not isinstance(pos, dict):

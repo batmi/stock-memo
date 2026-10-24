@@ -3,72 +3,15 @@
 DB에 의존하지 않는 순수 함수로 구성되어 단위 테스트가 용이합니다.
 조회 API(/api/journal/stats)가 넘긴 기록 리스트를 받아 지표를 계산합니다.
 
-(entry_logic 에서 가져오는 것은 종목코드 표기 정규화와 '잔고에 반영되는 주문인가'
- 판정입니다. DB 접근이 아니라 저장·매도 검증과 같은 기준으로 판정하기 위한 순수 함수입니다.)
+종목·계좌·통화 식별과 이동평균 원가 계산은 app.domain.trades의 공통 규칙을 씁니다.
 """
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
-import re
 
-from app.database.entry_logic import is_settled_trade, normalize_stock_code
-
-# 옛 기록의 표시용 날짜 ('2024. 1. 2. 오전 9:00' 처럼 앞부분이 연·월·일)
-_LEGACY_DATE_RE = re.compile(r'^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})')
-
-
-def parse_entry_dt(entry):
-    """기록의 거래 일시. 목록 정렬·포트폴리오·달력·차트·통계가 **모두 이 규칙**으로 읽는다.
-
-    rawDate(ISO 문자열. 오프셋이 붙어 있으면 떼고 그 시각 그대로) → 옛 기록의 표시용
-    날짜(date) → id(밀리초 타임스탬프 = 작성 시각) 순서로 본다. 모두 실패하면 None.
-
-    ⭐️ 예전에는 화면 집계(journal)와 통계가 규칙을 따로 가졌다. rawDate 가 없는 옛 기록을
-       화면은 표시 날짜로, 통계는 작성 시각으로 읽어서 체결 순서가 갈렸다. 이동평균
-       단가는 순서에 따라 달라지므로 분석 탭과 대시보드의 실현손익이 어긋날 수 있었다.
-    """
-    raw = entry.get('rawDate')
-    if raw:
-        try:
-            return datetime.fromisoformat(str(raw)).replace(tzinfo=None)
-        except ValueError:
-            pass
-    parts = _LEGACY_DATE_RE.match(entry.get('date') or '')
-    if parts:
-        try:
-            return datetime(*map(int, parts.groups()))
-        except ValueError:
-            pass
-    try:
-        return datetime.fromtimestamp(int(entry.get('id')) / 1000)
-    except (ValueError, TypeError, OSError):
-        return None
-
-
-def _entry_seq(entry):
-    """같은 시각의 체결을 가르는 보조 키 — 기록 id(입력 순서). 없으면 0.
-
-    id 는 밀리초 타임스탬프라 '나중에 들어온 것이 크다'가 성립한다.
-    """
-    try:
-        return int(entry.get('id'))
-    except (TypeError, ValueError):
-        return 0
-
-def stock_identity(entry):
-    """종목 동일성 판정 키. 종목코드가 있으면 코드, 없으면 종목명.
-
-    ⭐️ 종목명은 표기가 갈린다(우선주·해외 티커·증권사별 명칭). 이름으로만 묶으면
-       같은 종목의 손익이 둘로 쪼개지고, 반대로 코드가 다른 동명이인 종목이 한
-       덩어리가 된다. entry_logic.net_holding_for_stock 이 이미 코드를 1순위로
-       쓰고 있으므로 통계도 같은 기준을 따른다.
-       코드가 비어 있는 레거시 수동 기록은 종전대로 이름으로 묶는다.
-
-       표기 정규화(대문자 접기)는 entry_logic 이 단독으로 소유한다 — 저장·보유
-       매칭·통계가 같은 규칙을 써야 같은 종목이 같은 종목으로 보인다.
-    """
-    code = normalize_stock_code(entry.get('stockCode'))
-    return code or (entry.get('stockName') or '').strip()
-
+from app.domain.trades import (
+    apply_trade, currency_of, empty_holding, entry_order, is_settled_trade,
+    normalize_stock_code, parse_entry_dt as parse_entry_dt, position_key, stock_identity, trade_day,
+)
 
 # 보유기간 구간 (상한 일수, 표시 이름). 상한은 '이하'로 포함하고, 첫 구간만 '미만'이다.
 HOLDING_BUCKETS = (
@@ -127,7 +70,11 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
     #    'SQL 이 돌려준 순서'(api.py 의 조회에는 ORDER BY 가 없다)로 결정됐다. 이 순서가
     #    ① 표시 이름(display_names — 마지막에 쓴 이름이 이긴다)과 ② 선입선출 청산 순서를
     #    좌우하는데, 화면(14-history.js)은 동점을 id 로 가른다. 규칙을 화면과 맞춘다.
-    trades.sort(key=lambda r: (parse_entry_dt(r) or datetime.min, _entry_seq(r)))
+    trades.sort(key=entry_order)
+
+    currencies = {currency_of(row) for row in trades}
+    if len(currencies) > 1:
+        raise ValueError('통화별로 나누어 집계해야 합니다.')
 
     win_start = _parse_period_bound(period_start)
     win_end = _parse_period_bound(period_end)
@@ -198,12 +145,13 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
         price = float(t.get('price') or 0)
         ttype = t.get('tradeType')
         dt = parse_entry_dt(t)
+        day = trade_day(t)
         mkey = '미상'
-        if dt:
-            mkey = get_monday(dt) if granularity == 'weekly' else dt.strftime('%Y-%m')
+        if day:
+            mkey = get_monday(day) if granularity == 'weekly' else day.strftime('%Y-%m')
 
-        p = portfolio.setdefault(stock, {'qty': 0.0, 'totalCost': 0.0, 'avgPrice': 0.0, 'lots': deque()})
-        inw = in_window(dt)  # ⭐️ 지표에 반영할 구간인지 (보유 상태 갱신은 구간과 무관하게 항상 수행)
+        p = portfolio.setdefault(position_key(t), dict(empty_holding(), lots=deque()))
+        inw = in_window(day)  # ⭐️ 지표에 반영할 구간인지 (보유 상태 갱신은 구간과 무관하게 항상 수행)
 
         if inw and (t.get('fee') is not None or t.get('tax') is not None):
             cost_record_count += 1
@@ -217,18 +165,12 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
                 total_buy_amount += vol
                 monthly[mkey]['buyAmount'] += vol
 
-            p['qty'] += qty
-            p['totalCost'] += vol
-            
-            if p['qty'] > 0:
-                p['avgPrice'] = p['totalCost'] / p['qty']
+            apply_trade(p, t)
             p['lots'].append([dt, qty])
 
         elif ttype == '매도':
-            avg = p['avgPrice']
-            profit = (price - avg) * qty
+            profit, basis, _ = apply_trade(p, t)
             vol = price * qty
-            basis = avg * qty
 
             # FIFO 로트 매칭으로 이 매도의 보유기간(일 × 수량)을 구한다
             sell_hold_days = sell_hold_qty = 0.0
@@ -279,7 +221,7 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
                     win_streak = 0
                     max_loss_streak = max(max_loss_streak, loss_streak)
                 if dt:
-                    realized_events.append((dt, profit))
+                    realized_events.append((day, profit))
 
                 sell_rate = _rate(profit, basis)
                 if sell_rate is not None:
@@ -312,13 +254,8 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
                         b['basis'] += basis
                         b['basisProfit'] += profit
 
-            # 보유 포지션 갱신 (청산 시 초기화)
-            p['qty'] -= qty
-            p['totalCost'] -= avg * qty
+            # 공통 원가 계산에서 청산된 포지션의 보유기간 로트도 비운다.
             if p['qty'] <= EPS:
-                p['qty'] = 0.0
-                p['totalCost'] = 0.0
-                p['avgPrice'] = 0.0
                 p['lots'].clear()
 
         elif ttype == '배당':
@@ -330,7 +267,7 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
             monthly[mkey]['dividend'] += amount
             per_stock[stock]['dividend'] += amount
             if dt:
-                realized_events.append((dt, amount))
+                realized_events.append((day, amount))
 
     # 누적 실현손익 곡선 및 최대 낙폭(MDD, 금액 기준)
     realized_events.sort(key=lambda x: x[0])

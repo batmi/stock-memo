@@ -8,6 +8,23 @@ let historyCursor = null;
 let historyQuery = null;
 let historyLoading = false;
 let editingEntry = null;
+let displayCurrency = 'KRW';
+
+function moneyNumber(value, currency = displayCurrency) {
+    return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: currency === 'KRW' ? 0 : 2 });
+}
+
+function moneyText(value, currency = displayCurrency) {
+    return moneyNumber(value, currency) + (currency === 'KRW' ? '원' : ` ${currency}`);
+}
+
+function setEntryCurrency(currency) {
+    const select = document.getElementById('entryCurrency');
+    if (!select) return;
+    const value = /^[A-Z]{3}$/.test(currency || '') ? currency : 'KRW';
+    if (![...select.options].some(option => option.value === value)) select.add(new Option(value, value));
+    select.value = value;
+}
 
 function setJournalMeta(meta) {
     journalMeta = meta;
@@ -16,6 +33,7 @@ function setJournalMeta(meta) {
     stockIdentityByName = meta.stockIdentityByName;
     stockNameByIdentity = meta.stockNameByIdentity;
     hiddenStocks = new Set(meta.hiddenStocks);
+    displayCurrency = /^[A-Z]{3}$/.test(meta.defaultCurrency || '') ? meta.defaultCurrency : 'KRW';
 }
 
 function journalFilters(scope) {
@@ -23,6 +41,7 @@ function journalFilters(scope) {
     const stock = history ? currentFilterStock : chart ? currentChartStock : 'all';
     const broker = history ? currentFilterBroker : chart ? currentChartBroker : currentDashboardBroker;
     return {
+        currency: history && !currentFilterDate ? '' : displayCurrency,
         stock: stock === 'all' ? '' : identityForStockName(stock),
         tradeClass: history ? currentFilterAccount : chart ? currentChartAccount : currentDashboardAccount,
         subAccount: history ? currentFilterSubAccount : chart ? currentChartSubAccount : currentDashboardSubAccount,

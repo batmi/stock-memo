@@ -6,8 +6,10 @@ import pytest
 from playwright.sync_api import expect
 
 from app.database.db import db_conn
+from app.services import accounts, entries
 from app.utils import statscache
 from test_editor_table import USER_ID, _login, live_server as live_server
+from helpers import _buy
 
 
 @pytest.fixture(autouse=True)
@@ -30,6 +32,39 @@ def journal_data(live_server, page):
 def ready(page):
     _login(page)
     expect(page.locator('#historyList .entry-card')).to_have_count(15)
+
+
+def test_currency_switches_automatically_without_main_screen_control(page):
+    entries.create(USER_ID, _buy(id=2, stock='Apple', stockCode='AAPL', qty=2, price=12.5,
+                                currency='USD', rawDate='2026-10-01T10:00', subAccount='1234',
+                                brokerAccount='243', accountName='미국계좌', tradeClass='장기투자',
+                                brokerExecutionId='usd-exec', source='broker', exchange='NASDAQ'))
+    with db_conn() as conn:
+        accounts.save(conn, USER_ID, {'brokers': {'243': '한국투자증권'},
+                                    'accounts': {'1234': {'alias': '미국계좌', 'broker': '243'}}})
+        conn.commit()
+    ready(page)
+    # 통화 선택 UI 없이 외화만 있는 기록은 해당 통화로 표시한다.
+    expect(page.locator('#displayCurrency')).to_have_count(0)
+    card = page.locator('#portfolioGrid .portfolio-card[data-id="AAPL"]')
+    expect(card).to_contain_text('12.5 USD')
+    expect(card).to_contain_text('25 USD')
+    expect(page.locator('#portfolioGrid')).not_to_contain_text('원화종목')
+    page.evaluate('() => window.loadTradeStats()')
+    expect(page.locator('#inlineStatsContainer')).to_contain_text('25 USD')
+    page.evaluate("() => showDetailsForDate('2026-10-01', 'stock_trade_Apple')")
+    expect(page.locator('#historyList .entry-card')).to_have_count(1)
+    page.locator('#historyList .btn-edit').click()
+    expect(page.locator('#entryCurrency')).to_have_value('USD')
+    page.locator('#editor-container .ql-editor').fill('메모만 수정')
+    page.locator('#journalForm button[type="submit"]').click()
+    expect(page.locator('#formModalOverlay')).not_to_be_visible()
+    with db_conn() as conn:
+        row = conn.execute('SELECT * FROM entries WHERE id=2').fetchone()
+        assert row['currency'] == 'USD'
+        assert row['brokerExecutionId'] == 'usd-exec'
+        assert row['exchange'] == 'NASDAQ'
+        assert '메모만 수정' in row['thoughts']
 
 
 def test_first_page_is_small_and_search_opens_old_body_on_demand(page):
