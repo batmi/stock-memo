@@ -164,7 +164,8 @@ def _resolve_account(username, data, mappings):
     # ⭐️ 계좌번호 정규화·조회는 공용 도메인 규칙이라 accounts 모듈이 소유한다.
     #    (예전에는 이 규칙의 사본이 여기 비공개 함수로 있었다)
     mapped = mappings.get('accounts') or {}
-    matched_key, acc_info = accounts.find_account_mapping(mapped, raw_sub)
+    broker_alias = (mappings.get('brokers') or {}).get(raw_broker, raw_broker)
+    matched_key, acc_info = accounts.find_account_mapping(mapped, raw_sub, broker_alias)
 
     # ⭐️ 매핑이 잡히면 사용자가 등록한 표기(하이픈 포함)를 그대로 저장한다.
     #    HTS 가 보낸 표기를 그대로 두면 같은 계좌가 두 가지 번호로 쌓인다.

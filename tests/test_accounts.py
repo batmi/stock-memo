@@ -24,6 +24,13 @@ def test_account_key_normalizes(raw, expected):
     assert accounts.account_key(raw) == expected
 
 
+def test_broker_matching_does_not_apply_another_brokers_account_mapping():
+    mapping = {'12-34': {'broker_code': '243', 'broker_name': '한국투자증권', 'alias': '일반'}}
+    assert accounts.find_account_mapping(mapping, '1234', '다른증권사') == (None, None)
+    assert accounts.find_account_mapping(mapping, '1234', '243')[0] == '12-34'
+    assert accounts.find_account_mapping(mapping, '1234', '한국투자증권')[0] == '12-34'
+
+
 def test_find_account_mapping_prefers_exact_then_folded():
     mapping = {'44048158-01': {'alias': '주계좌'}, '99998888': {'alias': '보조'}}
     assert accounts.find_account_mapping(mapping, '44048158-01')[0] == '44048158-01'

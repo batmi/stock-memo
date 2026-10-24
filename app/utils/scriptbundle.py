@@ -23,7 +23,7 @@ _cache = {}  # js_dir -> (signature, version, raw_bytes, gzip_bytes)
 def script_files(js_dir):
     """(파일명, 수정시각) 목록을 파일명 순서로 돌려준다. 번호 접두사 순서가 곧 실행 순서다."""
     names = sorted(f for f in os.listdir(js_dir) if f.endswith('.js'))
-    return [(n, int(os.path.getmtime(os.path.join(js_dir, n)))) for n in names]
+    return [(n, os.stat(os.path.join(js_dir, n)).st_mtime_ns) for n in names]
 
 
 def bundle(js_dir):

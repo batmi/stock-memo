@@ -125,6 +125,8 @@ def groups(facts, field):
         held_qty = sum(f['quantity'] - f['missingBuyQuantity'] for f in held)
         result.append({
             'key': key, 'label': items[-1]['account'] if field == 'accountKey' else key or '미분류',
+            'detail': ' · '.join(filter(None, (items[-1].get('broker'), items[-1].get('accountNumber'))))
+                if field == 'accountKey' else '',
             'currency': currency, 'tradeCount': len(items), 'sellCount': len(sells),
             'totalPnl': sum(f['realized'] + f['dividend'] for f in items),
             'winRate': wins / (wins + losses) * 100 if wins + losses else None,
@@ -172,7 +174,9 @@ def detail_options(args):
     bucket, identity, period = (args.get(key, '') for key in ('bucket', 'identity', 'periodKey'))
     if metric not in DETAIL_METRICS or group_by not in ('', 'tradeClass', 'accountKey'):
         raise ValueError('거래 상세 조건이 올바르지 않습니다.')
-    if any(len(value) > 200 for value in (group_key, bucket, identity, period)):
+    # 계좌 키는 각각 최대 200자인 증권사·계좌를 JSON으로 묶으므로 이스케이프 길이도 허용한다.
+    group_limit = 4096 if group_by == 'accountKey' else 200
+    if len(group_key) > group_limit or any(len(value) > 200 for value in (bucket, identity, period)):
         raise ValueError('거래 상세 조건이 너무 깁니다.')
     if bucket and bucket not in {label for _, label in stats.HOLDING_BUCKETS}:
         raise ValueError('보유기간 구간이 올바르지 않습니다.')

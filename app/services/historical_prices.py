@@ -185,7 +185,8 @@ def run_one():
 
 def watch(username):
     with db_conn(write=True) as conn:
-        conn.execute('INSERT OR IGNORE INTO historical_watchers VALUES (?)', (username,))
+        conn.execute('''INSERT OR IGNORE INTO historical_watchers(username)
+            SELECT username FROM users WHERE username=?''', (username,))
         conn.commit()
 
 

@@ -12,6 +12,40 @@ from test_journal_api import seed
 from test_trading_api import api as api, _trade
 
 
+@pytest.mark.parametrize('field', ['realizedPnl', 'realizedPnlRate', 'fee', 'tax', 'strategyScore', 'stopLossRate'])
+@pytest.mark.parametrize('bad', ['not-a-number', True, 'NaN', 'Infinity', [], {}])
+def test_web_rejects_invalid_optional_numbers_without_poisoning_reads(client, field, bad):
+    _login(client)
+    entries.create('trader', _buy(id=1, qty=2, price=100, rawDate='2026-01-05T09:00'))
+    response = client.post('/api/entry', json=_sell(
+        id=2, qty=1, price=150, rawDate='2026-01-06T09:00', **{field: bad}))
+    assert response.status_code == 400
+    assert field in response.json['error']
+    assert client.get('/api/entry/2').status_code == 404
+    assert client.get('/api/journal/portfolio').status_code == 200
+    assert client.get('/api/journal/stats').status_code == 200
+
+
+@pytest.mark.parametrize('stored,expected', [('0', 0), ('-7.5', -7.5), (None, 50), ('', 50)])
+def test_web_normalizes_optional_pnl_and_owns_its_source(client, stored, expected):
+    _login(client)
+    entries.create('trader', _buy(id=1, qty=2, price=100, rawDate='2026-01-05T09:00'))
+    response = client.post('/api/entry', json=_sell(id=2, qty=1, price=150, realizedPnl=stored,
+        realizedPnlSource='reconstructed', fee='0', tax=None, rawDate='2026-01-06T09:00'))
+    assert response.status_code == 200
+    sale = client.get('/api/entry/2').json
+    assert sale['realizedPnl'] == expected
+    assert sale['realizedPnlSource'] == ('recorded' if stored not in (None, '') else 'reconstructed')
+    assert (sale['fee'], sale['tax']) == (0, None)
+
+
+@pytest.mark.parametrize('field,value', [('fee', -1), ('tax', -1), ('realizedPnlSource', []),
+                                        ('realizedPnlSource', 'forged')])
+def test_web_rejects_negative_costs_and_invalid_pnl_source(client, field, value):
+    _login(client)
+    assert client.post('/api/entry', json=_buy(**{field: value})).status_code == 400
+
+
 @pytest.mark.parametrize('stored', [0, -35, 47.5])
 def test_recorded_profit_overrides_calculation_without_changing_remaining_cost(stored):
     holding = empty_holding()

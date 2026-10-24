@@ -20,6 +20,39 @@ from app.utils import scriptbundle
 from helpers import _ensure_user
 
 
+@pytest.mark.parametrize('suffix', ['', '?v=1'])
+def test_private_uploads_never_get_public_cache_headers(client, tmp_path, suffix):
+    _login_testuser(client)
+    folder = os.path.join(config.UPLOAD_FOLDER, 'testuser')
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, 'private.txt'), 'w') as f:
+        f.write('private attachment')
+    response = client.get('/uploads/testuser/private.txt' + suffix)
+    assert response.status_code == 200
+    assert response.headers['Cache-Control'] == 'private, no-store'
+    assert client.get('/uploads/another/private.txt' + suffix).status_code == 403
+    client.get('/logout')
+    response = client.get('/uploads/testuser/private.txt' + suffix)
+    assert response.status_code != 200
+    assert 'no-store' in response.headers['Cache-Control']
+
+
+def test_bundle_detects_edits_within_one_second(tmp_path):
+    source = tmp_path / '01.js'
+    try:
+        source.write_text('const value = 1;')
+        os.utime(source, ns=(1700000000100000000, 1700000000100000000))
+        old_version, old_raw, _ = scriptbundle.bundle(str(tmp_path))
+        source.write_text('const value = 2;')
+        os.utime(source, ns=(1700000000900000000, 1700000000900000000))
+        version, raw, compressed = scriptbundle.bundle(str(tmp_path))
+        assert version != old_version and raw != old_raw
+        assert b'value = 2' in raw
+        assert gzip.decompress(compressed) == raw
+    finally:
+        scriptbundle._cache.pop(str(tmp_path), None)
+
+
 # ── 전역 예외 핸들러가 정상 HTTP 응답을 삼키지 않는지 ──────────────
 def test_http_errors_keep_their_status_codes(client):
     """404/405/413 이 500 으로 뭉개지면 클라이언트가 원인을 구분할 수 없다."""

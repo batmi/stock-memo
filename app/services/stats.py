@@ -9,8 +9,9 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta
 
 from app.domain.trades import (
-    account_identity, apply_trade, currency_of, empty_holding, entry_order, is_settled_trade,
-    normalize_stock_code, parse_entry_dt as parse_entry_dt, position_key, stock_identity, trade_day,
+    account_group_key, apply_trade, currency_of, empty_holding, entry_order, is_settled_trade,
+    normalize_stock_code, parse_entry_dt as parse_entry_dt, position_key, resolve_trade_identities,
+    stock_identity, trade_day,
 )
 
 # 보유기간 구간 (상한 일수, 표시 이름). 상한은 '이하'로 포함하고, 첫 구간만 '미만'이다.
@@ -68,7 +69,7 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
     본문·첨부는 포함하지 않으며, 화면 상세와 추가 분석이 원가를 재계산하지 않습니다.
     """
     # 취소·접수 주문은 이력으로만 남고 성과에 넣지 않는다(entry_logic.is_settled_trade).
-    trades = [r for r in rows if r.get('type') == 'trade' and (r.get('stockName') or '').strip()
+    trades = [r for r in resolve_trade_identities(rows) if r.get('type') == 'trade' and (r.get('stockName') or '').strip()
               and is_settled_trade(r)]
     # ⭐️ 같은 시각의 체결은 **id 가 큰 쪽(나중에 들어온 쪽)이 뒤**로 간다.
     #    예전에는 정렬 키가 시각 하나뿐이었고, 파이썬 정렬이 안정적이라 동점의 순서가
@@ -297,7 +298,9 @@ def compute_trade_stats(rows, granularity='monthly', period_start=None, period_e
                     if holding_days is not None else None,
                 'missingBuyQuantity': missing_qty, 'needsReview': bool(t.get('needsReview')),
                 'fee': t.get('fee'), 'tax': t.get('tax'), 'currency': currency_of(t),
-                'tradeClass': t.get('tradeClass') or '', 'accountKey': account_identity(t),
+                'tradeClass': t.get('tradeClass') or '', 'accountKey': account_group_key(t),
+                'broker': t.get('brokerAccount') or '',
+                'accountNumber': t.get('subAccount') or '',
                 'account': t.get('_account') or t.get('accountName') or t.get('subAccount') or '미지정',
             })
 

@@ -117,6 +117,11 @@ CREATE_TABLES = [
     )
     ''',
 
+    # 스키마 버전과 별도로 성공한 데이터 이관을 기록한다. 실패한 이관은 다음 기동 때 재시도한다.
+    '''CREATE TABLE IF NOT EXISTS data_migrations (
+        name TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )''',
+
     # 과거 종가와 수집 작업은 사용자 기록과 분리한 재생성 가능한 공유 캐시다.
     '''CREATE TABLE IF NOT EXISTS historical_assets (
         code TEXT NOT NULL, currency TEXT NOT NULL, symbol TEXT NOT NULL,
@@ -290,7 +295,7 @@ EXEC_ID_UNIQUE_INDEX = (
 # 적용
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def init(conn, logger=None):

@@ -9,6 +9,25 @@ import os
 from app.services import users
 
 
+def test_account_deletion_removes_history_subscription_and_does_not_recreate_it(client):
+    from app.database.db import db_conn
+    from app.services import historical_prices
+    from helpers import _login
+
+    _login(client)
+    historical_prices.watch('trader')
+    with db_conn(write=True) as conn:
+        users.purge_account(conn, 'trader')
+        conn.commit()
+    # 계정 삭제와 경합한 늦은 요청도 구독을 다시 만들면 안 된다.
+    historical_prices.watch('trader')
+    with db_conn() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM historical_watchers').fetchone()[0] == 0
+    _login(client)
+    with db_conn() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM historical_watchers').fetchone()[0] == 0
+
+
 # ══════════════════════════════════════════════════════════════
 # 보안: 사용자명 검증 (경로 탈출 차단)
 # ══════════════════════════════════════════════════════════════

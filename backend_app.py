@@ -90,7 +90,7 @@ def inject_get_mtime():
         """
         path = os.path.join(app.static_folder, filename)
         if os.path.exists(path):
-            return int(os.path.getmtime(path))
+            return os.stat(path).st_mtime_ns
         return 0
 
     def app_bundle_version():

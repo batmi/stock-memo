@@ -51,20 +51,26 @@ def account_key(value):
     return re.sub(r'[\s-]', '', str(value or ''))
 
 
-def find_account_mapping(accounts, raw_sub):
+def find_account_mapping(accounts, raw_sub, broker=None):
     """등록된 계좌 매핑에서 계좌번호를 찾아 (등록키, 매핑값) 을 돌려준다.
 
     정확히 일치하는 키를 먼저 보고, 없으면 하이픈을 무시한 키로 다시 찾는다.
     """
     if not isinstance(accounts, dict) or not raw_sub:
         return None, None
-    if raw_sub in accounts:
+    def matches_broker(info):
+        if not broker or not isinstance(info, dict):
+            return True
+        identities = {str(info.get(key) or '').strip() for key in ('broker_code', 'broker_name')} - {''}
+        return not identities or broker.strip() in identities
+
+    if raw_sub in accounts and matches_broker(accounts[raw_sub]):
         return raw_sub, accounts[raw_sub]
     target = account_key(raw_sub)
     if not target:
         return None, None
     for key, info in accounts.items():
-        if account_key(key) == target:
+        if account_key(key) == target and matches_broker(info):
             return key, info
     return None, None
 
@@ -189,7 +195,7 @@ def excluded_accounts(mappings):
     return codes, aliases - kept_aliases
 
 
-def is_excluded_row(row, codes, aliases, known_codes=None):
+def is_excluded_row(row, codes, aliases, known_codes=None, *, mappings=None):
     """기록 한 건이 '금액 계산 제외' 계좌에 속하는지.
 
     `known_codes`(등록된 모든 계좌번호)를 주면, 계좌번호로 계좌가 특정되는 기록은
@@ -197,6 +203,12 @@ def is_excluded_row(row, codes, aliases, known_codes=None):
     (수기 입력 등)에만 쓰는 마지막 수단이다.
     """
     sub = account_key(row.get('subAccount'))
+    if sub and mappings is not None:
+        mapped = mappings.get('accounts') or {}
+        _, unscoped = find_account_mapping(mapped, sub)
+        _, scoped = find_account_mapping(mapped, sub, row.get('brokerAccount'))
+        if unscoped is not None and scoped is None:
+            return False  # 다른 증권사의 같은 번호에 등록된 제외 설정을 물려받지 않는다.
     if sub and sub in codes:
         return True
     if sub and known_codes and sub in known_codes:

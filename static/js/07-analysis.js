@@ -110,7 +110,7 @@ function renderStatsGroups(s) {
     if (!s.groups) return '';
     const table = (label, rows, groupBy) => `<h4>${label}</h4><div class="stats-table-wrap"><table class="stats-table">`
         + '<thead><tr><th>구분</th><th>손익 (실현+배당)</th><th>매도</th><th>승률</th><th>실현 수익률</th><th>평균 보유</th><th>근거</th></tr></thead><tbody>'
-        + rows.map(g => `<tr><th>${escapeHtml(g.label)}${groupBy === 'accountKey' && g.key && g.key !== g.label ? `<small>${escapeHtml(g.key)}</small>` : ''}</th>`
+        + rows.map(g => `<tr><th>${escapeHtml(g.label)}${groupBy === 'accountKey' && (g.detail || g.key) && (g.detail || g.key) !== g.label ? `<small>${escapeHtml(g.detail || g.key)}</small>` : ''}</th>`
             + `<td>${statsMoney(g.totalPnl, g.currency)}</td><td>${g.sellCount}</td>`
             + `<td>${g.winRate == null ? '—' : g.winRate.toFixed(1) + '%'}</td><td>${statsRate(g.returnRate)}</td>`
             + `<td>${statsDays(g.avgHoldingDays)}</td><td>${statsDetailButton('거래 보기', { groupBy, groupKey: g.key, currency: g.currency }, label + ' · ' + g.label)}</td></tr>`).join('')

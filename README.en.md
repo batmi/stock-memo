@@ -290,6 +290,12 @@ and `tests/test_journal_api.py` check calculation parity.
 
 The screens, statistics and sell validation share the rules in `app/domain/trades.py`.
 
+`resolve_trade_identities` links legacy trades without codes only when the same name maps
+to exactly one code within the same broker, account and currency. Stored entries remain
+unchanged; ambiguous names remain separate. Validation, P&L reconstruction and all valuation
+views use this rule. Matching account numbers at different brokers have separate holdings,
+costs and analysis groups, and do not inherit each other's account mappings or exclusions.
+
 *   **Orders that affect holdings**: canceled (`CANCELED`) and submitted-but-unfilled
     (`SUBMITTED`) orders from the bot stay in the history list with a badge, but are left
     out of holdings, realized profit, the calendar, charts and statistics
@@ -339,6 +345,17 @@ average cost, without future purchases or current quotes. `realizedPnlSource` di
 provided amounts (`recorded`, including zero) from `reconstructed` values. Provided amounts
 are never replaced by reconstruction. Insufficient purchase history leaves `unavailable`
 P&L excluded from totals, with provenance shown in analysis quality and trade details.
+
+Schema v2 adds `data_migrations` to record successful data upgrades. On first startup after
+upgrading, reconstructed P&L is repaired using broker-aware and legacy-stock identity rules;
+provided amounts remain protected. Repairs and the completion marker commit atomically,
+so interrupted upgrades can retry. Memo-only edits skip P&L replay. Web inputs validate optional
+P&L, rate and cost fields for numeric types and finite values; the server assigns the source
+of newly supplied P&L. Account deletion removes historical-price subscriptions, and delayed
+requests cannot resubscribe deleted users.
+
+Private attachments use `Cache-Control: private, no-store`. Static assets retain public
+caching, with nanosecond modification times detecting edits made within the same second.
 
 * SQLite stores daily prices, missing/closed dates and a persistent collection queue.
   Requests return cached results and enqueue missing ranges; external collection runs

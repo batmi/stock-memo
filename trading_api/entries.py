@@ -12,7 +12,7 @@ import sqlite3
 from datetime import timezone
 
 from app.database import entry_logic
-from app.domain.trades import position_scope, trade_date_for
+from app.domain.trades import account_identity, currency_of, position_scope, trade_date_for
 
 from .common import KST, _now_kst_str
 from .validation import (
@@ -36,16 +36,20 @@ def _lookup_stock_name(c, username, symbol):
     return row['stockName'] if row else symbol
 
 def opening_execution_id(c, username, entry):
-    """기초잔고는 날짜·종목·계좌·통화별로 멱등이며, 기존 키도 보존한다."""
+    """기초잔고는 날짜·종목·증권사·계좌·통화별로 멱등이며, 기존 키도 보존한다."""
     legacy_key = entry['brokerExecutionId']
-    existing = _fetch_by_exec_id(c, username, legacy_key)
     scope = position_scope(entry)
-    if existing is not None and position_scope(dict(existing)) == scope:
-        return legacy_key
+    # v2는 증권사가 없는 키였다. 같은 계좌의 기존 키를 먼저 찾아 재전송 중복을 막는다.
+    old_scope = (account_identity(entry), currency_of(entry))
+    old_digest = hashlib.sha256(json.dumps(old_scope).encode()).hexdigest()
+    for key in (legacy_key, f'{legacy_key}:v2:{old_digest}'):
+        existing = _fetch_by_exec_id(c, username, key)
+        if existing is not None and position_scope(dict(existing)) == scope:
+            return key
     # 번호의 공백·하이픈과 통화 대소문자는 정규화한다. 길이 제한 안에서
     # 계좌 구분자가 포함된 값도 충돌 없이 표현한다.
     digest = hashlib.sha256(json.dumps(scope).encode()).hexdigest()
-    return f'{legacy_key}:v2:{digest}'
+    return f'{legacy_key}:v3:{digest}'
 
 
 def build_entry(c, username, data, mappings, *, default_source=None):

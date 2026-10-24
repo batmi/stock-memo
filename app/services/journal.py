@@ -15,7 +15,7 @@ import re
 from app.database.db import db_conn
 from app.domain.trades import (
     apply_trade as _apply, currency_of, empty_holding as _empty_holding,
-    is_settled_trade, position_key, trade_day,
+    is_settled_trade, position_key, resolve_trade_identities, trade_day,
 )
 from app.services import accounts, analysis, stats
 from app.utils import statscache
@@ -61,6 +61,7 @@ def snapshot(username):
         rows = [dict(r) for r in conn.execute(
             f"SELECT {', '.join(INDEX_COLUMNS)} FROM entries WHERE username = ?", (username,))]
         mappings = accounts.load(conn, username)
+    rows = resolve_trade_identities(rows)
     excluded, aliases = accounts.excluded_accounts(mappings)
     known = accounts.known_account_keys(mappings)
     by_name, names, hidden, latest_hidden = {}, {}, set(), {}
@@ -68,10 +69,10 @@ def snapshot(username):
         row['_dt'] = _date(row)
         row['_day'] = trade_day(row) or datetime.min
         row['_identity'] = stats.stock_identity(row)
-        row['_excluded'] = accounts.is_excluded_row(row, excluded, aliases, known)
+        row['_excluded'] = accounts.is_excluded_row(row, excluded, aliases, known, mappings=mappings)
         # 취소·접수 주문은 목록에는 이력으로 남지만 수량·손익·건수 집계에서는 뺀다.
         row['_settled'] = is_settled_trade(row)
-        _, info = accounts.find_account_mapping(mappings['accounts'], row.get('subAccount'))
+        _, info = accounts.find_account_mapping(mappings['accounts'], row.get('subAccount'), row.get('brokerAccount'))
         row['_account'] = (row.get('accountName')
                            or (info.get('alias') if isinstance(info, dict) else '')
                            or row.get('subAccount') or '')

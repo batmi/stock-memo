@@ -36,7 +36,7 @@ entries 에 쓰는 곳은 네 군데이고, **매도 무결성 위반을 어떻�
 import sqlite3
 
 from app.domain.trades import (
-    INACTIVE_TRADE_STATUSES, entry_order, is_settled_trade, normalize_stock_code, position_scope,
+    entry_order, is_settled_trade, normalize_stock_code, position_scope, resolve_trade_identities, stock_identity,
 )
 
 # 시스템 트레이딩 API(v2)가 채우는 확장 컬럼.
@@ -160,41 +160,20 @@ def is_bot_entry(row):
     return bool(row['brokerExecutionId'] or row['source'])
 
 
-def _stock_conditions(username, stock_name, stock_code):
-    """'이 사용자의 이 종목, 잔고에 반영되는 매매 기록' WHERE 조건과 파라미터.
-
-    보유 수량 집계와 초과 매도 표시가 **같은 종목 판정**을 쓰도록 한곳에 둔다.
-    """
-    conditions = ["username = ?", "type = 'trade'"]
-    params = [username]
-
-    code = normalize_stock_code(stock_code)
-    if code:
-        # 코드 일치 OR (코드가 없는 레거시 기록 중 이름 일치)
-        conditions.append("(stockCode = ? OR (COALESCE(stockCode, '') = '' AND stockName = ?))")
-        params.extend([code, stock_name])
-    else:
-        conditions.append("stockName = ?")
-        params.append(stock_name)
-
-    # 취소된 주문과 미체결 접수는 잔고에 반영하지 않는다(is_settled_trade 와 같은 규칙).
-    conditions.append("COALESCE(tradeStatus, 'FILLED') NOT IN ("
-                      + ", ".join(f"'{s}'" for s in INACTIVE_TRADE_STATUSES) + ")")
-    return conditions, params
-
-
 def _position_rows(c, username, stock_name, stock_code, exclude_id=None, scope=None):
-    conditions, params = _stock_conditions(username, stock_name, stock_code)
-    if exclude_id is not None:
-        conditions.append('id != ?')
-        params.append(exclude_id)
+    # 먼저 같은 이름의 모든 코드를 확인해야 동명 종목을 잘못 연결하지 않는다.
     columns = ('id, stockName, stockCode, type, tradeType, quantity, rawDate, date, '
-               'subAccount, accountName, currency, tradeStatus')
+               'brokerAccount, subAccount, accountName, currency, tradeStatus')
     rows = [dict(row) for row in c.execute(
-        f'SELECT {columns} FROM entries WHERE ' + ' AND '.join(conditions), params)]
+        f"SELECT {columns} FROM entries WHERE username=? AND type='trade'", (username,))
+            if row['id'] != exclude_id]
     if scope is not None:
         rows = [row for row in rows if position_scope(row) == position_scope(scope)]
-    return sorted(rows, key=entry_order)
+    probe = dict(scope or {}, type='trade', stockName=stock_name, stockCode=stock_code)
+    resolved = resolve_trade_identities([*rows, probe])
+    target = stock_identity(resolved[-1])
+    return sorted((row for row in resolved[:-1] if is_settled_trade(row)
+                   and stock_identity(row) == target), key=entry_order)
 
 
 def _quantity_delta(row):
@@ -208,7 +187,8 @@ def net_holding_for_stock(c, username, stock_name, exclude_id=None, stock_code=N
     종목코드(stock_code)가 주어지면 코드를 1순위 기준으로 집계합니다. 종목명은
     동일 종목이라도 표기가 갈리고(우선주·해외 티커·증권사별 명칭) 봇은 코드만
     보내오므로, 이름만으로 맞추면 보유 매칭이 어긋나 정상 매도가 거부됩니다.
-    코드가 비어 있는 레거시 수동 기록도 함께 잡히도록 이름 조건을 OR 로 유지합니다.
+    코드가 없는 옛 기록은 같은 증권사·계좌·통화에서 이름에 대응하는 코드가
+    하나일 때만 resolve_trade_identities로 연결합니다. 조회 집계도 같은 규칙입니다.
     """
     return sum(_quantity_delta(row) for row in _position_rows(
         c, username, stock_name, stock_code, exclude_id, scope))
@@ -275,13 +255,6 @@ def _is_live_buy(entry):
             and is_settled_trade(entry))
 
 
-def _same_stock(a, b):
-    code_a, code_b = normalize_stock_code(a.get('stockCode')), normalize_stock_code(b.get('stockCode'))
-    if code_a and code_b:
-        return code_a == code_b
-    return (a.get('stockName') or '').strip() == (b.get('stockName') or '').strip()
-
-
 def oversell_after_change(c, username, old_row, new_entry=None):
     """기존 매수(old_row)를 new_entry 로 고치거나(None 이면 삭제) 했을 때 이미 저장된
     매도가 보유 수량을 넘게 되는지 본다. 넘으면 (초과 수량, 메시지), 아니면 None.
@@ -311,9 +284,11 @@ def oversell_after_change(c, username, old_row, new_entry=None):
 
     before = deficit_of(rows)
     after_rows = [row for row in rows if row['id'] != old_row['id']]
-    if (_is_live_buy(new_entry) and _same_stock(old_row, new_entry)
-            and position_scope(old_row) == position_scope(new_entry)):
-        after_rows.append(dict(new_entry, id=old_row['id']))
+    if _is_live_buy(new_entry) and position_scope(old_row) == position_scope(new_entry):
+        resolved = resolve_trade_identities([*rows, dict(new_entry)])
+        previous = next((r for r in rows if r['id'] == old_row['id']), old_row)
+        if stock_identity(previous) == stock_identity(resolved[-1]):
+            after_rows.append(dict(new_entry, id=old_row['id']))
     deficit = deficit_of(after_rows)
     if deficit <= before + 1e-6:
         return None

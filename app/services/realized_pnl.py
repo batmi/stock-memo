@@ -7,16 +7,18 @@
 from collections import defaultdict
 from math import isfinite
 
-from app.domain.trades import apply_trade, empty_holding, entry_order, is_settled_trade, position_key, EPS
+from app.domain.trades import (
+    apply_trade, empty_holding, entry_order, is_settled_trade, position_key, resolve_trade_identities, EPS,
+)
 
 
 def refresh(conn, username):
     """호출자가 커밋한다. 제공된 금액을 보호하고 재구성한 금액만 이력 정정에 맞춰 갱신한다."""
-    columns = ('id,type,stockName,stockCode,subAccount,accountName,currency,tradeType,quantity,price,'
+    columns = ('id,type,stockName,stockCode,brokerAccount,subAccount,accountName,currency,tradeType,quantity,price,'
                'rawDate,date,tradeStatus,realizedPnl,realizedPnlSource')
     rows = [dict(row) for row in conn.execute(
         f'SELECT {columns} FROM entries WHERE username=? AND type=\'trade\'', (username,))]
-    rows.sort(key=entry_order)
+    rows = sorted(resolve_trade_identities(rows), key=entry_order)
     holdings = defaultdict(empty_holding)
     changes = []
     for row in rows:
@@ -47,12 +49,19 @@ def backfill():
     from app.utils import statscache
     changed = []
     with db_conn(write=True) as conn:
+        migration = 'broker_and_legacy_stock_identity_v2'
+        repair = conn.execute('SELECT 1 FROM data_migrations WHERE name=?', (migration,)).fetchone() is None
+        # 구버전이 다른 증권사를 합쳐 저장한 재구성 손익도 1회 정정한다.
+        # recorded 금액은 refresh에서 보호한다. 완료 표시는 손익 변경과 함께 커밋한다.
         usernames = [row[0] for row in conn.execute('''SELECT DISTINCT username FROM entries
-            WHERE type='trade' AND tradeType='매도' AND realizedPnlSource IS NULL
-            AND COALESCE(tradeStatus,'FILLED') NOT IN ('CANCELED','SUBMITTED')''')]
+            WHERE type='trade' AND tradeType='매도' AND (? OR realizedPnlSource IS NULL)
+            AND COALESCE(tradeStatus,'FILLED') NOT IN ('CANCELED','SUBMITTED')''', (repair,))]
         for username in usernames:
             if refresh(conn, username):
                 changed.append(username)
+        if repair:
+            conn.execute('DELETE FROM historical_watchers WHERE username NOT IN (SELECT username FROM users)')
+            conn.execute('INSERT INTO data_migrations(name) VALUES (?)', (migration,))
         conn.commit()
     for username in changed:
         statscache.invalidate(username)

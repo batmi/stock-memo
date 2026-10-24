@@ -98,7 +98,10 @@ def register(app):
     # ⭐️ 정적 자산 캐시 헤더: 정적 파일(js/css/이미지)에 단기 캐시 부여
     @app.after_request
     def add_cache_headers(response):
-        if request.endpoint == 'static' or request.path.startswith('/uploads/'):
+        if request.path.startswith('/uploads/'):
+            # 개인 첨부는 매 요청마다 소유자를 확인한다. 버전 쿼리도 공개 캐시를 허용하지 않는다.
+            response.headers['Cache-Control'] = 'private, no-store'
+        elif request.endpoint == 'static':
             # ⭐️ 200 정상 응답에만 캐시를 부여한다.
             #    비로그인 상태에서 정적 파일을 요청하면 before_request 가
             #    302(→/login) 를 반환하는데, 이때도 endpoint 는 여전히 'static' 이다.

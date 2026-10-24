@@ -40,6 +40,28 @@ TEXT_LIMITS = {
     'attachedFileName': 500,
 }
 
+OPTIONAL_NUMBERS = frozenset({'realizedPnl', 'realizedPnlRate', 'fee', 'tax', 'strategyScore', 'stopLossRate'})
+PNL_SOURCES = ('recorded', 'reconstructed', 'unavailable')
+
+
+def normalize_trade_numbers(entry):
+    """선택 숫자의 누락과 명시적인 0을 구분한다. 웹·복원이 같은 검증을 쓴다."""
+    for field in OPTIONAL_NUMBERS:
+        if field not in entry or entry[field] is None:
+            continue
+        if entry[field] == '':
+            entry[field] = None
+            continue
+        try:
+            entry[field] = finite_number(entry[field])
+        except ValueError as exc:
+            raise ValueError(f'{field}: {exc}') from exc
+        if field in ('fee', 'tax') and entry[field] < 0:
+            raise ValueError(f'{field}: 0 이상이어야 합니다.')
+    source = entry.get('realizedPnlSource')
+    if source is not None and source not in PNL_SOURCES:
+        raise ValueError('realizedPnlSource: 손익 출처가 올바르지 않습니다.')
+
 
 def normalize_web_entry(data):
     """필드 누락은 그대로 둔다. 수정 시 기존 값과 병합한 뒤 최종 기록을 검증한다."""
@@ -80,6 +102,7 @@ def normalize_web_entry(data):
             raise ValueError('거래 일시가 올바르지 않습니다.') from exc
     if 'currency' in entry:
         entry['currency'] = normalize_currency(entry['currency'], default='')
+    normalize_trade_numbers(entry)
     return entry
 
 
@@ -97,19 +120,18 @@ def normalize_restored_entry(data):
     for field in text_fields:
         if entry.get(field) is not None and not isinstance(entry[field], str):
             raise ValueError(f'{field}: 문자열이어야 합니다.')
-    nonnegative = {'price', 'quantity', 'fee', 'tax'}
-    numeric_fields = nonnegative | {'realizedPnl', 'realizedPnlRate', 'strategyScore', 'stopLossRate'}
-    for field in numeric_fields:
+    normalize_trade_numbers(entry)
+    for field in ('price', 'quantity'):
         if field not in entry or entry[field] is None:
             continue
         if entry[field] == '':
-            entry[field] = 0 if field in ('price', 'quantity') else None
+            entry[field] = 0
             continue
         try:
             entry[field] = finite_number(entry[field])
         except ValueError as exc:
             raise ValueError(f'{field}: {exc}') from exc
-        if field in nonnegative and entry[field] < 0:
+        if entry[field] < 0:
             raise ValueError(f'{field}: 0 이상이어야 합니다.')
     if entry.get('type') in ('buy', 'sell'):
         entry['tradeType'] = '매수' if entry['type'] == 'buy' else '매도'

@@ -45,7 +45,14 @@ class OversellConflict(Exception):
 # 봇 PATCH 가 이 칸들을 건드릴 때만 매도 자신을 다시 잰다. 메모 한 줄 고쳤다고
 # 사람이 이미 확인을 마친 옛 매도에 표시가 되살아나면 안 된다.
 _HOLDING_COLUMNS = frozenset({'quantity', 'tradeStatus', 'stockName', 'stockCode', 'tradeType', 'type',
-                              'subAccount', 'accountName', 'currency', 'rawDate'})
+                              'brokerAccount', 'subAccount', 'accountName', 'currency', 'rawDate', 'date'})
+_PNL_COLUMNS = _HOLDING_COLUMNS | {'price', 'realizedPnl', 'realizedPnlSource'}
+
+
+def _refresh_pnl_if_changed(conn, username, before, after):
+    # 본문·태그만 고칠 때는 전체 거래의 원가 재구성과 정렬을 생략한다.
+    if any(before.get(k) != after.get(k) for k in _PNL_COLUMNS):
+        realized_pnl.refresh(conn, username)
 
 
 def _load(c, username, entry_id):
@@ -110,6 +117,8 @@ def create(username, entry):
         entry = normalize_web_entry(entry)
     except ValueError as exc:
         raise InvalidEntry(str(exc)) from exc
+    # 새 요청이 제공한 금액의 출처는 서버에서 결정한다. 복원의 출처 보존과 분리한다.
+    entry['realizedPnlSource'] = 'recorded' if entry.get('realizedPnl') is not None else None
     with db_conn(write=True) as conn:
         c = conn.cursor()
         entry_id = _assign_entry_id(c, entry)
@@ -175,7 +184,7 @@ def update(username, entry_id, entry, *, force=False):
                 entry_logic.update_columns(c, entry_id, username, _derived_time_fields(entry))
             flagged = _flag_oversold(c, username, old, conflict) if conflict else []
             if old['type'] == 'trade' or entry.get('type') == 'trade':
-                realized_pnl.refresh(conn, username)
+                _refresh_pnl_if_changed(conn, username, dict(old), entry)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -261,7 +270,7 @@ def patch_bot_trade(username, entry_id, changes, *, executed_at=None):
         if conflict:
             _flag_oversold(c, username, old, conflict)
             warnings.append(conflict[1])
-        realized_pnl.refresh(conn, username)
+        _refresh_pnl_if_changed(conn, username, dict(old), after)
         conn.commit()
         row = _load(c, username, entry_id)
     # memo 를 바꾸면 웹에서 붙였던 본문 이미지가 빠질 수 있다.

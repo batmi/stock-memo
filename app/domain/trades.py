@@ -1,6 +1,7 @@
 """종목·계좌·통화 식별과 거래 순서, 이동평균 원가 계산의 공통 규칙."""
 
 from datetime import datetime, timedelta, timezone
+import json
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -29,11 +30,40 @@ def account_identity(entry):
 
 
 def position_scope(entry):
-    return account_identity(entry), currency_of(entry)
+    return (entry.get('brokerAccount') or '').strip(), account_identity(entry), currency_of(entry)
 
 
 def position_key(entry):
     return (*position_scope(entry), stock_identity(entry))
+
+
+def account_group_key(entry):
+    """화면의 계좌 그룹도 증권사를 구분한다. 번호만 있던 기존 필터는 유지한다."""
+    broker, account, _ = position_scope(entry)
+    return json.dumps([broker, account], ensure_ascii=False, separators=(',', ':')) if broker else account
+
+
+def resolve_trade_identities(rows):
+    """같은 증권사·계좌·통화에서 이름에 대응하는 코드가 하나인 옛 기록만 연결한다.
+
+    계산용 복사본을 반환한다. 저장 원본은 보존하고, 동명 종목이 둘 이상이면
+    코드 없는 기록을 임의로 합치지 않는다. 검증·원가 재구성·조회가 함께 쓴다.
+    """
+    codes = {}
+    for row in rows:
+        code = normalize_stock_code(row.get('stockCode'))
+        name = (row.get('stockName') or '').strip()
+        if code and name and row.get('type', 'trade') == 'trade':
+            codes.setdefault((position_scope(row), name), set()).add(code)
+    result = []
+    for row in rows:
+        item = dict(row)
+        if not normalize_stock_code(item.get('stockCode')) and item.get('type', 'trade') == 'trade':
+            matches = codes.get((position_scope(item), (item.get('stockName') or '').strip()), set())
+            if len(matches) == 1:
+                item['stockCode'] = next(iter(matches))
+        result.append(item)
+    return result
 
 
 def is_settled_trade(entry):
