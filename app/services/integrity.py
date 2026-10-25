@@ -29,8 +29,8 @@ def inspect(username):
             'SELECT * FROM entries WHERE username=?', (username,))])
         rules = {(r['code'], r['currency'], r['day'], r['scope']): r['mode'] for r in conn.execute(
             'SELECT * FROM split_rules WHERE username=?', (username,))}
-        assets = {(r['code'], r['currency']): json.loads(r['splits']) for r in conn.execute(
-            'SELECT code,currency,splits FROM historical_assets')}
+        assets = ledger.split_events(conn, username, {
+            (r.get('stockCode'), r.get('currency') or 'KRW') for r in rows if r.get('stockCode')})
     issues, splits, seen = [], [], set()
     holdings = defaultdict(empty_holding)
     for row in sorted(rows, key=entry_order):
@@ -84,9 +84,8 @@ def _split_change(conn, username, data):
     if not any(r.get('stockCode') == code and (r.get('currency') or 'KRW') == currency
                and (not scope or split_scope(r) == scope) for r in owned):
         raise ValueError('기록에 없는 종목 또는 계좌입니다.')
-    asset = conn.execute('SELECT splits FROM historical_assets WHERE code=? AND currency=?',
-                         (code, currency)).fetchone()
-    if not asset or day not in json.loads(asset['splits']):
+    asset = ledger.split_events(conn, username, {(code, currency)})
+    if day not in asset.get((code, currency), {}):
         raise ValueError('확인된 분할 정보가 없습니다.')
     return code, currency, day, scope
 
@@ -95,9 +94,10 @@ def _split_signature(conn, username, data):
     owner = tuple(conn.execute('SELECT id,account_mappings FROM users WHERE username=?', (username,)).fetchone())
     rows = [tuple(r) for r in conn.execute('SELECT id,revision FROM entries WHERE username=? ORDER BY id', (username,))]
     rules = [tuple(r) for r in conn.execute('SELECT * FROM split_rules WHERE username=? ORDER BY code,currency,day,scope', (username,))]
-    asset = conn.execute('SELECT splits FROM historical_assets WHERE code=? AND currency=?', (data['code'], data['currency'])).fetchone()
+    asset = ledger.split_events(conn, username, {(data['code'], data['currency'])})
     action = [data[k] for k in ('code', 'currency', 'day', 'mode')] + [data.get('scope', '')]
-    return hashlib.sha256(json.dumps([username, owner, rows, rules, asset['splits'] if asset else None, action]).encode()).hexdigest()
+    return hashlib.sha256(json.dumps([username, owner, rows, rules,
+        asset.get((data['code'], data['currency']), {}), action], sort_keys=True).encode()).hexdigest()
 
 
 def _split_signer():

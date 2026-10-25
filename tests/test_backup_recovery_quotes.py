@@ -58,7 +58,7 @@ def test_new_backup_format_preserves_account_scopes_and_cost_basis(client):
         conn.commit()
     payload = client.get('/api/backup').data
     with zipfile.ZipFile(io.BytesIO(payload)) as stored:
-        assert json.loads(stored.read('manifest.json'))['formatVersion'] == 3
+        assert json.loads(stored.read('manifest.json'))['formatVersion'] == 4
         assert json.loads(stored.read('split_rules.json'))[0]['scope'] == scope
     result = client.post('/api/restore', data={'file': (io.BytesIO(payload), 'new.zip')})
     assert result.status_code == 200

@@ -48,7 +48,26 @@ function checkJournalAccountResponse(response) {
         if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && window.JOURNAL_CSRF_TOKEN) {
             headers.set('X-CSRF-Token', window.JOURNAL_CSRF_TOKEN);
         }
-        return originalFetch(input, { ...options, headers }).then(checkJournalAccountResponse);
+        const replay = request?.clone();
+        let response = checkJournalAccountResponse(await originalFetch(input, { ...options, headers }));
+        if (response.status === 403 && (await response.clone().json().catch(() => ({}))).errorCode === 'CSRF_INVALID'
+                && !(typeof ReadableStream !== 'undefined' && options?.body instanceof ReadableStream)) {
+            // 같은 계정으로 다른 탭에서 재로그인했을 때 초안을 유지한 채 토큰만 갱신한다.
+            // 서버가 실행 전에 거부한 요청만 한 번 재시도한다.
+            const fresh = checkJournalAccountResponse(await originalFetch('/api/session/csrf', {
+                headers: {'X-Journal-User-ID': String(pageUserId)}, signal: options?.signal || request?.signal,
+                cache: 'no-store'
+            }));
+            if (fresh.ok) {
+                const token = await fresh.json();
+                if (token.user_id === pageUserId && typeof token.csrf_token === 'string') {
+                    window.JOURNAL_CSRF_TOKEN = token.csrf_token;
+                    headers.set('X-CSRF-Token', token.csrf_token);
+                    response = checkJournalAccountResponse(await originalFetch(replay || input, {...options, headers}));
+                }
+            }
+        }
+        return response;
     };
 })();
 
@@ -369,13 +388,14 @@ function sanitizeHtml(html) {
 //    (requiresConfirm)로 확인을 청한다. 사용자가 진행을 고르면 ?force=1 로 다시 보내고,
 //    서버는 초과된 매도에 '검토 필요'를 붙인다. 취소하면 null 을 돌려준다.
 async function fetchWithOversellConfirm(url, options) {
-    const res = await fetch(url, options);
+    const res = await fetchWithTimeout(url, options, 30000);
     if (res.status !== 409) return res;
     let data = {};
     try { data = await res.clone().json(); } catch (_) { /* 본문이 JSON 이 아니면 그대로 돌려준다 */ }
     if (!data.requiresConfirm) return res;
     if (!(await customConfirm(data.confirmMessage || data.error, '보유 수량 초과'))) return null;
-    return fetch(url + (url.includes('?') ? '&' : '?') + 'force=1', options);
+    if (options?.signal?.aborted) return null;
+    return fetchWithTimeout(url + (url.includes('?') ? '&' : '?') + 'force=1', options, 30000);
 }
 
 // ⭐️ onclick="fn('...')" 처럼 'HTML 속성 안의 JS 문자열 리터럴'에 값을 넣기 위한 이스케이프.

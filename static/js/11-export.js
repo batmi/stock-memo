@@ -11,8 +11,11 @@
 function ensureExcelLoaded() {
     return new Promise((resolve, reject) => {
         if (window.ExcelJS) { resolve(); return; }
+        // ExcelJS 4.3의 regenerator는 전역 이름이 없으면 Function()으로 등록한다.
+        // 이름을 먼저 정의해 CSP의 unsafe-eval 허용 없이 직접 대입하게 한다.
+        if (!('regeneratorRuntime' in window)) window.regeneratorRuntime = undefined;
         const tag = document.createElement('script');
-        tag.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js';
+        tag.src = '/static/vendor/exceljs@4.3.0/dist/exceljs.min.js';
         tag.onload = () => window.ExcelJS ? resolve() : reject(new Error('엑셀 모듈이 초기화되지 않았습니다.'));
         tag.onerror = () => reject(new Error('엑셀 모듈을 불러오지 못했습니다. (네트워크 연결을 확인해주세요)'));
         document.head.appendChild(tag);

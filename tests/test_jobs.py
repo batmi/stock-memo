@@ -8,6 +8,7 @@ import json
 import os
 import time
 import zipfile
+from pathlib import Path
 from unittest.mock import patch
 
 
@@ -232,7 +233,9 @@ def test_auto_backup_job_with_uploads_and_errors(mock_sleep, client, app, tmp_pa
                 pass
                 
     backup_dir = account_storage_dir(config.BACKUP_DIR, 'fullbackupuser')
-    zip_files = [f for f in os.listdir(backup_dir) if f.endswith('.zip')]
+    # 검증 실패한 임시 ZIP은 정식 백업을 덮어쓰지 않는다.
+    assert not list(Path(backup_dir).glob('*.zip'))
+    zip_files = [f for f in os.listdir(backup_dir) if f.endswith('.zip.tmp')]
     assert len(zip_files) == 1
     with zipfile.ZipFile(os.path.join(backup_dir, zip_files[0]), 'r') as zf:
         assert 'uploads/test_image.jpg' in zf.namelist()

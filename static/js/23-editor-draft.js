@@ -1,6 +1,6 @@
 // Editor failure is isolated from read-only screens. Drafts belong to one user and record.
 const editorDraftFields = ['stockName', 'stockCode', 'brokerAccount', 'subAccount', 'accountName',
-    'tradeClass', 'tradeType', 'entryCurrency', 'price', 'quantity', 'tradeDate', 'memoTitle'];
+    'tradeClass', 'tradeType', 'entryCurrency', 'price', 'quantity', 'tradeDate', 'memoTitle', 'entryFee', 'entryTax', 'entryPnlBasis'];
 let editorDraftBaseline = '';
 let editorDraftTimer = null;
 let editorDraftOffered = null;
@@ -13,7 +13,8 @@ function editorDraftSnapshot() {
         recordType: document.querySelector('input[name="recordType"]:checked').value,
         hidden: document.getElementById('isHidden').checked, tags: [...currentTags],
         html: window.quill?.root.innerHTML || window.pendingEditorHtml || '',
-        revision: editingEntryRevision, id: editingEntryId };
+        revision: editingEntryRevision, id: editingEntryId,
+        removeFile: document.getElementById('removeAttachedFile').checked };
 }
 window.clearEditorDraft = function(id = editingEntryId) {
     clearTimeout(editorDraftTimer);
@@ -24,18 +25,26 @@ window.clearEditorDraft = function(id = editingEntryId) {
 };
 window.saveEditorDraft = function() {
     clearTimeout(editorDraftTimer);
-    if (formModalOverlay.style.display !== 'flex' || !window.quill || editorDraftOffered) return;
+    if (formModalOverlay.style.display !== 'flex' || !window.quill || editorDraftOffered) return false;
     const key = editorDraftKey();
     const draft = editorDraftSnapshot();
-    if (!key || JSON.stringify(draft) === editorDraftBaseline) return;
+    if (!key) return false;
+    if (JSON.stringify(draft) === editorDraftBaseline && !window.editorPendingWrite) {
+        window.clearEditorDraft();
+        return true;
+    }
     try {
-        localStorage.setItem(key, JSON.stringify({ ...draft, savedAt: new Date().toISOString() }));
+        localStorage.setItem(key, JSON.stringify({ ...draft, pendingWrite: window.editorPendingWrite,
+            savedAt: new Date().toISOString() }));
         document.getElementById('editorDraftStatus').textContent = '이 기기에 초안 저장됨';
+        return true;
     } catch (_) {
         document.getElementById('editorDraftStatus').textContent = '초안을 저장하지 못했습니다. 작성 내용을 저장해주세요.';
+        return false;
     }
 };
 window.offerEditorDraft = function() {
+    window.editorPendingWrite = null;
     clearTimeout(editorDraftTimer);
     editorDraftBaseline = JSON.stringify(editorDraftSnapshot());
     editorDraftOffered = null;
@@ -87,6 +96,12 @@ document.getElementById('btnRestoreDraft').addEventListener('click', async () =>
     const type = draft.recordType === 'memo' ? 'memo' : 'trade';
     document.querySelector(`input[name="recordType"][value="${type}"]`).checked = true;
     document.getElementById('isHidden').checked = !!draft.hidden;
+    document.getElementById('removeAttachedFile').checked = !!draft.removeFile;
+    const pending = draft.pendingWrite;
+    if (pending && /^[a-f0-9]{48}$/.test(pending.key) && pending.id === editingEntryId
+            && typeof pending.snapshot === 'string' && pending.payload && typeof pending.payload === 'object') {
+        window.editorPendingWrite = pending;
+    }
     document.getElementById('stockName').dataset.resolvedName = document.getElementById('stockName').value;
     syncJournalAccountSelect(draft.fields.subAccount);
     window.tradeDatePicker?.setDate(draft.fields.tradeDate);

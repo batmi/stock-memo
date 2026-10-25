@@ -43,6 +43,7 @@ def test_init_creates_every_table(fresh):
         'api_keys', 'bot_commands', 'bots',
         'historical_assets', 'historical_prices', 'historical_jobs', 'historical_watchers',
         'data_migrations', 'entry_changes', 'split_rules', 'restore_commits', 'quote_cache',
+        'entry_requests', 'user_split_snapshots', 'backup_state',
     }
 
 

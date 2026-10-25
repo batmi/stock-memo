@@ -155,3 +155,21 @@ def admin_reset_password(target_username):
                     f"(by {session.get('username')})")
 
     return jsonify({"status": "success", "new_password": new_password, "api_keys_revoked": revoked})
+
+
+@bp.route('/api/admin/backup', methods=['GET'])
+@admin_required
+def backup_status():
+    from app.services import jobs
+    response = jsonify(jobs.backup_status())
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.route('/api/admin/backup', methods=['POST'])
+@admin_required
+def start_backup():
+    from app.services import jobs
+    if not jobs.run_backup(background=True):
+        return jsonify(error='백업이 이미 실행 중입니다.'), 409
+    return jsonify(status='started'), 202

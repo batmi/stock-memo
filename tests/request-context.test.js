@@ -192,3 +192,43 @@ test('head의 모든 초기 요청은 bundle 로드 전부터 페이지 계정 �
     assert.equal(calls.length, 5);
     for (const call of calls) assert.equal(call.options.headers['X-Journal-User-ID'], '7');
 });
+
+test('같은 계정의 CSRF 만료는 Request 본문과 멱등키를 보존해 한 번 재시도한다', async () => {
+    const bodies = [];
+    const h = setup(async request => {
+        if (new URL(request.url).pathname === '/api/session/csrf') {
+            return Response.json({user_id: 7, csrf_token: 'renewed'});
+        }
+        bodies.push(await request.text());
+        return request.headers.get('X-CSRF-Token') === 'renewed'
+            ? Response.json({status: 'success'}) : Response.json({errorCode: 'CSRF_INVALID'}, {status: 403});
+    });
+    const result = await h.context.fetch(new Request(origin + '/api/entry', {
+        method: 'POST', body: '{"thoughts":"draft"}', headers: {'Idempotency-Key': 'stable-key'}
+    }));
+    assert.equal(result.status, 200);
+    assert.deepEqual(bodies, ['{"thoughts":"draft"}', '{"thoughts":"draft"}']);
+    assert.equal(h.calls.length, 3);
+    assert.equal(h.calls[2].request.headers.get('Idempotency-Key'), 'stable-key');
+    assert.equal(h.context.JOURNAL_CSRF_TOKEN, 'renewed');
+});
+
+test('CSRF 갱신도 계정 변경을 검사하며 다른 계정 토큰을 사용하지 않는다', async () => {
+    const h = setup(request => new URL(request.url).pathname === '/api/session/csrf'
+        ? Response.json({user_id: 8, csrf_token: 'foreign'})
+        : Response.json({errorCode: 'CSRF_INVALID'}, {status: 403}));
+    assert.equal((await h.context.fetch('/api/entry', {method: 'POST', body: '{}'})).status, 403);
+    assert.equal(h.calls.length, 2);
+    assert.equal(h.context.JOURNAL_CSRF_TOKEN, 'session-bound-token');
+});
+
+test('토큰 갱신 후 재거부와 일반 403은 무한 재시도하지 않는다', async () => {
+    const h = setup(request => new URL(request.url).pathname === '/api/session/csrf'
+        ? Response.json({user_id: 7, csrf_token: 'new'})
+        : Response.json({errorCode: 'CSRF_INVALID'}, {status: 403}));
+    assert.equal((await h.context.fetch('/api/entry', {method: 'POST', body: '{}'})).status, 403);
+    assert.equal(h.calls.length, 3);
+    const denied = setup(() => Response.json({error: 'forbidden'}, {status: 403}));
+    await denied.context.fetch('/api/admin/users');
+    assert.equal(denied.calls.length, 1);
+});

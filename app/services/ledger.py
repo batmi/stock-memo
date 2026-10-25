@@ -11,7 +11,24 @@ import math
 from app.domain.trades import KST, currency_of, resolve_trade_identities, split_scope, stock_identity, trade_day
 
 
-def prepare(conn, username, rows, as_of=None, rules=None, mappings=None):
+def split_events(conn, username, keys, snapshot=None):
+    """복원한 계정의 과거 기업행사는 보존하고 이후 사건만 공유 공급처에서 추가한다."""
+    stored = {(r['code'], r['currency']): (r['as_of'], json.loads(r['splits'])) for r in conn.execute(
+        'SELECT * FROM user_split_snapshots WHERE username=?', (username,))}
+    if snapshot is not None:
+        stored = {(r['code'], r['currency']): (snapshot['asOf'], r['splits']) for r in snapshot['assets']}
+    events = {}
+    for key in keys:
+        row = conn.execute('SELECT splits FROM historical_assets WHERE code=? AND currency=?', key).fetchone()
+        splits = json.loads(row['splits']) if row else {}
+        if key in stored:
+            cutoff, archived = stored[key]
+            splits = {**{day: ratio for day, ratio in splits.items() if day > cutoff}, **archived}
+        events[key] = splits
+    return events
+
+
+def prepare(conn, username, rows, as_of=None, rules=None, mappings=None, snapshot=None):
     from app.services import accounts
     mappings = accounts.load(conn, username) if mappings is None else mappings
     aliases = accounts.broker_aliases(mappings)
@@ -20,11 +37,9 @@ def prepare(conn, username, rows, as_of=None, rules=None, mappings=None):
     if rules is None:
         rules = list(conn.execute('SELECT * FROM split_rules WHERE username=?', (username,)))
     rules = {(r['code'], r['currency'], r['day'], r.get('scope', '')): r['mode'] for r in map(dict, rules)}
-    actions = {}
-    for key in {(stock_identity(r), currency_of(r)) for r in rows if r.get('type') == 'trade'}:
-        asset = conn.execute('SELECT splits FROM historical_assets WHERE code=? AND currency=?', key).fetchone()
-        splits = json.loads(asset['splits']) if asset else {}
-        actions[key] = {day: ratio for day, ratio in splits.items() if day <= last}
+    actions = {key: {day: ratio for day, ratio in splits.items() if day <= last}
+               for key, splits in split_events(conn, username,
+                   {(stock_identity(r), currency_of(r)) for r in rows if r.get('type') == 'trade'}, snapshot).items()}
     result = []
     for source in rows:
         row = dict(source)

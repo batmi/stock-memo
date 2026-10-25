@@ -43,6 +43,7 @@ function showRestorePreview(data, filename = '') {
     auditContent.innerHTML = `<p>${escapeHtml(filename)}</p><p>현재 기록 ${data.beforeCount}건 → 백업 기록 ${data.afterCount}건<br>계좌 설정 ${data.beforeAccounts}개 → ${data.afterAccounts}개</p>
         <p>현재 기록·첨부·계좌 설정·분할 설정을 백업 내용으로 교체합니다. 변경 이력은 유지합니다.</p>
         ${data.legacy ? '<p>이전 형식의 백업입니다. 계좌·분할 설정 파일이 없으면 해당 설정을 비웁니다.</p>' : ''}
+        ${(data.warnings || []).map(message => `<p>${escapeHtml(message)}</p>`).join('')}
         <p>보유 수량·매수 원가가 달라지는 항목</p>` +
         (data.holdings.length ? auditTable(['종목 / 통화', '증권사 / 계좌', '수량 (현재 → 복원)', '원가 (현재 → 복원)'], data.holdings.map(x => [
             `${x.stock} / ${x.currency}`, `${x.broker} / ${x.account}`,

@@ -1751,3 +1751,9 @@ button:hover {
 .api-key-scopes { margin: 8px 0; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 11px; }
 .api-key-scopes label { display: inline-flex; align-items: center; gap: 4px; margin: 2px 8px 2px 0; font-size: inherit; }
 .api-key-scopes input { width: auto; margin: 0; }
+
+
+.admin-backup-panel small { color: var(--text-muted-color); }
+.admin-backup-panel { padding: 12px; margin-bottom: 14px; border: 1px solid var(--border-color); border-radius: 8px; }
+.admin-backup-panel button { width: auto; margin: 4px 8px 8px 0; padding: 7px 12px; }
+.admin-backup-panel small { display: block; line-height: 1.5; }

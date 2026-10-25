@@ -425,7 +425,7 @@ function renderPage(pageEntries) {
         editBtn.addEventListener('click', () => editEntry(entry));
 
         const deleteBtn = card.querySelector('.btn-delete');
-        deleteBtn.addEventListener('click', () => deleteEntry(entry.id));
+        deleteBtn.addEventListener('click', () => deleteEntry(entry.id, entry.revision));
 
         const reviewBtn = card.querySelector('.btn-review-done');
         if (reviewBtn) reviewBtn.addEventListener('click', () => resolveEntryReview(entry));
@@ -527,6 +527,15 @@ window.editEntry = async function(entry) {
     document.getElementById('subAccount').value = entry.subAccount || '';
     document.getElementById('tradeClass').value = entry.tradeClass || '';
     setEntryCurrency(entry.currency);
+    document.getElementById('entryFee').value = entry.fee ?? '';
+    document.getElementById('entryTax').value = entry.tax ?? '';
+    document.getElementById('entryPnlBasis').value = entry.realizedPnlBasis || '';
+    document.getElementById('entryPnlBasis').disabled = entry.realizedPnlSource !== 'recorded';
+    document.getElementById('removeAttachedFile').checked = false;
+    document.getElementById('existingFileAttachment').hidden = !entry.attachedFile;
+    const fileLink = document.getElementById('existingFileLink');
+    fileLink.href = safeUrl(entry.attachedFile) || '#';
+    fileLink.textContent = entry.attachedFileName || '기존 첨부 파일';
     document.getElementById('accountName').value = entry.accountName || '';
 
     if (entry.type === 'trade') {
@@ -576,17 +585,25 @@ window.editEntry = async function(entry) {
     window.offerEditorDraft?.();
 }
 
-async function deleteEntry(id) {
+async function deleteEntry(id, revision) {
     if (await customConfirm("정말로 이 기록을 삭제하시겠습니까?\n(삭제 후 로컬 파일에 즉시 반영됩니다)")) {
         try {
             const res = await fetchWithOversellConfirm(`/api/entry/${id}`, {
-                method: 'DELETE'
+                method: 'DELETE', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({revision})
             });
             if (res === null) return;   // 보유 초과 경고에서 취소
             if (res.ok) {
                 await refreshEntriesFromServer();
                 await displayEntries();
-            } else { await customAlert("삭제에 실패했습니다."); }
+            } else {
+                const error = await res.json();
+                await customAlert(error.error || '삭제에 실패했습니다.');
+                if (error.errorCode === 'STALE_ENTRY') {
+                    await refreshEntriesFromServer();
+                    await displayEntries();
+                }
+            }
         } catch(e) { await customAlert("삭제 중 오류가 발생했습니다."); }
     }
 }

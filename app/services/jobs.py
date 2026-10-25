@@ -37,51 +37,96 @@ def start_all():
                 _threads[name] = thread
 
 
-# ⭐️ 자동 백업 스레드 함수
-def auto_backup_job():
-    while True:
-        now = datetime.now()
-        # ⭐️ 다음 새벽 3시 계산 — 자정에는 로그 로테이션과 겹쳐 라즈베리파이의
-        #    CPU/SD카드 I/O 부하가 집중되므로 사용이 없는 새벽 시간대로 분산한다.
-        next_run = datetime(now.year, now.month, now.day, 3, 0)
-        if next_run <= now:
-            next_run += timedelta(days=1)
-        time_to_sleep = (next_run - now).total_seconds()
-        time.sleep(time_to_sleep)
+# 서버는 하나의 프로세스에서 작업을 실행한다. 수동/예약 실행은 같은 잠금을 쓴다.
+_backup_lock = threading.Lock()
+KST = timezone(timedelta(hours=9))
 
-        # ⭐️ 사용자별 ZIP 보다 먼저, DB 파일 자체를 떠 둔다. ZIP 에는 기록·첨부·계좌
-        #    매핑만 들어가고 계정(비밀번호 해시)·API 키·환경설정은 없어서, journal.db 가
-        #    손상되면 기록은 되살려도 계정은 전부 다시 만들어야 했다.
+
+def backup_status(now=None):
+    now = now or datetime.now(KST)
+    scheduled = now.replace(hour=3, minute=0, second=0, microsecond=0)
+    if scheduled > now:
+        scheduled -= timedelta(days=1)
+    with db_conn(read=True) as conn:
+        row = conn.execute('SELECT * FROM backup_state WHERE id=1').fetchone()
+    status = dict(row) if row else {'state': 'never', 'last_success': None, 'started_at': None}
+    if status['state'] == 'running' and not _backup_lock.locked():
+        status['state'] = 'interrupted'
+    status.update(next_run=(scheduled + timedelta(days=1)).isoformat(),
+                  due=not status['last_success'] or datetime.fromisoformat(status['last_success']) < scheduled)
+    return status
+
+
+def _run_backup_locked():
+    started = datetime.now(KST).isoformat()
+    try:
+        with db_conn(write=True) as conn:
+            conn.execute("""INSERT INTO backup_state(id,state,started_at) VALUES(1,'running',?)
+                ON CONFLICT(id) DO UPDATE SET state='running',started_at=excluded.started_at,
+                finished_at=NULL,failed_users=0,total_users=0,database_ok=0""", (started,))
+            conn.commit()
+        database_ok, failed, total = False, 0, 0
         try:
             snapshot_database()
-        except Exception as e:
-            log.error(f"❌ DB 스냅샷 실패: {e}")
-
+            database_ok = True
+        except Exception:
+            log.exception('DB 스냅샷 실패')
+        list_ok = False
         try:
-            log.info("🔄 일일 자동 백업을 시작합니다.")
-            with db_conn() as conn:
-                users = conn.execute("SELECT username FROM users").fetchall()
-        except Exception as e:
-            log.error(f"❌ 자동 백업 중 오류 발생(계정 목록 조회): {e}")
-            continue
+            with db_conn(read=True) as conn:
+                users = conn.execute('SELECT username FROM users').fetchall()
+            list_ok, total = True, len(users)
+            for user in users:
+                try:
+                    _backup_user(user['username'])
+                except Exception:
+                    failed += 1
+                    log.exception('사용자 백업 실패: %s', user['username'])
+        except Exception:
+            log.exception('백업 대상 계정 목록 조회 실패')
+        finished = datetime.now(KST).isoformat()
+        success = database_ok and list_ok and not failed
+        with db_conn(write=True) as conn:
+            conn.execute("""UPDATE backup_state SET state=?,finished_at=?,failed_users=?,total_users=?,
+                database_ok=?,last_success=CASE WHEN ? THEN ? ELSE last_success END WHERE id=1""",
+                ('success' if success else 'failed', finished, failed, total, database_ok, success, finished))
+            conn.commit()
+        log.info('서버 백업 완료: 성공=%s, 사용자 실패=%s/%s', success, failed, total)
+    except Exception:
+        log.exception('백업 상태 기록 또는 실행 실패')
+    finally:
+        _backup_lock.release()
 
-        # ⭐️ 사용자마다 따로 감싼다. 예전에는 try 하나가 루프 전체를 감싸서, 한
-        #    사용자에서 예외가 나면(깨진 첨부 파일, 권한 오류 등) 그 뒤 사용자 전원의
-        #    백업과 7일 정리가 조용히 건너뛰어졌다. 로그에는 한 줄만 남는다.
-        failed = []
-        for user in users:
-            username = user['username']
-            try:
-                _backup_user(username)
-            except Exception as e:
-                failed.append(username)
-                log.error(f"  └ ❌ 자동 백업 실패: {username} - {e}")
 
-        if failed:
-            log.error(f"⚠️ 일일 자동 백업이 일부 실패했습니다 ({len(failed)}/{len(users)}명: "
-                      f"{', '.join(failed)})")
-        else:
-            log.info("✅ 일일 자동 백업이 완료되었습니다.")
+def run_backup(background=False):
+    """이미 실행 중이면 False. 시작한 작업은 서버 종료 시까지 완료하도록 한다."""
+    if not _backup_lock.acquire(blocking=False):
+        return False
+    if background:
+        try:
+            threading.Thread(target=_run_backup_locked, name='manual-backup', daemon=False).start()
+        except Exception:
+            _backup_lock.release()
+            raise
+    else:
+        _run_backup_locked()
+    return True
+
+
+def auto_backup_job():
+    while True:
+        delay = 900
+        try:
+            now = datetime.now(KST)
+            status = backup_status(now)
+            recent = status.get('started_at') and (now - datetime.fromisoformat(status['started_at'])).total_seconds() < 900
+            # 중단된 작업은 재시작 시 바로 복구하고, 실패한 작업은 15분 후 재시도한다.
+            if status['due'] and (not recent or status['state'] == 'interrupted'):
+                run_backup()
+            delay = min(delay, max(1, (datetime.fromisoformat(status['next_run']) - now).total_seconds()))
+        except Exception:
+            log.exception('자동 백업 스케줄 확인 실패')
+        time.sleep(delay)
 
 
 def _backup_user(username):
@@ -91,7 +136,7 @@ def _backup_user(username):
         return  # 규칙 이전에 만들어진 이상한 이름 — 파일을 건드리지 않는다
     os.makedirs(user_backup_dir, exist_ok=True)
 
-    current_time_str = time.strftime('%Y%m%d')
+    current_time_str = datetime.now(KST).strftime('%Y%m%d')
     filename = f'TradingJournal_backup_{username}_{current_time_str}.zip'
     filepath = os.path.join(user_backup_dir, filename)
 
@@ -99,16 +144,16 @@ def _backup_user(username):
     #    ZIP 이 정식 백업 이름으로 남지 않는다.
     tmp_path = filepath + '.tmp'
     count = write_user_backup(tmp_path, username)
-    os.replace(tmp_path, filepath)
 
     # ⭐️ 생성된 백업 파일의 무결성을 즉시 검증 (복원 가능 여부 확인)
-    ok, detail = verify_backup_zip(filepath, count)
+    ok, detail = verify_backup_zip(tmp_path, count)
     if not ok:
         # ⭐️ 검증에 실패하면 옛 백업을 정리하지 않는다. 예전에는 결과와 무관하게 7일 지난
         #    파일을 지워서, 백업이 일주일 내내 깨지면 남는 것이 깨진 백업뿐이었다.
         #    실패한 파일은 원인을 볼 수 있게 남기고, 이 사용자를 실패로 집계한다.
         raise RuntimeError(f"백업 검증 실패 - {detail} (파일: {filename}, 옛 백업은 보존)")
     log.info(f"  └ 백업 검증 통과: {username} ({detail})")
+    os.replace(tmp_path, filepath)
     _prune_older_than(user_backup_dir, BACKUP_RETENTION_DAYS)
 
 
@@ -139,7 +184,7 @@ def snapshot_database():
     """
     target_dir = os.path.join(config.BACKUP_DIR, DB_SNAPSHOT_DIRNAME)
     os.makedirs(target_dir, exist_ok=True)
-    path = os.path.join(target_dir, f"journal_{time.strftime('%Y%m%d')}.db")
+    path = os.path.join(target_dir, f"journal_{datetime.now(KST).strftime('%Y%m%d')}.db")
     tmp_path = path + '.tmp'
 
     src = get_db()

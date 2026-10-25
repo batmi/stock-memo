@@ -11,7 +11,7 @@ import zipfile
 
 import config
 from app.database.db import db_conn
-from app.services import accounts
+from app.services import accounts, corporate_actions
 from app.services.users import user_dir
 from app.utils.userlocks import user_lock
 
@@ -35,6 +35,7 @@ def _write_user_backup(target, username):
             "SELECT * FROM entries WHERE username = ?", (username,)).fetchall()]
         mappings = accounts.load(conn, username)
         rules = [dict(r) for r in conn.execute('SELECT code,currency,day,mode,scope FROM split_rules WHERE username=?', (username,))]
+        actions = corporate_actions.export(conn, username, rows)
 
     with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as zf:
         zf.writestr('data.json', json.dumps(rows, ensure_ascii=False, indent=2))
@@ -45,8 +46,9 @@ def _write_user_backup(target, username):
                     zf.write(os.path.join(root, file), arcname=os.path.join('uploads', file))
         zf.writestr(accounts.BACKUP_ARCNAME, accounts.dumps(mappings))
         zf.writestr('split_rules.json', json.dumps(rules))
+        zf.writestr(corporate_actions.FILENAME, json.dumps(actions))
         # 구버전 앱이 계좌별 규칙을 전체 계좌 규칙으로 해석하지 않게 형식을 구분한다.
-        zf.writestr('manifest.json', json.dumps({'formatVersion': 3}))
+        zf.writestr('manifest.json', json.dumps({'formatVersion': 4}))
     return len(rows)
 
 
@@ -69,6 +71,7 @@ def verify_backup_zip(filepath, expected_count):
         with tempfile.TemporaryDirectory(prefix='stock-memo-backup-check-') as folder:
             _extract(filepath, folder)
             _read_rules(folder)
+            corporate_actions.read(folder)
         return True, f"{len(data)}건 검증 통과"
     except Exception as e:
         return False, str(e)

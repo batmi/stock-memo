@@ -19,7 +19,7 @@ from flask import (Blueprint, current_app, g, jsonify, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.services import accounts
-from app.services import entries
+from app.services import entries, write_receipts
 import config
 from app.services import news
 from app.services import prices
@@ -299,6 +299,14 @@ def save_mappings_frontend():
     return jsonify({"status": "success"}), 200
 
 
+@bp.get('/api/session/csrf')
+def session_csrf():
+    from app.routes.csrf import csrf_token
+    response = jsonify(csrf_token=csrf_token(), user_id=session['user_id'])
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 @bp.route('/api/me', methods=['GET'])
 def get_me():
     if getattr(g, 'must_change_password', False):
@@ -477,10 +485,13 @@ def create_entry():
     if entry is None:
         return _bad_body()
     try:
-        entry_id = entries.create(session.get('username'), entry)
-    except entries.InvalidEntry as e:
+        result = entries.create(session.get('username'), entry,
+                                request_id=request.headers.get('Idempotency-Key'), receipt=True)
+    except write_receipts.RequestConflict as e:
+        return jsonify(error=str(e), errorCode='REQUEST_CONFLICT'), 409
+    except (entries.InvalidEntry, ValueError) as e:
         return jsonify({"error": str(e)}), 400
-    return jsonify({"status": "success", "id": entry_id})
+    return jsonify(result)
 
 
 @bp.route('/api/entry/<int:entry_id>', methods=['PUT'])
@@ -489,24 +500,32 @@ def update_entry(entry_id):
     if entry is None:
         return _bad_body()
     try:
-        flagged = entries.update(session.get('username'), entry_id, entry,
-                                 force=request.args.get('force') == '1')
+        result = entries.update(session.get('username'), entry_id, entry,
+                                force=request.args.get('force') == '1',
+                                request_id=request.headers.get('Idempotency-Key'), receipt=True)
+    except write_receipts.RequestConflict as e:
+        return jsonify(error=str(e), errorCode='REQUEST_CONFLICT'), 409
     except entries.StaleEntry as e:
         return jsonify(error=str(e), errorCode='STALE_ENTRY'), 409
     except entries.EntryNotFound:
         return jsonify({"error": _ENTRY_NOT_FOUND}), 404
-    except entries.InvalidEntry as e:
+    except (entries.InvalidEntry, ValueError) as e:
         return jsonify({"error": str(e)}), 400
     except entries.OversellConflict as e:
         return _oversell_confirm(str(e))
-    return jsonify({"status": "success", "flagged": flagged})
+    return jsonify(result)
 
 
 @bp.route('/api/entry/<int:entry_id>', methods=['DELETE'])
 def delete_entry(entry_id):
+    body = _json_object() if request.is_json else {}
+    if body is None:
+        return _bad_body()
     try:
         flagged = entries.delete(session.get('username'), entry_id,
-                                 force=request.args.get('force') == '1')
+                                 force=request.args.get('force') == '1', revision=body.get('revision'))
+    except entries.StaleEntry as e:
+        return jsonify(error=str(e), errorCode='STALE_ENTRY'), 409
     except entries.OversellConflict as e:
         return _oversell_confirm(str(e))
     return jsonify({"status": "success", "flagged": flagged})

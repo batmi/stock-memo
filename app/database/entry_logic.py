@@ -69,7 +69,7 @@ WEB_UPDATE_COLUMNS = [
     'type', 'stockName', 'stockCode', 'title', 'thoughts', 'date', 'rawDate',
     'attachedImage', 'brokerAccount', 'subAccount', 'accountName', 'tradeType',
     'price', 'quantity', 'updatedAt', 'tags', 'attachedFile', 'attachedFileName',
-    'isHidden', 'currency', 'exchange', 'assetType', 'tradeClass', 'realizedPnlBasis'
+    'isHidden', 'currency', 'exchange', 'assetType', 'tradeClass', 'realizedPnlBasis', 'fee', 'tax'
 ]
 _UPDATE_COLUMNS = WEB_UPDATE_COLUMNS
 

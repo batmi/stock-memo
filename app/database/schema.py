@@ -221,6 +221,24 @@ CREATE_TABLES = [
         UNIQUE(username, bot_id)
     )
     ''',
+    '''CREATE TABLE IF NOT EXISTS backup_state (
+        id INTEGER PRIMARY KEY CHECK(id=1), state TEXT NOT NULL,
+        started_at TEXT, finished_at TEXT, last_success TEXT,
+        failed_users INTEGER NOT NULL DEFAULT 0, total_users INTEGER NOT NULL DEFAULT 0,
+        database_ok INTEGER NOT NULL DEFAULT 0
+    )''',
+    '''CREATE TABLE IF NOT EXISTS user_split_snapshots (
+        username TEXT NOT NULL, code TEXT NOT NULL, currency TEXT NOT NULL,
+        as_of TEXT NOT NULL, splits TEXT NOT NULL,
+        PRIMARY KEY(username, code, currency)
+    )''',
+    '''CREATE TABLE IF NOT EXISTS entry_requests (
+        username TEXT NOT NULL, user_id INTEGER NOT NULL, request_id TEXT NOT NULL,
+        operation TEXT NOT NULL, payload_hash TEXT NOT NULL, result_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(user_id, request_id)
+    )''',
+
 ]
 
 
@@ -322,7 +340,7 @@ EXEC_ID_UNIQUE_INDEX = (
 # 적용
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def init(conn, logger=None):

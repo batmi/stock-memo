@@ -20,7 +20,7 @@ from app.database import entry_logic
 from app.database.db import db_conn
 from app.domain.validation import normalize_restored_entry
 from app.domain.trades import entry_order, parse_entry_dt
-from app.services import accounts, images, realized_pnl, ledger, integrity, restore_recovery
+from app.services import accounts, images, realized_pnl, ledger, integrity, restore_recovery, corporate_actions
 from app.services.users import user_dir
 from app.utils import statscache
 from app.utils.userlocks import serialized_user_change
@@ -81,7 +81,9 @@ def _state(conn, username):
         'SELECT code,currency,day,mode,scope FROM split_rules WHERE username=? ORDER BY code,currency,day,scope', (username,))]
     # 분할 수집으로 잔고가 달라질 수 있으므로 공급처 분할 버전도 함께 검사한다.
     splits = [tuple(r) for r in conn.execute('SELECT code,currency,splits FROM historical_assets ORDER BY code,currency')]
-    return hashlib.sha256(json.dumps([username, tuple(owner), rows, rules, splits]).encode()).hexdigest()
+    archived = [tuple(r) for r in conn.execute(
+        'SELECT code,currency,as_of,splits FROM user_split_snapshots WHERE username=? ORDER BY code,currency', (username,))]
+    return hashlib.sha256(json.dumps([username, tuple(owner), rows, rules, splits, archived]).encode()).hexdigest()
 
 
 def _signer():
@@ -104,12 +106,14 @@ def preview(username, stream):
     with _workspace() as (folder, _):
         incoming, mappings = _extract(stream, folder)
         rules = _read_rules(folder)
+        actions = corporate_actions.read(folder)
         legacy = not os.path.exists(os.path.join(folder, 'manifest.json'))
     with db_conn() as conn:
         conn.execute('BEGIN')
         current = [dict(r) for r in conn.execute('SELECT * FROM entries WHERE username=?', (username,))]
         before = integrity.positions(ledger.prepare(conn, username, current))
-        after = integrity.positions(ledger.prepare(conn, username, incoming, rules=rules, mappings=mappings))
+        after = integrity.positions(ledger.prepare(conn, username, incoming, rules=rules, mappings=mappings,
+            snapshot=actions or {'assets': []}))
         token = _signer().dumps({'digest': digest, 'state': _state(conn, username)})
         mapping_count = len(accounts.load(conn, username)['accounts'])
     changes = []
@@ -121,7 +125,8 @@ def preview(username, stream):
                                 'beforeCost': old['totalCost'], 'afterCost': new['totalCost']})
     return {'previewToken': token, 'beforeCount': len(current), 'afterCount': len(incoming),
                 'beforeAccounts': mapping_count, 'afterAccounts': len(mappings.get('accounts', {})),
-                'holdings': changes, 'legacy': legacy}
+                'holdings': changes, 'legacy': legacy,
+                'warnings': [] if actions is not None else ['구형 백업에는 분할·병합 정보가 없습니다. 현재 서버의 기업행사 정보로 잔고와 손익을 계산합니다.']}
 
 
 @contextmanager
@@ -175,11 +180,13 @@ def _extract(stream, folder):
     if os.path.exists(manifest_path):
         with open(manifest_path, encoding='utf-8') as f:
             manifest = json.load(f)
-        if not isinstance(manifest, dict) or manifest.get('formatVersion') not in (2, 3):
+        if not isinstance(manifest, dict) or manifest.get('formatVersion') not in (2, 3, 4):
             raise RestoreError('지원하지 않는 백업 형식입니다.')
         if any(not os.path.exists(os.path.join(folder, name))
                for name in (accounts.BACKUP_ARCNAME, 'split_rules.json')):
             raise RestoreError('백업의 계좌 또는 분할 설정 파일이 누락되었습니다.')
+        if manifest['formatVersion'] == 4 and not os.path.exists(os.path.join(folder, corporate_actions.FILENAME)):
+            raise RestoreError('백업의 기업행사 스냅샷이 누락되었습니다.')
     mappings = accounts.empty_mappings()
     path = os.path.join(folder, accounts.BACKUP_ARCNAME)
     if os.path.exists(path):
@@ -207,6 +214,7 @@ def restore_user_backup(username, stream, preview_token=None):
         os.mkdir(incoming)
         rows, mappings = _extract(stream, incoming)
         rules = _read_rules(incoming)
+        actions = corporate_actions.read(incoming)
         os.mkdir(staging)
         uploaded = os.path.join(incoming, 'uploads')
         if os.path.isdir(uploaded):
@@ -230,6 +238,7 @@ def restore_user_backup(username, stream, preview_token=None):
             try:
                 if preview_token:
                     _check_preview(conn, username, digest, preview_token)
+                corporate_actions.replace(conn, username, actions)
                 c = conn.cursor()
                 previous_count = c.execute('SELECT COUNT(*) FROM entries WHERE username=?', (username,)).fetchone()[0]
                 c.execute('DELETE FROM split_rules WHERE username=?', (username,))

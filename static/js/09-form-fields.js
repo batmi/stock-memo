@@ -92,8 +92,8 @@ stockNameInput.addEventListener('keydown', function(e) {
 });
 
 function resetAndCloseForm({ saved = false } = {}) {
-    if (submitBtn.disabled && !saved) return;
     if (!saved) window.saveEditorDraft?.();
+    if (!saved) window.cancelEditorSave?.();
     cancelUIRequest('edit');
     const generation = ++formGeneration;
     formModalOverlay.classList.add('closing');
@@ -104,6 +104,8 @@ function resetAndCloseForm({ saved = false } = {}) {
         document.body.style.overflow = ''; // ⭐️ 모달 닫힘 시 배경 스크롤 복구
         
         journalForm.reset();
+        document.getElementById('existingFileAttachment').hidden = true;
+        document.getElementById('entryPnlBasis').disabled = true;
         currentTags = [];
         renderTags();
         calcTotalAmount();
@@ -113,6 +115,8 @@ function resetAndCloseForm({ saved = false } = {}) {
         editingEntryId = null;
         editingEntryRevision = null;
         editingEntry = null;
+        window.editorPendingWrite = null;
+        submitBtn.disabled = false;
         delete document.getElementById('stockName').dataset.resolvedName;
         submitBtn.innerText = "기록";
         const tradeRadio = document.querySelector('input[name="recordType"][value="trade"]');
@@ -217,6 +221,7 @@ document.getElementById('entryCurrency').addEventListener('change', calcTotalAmo
 // ⭐️ 기록 유형(매매/메모)에 따른 폼 UI 전환 함수
 function toggleFormUI(recordType) {
     const isTrade = recordType === 'trade';
+    document.getElementById('entryCostFields').hidden = !isTrade;
     document.getElementById('tradeRow0').style.display = isTrade ? 'flex' : 'none';
     document.getElementById('tradeRow1').style.display = isTrade ? 'flex' : 'none';
     document.getElementById('tradeRow2').style.display = isTrade ? 'flex' : 'none';

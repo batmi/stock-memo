@@ -25,7 +25,7 @@ from app.database import entry_logic
 from app.database.db import db_conn
 from app.domain.validation import normalize_web_entry
 from app.domain.trades import KST, parse_entry_dt, trade_date_for
-from app.services import accounts, images, realized_pnl
+from app.services import accounts, images, realized_pnl, write_receipts
 from app.utils import statscache
 from app.utils.userlocks import serialized_user_change
 
@@ -116,8 +116,9 @@ def _derived_time_fields(entry, executed_at=None):
 # ---------------------------------------------------------------------------
 
 @serialized_user_change
-def create(username, entry):
+def create(username, entry, *, request_id=None, receipt=False):
     """새 기록을 저장하고 최종 id 를 돌려준다. 매도 무결성 위반이면 InvalidEntry."""
+    payload = dict(entry)
     try:
         entry = normalize_web_entry(entry)
     except ValueError as exc:
@@ -125,6 +126,9 @@ def create(username, entry):
     # 새 요청이 제공한 금액의 출처는 서버에서 결정한다. 복원의 출처 보존과 분리한다.
     entry['realizedPnlSource'] = 'recorded' if entry.get('realizedPnl') is not None else None
     with db_conn(write=True) as conn:
+        identity, result = write_receipts.identify(conn, username, request_id, 'create', payload)
+        if result is not None:
+            return result if receipt else result['id']
         c = conn.cursor()
         entry_id = _assign_entry_id(c, entry)
         entry = dict(entry, id=entry_id)
@@ -140,19 +144,24 @@ def create(username, entry):
             entry_logic.insert_entry(c, username, entry)
             if entry.get('type') == 'trade':
                 realized_pnl.refresh(conn, username)
+            result = {'status': 'success', 'id': entry_id, 'revision': _load(c, username, entry_id)['revision']}
+            write_receipts.remember(conn, identity, result)
             conn.commit()
         except Exception:
             conn.rollback()
             images.remove_unreferenced(username, created)
             raise
     statscache.invalidate(username)
-    return entry_id
+    return result if receipt else entry_id
 
 
 @serialized_user_change
-def update(username, entry_id, entry, *, force=False):
+def update(username, entry_id, entry, *, force=False, request_id=None, receipt=False):
     """기록 전체를 화면 입력으로 바꾼다. 검토 필요를 붙인 매도 id 목록을 돌려준다."""
     with db_conn(write=True) as conn:
+        identity, result = write_receipts.identify(conn, username, request_id, f'update:{entry_id}', entry)
+        if result is not None:
+            return result if receipt else result['flagged']
         c = conn.cursor()
         # ⭐️ 없는(다른 기기에서 지운) 기록을 고치면 예전에는 0건 갱신인데도 성공으로
         #    답해, 사용자는 저장된 줄 알았다. 먼저 있는지 본다.
@@ -202,6 +211,9 @@ def update(username, entry_id, entry, *, force=False):
             flagged = _flag_oversold(c, username, old, conflict) if conflict else []
             if old['type'] == 'trade' or entry.get('type') == 'trade':
                 _refresh_pnl_if_changed(conn, username, dict(old), entry)
+            result = {'status': 'success', 'id': entry_id, 'flagged': flagged,
+                      'revision': _load(c, username, entry_id)['revision']}
+            write_receipts.remember(conn, identity, result)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -210,17 +222,19 @@ def update(username, entry_id, entry, *, force=False):
     # 수정하면서 본문에서 뺀 이미지 — 다른 기록도 쓰지 않으면 지운다(커밋 뒤에).
     _release_uploads(username, old, entry)
     statscache.invalidate(username)
-    return flagged
+    return result if receipt else flagged
 
 
 @serialized_user_change
-def delete(username, entry_id, *, force=False):
+def delete(username, entry_id, *, force=False, revision=None):
     """기록을 지운다. 이미 없으면 조용히 통과한다(다른 기기에서 먼저 지운 경우)."""
     flagged = []
     with db_conn(write=True) as conn:
         c = conn.cursor()
         old = _load(c, username, entry_id)
         if old is not None:
+            if revision is not None and (type(revision) is not int or revision != old['revision']):
+                raise StaleEntry('다른 곳에서 변경된 기록입니다. 최신 내용을 확인한 뒤 다시 삭제해주세요.')
             conflict = entry_logic.oversell_after_change(c, username, old, None)
             if conflict and not force:
                 raise OversellConflict(conflict[1])

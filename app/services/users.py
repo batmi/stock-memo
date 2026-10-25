@@ -120,7 +120,7 @@ def forget_session_epoch(username):
 # ⭐️ 예전에는 삭제 경로(관리자 삭제·본인 탈퇴)가 각자 entries/api_keys/users 만
 #    지워서, 봇 목록·봇 명령·재설정 요청이 남았다. 같은 이름으로 다시 가입한
 #    사람이 남의 봇 상태와 대기 명령을 물려받는다. 새 테이블이 생기면 여기에 더한다.
-USER_OWNED_TABLES = ('entries', 'api_keys', 'bots', 'bot_commands',
+USER_OWNED_TABLES = ('entry_requests', 'user_split_snapshots', 'entries', 'api_keys', 'bots', 'bot_commands',
                      'password_reset_requests', 'historical_watchers', 'entry_changes', 'split_rules', 'users')
 
 

@@ -35,6 +35,14 @@ clearFilterBtn.addEventListener('click', () => {
     window.scrollToFilterBox();
 });
 
+let activeEditorSave = null;
+window.cancelEditorSave = () => activeEditorSave?.abort();
+window.editorPendingWrite = null;
+
+function editorRequestId() {
+    return Array.from(crypto.getRandomValues(new Uint8Array(24)), value => value.toString(16).padStart(2, '0')).join('');
+}
+
 journalForm.addEventListener('submit', async function(e) {
     e.preventDefault();
 
@@ -76,6 +84,7 @@ journalForm.addEventListener('submit', async function(e) {
     // ⭐️ 비동기 요청 중 전역 변수(editingEntryId)가 변경될 가능성을 대비하여 지역 변수로 캡처
     const currentEditingId = editingEntryId;
     const currentRevision = editingEntryRevision;
+    const generation = formGeneration;
     
     if (currentEditingId) {
         const oldEntry = editingEntry;
@@ -104,35 +113,68 @@ journalForm.addEventListener('submit', async function(e) {
             currency: document.getElementById('entryCurrency').value,
             id: currentEditingId || Date.now(), type: 'trade', stockName, stockCode, brokerAccount, subAccount, accountName, tradeClass,
             tradeType, price: price ? Number(price) : 0, quantity: quantity ? Number(quantity) : 0, thoughts, date, rawDate: tradeDateRaw, attachedImage: null,
-            createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: '', attachedFileName: '', isHidden
+            createdAt, updatedAt: nowIso, tags: currentTags.join(','), isHidden,
+            fee: document.getElementById('entryFee').value === '' ? null : Number(document.getElementById('entryFee').value),
+            tax: document.getElementById('entryTax').value === '' ? null : Number(document.getElementById('entryTax').value),
+            realizedPnlBasis: document.getElementById('entryPnlBasis').value || null
         };
     } else {
         const memoTitle = document.getElementById('memoTitle').value;
-        newEntry = { id: currentEditingId || Date.now(), type: 'memo', stockName: '', stockCode: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(','), attachedFile: '', attachedFileName: '', brokerAccount: '', subAccount: '', isHidden: 0 };
+        newEntry = { id: currentEditingId || Date.now(), type: 'memo', stockName: '', stockCode: '', title: memoTitle, thoughts, date, rawDate: tradeDateRaw, attachedImage: null, createdAt, updatedAt: nowIso, tags: currentTags.join(','), brokerAccount: '', subAccount: '', isHidden: 0 };
     }
 
     if (currentEditingId) newEntry.revision = currentRevision;
-    const method = currentEditingId ? 'PUT' : 'POST';
-    const url = currentEditingId ? `/api/entry/${currentEditingId}` : '/api/entry';
+    if (document.getElementById('removeAttachedFile').checked) {
+        newEntry.attachedFile = '';
+        newEntry.attachedFileName = '';
+    }
+    const pending = window.editorPendingWrite || {
+        key: editorRequestId(), id: currentEditingId,
+        snapshot: JSON.stringify(editorDraftSnapshot()), payload: newEntry
+    };
+    window.editorPendingWrite = pending;
+    window.saveEditorDraft?.();
+    const controller = new AbortController();
+    activeEditorSave = controller;
+    const current = () => generation === formGeneration && formModalOverlay.style.display === 'flex';
+    const method = pending.id ? 'PUT' : 'POST';
+    const url = pending.id ? `/api/entry/${pending.id}` : '/api/entry';
 
     try {
         const res = await fetchWithOversellConfirm(url, {
             method: method,
             headers: { 
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json', 'Idempotency-Key': pending.key
             },
-            body: JSON.stringify(newEntry)
+            body: JSON.stringify(pending.payload), signal: controller.signal
         });
-        if (res === null) return;   // 보유 초과 경고에서 사용자가 취소했다 — 폼은 그대로 둔다
+        if (!current()) return;
+        if (res === null) { window.editorPendingWrite = null; window.saveEditorDraft?.(); return; }
 
         if (res.ok) {
+            const result = await res.json();
+            if (!current()) return;
+            const changed = JSON.stringify(editorDraftSnapshot()) !== pending.snapshot;
+            window.editorPendingWrite = null;
             window.clearEditorDraft?.(currentEditingId);
-            editingEntryId = null;
-            editingEntry = null;
-            resetAndCloseForm({ saved: true });
+            if (changed) {
+                editingEntryId = result.id;
+                editingEntryRevision = result.revision;
+                editingEntry = {...pending.payload, id: result.id, revision: result.revision};
+                window.saveEditorDraft?.();
+                document.getElementById('editorDraftStatus').textContent = '이전 내용을 저장했습니다. 추가로 작성한 내용도 저장해주세요.';
+            } else {
+                editingEntryId = null;
+                editingEntry = null;
+                resetAndCloseForm({ saved: true });
+            }
             await refreshEntriesFromServer();
             await displayEntries();
         } else {
+            if (res.status < 500) {
+                window.editorPendingWrite = null;
+                window.saveEditorDraft?.();
+            }
             // ⭐️ 서버 측 데이터 무결성 검증 오류 등 구체적인 메시지 표시
             let errMsg = "저장에 실패했습니다.";
             try {
@@ -143,12 +185,19 @@ journalForm.addEventListener('submit', async function(e) {
         }
     } catch(err) {
         console.error(err);
-        await customAlert("데이터 저장 중 오류가 발생했습니다.");
+        if (current()) {
+            const drafted = window.saveEditorDraft?.();
+            await customAlert('저장 여부를 확인하지 못했습니다. '
+                + (drafted ? '작성 내용은 이 기기의 초안에 보관했습니다. ' : '초안도 저장하지 못했습니다. 이 창을 유지한 채 다시 저장해주세요. ')
+                + '다시 저장하면 이전 요청의 처리 결과부터 확인합니다.');
+        }
     } finally {
+        if (activeEditorSave === controller) activeEditorSave = null;
+        if (generation !== formGeneration) return;
         // ⭐️ 요청 완료 후 버튼 상태 원복 (UI 안정성 확보)
         submitBtn.disabled = false;
         if (editingEntryId !== null) {
-            submitBtn.innerText = origBtnText;
+            submitBtn.innerText = '수정';
         } else {
             submitBtn.innerText = "기록";
         }

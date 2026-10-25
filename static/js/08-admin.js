@@ -13,6 +13,7 @@ let currentAdminSort = { key: 'created_at', asc: false };
 
 window.loadAdminUsers = async function() {
     if (!adminUserList) return;
+    refreshBackupStatus();
     adminUserList.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px;">불러오는 중...</td></tr>';
     try {
         const res = await fetch('/api/admin/users');
@@ -248,3 +249,30 @@ window.deleteUserAccount = async function(username) {
     }
 };
 
+
+
+async function refreshBackupStatus() {
+    const status = document.getElementById('adminBackupStatus');
+    const button = document.getElementById('adminBackupRun');
+    if (!status || !button) return;
+    try {
+        const response = await fetchWithTimeout('/api/admin/backup');
+        if (!response.ok) throw new Error('백업 상태를 불러오지 못했습니다.');
+        const data = await response.json();
+        const stamp = value => value ? new Date(value).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul'}) + ' (한국 시간)' : '없음';
+        const state = {never: '실행 이력 없음', running: '실행 중', success: '성공', failed: '실패', interrupted: '이전 작업 중단'}[data.state] || data.state;
+        status.textContent = `상태: ${state} · 마지막 성공: ${stamp(data.last_success)} · 다음 예약: ${stamp(data.next_run)}`
+            + (data.state === 'failed' ? ` · DB: ${data.database_ok ? '성공' : '실패'}, 사용자 ZIP 실패: ${data.failed_users}/${data.total_users}. 서버 로그를 확인해주세요.` : '');
+        button.disabled = data.state === 'running';
+    } catch (error) { status.textContent = error.message; button.disabled = false; }
+}
+document.getElementById('adminBackupRefresh')?.addEventListener('click', refreshBackupStatus);
+document.getElementById('adminBackupRun')?.addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+        const response = await fetchWithTimeout('/api/admin/backup', {method: 'POST'});
+        if (!response.ok) throw new Error((await response.json()).error || '백업을 시작하지 못했습니다.');
+        document.getElementById('adminBackupStatus').textContent = '백업을 시작했습니다. 잠시 후 상태 새로고침으로 결과를 확인해주세요.';
+    } catch (error) { await customAlert(error.message); button.disabled = false; }
+});

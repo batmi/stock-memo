@@ -107,7 +107,7 @@ http://127.0.0.1:9094
 
 ### Data Backup & Restoration
 *   **Easy Web Backup (Recommended)**: **[Full Backup]** downloads entries, attachments, account mappings and split settings. Accounts, API keys, preferences and the database itself are excluded. **[Restore]** validates and stages the archive before replacement; errors trigger rollback. Cross-account attachment URLs are reassigned to the restoring account. Limits are 513MiB uploaded and 512MiB expanded. A filesystem journal and database commit marker recover interrupted restores at startup. This covers process termination, not storage failure or power loss; retain DB snapshots for server migration.
-*   **Automatic Backup**: At 3 AM, user ZIPs are created in `backup/` and checked with the actual restore parser, including CRC, record count, field types, settings and format version. A database snapshot containing accounts, API keys and preferences is kept in `backup/_db/`. Both are retained for seven days; failed verification prevents pruning older backups.
+*   **Automatic Backup**: At 03:00 Korea time, user ZIPs are created in `backup/` and checked with the actual restore parser, including CRC, record count, field types, settings and format version. A database snapshot containing accounts, API keys and preferences is kept in `backup/_db/`. Both are retained for seven days. Failed verification preserves the previous valid ZIP and older backups. Startup catches up on missed scheduled runs and retries failed scheduled backups every 15 minutes. The admin dashboard shows the latest result and next schedule and can start a full backup immediately. Manual and scheduled runs share a concurrency guard.
 *   **Manual Backup**: If you are migrating the server manually, simply copy the `db/` and `uploads/` folders within the project.
 
 Restore validates numeric, text and currency fields before deleting existing entries. Invalid values reject the entire restore with the entry number and field. Missing legacy fields, optional NULL values and numeric strings remain supported; legacy buy/sell types are normalized to the current trade format.
@@ -621,3 +621,17 @@ GitHub Actions runs these checks on Python 3.11 and 3.13. Regenerate constraints
 `python tools/lock_dependencies.py` in a tested environment, then rerun validation.
 Regressions include concurrent authentication, browser response ordering, asset identity,
 corporate actions and actual process exits during restoration. Tests prohibit production-data access.
+
+### Reliable editing and portable backups
+
+- In-flight saves preserve subsequent edits and drafts. Continue editing the same returned record ID/revision. Requests have a 30-second timeout and support cancellation. Retrying an uncertain save, including after restoring a local draft, reuses the request key instead of creating a duplicate.
+- Text edits preserve legacy file attachments until **Delete this attachment** is explicitly selected. A stale record revision cannot delete a newer edit.
+- The trade editor accepts fees and taxes: blank means unknown; zero means no cost. Recorded profit keeps its original amount while its gross/net cost basis can be corrected.
+- The top currency selector is not displayed. Currency is selected automatically from the stock/account context; previously stored manual currency preferences are ignored. Amounts are never converted and added across currencies.
+- A same-account login in another tab can refresh an expired CSRF token and retry once. Account mismatch protection still applies.
+
+Portable ZIP format v4 includes `corporate_actions.json`: split/reverse-split events through the backup date. Restoring on a server without shared price metadata preserves quantities, costs and reconstructed profit for that account without changing other users' calculations. Later corporate actions still come from the shared provider. Older v2/v3 and legacy archives remain readable, with a preview warning that missing events depend on the destination server. Historical daily prices are not included in portable ZIPs and require separate collection.
+
+Pinned frontend libraries and their licenses live in `static/vendor/`. Editing, charts, date picking and Excel export work without a CDN, while access to the application server is still required. Quotes/news still need internet access. `python tools/vendor_frontend.py --verify` checks SHA-256 hashes offline. Running the tool without that flag downloads the pinned npm distributions, verifies their SHA-512 integrity, and writes the assets and provenance manifest.
+
+Web record POST/PUT accepts optional `Idempotency-Key` (16–128 letters, digits, `_:-`). Repeating the same key and payload for an account returns the original result; conflicting reuse returns `409 REQUEST_CONFLICT`. PUT/DELETE accepts JSON `revision` and rejects stale values with `409 STALE_ENTRY`. Receipts commit with their record changes and are purged on account deletion. Admin backups use `GET/POST /api/admin/backup`; current-session CSRF lookup uses `GET /api/session/csrf`.

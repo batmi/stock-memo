@@ -51,14 +51,12 @@
             });
         } catch (e) { }
     </script>
-    <!-- ⭐️ CDN 접속 사전 연결(DNS/TLS 핸드셰이크 선행)로 첫 로딩 단축 -->
-    <link rel="preconnect" href="https://cdn.jsdelivr.net">
     <!-- ⭐️ Chart.js 라이브러리 추가 -->
     <!-- ⭐️ 모든 외부 스크립트는 defer 로 로드하여 첫 화면 렌더링을 차단하지 않는다.
          defer 스크립트는 문서 순서대로 DOMContentLoaded 이전에 실행되므로
          기존 실행 순서(라이브러리 → calc.js → script.js)가 그대로 보존된다. -->
-    <!-- ⭐️ 버전을 고정하면 CDN 리다이렉트가 없고 브라우저가 장기(immutable) 캐시를 사용한다 -->
-    <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- 고정 버전 라이브러리를 함께 배포해 외부 CDN 장애에도 기본 화면을 유지한다. -->
+    <script defer src="{{ url_for('static', filename='vendor/chart.js@4.4.1/dist/chart.umd.min.js') }}"></script>
     <!-- ⭐️ iOS 홈 화면 추가를 위한 웹 앱 설정 및 아이콘 -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="TRADING JOURNAL">
@@ -67,25 +65,25 @@
     <link rel="icon" type="image/png" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
     <link rel="apple-touch-icon" sizes="180x180" href="https://ssl.gstatic.com/finance/favicon/finance_496x496.png">
     <!-- ⭐️ SortableJS (드래그 앤 드롭) 라이브러리 추가 -->
-    <script defer src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+    <script defer src="{{ url_for('static', filename='vendor/sortablejs@1.15.2/Sortable.min.js') }}"></script>
     <!-- ⭐️ Flatpickr (날짜/시간 선택기) 라이브러리 추가 -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/themes/dark.css" id="flatpickr-dark-theme" disabled>
-    <script defer src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/l10n/ko.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/flatpickr@4.6.13/dist/flatpickr.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/flatpickr@4.6.13/dist/themes/dark.css') }}" id="flatpickr-dark-theme" disabled>
+    <script defer src="{{ url_for('static', filename='vendor/flatpickr@4.6.13/dist/flatpickr.min.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='vendor/flatpickr@4.6.13/dist/l10n/ko.js') }}"></script>
     <!-- ⭐️ Quill 2 (리치 텍스트 에디터). 1.x 는 표 서식이 없어 웹에서 복사한 표가 셀마다 한 줄로
          흩어졌다. 표는 quill-table-up(<th>·병합 셀·셀 안 줄바꿈 지원)이 맡는다. -->
-    <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/quill-table-up@3.6.0/dist/index.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/quill-table-up@3.6.0/dist/table-creator.css" rel="stylesheet">
-    <script defer src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/quill-table-up@3.6.0/dist/index.umd.js"></script>
+    <link href="{{ url_for('static', filename='vendor/quill@2.0.3/dist/quill.snow.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='vendor/quill-table-up@3.6.0/dist/index.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='vendor/quill-table-up@3.6.0/dist/table-creator.css') }}" rel="stylesheet">
+    <script defer src="{{ url_for('static', filename='vendor/quill@2.0.3/dist/quill.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='vendor/quill-table-up@3.6.0/dist/index.umd.js') }}"></script>
     <!-- ⭐️ 마크다운 원문 붙여넣기 변환기 (GFM 표 지원) — 21-markdown-paste.js -->
-    <script defer src="https://cdn.jsdelivr.net/npm/marked@18.0.14/lib/marked.umd.js"></script>
+    <script defer src="{{ url_for('static', filename='vendor/marked@18.0.14/lib/marked.umd.js') }}"></script>
     <!-- ⭐️ 본문 이미지 크기 조절 (quill-image-resize-module 은 Quill 1 전용이라 교체) -->
-    <script defer src="https://cdn.jsdelivr.net/npm/@botom/quill-resize-module@2.2.2/dist/quill-resize-module.min.js"></script>
-    <!-- ⭐️ SheetJS (Excel 내보내기)는 약 1MB 로 매우 크므로 항상 로드하지 않고,
-         내보내기 버튼을 누를 때 script.js 의 ensureXlsxLoaded() 가 동적으로 로드한다. -->
+    <script defer src="{{ url_for('static', filename='vendor/@botom/quill-resize-module@2.2.2/dist/quill-resize-module.min.js') }}"></script>
+    <!-- ⭐️ ExcelJS (Excel 내보내기)는 약 1MB 로 매우 크므로 항상 로드하지 않고,
+         내보내기 버튼을 누를 때 11-export.js 의 ensureExcelLoaded() 가 동적으로 로드한다. -->
     <!-- ⭐️ 외부 CSS 파일 연결 -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ get_mtime('style.css') }}" onerror="this.onerror=null; this.href=this.href+'&retry='+new Date().getTime();">
 </head>
@@ -251,6 +249,20 @@
                         <label for="quantity">매매 수량 (주)</label>
                         <input type="number" id="quantity" min="0" step="any" placeholder="예: 10" required>
                     </div>
+                </div>
+                <details id="entryCostFields" class="form-group">
+                    <summary>수수료·세금 및 손익 기준</summary>
+                    <div class="form-row">
+                        <div class="form-group"><label for="entryFee">수수료 (선택 통화)</label><input id="entryFee" type="number" min="0" step="any" placeholder="미확인"></div>
+                        <div class="form-group"><label for="entryTax">세금 (선택 통화)</label><input id="entryTax" type="number" min="0" step="any" placeholder="미확인"></div>
+                    </div>
+                    <label for="entryPnlBasis">저장된 실현손익의 비용 기준</label>
+                    <select id="entryPnlBasis" disabled><option value="">미확인</option><option value="unknown">확인 필요</option><option value="gross">비용 차감 전</option><option value="net">비용 차감 후</option></select>
+                    <small>빈칸은 미확인, 0은 비용 없음을 뜻합니다. 체결 이력으로 재구성한 손익은 비용 차감 전입니다.</small>
+                </details>
+                <div id="existingFileAttachment" class="form-group" hidden>
+                    <a id="existingFileLink" target="_blank" rel="noopener" download>기존 첨부</a>
+                    <label><input id="removeAttachedFile" type="checkbox"> 이 첨부 파일 삭제</label>
                 </div>
                 <div id="totalAmountWrapper" style="display: none;">
                     <div class="total-amount-display total-amount-highlight" id="totalAmountDisplay">총 매수/매도 금액: 0원</div>
@@ -712,6 +724,13 @@
                 <h3 style="font-size: 15px;">👑 관리자 대시보드</h3>
                 <button type="button" class="btn-close" id="btnCloseAdminModal" title="닫기">&times;</button>
             </div>
+            <section class="admin-backup-panel" aria-label="서버 자동 백업">
+                <strong>서버 자동 백업</strong>
+                <p id="adminBackupStatus" role="status">상태를 확인 중입니다.</p>
+                <button type="button" id="adminBackupRun">지금 백업</button>
+                <button type="button" id="adminBackupRefresh">상태 새로고침</button>
+                <small>매일 한국 시간 03:00에 전체 DB와 사용자별 ZIP을 생성합니다. 서버 재시작 시 누락된 백업을 실행하며, 최근 7일을 보관합니다.</small>
+            </section>
             <div style="max-height: 460px; overflow-y: auto; overflow-x: auto; background: var(--bg-color); border-radius: 8px; border: 1px solid var(--border-color);">
                 <table class="admin-table" style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
                     <thead>

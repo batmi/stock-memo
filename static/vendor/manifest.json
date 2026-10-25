@@ -1,0 +1,156 @@
+{
+  "chart.js@4.4.1/dist/chart.umd.min.js": {
+    "sha256": "74401d738dd3e03ee5dfb3b6841210fe2c4ead8a960c4011ca4ba0b78a9fd8f3",
+    "package": "chart.js@4.4.1",
+    "source": "https://registry.npmjs.org/chart.js/-/chart.js-4.4.1.tgz",
+    "integrity": "sha512-C74QN1bxwV1v2PEujhmKjOZ7iUM4w6BWs23Md/6aOZZSlwMzeCIDGuZay++rBgChYru7/+QFeoQW0fQoP534Dg==",
+    "member": "dist/chart.umd.js"
+  },
+  "chart.js@4.4.1/LICENSE": {
+    "sha256": "5a0877ad6d818529be4f33009d0942cdf7e2ed7656156f4aba7308459a546030",
+    "package": "chart.js@4.4.1",
+    "source": "https://registry.npmjs.org/chart.js/-/chart.js-4.4.1.tgz",
+    "integrity": "sha512-C74QN1bxwV1v2PEujhmKjOZ7iUM4w6BWs23Md/6aOZZSlwMzeCIDGuZay++rBgChYru7/+QFeoQW0fQoP534Dg==",
+    "member": "LICENSE.md"
+  },
+  "sortablejs@1.15.2/Sortable.min.js": {
+    "sha256": "ca68430703c4f5960e90735867c6e94d29b5a3de37107d8100e5a301007e9e6e",
+    "package": "sortablejs@1.15.2",
+    "source": "https://registry.npmjs.org/sortablejs/-/sortablejs-1.15.2.tgz",
+    "integrity": "sha512-FJF5jgdfvoKn1MAKSdGs33bIqLi3LmsgVTliuX6iITj834F+JRQZN90Z93yql8h0K2t0RwDPBmxwlbZfDcxNZA==",
+    "member": "Sortable.min.js"
+  },
+  "sortablejs@1.15.2/LICENSE": {
+    "sha256": "e94dfc31e800d169257569db270457c9f028440c9ccae41e7eb78b2db18f1298",
+    "package": "sortablejs@1.15.2",
+    "source": "https://registry.npmjs.org/sortablejs/-/sortablejs-1.15.2.tgz",
+    "integrity": "sha512-FJF5jgdfvoKn1MAKSdGs33bIqLi3LmsgVTliuX6iITj834F+JRQZN90Z93yql8h0K2t0RwDPBmxwlbZfDcxNZA==",
+    "member": "LICENSE"
+  },
+  "flatpickr@4.6.13/dist/flatpickr.min.js": {
+    "sha256": "1eeab1cb779471a0b0aaa93dd91c2eb1aa537d696f01ab05ea9dabc55e8525a1",
+    "package": "flatpickr@4.6.13",
+    "source": "https://registry.npmjs.org/flatpickr/-/flatpickr-4.6.13.tgz",
+    "integrity": "sha512-97PMG/aywoYpB4IvbvUJi0RQi8vearvU0oov1WW3k0WZPBMrTQVqekSX5CjSG/M4Q3i6A/0FKXC7RyAoAUUSPw==",
+    "member": "dist/flatpickr.min.js"
+  },
+  "flatpickr@4.6.13/dist/l10n/ko.js": {
+    "sha256": "a9c2b216bb196d2edd04d5d3ee239b2d0af7cdada4e6014e2cdf3eeb26331d0b",
+    "package": "flatpickr@4.6.13",
+    "source": "https://registry.npmjs.org/flatpickr/-/flatpickr-4.6.13.tgz",
+    "integrity": "sha512-97PMG/aywoYpB4IvbvUJi0RQi8vearvU0oov1WW3k0WZPBMrTQVqekSX5CjSG/M4Q3i6A/0FKXC7RyAoAUUSPw==",
+    "member": "dist/l10n/ko.js"
+  },
+  "flatpickr@4.6.13/dist/flatpickr.min.css": {
+    "sha256": "1b34a42552c96f10e4dfaaa4a367276b03868aacff63c1ac42ffe331352bc754",
+    "package": "flatpickr@4.6.13",
+    "source": "https://registry.npmjs.org/flatpickr/-/flatpickr-4.6.13.tgz",
+    "integrity": "sha512-97PMG/aywoYpB4IvbvUJi0RQi8vearvU0oov1WW3k0WZPBMrTQVqekSX5CjSG/M4Q3i6A/0FKXC7RyAoAUUSPw==",
+    "member": "dist/flatpickr.min.css"
+  },
+  "flatpickr@4.6.13/dist/themes/dark.css": {
+    "sha256": "47798b76a38ac3a62b1ae658c566e0ed3b4cbcb115173ae620f0db8952f93612",
+    "package": "flatpickr@4.6.13",
+    "source": "https://registry.npmjs.org/flatpickr/-/flatpickr-4.6.13.tgz",
+    "integrity": "sha512-97PMG/aywoYpB4IvbvUJi0RQi8vearvU0oov1WW3k0WZPBMrTQVqekSX5CjSG/M4Q3i6A/0FKXC7RyAoAUUSPw==",
+    "member": "dist/themes/dark.css"
+  },
+  "flatpickr@4.6.13/LICENSE": {
+    "sha256": "5fd57afc3905651175947ae44818e91ffcf5b605e4c88fac42d9700243bd9095",
+    "package": "flatpickr@4.6.13",
+    "source": "https://registry.npmjs.org/flatpickr/-/flatpickr-4.6.13.tgz",
+    "integrity": "sha512-97PMG/aywoYpB4IvbvUJi0RQi8vearvU0oov1WW3k0WZPBMrTQVqekSX5CjSG/M4Q3i6A/0FKXC7RyAoAUUSPw==",
+    "member": "LICENSE.md"
+  },
+  "quill@2.0.3/dist/quill.js": {
+    "sha256": "f6157c72ac9b3f51cdead426335688a027b12405d9d6a4daadd38a676b2d7ff2",
+    "package": "quill@2.0.3",
+    "source": "https://registry.npmjs.org/quill/-/quill-2.0.3.tgz",
+    "integrity": "sha512-xEYQBqfYx/sfb33VJiKnSJp8ehloavImQ2A6564GAbqG55PGw1dAWUn1MUbQB62t0azawUS2CZZhWCjO8gRvTw==",
+    "member": "dist/quill.js"
+  },
+  "quill@2.0.3/dist/quill.snow.css": {
+    "sha256": "1c7948cd13aa92fac6390319bc1e5e461823da171519d3a768db56164f871636",
+    "package": "quill@2.0.3",
+    "source": "https://registry.npmjs.org/quill/-/quill-2.0.3.tgz",
+    "integrity": "sha512-xEYQBqfYx/sfb33VJiKnSJp8ehloavImQ2A6564GAbqG55PGw1dAWUn1MUbQB62t0azawUS2CZZhWCjO8gRvTw==",
+    "member": "dist/quill.snow.css"
+  },
+  "quill@2.0.3/LICENSE": {
+    "sha256": "395c12b616d6f58238b4be39284d4d9221b58dd6e1f1e34d9ab537e34abbb022",
+    "package": "quill@2.0.3",
+    "source": "https://registry.npmjs.org/quill/-/quill-2.0.3.tgz",
+    "integrity": "sha512-xEYQBqfYx/sfb33VJiKnSJp8ehloavImQ2A6564GAbqG55PGw1dAWUn1MUbQB62t0azawUS2CZZhWCjO8gRvTw==",
+    "member": "LICENSE"
+  },
+  "quill-table-up@3.6.0/dist/index.css": {
+    "sha256": "74f107ee870b5451959d1040fc3e71e6bb371a51197992ad94734e93fc1916f2",
+    "package": "quill-table-up@3.6.0",
+    "source": "https://registry.npmjs.org/quill-table-up/-/quill-table-up-3.6.0.tgz",
+    "integrity": "sha512-qgA/oMjfeapDb3srrmftmi9MbTf/8k+bTv1facUz8DWZV25Usm0MnVm09JO1FI4tDnjO/lpVMAtgR8He4MPByg==",
+    "member": "dist/index.css"
+  },
+  "quill-table-up@3.6.0/dist/table-creator.css": {
+    "sha256": "219b29eb77df036f6279370607bdd6e5f7a461b7e02f0d3871dedda93ad894ed",
+    "package": "quill-table-up@3.6.0",
+    "source": "https://registry.npmjs.org/quill-table-up/-/quill-table-up-3.6.0.tgz",
+    "integrity": "sha512-qgA/oMjfeapDb3srrmftmi9MbTf/8k+bTv1facUz8DWZV25Usm0MnVm09JO1FI4tDnjO/lpVMAtgR8He4MPByg==",
+    "member": "dist/table-creator.css"
+  },
+  "quill-table-up@3.6.0/dist/index.umd.js": {
+    "sha256": "864f7d7857cd73eafe3fea4c671c3f3d12f9e737021b0d45eb025de28a009a32",
+    "package": "quill-table-up@3.6.0",
+    "source": "https://registry.npmjs.org/quill-table-up/-/quill-table-up-3.6.0.tgz",
+    "integrity": "sha512-qgA/oMjfeapDb3srrmftmi9MbTf/8k+bTv1facUz8DWZV25Usm0MnVm09JO1FI4tDnjO/lpVMAtgR8He4MPByg==",
+    "member": "dist/index.umd.js"
+  },
+  "quill-table-up@3.6.0/LICENSE": {
+    "sha256": "13ab427e846e42fc75fd402e55dff2d39e886a37a3ab8a32c29dcd6c59be6e85",
+    "package": "quill-table-up@3.6.0",
+    "source": "https://registry.npmjs.org/quill-table-up/-/quill-table-up-3.6.0.tgz",
+    "integrity": "sha512-qgA/oMjfeapDb3srrmftmi9MbTf/8k+bTv1facUz8DWZV25Usm0MnVm09JO1FI4tDnjO/lpVMAtgR8He4MPByg==",
+    "member": "LICENSE"
+  },
+  "marked@18.0.14/lib/marked.umd.js": {
+    "sha256": "21568877a938d2c4e7d74e27f18e60da96bb73a68809610ca39216e1efebae62",
+    "package": "marked@18.0.14",
+    "source": "https://registry.npmjs.org/marked/-/marked-18.0.14.tgz",
+    "integrity": "sha512-mBHK6FBHuBAlhgRe88w9F0O1AbwwXJUcQibUbC/QcdTbVGAD7aWza+xt3N6oT/jCZx3/OMeS+8rnuiHZcQ9s7A==",
+    "member": "lib/marked.umd.js"
+  },
+  "marked@18.0.14/LICENSE": {
+    "sha256": "8e3a3f82f59a60958f56ca08f445647c32a4733dc7ca6c2c46f6eb898471ab9c",
+    "package": "marked@18.0.14",
+    "source": "https://registry.npmjs.org/marked/-/marked-18.0.14.tgz",
+    "integrity": "sha512-mBHK6FBHuBAlhgRe88w9F0O1AbwwXJUcQibUbC/QcdTbVGAD7aWza+xt3N6oT/jCZx3/OMeS+8rnuiHZcQ9s7A==",
+    "member": "LICENSE"
+  },
+  "@botom/quill-resize-module@2.2.2/dist/quill-resize-module.min.js": {
+    "sha256": "31cc3f0d55134cd15a92016a91e1da55d0d95e748f5bef150b47cf1184347d79",
+    "package": "@botom/quill-resize-module@2.2.2",
+    "source": "https://registry.npmjs.org/@botom/quill-resize-module/-/quill-resize-module-2.2.2.tgz",
+    "integrity": "sha512-q6yoqNXTPdrSb9Jdzui37m+ZU/MWOltglwQgdNheck4PDWvb7kThNM4SCy3P4HHNRXhqjhe01qyE6ViH3ZuP4Q==",
+    "member": "dist/quill-resize-module.min.js"
+  },
+  "@botom/quill-resize-module@2.2.2/LICENSE": {
+    "sha256": "7ff1646aeaf88d7206a3c81af4f46450a8cf7e9e5a5d5bb84650750c2f97c32e",
+    "package": "@botom/quill-resize-module@2.2.2",
+    "source": "https://registry.npmjs.org/@botom/quill-resize-module/-/quill-resize-module-2.2.2.tgz",
+    "integrity": "sha512-q6yoqNXTPdrSb9Jdzui37m+ZU/MWOltglwQgdNheck4PDWvb7kThNM4SCy3P4HHNRXhqjhe01qyE6ViH3ZuP4Q==",
+    "member": "LICENSE"
+  },
+  "exceljs@4.3.0/dist/exceljs.min.js": {
+    "sha256": "c0951d8c68fde5821017b46b63c13433f694f7df10c9f1bac582ad40ba74e7f2",
+    "package": "exceljs@4.3.0",
+    "source": "https://registry.npmjs.org/exceljs/-/exceljs-4.3.0.tgz",
+    "integrity": "sha512-hTAeo5b5TPvf8Z02I2sKIT4kSfCnOO2bCxYX8ABqODCdAjppI3gI9VYiGCQQYVcBaBSKlFDMKlAQRqC+kV9O8w==",
+    "member": "dist/exceljs.min.js"
+  },
+  "exceljs@4.3.0/LICENSE": {
+    "sha256": "8af4d7bf371ff7687b99943a9e014dd23196ccede4ece48a3ee860b3a74c6dbf",
+    "package": "exceljs@4.3.0",
+    "source": "https://registry.npmjs.org/exceljs/-/exceljs-4.3.0.tgz",
+    "integrity": "sha512-hTAeo5b5TPvf8Z02I2sKIT4kSfCnOO2bCxYX8ABqODCdAjppI3gI9VYiGCQQYVcBaBSKlFDMKlAQRqC+kV9O8w==",
+    "member": "LICENSE"
+  }
+}
