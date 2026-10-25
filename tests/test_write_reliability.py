@@ -178,6 +178,18 @@ def test_failed_backup_keeps_previous_valid_zip_and_last_success(client, monkeyp
     assert not jobs._backup_lock.locked()
 
 
+@pytest.mark.parametrize('stored_state', [None, 'success', 'failed', 'running'])
+def test_backup_status_reports_running_before_worker_updates_database(client, stored_state):
+    if stored_state:
+        with db_conn(write=True) as conn:
+            conn.execute('INSERT INTO backup_state(id,state) VALUES(1,?)', (stored_state,))
+            conn.commit()
+    with jobs._backup_lock:
+        assert jobs.backup_status()['state'] == 'running'
+    expected = 'interrupted' if stored_state == 'running' else stored_state or 'never'
+    assert jobs.backup_status()['state'] == expected
+
+
 def test_backup_manual_api_is_admin_only_and_does_not_duplicate_running_job(client, monkeypatch):
     _login(client)
     assert client.get('/api/admin/backup').status_code == 403

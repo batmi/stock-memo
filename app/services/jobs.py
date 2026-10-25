@@ -47,10 +47,14 @@ def backup_status(now=None):
     scheduled = now.replace(hour=3, minute=0, second=0, microsecond=0)
     if scheduled > now:
         scheduled -= timedelta(days=1)
+    # 작업 스레드가 실행 상태를 DB에 기록하기 전에도 자동 조회가 종료되지 않게 한다.
+    running = _backup_lock.locked()
     with db_conn(read=True) as conn:
         row = conn.execute('SELECT * FROM backup_state WHERE id=1').fetchone()
     status = dict(row) if row else {'state': 'never', 'last_success': None, 'started_at': None}
-    if status['state'] == 'running' and not _backup_lock.locked():
+    if running:
+        status['state'] = 'running'
+    elif status['state'] == 'running':
         status['state'] = 'interrupted'
     status.update(next_run=(scheduled + timedelta(days=1)).isoformat(),
                   due=not status['last_success'] or datetime.fromisoformat(status['last_success']) < scheduled)

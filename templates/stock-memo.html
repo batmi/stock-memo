@@ -119,7 +119,6 @@
                         <button type="button" id="btnAccountExtendSession" class="account-menu-button">로그인 연장</button>
                         <small id="accountMenuSessionPolicy"></small>
                     </div>
-                    <button type="button" id="btnChangePassword" class="account-menu-button">비밀번호 변경</button>
                     <fieldset class="account-menu-settings">
                         <legend>화면 설정</legend>
                         <label for="accountMenuTheme">테마
@@ -131,7 +130,10 @@
                         <small>테마·마지막 화면은 이 기기에 적용됩니다.</small>
                     </fieldset>
                     <p id="accountMenuStatus" class="account-menu-status" role="status" aria-live="polite"></p>
-                    <button type="button" id="btnLogout" class="account-menu-button account-menu-logout">로그아웃</button>
+                    <div class="account-menu-actions">
+                        <button type="button" id="btnChangePassword" class="compact-outline-btn">비밀번호 변경</button>
+                        <button type="button" id="btnLogout" class="compact-outline-btn">로그아웃</button>
+                    </div>
                 </div>
             </div>
             <input type="file" id="restoreFileInput" accept=".zip" style="display:none;">
@@ -725,10 +727,11 @@
                 <button type="button" class="btn-close" id="btnCloseAdminModal" title="닫기">&times;</button>
             </div>
             <section class="admin-backup-panel" aria-label="서버 자동 백업">
-                <strong>서버 자동 백업</strong>
+                <div class="admin-backup-header">
+                    <strong>서버 자동 백업</strong>
+                    <button type="button" id="adminBackupRun" class="admin-action-btn compact-outline-btn">지금 백업</button>
+                </div>
                 <p id="adminBackupStatus" role="status">상태를 확인 중입니다.</p>
-                <button type="button" id="adminBackupRun">지금 백업</button>
-                <button type="button" id="adminBackupRefresh">상태 새로고침</button>
                 <small>매일 한국 시간 03:00에 전체 DB와 사용자별 ZIP을 생성합니다. 서버 재시작 시 누락된 백업을 실행하며, 최근 7일을 보관합니다.</small>
             </section>
             <div style="max-height: 460px; overflow-y: auto; overflow-x: auto; background: var(--bg-color); border-radius: 8px; border: 1px solid var(--border-color);">

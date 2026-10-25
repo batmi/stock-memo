@@ -251,28 +251,61 @@ window.deleteUserAccount = async function(username) {
 
 
 
+let adminBackupPollTimer = null;
+let adminBackupStarting = false;
+
+function stopBackupStatusPolling() {
+    clearTimeout(adminBackupPollTimer);
+    adminBackupPollTimer = null;
+    cancelUIRequest('admin-backup-status');
+}
+
 async function refreshBackupStatus() {
+    stopBackupStatusPolling();
     const status = document.getElementById('adminBackupStatus');
     const button = document.getElementById('adminBackupRun');
-    if (!status || !button) return;
+    const modal = document.getElementById('adminModalOverlay');
+    if (!status || !button || modal?.style.display !== 'flex' || modal.classList.contains('closing') || adminBackupStarting) return;
+    const request = beginUIRequest('admin-backup-status');
+    let retry = true;
     try {
-        const response = await fetchWithTimeout('/api/admin/backup');
+        const response = await fetchWithTimeout('/api/admin/backup', {signal: request.signal});
+        retry = ![401, 403].includes(response.status);
         if (!response.ok) throw new Error('백업 상태를 불러오지 못했습니다.');
         const data = await response.json();
+        if (!request.current()) return;
         const stamp = value => value ? new Date(value).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul'}) + ' (한국 시간)' : '없음';
         const state = {never: '실행 이력 없음', running: '실행 중', success: '성공', failed: '실패', interrupted: '이전 작업 중단'}[data.state] || data.state;
         status.textContent = `상태: ${state} · 마지막 성공: ${stamp(data.last_success)} · 다음 예약: ${stamp(data.next_run)}`
             + (data.state === 'failed' ? ` · DB: ${data.database_ok ? '성공' : '실패'}, 사용자 ZIP 실패: ${data.failed_users}/${data.total_users}. 서버 로그를 확인해주세요.` : '');
         button.disabled = data.state === 'running';
-    } catch (error) { status.textContent = error.message; button.disabled = false; }
+        if (data.state === 'running') adminBackupPollTimer = setTimeout(refreshBackupStatus, 2000);
+    } catch (error) {
+        if (!request.current()) return;
+        status.textContent = retry
+            ? '백업 상태를 확인하지 못했습니다. 잠시 후 자동으로 다시 확인합니다.'
+            : error.message;
+        button.disabled = true;
+        if (retry) adminBackupPollTimer = setTimeout(refreshBackupStatus, 5000);
+    }
 }
-document.getElementById('adminBackupRefresh')?.addEventListener('click', refreshBackupStatus);
 document.getElementById('adminBackupRun')?.addEventListener('click', async event => {
     const button = event.currentTarget;
+    if (button.disabled || adminBackupStarting) return;
+    adminBackupStarting = true;
+    stopBackupStatusPolling();
     button.disabled = true;
+    document.getElementById('adminBackupStatus').textContent = '백업을 시작하는 중입니다...';
+    let failureMessage;
     try {
         const response = await fetchWithTimeout('/api/admin/backup', {method: 'POST'});
         if (!response.ok) throw new Error((await response.json()).error || '백업을 시작하지 못했습니다.');
-        document.getElementById('adminBackupStatus').textContent = '백업을 시작했습니다. 잠시 후 상태 새로고침으로 결과를 확인해주세요.';
-    } catch (error) { await customAlert(error.message); button.disabled = false; }
+    } catch (error) {
+        failureMessage = error.message;
+    } finally {
+        adminBackupStarting = false;
+        // 시작 응답이 유실되거나 이미 실행 중인 경우에도 실제 서버 상태를 확인한다.
+        await refreshBackupStatus();
+    }
+    if (failureMessage) await customAlert(failureMessage);
 });

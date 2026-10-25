@@ -519,13 +519,15 @@ button:hover {
 .user-account-panel .account-menu-button:hover { background: var(--border-light-color); }
 .user-account-panel .account-menu-button:disabled { cursor: wait; opacity: 0.6; }
 .user-account-panel #btnAccountExtendSession { width: auto; padding: 4px 8px; color: var(--primary-color); }
+.account-menu-actions { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color); }
+.user-account-panel #btnChangePassword { border-color: var(--info-color); color: var(--info-color); }
+.user-account-panel #btnLogout { border-color: var(--danger-color); color: var(--danger-color); }
 .account-menu-settings { border: 0; border-top: 1px solid var(--border-color); margin: 16px 0 0; padding: 10px 0 0; min-width: 0; }
 .account-menu-settings legend { padding: 0 6px 0 0; font-weight: bold; }
 .account-menu-settings label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 10px; font-size: 12px; }
 .account-menu-settings select { width: 140px; min-width: 0; height: 30px; margin: 0; padding: 3px 8px; font-size: 12px; line-height: 1.4; }
 .account-menu-status { margin: 10px 0; font-size: 11px; line-height: 1.5; }
 .account-menu-status:empty { display: none; }
-.user-account-panel .account-menu-logout { margin-top: 12px; border: 0; border-top: 1px solid var(--border-color); border-radius: 0; padding-top: 12px; color: var(--danger-color); }
 #loggedInUserDisplay:focus-visible, .user-account-panel :is(button, select, input):focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
 @media (max-width: 480px) { #loggedInUserDisplay { max-width: 110px; } }
 @media (hover: hover) {
@@ -1545,12 +1547,9 @@ button:hover {
        줄로 내린다 (여유가 있으면 auto 레이아웃이 한 줄 폭을 그대로 준다). */
     flex-wrap: wrap;
 }
-.admin-action-btn {
+.admin-action-btn, .compact-outline-btn {
     background: transparent;
     padding: 0;
-    width: 84px !important; 
-    min-width: 84px !important;
-    max-width: 84px !important;
     flex-shrink: 0 !important;
     flex-grow: 0 !important;
     border-radius: 4px;
@@ -1566,7 +1565,18 @@ button:hover {
     transition: none; /* 즉각적인 롤오버 효과 */
     white-space: nowrap;
 }
-.admin-action-btn:hover {
+.admin-action-btn {
+    width: 84px !important;
+    min-width: 84px !important;
+    max-width: 84px !important;
+}
+.compact-outline-btn {
+    width: auto;
+    padding: 0 10px;
+    border: 1px solid var(--primary-color);
+    color: var(--primary-color);
+}
+.admin-action-btn:hover, .compact-outline-btn:hover {
     opacity: 0.8;
     background-color: transparent !important;
 }
@@ -1755,5 +1765,7 @@ button:hover {
 
 .admin-backup-panel small { color: var(--text-muted-color); }
 .admin-backup-panel { padding: 12px; margin-bottom: 14px; border: 1px solid var(--border-color); border-radius: 8px; }
-.admin-backup-panel button { width: auto; margin: 4px 8px 8px 0; padding: 7px 12px; }
+.admin-backup-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.admin-backup-panel p { margin: 12px 0; overflow-wrap: anywhere; }
+.admin-backup-panel .admin-action-btn:disabled { opacity: 0.6; cursor: wait; }
 .admin-backup-panel small { display: block; line-height: 1.5; }

@@ -502,6 +502,7 @@ if (btnAdmin && adminModalOverlay) {
     });
     
     const closeAdminModal = () => {
+        stopBackupStatusPolling();
         adminModalOverlay.classList.add('closing');
         setTimeout(() => {
             adminModalOverlay.style.display = 'none';
