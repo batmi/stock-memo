@@ -39,6 +39,7 @@ function ensureCalcLoaded() {
 }
 
 async function loadDataFromLocal() {
+    const preferenceRead = preferenceReadContext();
     console.log("[Data Load] loadDataFromLocal() 시작 - 사용자 데이터 호출 중...");
     try {
         // ⭐️ 초기 데이터 수신 동안 빈 화면(멈춘 것처럼 보이는 현상) 방지용 로딩 안내
@@ -116,8 +117,7 @@ async function loadDataFromLocal() {
         }
 
         // 2. 환경설정 처리
-        // ⭐️ 환경설정 로드가 실패한 채로 진행하면 필터가 모두 풀려 보일 뿐 아니라,
-        //    이후 첫 저장 때 빈 userPreferences 가 DB 를 통째로 덮어써 기존 설정이 영구 유실된다.
+        // ⭐️ 환경설정 로드가 실패한 채로 진행하면 기본 필터가 기존 저장값으로 오인될 수 있다.
         //    네트워크 오류·5xx 실패 시 최대 2회 재시도하고, 끝내 실패하면 preferencesLoaded 를
         //    세우지 않아 savePreferences() 가 이번 세션의 서버 저장을 건너뛰게 한다. (401 은 재시도 무의미)
         let prefResFinal = (prefRes && (prefRes.ok || prefRes.status === 401)) ? prefRes : null;
@@ -132,8 +132,7 @@ async function loadDataFromLocal() {
         }
         if (prefResFinal && prefResFinal.ok) {
             try {
-                userPreferences = await prefResFinal.json();
-                preferencesLoaded = true; // ⭐️ 이 시점부터 서버 저장 허용 (기존 설정 덮어쓰기 방지 가드 해제)
+                applyLoadedPreferences(await prefResFinal.json(), preferenceRead);
 
                 // ⭐️ DB에서 불러온 환경설정을 UI(청산 종목 토글, 접기/펴기 등)에 반영
                 if (typeof userPreferences.isDashboardCollapsed !== 'undefined') {
@@ -299,40 +298,109 @@ function showDataLoadError(err) {
     }
 }
 
-// ⭐️ 환경설정(사용자가 정렬한 카드 순서)을 DB에 저장
+// 환경설정은 변경한 칸만 병합한다. 서로 다른 탭의 전체 스냅샷을 덮어쓰지 않는다.
 let preferencesSaveQueue = Promise.resolve();
+let preferenceSaveEpoch = 0;
+const preferenceFieldEpochs = new Map();
+const preferencePendingFields = new Map();
+let preferencesObserved = JSON.parse(JSON.stringify(userPreferences));
+let preferencesConfirmed = JSON.parse(JSON.stringify(userPreferences));
+
+function clonePreferences(value) { return JSON.parse(JSON.stringify(value)); }
+function copyPreferenceKey(target, source, key) {
+    if (Object.hasOwn(source, key)) {
+        Object.defineProperty(target, key, { value: clonePreferences(source[key]), writable: true, enumerable: true, configurable: true });
+    } else delete target[key];
+}
+function applyPreferencePatch(target, patch) {
+    for (const key of Object.keys(patch)) {
+        if (patch[key] === null) delete target[key];
+        else copyPreferenceKey(target, patch, key);
+    }
+}
+function preferenceDiff(before, after) {
+    const patch = {};
+    for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+        if (!Object.hasOwn(after, key)) Object.defineProperty(patch, key, { value: null, enumerable: true, configurable: true });
+        else if (!Object.hasOwn(before, key) || JSON.stringify(before[key]) !== JSON.stringify(after[key])) copyPreferenceKey(patch, after, key);
+    }
+    return patch;
+}
+function preferenceReadContext() {
+    return { epoch: preferenceSaveEpoch, pending: new Set(preferencePendingFields.keys()) };
+}
+function normalizeLoadedPreferences(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('환경설정 응답 형식이 올바르지 않습니다.');
+    const normalized = clonePreferences(value);
+    for (const key of Object.keys(normalized)) {
+        const item = normalized[key];
+        let valid = true;
+        if (key === 'portfolioOrder') valid = Array.isArray(item) && item.length <= 10000 && item.every(x => typeof x === 'string' && x.length <= 500);
+        else if (['isDashboardCollapsed', 'showClosedPositions', 'showHistoryClosedPositions'].includes(key)) valid = typeof item === 'boolean';
+        else if (key === 'defaultView') valid = ['last', 'list', 'calendar', 'chart'].includes(item);
+        else if (key === 'currentMarketMode') valid = ['KRX', 'AFT', 'NXT'].includes(item);
+        else if (/^current(?:Dashboard(?:Broker|SubAccount|Account)|Filter(?:RecordType|Stock|Account|Broker|SubAccount)|Chart(?:Stock|Account|Broker|SubAccount))$/.test(key)) valid = typeof item === 'string' && item.length <= 4096;
+        if (!valid) delete normalized[key];
+    }
+    return normalized;
+}
+function applyLoadedPreferences(value, read = preferenceReadContext()) {
+    const received = normalizeLoadedPreferences(value);
+    const local = clonePreferences(received), confirmed = clonePreferences(received);
+    // HTS 재조회/초기 재시도의 오래된 GET이 그 뒤 성공한 설정이나 진행 중인 선택을 되돌리지 않는다.
+    const protectedKeys = new Set([...read.pending, ...preferencePendingFields.keys()]);
+    for (const [key, epoch] of preferenceFieldEpochs) if (epoch > read.epoch) protectedKeys.add(key);
+    for (const key of protectedKeys) {
+        copyPreferenceKey(local, userPreferences, key);
+        copyPreferenceKey(confirmed, preferencesConfirmed, key);
+    }
+    userPreferences = local;
+    preferencesObserved = clonePreferences(local);
+    preferencesConfirmed = confirmed;
+    preferencesLoaded = true;
+}
+
 async function savePreferences(changes = null) {
-    // ⭐️ 서버 환경설정을 아직 받아오지 못한 상태(빈 객체)로 저장하면
-    //    기존에 저장된 필터·카드 순서 등 설정 전체가 덮어써져 유실되므로 건너뛴다.
+    // 서버 설정을 읽기 전의 기본 필터·카드 순서를 사용자가 바꾼 값으로 저장하지 않는다.
     if (!preferencesLoaded) {
         console.warn("환경설정 미로드 상태 - 서버 저장 건너뜀 (기존 설정 보호)");
         return false;
     }
-    // 전체 설정을 저장하므로 먼저 보낸 응답이 늦게 도착해 새 선택을 덮지 않도록 직렬화한다.
+    const patch = preferenceDiff(preferencesObserved, userPreferences);
+    if (changes) for (const key of Object.keys(changes)) copyPreferenceKey(patch, changes, key);
+    if (!Object.keys(patch).length) return true;
+    const epoch = ++preferenceSaveEpoch;
+    applyPreferencePatch(userPreferences, patch);
+    applyPreferencePatch(preferencesObserved, patch);
+    for (const key of Object.keys(patch)) {
+        preferenceFieldEpochs.set(key, epoch);
+        if (!preferencePendingFields.has(key)) preferencePendingFields.set(key, new Set());
+        preferencePendingFields.get(key).add(epoch);
+    }
+    // 탭 안의 요청 순서를 지키되 각 요청은 독립적인 변경분만 소유한다.
     preferencesSaveQueue = preferencesSaveQueue.then(async () => {
-        const previous = new Map();
-        if (changes) {
-            for (const [key, value] of Object.entries(changes)) {
-                previous.set(key, { present: Object.hasOwn(userPreferences, key), value: userPreferences[key] });
-                userPreferences[key] = value;
-            }
-        }
         try {
             const response = await fetchWithTimeout('/api/preferences', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
-                body: JSON.stringify(userPreferences)
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+                body: JSON.stringify(patch)
             });
             if (!response.ok) throw new Error(`환경설정 저장 실패 (${response.status})`);
+            applyPreferencePatch(preferencesConfirmed, patch);
             return true;
         } catch (err) {
-            // 실패한 시작 화면 선택을 뒤에 대기 중인 필터 저장이 다시 서버에 쓰지 않게 한다.
-            for (const [key, old] of previous) {
-                if (userPreferences[key] !== changes[key]) continue;
-                if (old.present) userPreferences[key] = old.value;
-                else delete userPreferences[key];
+            for (const key of Object.keys(patch)) {
+                if (preferenceFieldEpochs.get(key) !== epoch) continue;
+                copyPreferenceKey(userPreferences, preferencesConfirmed, key);
+                copyPreferenceKey(preferencesObserved, preferencesConfirmed, key);
             }
             console.error('환경설정 저장 실패:', err);
             return false;
+        } finally {
+            for (const key of Object.keys(patch)) {
+                const pending = preferencePendingFields.get(key);
+                pending?.delete(epoch);
+                if (!pending?.size) preferencePendingFields.delete(key);
+            }
         }
     });
     return preferencesSaveQueue;

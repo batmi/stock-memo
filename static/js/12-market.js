@@ -197,9 +197,12 @@ async function fetchAssetQuotes(assets, { mode = currentMarketMode, signal, allo
 }
 function quoteStatusText(quote) {
     if (!Number.isFinite(quote?.price)) return '시세 미확인';
-    const when = quote.asOf && !isNaN(Date.parse(quote.asOf))
-        ? new Date(quote.asOf).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '확인 시각 미상';
-    return `${quote.stale ? '이전 시세 · ' : ''}${quote.market || ''} · 시세 확인 ${when}`;
+    const date = quote.asOf ? new Date(quote.asOf) : null;
+    // 날짜·24시간제 시각만 간결하게 표시해 좁은 카드에서도 전체 문구를 읽을 수 있게 한다.
+    const when = date && Number.isFinite(date.getTime())
+        ? `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+        : '확인 시각 미상';
+    return `${quote.stale ? '이전 시세 · ' : ''}${quote.market || ''} · ${when}`;
 }
 function renderPortfolioQuotes() {
     let totalEval = 0, missing = 0, stale = 0;
@@ -210,7 +213,11 @@ function renderPortfolioQuotes() {
         const prices = document.querySelectorAll(`.cp-price${select}`);
         const evaluations = document.querySelectorAll(`.cp-eval${select}`);
         const profits = document.querySelectorAll(`.cp-profit${select}`);
-        document.querySelectorAll(`.cp-status${select}`).forEach(element => { element.textContent = quoteStatusText(quote); });
+        const status = quoteStatusText(quote);
+        document.querySelectorAll(`.cp-status${select}`).forEach(element => {
+            element.textContent = status;
+            element.title = status;
+        });
         if (!Number.isFinite(quote?.price)) {
             prices.forEach(element => { element.textContent = '시세 미확인'; });
             [...evaluations, ...profits].forEach(element => { element.textContent = '—'; });

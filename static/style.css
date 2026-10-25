@@ -977,6 +977,12 @@ button:hover {
 .portfolio-card .stat-row { display: flex; justify-content: space-between; font-size: 0.85em; margin-bottom: 6px; color: var(--text-muted-color); }
 .portfolio-card .stat-row:last-child { margin-bottom: 0; }
 .portfolio-card .stat-row span:last-child { font-weight: bold; color: var(--text-strong-color); }
+@media (min-width: 901px) {
+    .portfolio-card .cp-status {
+        font-size: 9px !important;
+        white-space: nowrap;
+    }
+}
 /* ⭐️ 포트폴리오 카드 투자 종류 배지 스타일 */
 .account-badge { font-size: 10.5px; padding: 2px 5px; border-radius: 4px; margin-right: 5px; font-weight: bold; }
 /* ⭐️ 현재가 조회 활성화 시 표시되는 섹션 */
@@ -1702,6 +1708,16 @@ button:hover {
 .stats-detail-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .stats-note-row td { text-align: left; white-space: normal; max-width: 500px; overflow-wrap: anywhere; }
 .stats-note-row img { max-width: 100%; height: auto; }
+@media (max-width: 900px) {
+    /* 가로로 긴 표의 메모가 모바일에서 자동 확대되지 않도록 본문 크기를 고정한다. */
+    .stats-note-row td {
+        font-size: 12px;
+        line-height: 1.6;
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+    }
+    .stats-note-row td * { font-size: inherit !important; line-height: inherit; }
+}
 .stats-empty { text-align: center; padding: 24px 0; color: var(--text-muted-color); font-size: 12px; }
 .stats-curve-section { margin-top: 18px; min-width: 0; }
 .stats-curve-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }

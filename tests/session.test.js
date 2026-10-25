@@ -100,12 +100,18 @@ test('네트워크 실패도 상태를 유지하고 사용자가 재시도할 �
     assert.equal(h.modal.style.display, 'flex');
 });
 
-test('401은 만료 안내 로그인 경로로 이동한다', async () => {
+test('401은 현재 쿠키로 한 번 재검사하고 두 번 거절된 경우에만 만료 처리한다', async () => {
     const h = setup();
     const attempt = h.window.extendCurrentSession();
     h.respond(0, { error: 'Unauthorized' }, 401);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.window.location.href, '');
+    assert.equal(h.requests.length, 2);
+    assert.equal(h.requests[1].url, '/api/ping');
+    assert.equal(h.requests[1].options.method, 'POST');
+    h.respond(1, { error: 'Unauthorized' }, 401);
     await assert.rejects(attempt, { code: 'SESSION_EXPIRED' });
-    assert.equal(h.window.location.href, '/logout?timeout=1');
+    assert.equal(h.window.location.href, '/logout?timeout=1&user_id=7');
 });
 
 for (const bad of [null, { status: 'success' }, { user_id: '7' }, { expires_at: '1800000000' },
@@ -131,7 +137,11 @@ test('로그인 유지 세션도 24시간 만료되면 자동으로 로그인 �
     assert.equal(h.requests[0].url, '/api/me');
     h.respond(0, { error: 'Unauthorized' }, 401);
     await new Promise(resolve => setImmediate(resolve));
-    assert.equal(h.window.location.href, '/logout?timeout=1');
+    assert.equal(h.window.location.href, '');
+    assert.equal(h.requests[1].url, '/api/me');
+    h.respond(1, { error: 'Unauthorized' }, 401);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.window.location.href, '/logout?timeout=1&user_id=7');
 });
 
 test('탭 복귀는 로컬 만료가 지났어도 다른 탭에서 연장된 서버 만료를 먼저 확인한다', async () => {
@@ -180,4 +190,75 @@ test('연장 전에 시작한 응답은 JSON 수신이 늦어도 연장 결과�
     body.resolve(h.payload({ expires_at: (h.clock.now + 100000) / 1000 }));
     await visible;
     assert.equal(h.window.getSessionState().expiresAtMs, h.clock.now + 3600000);
+});
+
+for (const kind of ['extend', 'visible']) {
+    test(`늦은 401 이후 현재 쿠키가 유효하면 정상 세션을 유지한다: ${kind}`, async () => {
+        const h = setup();
+        const attempt = kind === 'extend' ? h.window.extendCurrentSession() : h.visible();
+        h.respond(0, { error: 'Unauthorized' }, 401);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(h.requests.length, 2);
+        assert.equal(h.requests[1].url, h.requests[0].url);
+        h.respond(1, h.payload({ status: 'success' }));
+        await attempt;
+        assert.equal(h.window.location.href, '');
+        assert.equal(h.window.getSessionState().expiresAtMs, h.clock.now + 3600000);
+    });
+}
+
+test('현재 쿠키가 다른 계정이면 재검사의 409를 만료 로그아웃으로 바꾸지 않는다', async () => {
+    const h = setup();
+    const attempt = h.window.extendCurrentSession();
+    h.respond(0, { error: 'Unauthorized' }, 401);
+    await new Promise(resolve => setImmediate(resolve));
+    h.respond(1, { errorCode: 'ACCOUNT_CHANGED' }, 409);
+    await assert.rejects(attempt, { code: 'ACCOUNT_CHANGED' });
+    assert.equal(h.window.location.href, '/');
+    assert.equal(h.events.length, 0);
+});
+
+test('공통 fetch가 감지한 계정 변경 오류는 코드와 화면 이동을 보존한다', async () => {
+    const h = setup();
+    h.clock.now += 180000;
+    const visible = h.visible();
+    h.window.location.href = '/';
+    h.requests[0].reject(Object.assign(new Error('account changed'), { code: 'ACCOUNT_CHANGED' }));
+    await visible;
+    assert.equal(h.window.location.href, '/');
+    const attempt = h.window.extendCurrentSession();
+    h.requests[1].reject(Object.assign(new Error('account changed'), { code: 'ACCOUNT_CHANGED' }));
+    await assert.rejects(attempt, { code: 'ACCOUNT_CHANGED' });
+    assert.equal(h.window.location.href, '/');
+});
+
+test('재검사 자체가 실패하면 한 번의 401로 현재 세션을 만료 처리하지 않는다', async () => {
+    const h = setup();
+    h.clock.now += 180000;
+    const visible = h.visible();
+    h.respond(0, { error: 'Unauthorized' }, 401);
+    await new Promise(resolve => setImmediate(resolve));
+    h.respond(1, { error: 'unavailable' }, 503);
+    await visible;
+    assert.equal(h.window.location.href, '');
+    assert.equal(h.requests.length, 2);
+});
+
+test('연장에 밀린 이전 조회의 늦은 401은 추가 요청과 로그아웃을 만들지 않는다', async () => {
+    const h = setup();
+    const visible = h.visible();
+    const extension = h.window.extendCurrentSession();
+    h.respond(1, h.payload({ status: 'success' }));
+    await extension;
+    h.respond(0, { error: 'Unauthorized' }, 401);
+    await visible;
+    assert.equal(h.requests.length, 2);
+    assert.equal(h.window.location.href, '');
+    assert.equal(h.window.getSessionState().expiresAtMs, h.clock.now + 3600000);
+});
+
+test('명시적 로그아웃도 해당 화면의 계정 ID를 전송한다', () => {
+    const h = setup();
+    assert.equal(h.window.getSessionLogoutUrl(), '/logout?user_id=7');
+    assert.equal(h.window.getSessionLogoutUrl(true), '/logout?timeout=1&user_id=7');
 });

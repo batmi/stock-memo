@@ -16,6 +16,38 @@ window.addEventListener('unhandledrejection', function(e) {
     console.error("[Unhandled Promise Rejection] 처리되지 않은 비동기 에러:", e.reason);
 });
 
+// 쿠키의 로그인 계정이 다른 탭에서 바뀌어도 이 페이지의 기록·설정을 섞지 않는다.
+// 실제 인증은 서버 세션이 담당하며, 이 헤더는 화면을 렌더링한 계정과의 일치만 확인한다.
+function checkJournalAccountResponse(response) {
+    if (response?.headers?.get('X-Journal-Account-Changed') === '1') {
+        window.location.replace('/');
+        throw Object.assign(new Error('로그인 계정이 변경되어 화면을 다시 불러옵니다.'), {
+            code: 'ACCOUNT_CHANGED', status: response.status
+        });
+    }
+    return response;
+}
+
+(() => {
+    const originalFetch = window.fetch.bind(window);
+    const pageUserId = window.JOURNAL_USER_ID;
+    window.fetch = async function(input, options) {
+        const request = input instanceof Request ? input : null;
+        let url;
+        try { url = new URL(request ? request.url : input, window.location.href); }
+        catch (_) { return originalFetch(input, options); }
+        const isJournalApi = url.origin === window.location.origin && url.pathname.startsWith('/api/')
+            && url.pathname !== '/api/v1' && !url.pathname.startsWith('/api/v1/');
+        if (!isJournalApi) return originalFetch(input, options);
+
+        // init.headers가 있으면 Request의 헤더를 덮는 fetch의 원래 규칙을 유지한다.
+        // 원본 Request와 init을 변경하지 않아 본문·signal·keepalive도 그대로 전달된다.
+        const headers = new Headers(options?.headers !== undefined ? options.headers : request?.headers);
+        if (Number.isSafeInteger(pageUserId) && pageUserId > 0) headers.set('X-Journal-User-ID', String(pageUserId));
+        return originalFetch(input, { ...options, headers }).then(checkJournalAccountResponse);
+    };
+})();
+
 // ⭐️ 모바일 네트워크(셀룰러↔Wi-Fi 전환, 터널 지연 등)에서 fetch가 응답·실패 없이 무한 정지(stall)하면
 //    화면이 로딩 상태로 영영 고착된다. AbortController로 타임아웃을 강제해 무한 대기를 방지한다.
 function fetchWithTimeout(url, options = {}, timeout = 15000) {
@@ -54,7 +86,7 @@ function initialFetchOrFresh(key, url) {
     if (pre) pre[key] = null; // 재시도(visibilitychange 등) 시에는 항상 새 요청 사용
     if (!prefetched) return fetchWithTimeout(url);
     const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 15000));
-    return Promise.race([prefetched, timeout]).then(res => res ? res : fetchWithTimeout(url));
+    return Promise.race([prefetched, timeout]).then(res => res ? checkJournalAccountResponse(res) : fetchWithTimeout(url));
 }
 
 // 현재까지 읽은 목록 페이지. 전체 손익·필터 후보의 입력으로 쓰지 않는다.

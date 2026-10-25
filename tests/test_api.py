@@ -167,10 +167,26 @@ def test_ping_and_timeout(client):
     res_me = client.get('/api/me')
     assert res_me.status_code == 200
     
-    # 타임아웃 파라미터를 동반한 로그아웃
+    # 이전 탭의 타이머가 이미 연장된 정상 세션을 종료해서는 안 된다.
+    renewed_expiry = res_ping.json['expires_at']
+    current_cookie = client.get_cookie('session').value
     res_logout = client.get('/logout?timeout=1')
     assert res_logout.status_code == 302
-    assert 'timeout=1' in res_logout.location
+    assert res_logout.location == '/'
+    assert 'Set-Cookie' not in res_logout.headers
+    assert client.get_cookie('session').value == current_cookie
+    assert client.get('/api/me').json['expires_at'] == renewed_expiry
+
+    # 실제 만료된 세션은 안내 화면으로 보내고, 늦은 응답용 삭제 쿠키는 보내지 않는다.
+    with client.session_transaction() as sess:
+        sess['expires_at'] = time.time() - 1
+    res_expired = client.get('/logout?timeout=1')
+    assert res_expired.status_code == 302
+    assert res_expired.location == '/login?timeout=1'
+    assert res_expired.headers['Cache-Control'] == 'no-store'
+    assert 'Set-Cookie' not in res_expired.headers
+    assert client.get('/api/me').status_code == 401
+    assert client.post('/api/ping').status_code == 401
 
 @patch('app.services.prices._http_get')
 @patch('urllib.request.urlopen')

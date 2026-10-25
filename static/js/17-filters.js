@@ -77,7 +77,7 @@ window.clearReviewFilter = function() {
 // ⭐️ 상단 '검토 필요 N건' 안내를 누르면 그 기록만 모아 본다.
 window.showNeedsReviewEntries = function() {
     currentFilterNeedsReview = true;
-    displayEntries(true);
+    window.setJournalView('list');
     window.scrollToFilterBox();
 };
 

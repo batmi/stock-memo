@@ -56,6 +56,23 @@ class _SessionInterface(SecureCookieSessionInterface):
     def get_cookie_secure(self, app):
         return bool(app.config['SESSION_COOKIE_SECURE'] or request.is_secure)
 
+    def save_session(self, app, session, response):
+        # 늦게 끝난 인증 실패 응답이 다른 탭의 새 로그인/연장 쿠키를 삭제하면 안 된다.
+        # 요청 안에서는 세션을 비우되 브라우저의 현재 쿠키는 건드리지 않는다.
+        if getattr(g, 'preserve_browser_session', False):
+            response.vary.add('Cookie')
+            return
+        super().save_session(app, session, response)
+
+
+def _unauthorized_api(message='Unauthorized'):
+    session.clear()
+    g.preserve_browser_session = True
+    response = jsonify(error=message)
+    response.status_code = 401
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
 
 def register(app):
     """블루프린트 등록 + 앱 전역 세션 검사 연결."""
@@ -70,9 +87,9 @@ def register(app):
 
     @app.errorhandler(Unauthorized)
     def account_changed(error):
-        session.clear()
         if request.path.startswith('/api/'):
-            return jsonify(error='계정이 변경되었습니다. 다시 로그인해주세요.'), 401
+            return _unauthorized_api('계정이 변경되었습니다. 다시 로그인해주세요.')
+        session.clear()
         return redirect(url_for('auth.login', timeout=1))
 
 
@@ -87,16 +104,28 @@ def check_login():
         if not session.get('logged_in'):
             # 백엔드 API 요청인 경우 401 인증 에러 반환
             if request.path.startswith('/api/'):
-                return jsonify({"error": "Unauthorized"}), 401
+                return _unauthorized_api()
             # 일반 페이지 접근은 로그인 화면으로 리다이렉트
             return redirect(url_for('auth.login'))
+
+        # 같은 브라우저의 다른 탭에서 로그인 계정이 바뀌어도 이전 화면의 내용을
+        # 새 계정에 저장하지 않는다. 헤더가 없는 기존 API 클라이언트는 호환한다.
+        expected_user_id = request.headers.get('X-Journal-User-ID')
+        if (request.path.startswith('/api/') and expected_user_id is not None
+                and expected_user_id != str(session.get('user_id'))):
+            response = jsonify(error='로그인 계정이 변경되어 화면을 다시 불러옵니다.',
+                               errorCode='ACCOUNT_CHANGED')
+            response.status_code = 409
+            response.headers['X-Journal-Account-Changed'] = '1'
+            response.headers['Cache-Control'] = 'no-store'
+            return response
 
         # ⭐️ 로그인 시점에 확정된 절대 만료 시각(expires_at)이 지나면 활동 여부와 무관하게 무조건 세션 파기
         #    (만료 정보가 없는 구버전 세션도 즉시 만료 처리하여 재로그인 유도)
         if time.time() > session.get('expires_at', 0):
-            session.clear()
             if request.path.startswith('/api/'):
-                return jsonify({"error": "Unauthorized"}), 401
+                return _unauthorized_api()
+            session.clear()
             return redirect(url_for('auth.login', timeout=1))
 
         sess_user = session.get('username')
@@ -112,13 +141,19 @@ def check_login():
         with db_conn() as conn:
             owner = conn.execute('SELECT id,is_allowed,session_epoch FROM users WHERE username=?',
                                  (sess_user,)).fetchone()
+        # 복원 등 다른 변경의 잠금을 기다리는 동안 절대 만료 시각이 지날 수 있다.
+        # 그 요청으로 /api/ping을 실행해 만료된 세션을 다시 연장하지 못하게 한다.
+        if time.time() > session.get('expires_at', 0):
+            if request.path.startswith('/api/'):
+                return _unauthorized_api()
+            session.clear()
+            return redirect(url_for('auth.login', timeout=1))
         if (owner is None or not owner['is_allowed'] or session.get('user_id') != owner['id']
                 or session.get('epoch', 0) != (owner['session_epoch'] or 0)):
-            session.clear()
             if request.path.startswith('/api/'):
-                return jsonify(error='계정이 변경되었습니다. 다시 로그인해주세요.'), 401
+                return _unauthorized_api('계정이 변경되었습니다. 다시 로그인해주세요.')
+            session.clear()
             return redirect(url_for('auth.login', timeout=1))
-        session['user_id'] = owner['id']
         from app.services.restore_recovery import assert_account_ready
         assert_account_ready(sess_user)
         g.account_identity = (sess_user, owner['id'])
@@ -358,11 +393,19 @@ def request_password_reset():
 
 @bp.route('/logout')
 def logout():
-    session.pop('logged_in', None)
-    session.pop('username', None)  # ⭐️ 로그아웃 시 계정 정보 완벽 파기
-    session.pop('is_admin', None)
-    session.pop('expires_at', None)
-    session.pop('keep_logged_in', None)
-    if request.args.get('timeout'):
-        return redirect(url_for('auth.login', timeout=1))
-    return redirect(url_for('auth.login'))
+    expected_user_id = request.args.get('user_id')
+    timed_out = bool(request.args.get('timeout'))
+    if ((expected_user_id is not None and session.get('logged_in')
+         and expected_user_id != str(session.get('user_id')))
+            or (timed_out and session.get('logged_in')
+                and time.time() <= session.get('expires_at', 0))):
+        # 옛 화면의 버튼/타이머가 새 계정 또는 이미 연장된 세션을 종료하지 않는다.
+        response = redirect(url_for('api.index'))
+    else:
+        session.clear()
+        if timed_out:
+            # 만료된 요청 이후 새 로그인이 완료되어도 늦은 삭제 쿠키를 보내지 않는다.
+            g.preserve_browser_session = True
+        response = redirect(url_for('auth.login', **({'timeout': 1} if timed_out else {})))
+    response.headers['Cache-Control'] = 'no-store'
+    return response

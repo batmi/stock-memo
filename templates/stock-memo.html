@@ -30,11 +30,14 @@
          라이브러리(js) 다운로드와 데이터 수신을 병렬화한다.
          script.js 의 loadDataFromLocal() 이 이 프라미스를 이어받아 사용한다. -->
     <script>
+        window.JOURNAL_USERNAME = {{ session.get('username', '') | tojson }};
+        window.JOURNAL_USER_ID = {{ session.get('user_id', '') | tojson }};
+        const initialAccountHeaders = { 'X-Journal-User-ID': String(window.JOURNAL_USER_ID) };
         window.__initialFetches = {
-            me: fetch('/api/me').catch(function () { return null; }),
-            pref: fetch('/api/preferences').catch(function () { return null; }),
-            data: fetch('/api/journal/meta').catch(function () { return null; }),
-            mappings: fetch('/api/mappings').catch(function () { return null; })
+            me: fetch('/api/me', { headers: initialAccountHeaders }).catch(function () { return null; }),
+            pref: fetch('/api/preferences', { headers: initialAccountHeaders }).catch(function () { return null; }),
+            data: fetch('/api/journal/meta', { headers: initialAccountHeaders }).catch(function () { return null; }),
+            mappings: fetch('/api/mappings', { headers: initialAccountHeaders }).catch(function () { return null; })
         };
         // 목록·포트폴리오·달력은 필터가 환경설정과 meta 에 달려 있어 스크립트가 돌아야 주소가
         // 정해진다. 그러면 meta 다음에 왕복이 한 번 더 들므로, 이 기기에서 지난번 첫 화면이
@@ -42,7 +45,7 @@
         try {
             JSON.parse(localStorage.getItem('journalInitialViews') || '[]').slice(0, 6).forEach(function (url) {
                 if (typeof url === 'string' && url.indexOf('/api/journal/') === 0) {
-                    window.__initialFetches['view:' + url] = fetch(url).catch(function () { return null; });
+                    window.__initialFetches['view:' + url] = fetch(url, { headers: initialAccountHeaders }).catch(function () { return null; });
                 }
             });
         } catch (e) { }
@@ -798,8 +801,6 @@
     <script>
         window.SESSION_EXPIRES_AT_MS = Number("{{ session_expires_at }}") * 1000;
         window.SESSION_KEEP_LOGGED_IN = "{{ 'true' if keep_logged_in else 'false' }}" === "true";
-        window.JOURNAL_USERNAME = {{ session.get('username', '') | tojson }};
-        window.JOURNAL_USER_ID = {{ session.get('user_id', '') | tojson }};
     </script>
 
     <!-- ⭐️ 외부 JS 파일 연결 -->

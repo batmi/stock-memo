@@ -319,7 +319,10 @@ def get_me():
             user = c.fetchone()
             if user:
                 admin_flag = bool(user['is_admin'])
-                session['is_admin'] = admin_flag  # 브라우저 세션에 즉각 갱신 반영
+                # 동일 값 재대입도 Set-Cookie를 만든다. 늦은 조회 응답이 연장된
+                # 쿠키를 옛 만료 시각으로 되돌리지 않도록 실제 변경만 반영한다.
+                if session.get('is_admin', False) != admin_flag:
+                    session['is_admin'] = admin_flag
                 bot_status = user['bot_status']
                 bot_last_seen = user['bot_last_seen']
                 must_change_password = bool(user['must_change_password'])
@@ -636,6 +639,55 @@ def change_password():
     })
 
 
+_PREFERENCE_FILTERS = frozenset({
+    'currentDashboardBroker', 'currentDashboardSubAccount', 'currentDashboardAccount',
+    'currentFilterRecordType', 'currentFilterStock', 'currentFilterAccount',
+    'currentFilterBroker', 'currentFilterSubAccount', 'currentChartStock',
+    'currentChartAccount', 'currentChartBroker', 'currentChartSubAccount',
+})
+_PREFERENCE_FLAGS = frozenset({'isDashboardCollapsed', 'showClosedPositions', 'showHistoryClosedPositions'})
+
+
+def _valid_preference(key, value):
+    if key in _PREFERENCE_FILTERS:
+        return isinstance(value, str) and len(value) <= 4096
+    if key in _PREFERENCE_FLAGS:
+        return isinstance(value, bool)
+    if key == 'defaultView':
+        return value in ('last', 'list', 'calendar', 'chart')
+    if key == 'currentMarketMode':
+        return value in ('KRX', 'AFT', 'NXT')
+    if key == 'portfolioOrder':
+        return (isinstance(value, list) and len(value) <= 10000
+                and all(isinstance(item, str) and len(item) <= 500 for item in value))
+    return True  # 이전 클라이언트·확장 기능의 정상 설정은 보존한다.
+
+
+def _normalized_preferences(value, *, strict=False, patch=False):
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    for key, item in value.items():
+        try:
+            json.dumps(item, allow_nan=False)
+            valid = (patch and item is None) or _valid_preference(key, item)
+        except (TypeError, ValueError, OverflowError):
+            valid = False
+        if valid:
+            result[key] = item
+        elif strict:
+            raise ValueError(f'{key}: 환경설정 값의 형식이 올바르지 않습니다.')
+    return result
+
+
+def _stored_preferences(row):
+    try:
+        value = json.loads(row['preferences']) if row and row['preferences'] else {}
+    except (ValueError, TypeError):
+        value = {}
+    return _normalized_preferences(value)
+
+
 @bp.route('/api/preferences', methods=['GET'])
 def get_preferences():
     username = session.get('username')
@@ -645,16 +697,12 @@ def get_preferences():
         c = conn.cursor()
         c.execute("SELECT preferences FROM users WHERE username = ?", (username,))
         row = c.fetchone()
-    prefs = {}
-    if row and row['preferences']:
-        try:
-            prefs = json.loads(row['preferences'])
-        except Exception:
-            pass
-    return jsonify(prefs)
+    response = jsonify(_stored_preferences(row))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
-@bp.route('/api/preferences', methods=['POST'])
+@bp.route('/api/preferences', methods=['POST', 'PATCH'])
 def save_preferences():
     username = session.get('username')
     if not username:
@@ -662,8 +710,21 @@ def save_preferences():
     prefs = _json_object()
     if prefs is None:
         return _bad_body()
+    try:
+        prefs = _normalized_preferences(prefs, strict=True, patch=request.method == 'PATCH')
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
     with db_conn(write=True) as conn:
         c = conn.cursor()
+        if request.method == 'PATCH':
+            # 다른 탭이 바꾼 칸을 보존한다. 읽기와 병합·쓰기는 같은 쓰기 잠금 안이다.
+            current = _stored_preferences(c.execute('SELECT preferences FROM users WHERE username=?', (username,)).fetchone())
+            for key, value in prefs.items():
+                if value is None:
+                    current.pop(key, None)
+                else:
+                    current[key] = value
+            prefs = current
         c.execute("UPDATE users SET preferences = ? WHERE username = ?", (json.dumps(prefs), username))
         conn.commit()
     return jsonify({"status": "success"})

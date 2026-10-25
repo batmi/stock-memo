@@ -9,7 +9,7 @@ from playwright.sync_api import expect
 from app.database.db import db_conn
 from app.services import entries
 from helpers import _buy
-from test_editor_table import BASE_URL, USER_ID, _login
+from test_editor_table import BASE_URL, USER_ID, USER_PW, _login
 from test_journal_frontend import journal_data as journal_data, live_server as live_server
 
 
@@ -146,7 +146,7 @@ def test_last_screen_and_fixed_start_screen_are_distinct(page):
     expect(page.locator('#btnCalendarView')).to_have_class(re.compile(r'\bactive\b'))
     _open(page)
     with page.expect_response(lambda response: '/api/preferences' in response.url
-                              and response.request.method == 'POST') as save:
+                              and response.request.method == 'PATCH') as save:
         page.locator('#accountMenuDefaultView').select_option('chart')
     assert save.value.ok
     page.keyboard.press('Escape')
@@ -157,12 +157,17 @@ def test_last_screen_and_fixed_start_screen_are_distinct(page):
     _open(page)
     expect(page.locator('#accountMenuDefaultView')).to_have_value('chart')
     with page.expect_response(lambda response: '/api/preferences' in response.url
-                              and response.request.method == 'POST'):
+                              and response.request.method == 'PATCH'):
         page.locator('#accountMenuDefaultView').select_option('last')
     page.keyboard.press('Escape')
-    page.locator('#btnListView').click()
+    # 고정 시작 화면으로 자동 복원한 차트도 마지막으로 본 화면이어야 한다.
+    # 복원 전에 수동 선택했던 리스트로 되돌아가면 안 된다.
     page.reload()
-    expect(page.locator('#btnListView')).to_have_class(re.compile(r'\bactive\b'))
+    expect(page.locator('#btnChartView')).to_have_class(re.compile(r'\bactive\b'))
+    expect(page.locator('#monthlyChartSection')).to_be_visible()
+    page.locator('#btnCalendarView').click()
+    page.reload()
+    expect(page.locator('#btnCalendarView')).to_have_class(re.compile(r'\bactive\b'))
 
 
 def test_start_screen_setting_preserves_other_preferences(page):
@@ -173,7 +178,7 @@ def test_start_screen_setting_preserves_other_preferences(page):
     _ready(page)
     _open(page)
     with page.expect_response(lambda response: '/api/preferences' in response.url
-                              and response.request.method == 'POST') as save:
+                              and response.request.method == 'PATCH') as save:
         page.locator('#accountMenuDefaultView').select_option('calendar')
     assert save.value.ok
     saved = page.request.get(BASE_URL + '/api/preferences').json()
@@ -205,14 +210,14 @@ def test_start_screen_cannot_overwrite_unavailable_preferences(page):
     expect(page.locator('#historyList .entry-card')).to_have_count(15)
     _open(page)
     expect(page.locator('#accountMenuDefaultView')).to_be_disabled()
-    assert 'POST' not in requests
+    assert not {'POST', 'PATCH'} & set(requests)
 
 
 def test_start_screen_save_failure_restores_selection_and_allows_retry(page):
     _ready(page)
     _open(page)
     def reject_write(route):
-        if route.request.method == 'POST':
+        if route.request.method in ('POST', 'PATCH'):
             route.fulfill(status=503, json={'error': 'temporary'})
         else:
             route.continue_()
@@ -224,12 +229,58 @@ def test_start_screen_save_failure_restores_selection_and_allows_retry(page):
     expect(page.locator('#accountMenuStatus')).not_to_be_empty()
     page.unroute('**/api/preferences', reject_write)
     with page.expect_response(lambda response: '/api/preferences' in response.url
-                              and response.request.method == 'POST') as save:
+                              and response.request.method == 'PATCH') as save:
         select.select_option('calendar')
     assert save.value.ok
     expect(select).to_have_value('calendar')
     page.reload()
     expect(page.locator('#btnCalendarView')).to_have_class(re.compile(r'\bactive\b'))
+
+
+def test_different_preferences_changed_in_two_tabs_are_both_preserved(page):
+    entries.create(USER_ID, _buy(id=1, qty=2, price=10000))
+    _ready(page)
+    other = page.context.new_page()
+    try:
+        other.route('**/api/news', lambda route: route.fulfill(json=[]))
+        other.route('**/api/current_price', lambda route: route.fulfill(json={}))
+        other.goto(BASE_URL + '/')
+        other.wait_for_function('() => preferencesLoaded')
+        _open(page)
+        with page.expect_response(lambda r: '/api/preferences' in r.url and r.request.method == 'PATCH'):
+            page.locator('#accountMenuDefaultView').select_option('chart')
+        with other.expect_response(lambda r: '/api/preferences' in r.url and r.request.method == 'PATCH'):
+            other.locator('#btnToggleClosed').click()
+        saved = page.request.get(BASE_URL + '/api/preferences').json()
+        assert saved['defaultView'] == 'chart'
+        assert saved['showClosedPositions'] is True
+    finally:
+        other.close()
+
+
+def test_old_account_screen_cannot_save_into_newly_logged_in_account(page):
+    from werkzeug.security import generate_password_hash
+
+    other_user = 'menuother'
+    original = {'defaultView': 'list', 'preserveOtherAccount': True}
+    with db_conn() as conn:
+        conn.execute('INSERT INTO users (username,password_hash,is_allowed,preferences) VALUES (?,?,1,?)',
+                     (other_user, generate_password_hash(USER_PW), json.dumps(original)))
+        conn.commit()
+    _ready(page)
+    _open(page)
+    # 별도 창에서 로그인한 것처럼 공용 쿠키만 바꾸고 기존 화면은 그대로 둔다.
+    response = page.request.post(BASE_URL + '/login', form={'username': other_user, 'password': USER_PW})
+    assert response.ok
+    with page.expect_response(lambda r: '/api/preferences' in r.url and r.request.method == 'PATCH') as save:
+        page.locator('#accountMenuDefaultView').select_option('chart')
+    assert save.value.status == 409
+    assert save.value.headers.get('x-journal-account-changed') == '1'
+    expect(page.locator('#loggedInUserDisplay')).to_contain_text(other_user)
+    with db_conn() as conn:
+        actual = conn.execute('SELECT preferences FROM users WHERE username=?', (other_user,)).fetchone()[0]
+        assert json.loads(actual) == original
+        assert conn.execute('SELECT preferences FROM users WHERE username=?', (USER_ID,)).fetchone()[0] is None
 
 
 def test_session_extension_updates_menu_and_failure_is_retryable(page):

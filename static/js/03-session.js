@@ -28,8 +28,12 @@ function sessionError(message, code) {
     return Object.assign(new Error(message), { code });
 }
 
+window.getSessionLogoutUrl = function(timedOut = false) {
+    return `/logout?${timedOut ? 'timeout=1&' : ''}user_id=${encodeURIComponent(SESSION_PAGE_USER_ID)}`;
+};
+
 function rejectExpiredSession() {
-    window.location.href = '/logout?timeout=1';
+    window.location.href = window.getSessionLogoutUrl(true);
     return sessionError('로그인 시간이 만료되었습니다. 다시 로그인해주세요.', 'SESSION_EXPIRED');
 }
 
@@ -67,16 +71,34 @@ function applyServerSession(data) {
 
 async function sessionResponse(response) {
     if (response.status === 401) throw rejectExpiredSession();
-    if (!response.ok) throw sessionError('세션을 확인하지 못했습니다. 잠시 후 다시 시도해주세요.', 'SESSION_REQUEST_FAILED');
+    if (!response.ok) {
+        let data;
+        try { data = await response.json(); } catch (_) { /* 오류 본문이 없을 수 있다. */ }
+        if (response.status === 409 && (data?.errorCode === 'ACCOUNT_CHANGED'
+                || response.headers?.get('X-Journal-Account-Changed') === '1')) {
+            window.location.href = '/';
+            throw sessionError('로그인 계정이 변경되어 화면을 다시 불러옵니다.', 'ACCOUNT_CHANGED');
+        }
+        throw sessionError('세션을 확인하지 못했습니다. 잠시 후 다시 시도해주세요.', 'SESSION_REQUEST_FAILED');
+    }
     try { return await response.json(); }
     catch (_) { throw sessionError('세션 응답을 확인하지 못했습니다. 잠시 후 다시 시도해주세요.', 'INVALID_SESSION'); }
 }
 
 async function requestSession(url, options) {
     try { return await fetchWithTimeout(url, options); }
-    catch (_) {
+    catch (error) {
+        if (error.code === 'ACCOUNT_CHANGED') throw error;
         throw sessionError('서버에 연결하지 못했습니다. 연결 상태를 확인한 후 다시 시도해주세요.', 'SESSION_REQUEST_FAILED');
     }
+}
+
+async function requestCurrentSession(url, options, isCurrent = () => true) {
+    const response = await requestSession(url, options);
+    // 비밀번호 변경/다른 탭 로그인 전에 시작된 요청의 늦은 401일 수 있다.
+    // 브라우저에 현재 저장된 쿠키로 같은 요청을 한 번만 다시 확인한다.
+    if (response.status === 401 && isCurrent()) return requestSession(url, options);
+    return response;
 }
 
 window.extendCurrentSession = function() {
@@ -87,7 +109,7 @@ window.extendCurrentSession = function() {
     // 연장 전에 시작된 /api/me 응답이 뒤늦게 와도 새 만료 시각을 되돌리지 않는다.
     sessionStateVersion += 1;
     sessionExtensionRequest = (async () => {
-        const response = await requestSession('/api/ping', { method: 'POST', cache: 'no-store' });
+        const response = await requestCurrentSession('/api/ping', { method: 'POST', cache: 'no-store' });
         const data = await sessionResponse(response);
         if (data?.status !== 'success') throw sessionError('로그인 시간을 연장하지 못했습니다.', 'INVALID_SESSION');
         const state = applyServerSession(data);
@@ -102,7 +124,7 @@ function syncCurrentSession() {
     if (sessionSyncRequest) return sessionSyncRequest;
     const version = sessionStateVersion;
     sessionSyncRequest = (async () => {
-        const response = await requestSession('/api/me', { cache: 'no-store' });
+        const response = await requestCurrentSession('/api/me', { cache: 'no-store' }, () => version === sessionStateVersion);
         if (version !== sessionStateVersion) return window.getSessionState();
         const data = await sessionResponse(response);
         if (version !== sessionStateVersion) return window.getSessionState();
@@ -115,8 +137,7 @@ function checkSessionDeadline() {
     // 숨겨진 탭의 옛 타이머로 다른 탭에서 연장한 공용 쿠키를 지우지 않는다.
     if (document.visibilityState === 'hidden') return;
     syncCurrentSession().catch(error => {
-        if (error.code !== 'ACCOUNT_CHANGED' && Date.now() >= sessionExpiresAtMs) rejectExpiredSession();
-        else console.warn('세션 상태 확인 실패', error);
+        if (!['ACCOUNT_CHANGED', 'SESSION_EXPIRED'].includes(error.code)) console.warn('세션 상태 확인 실패', error);
     });
 }
 
@@ -173,8 +194,7 @@ document.addEventListener('visibilitychange', async () => {
         await syncCurrentSession();
         if (window.__dataLoadFailed) loadDataFromLocal();
     } catch (error) {
-        if (error.code !== 'ACCOUNT_CHANGED' && Date.now() >= sessionExpiresAtMs) rejectExpiredSession();
-        else console.warn('세션 상태 확인 실패', error);
+        if (!['ACCOUNT_CHANGED', 'SESSION_EXPIRED'].includes(error.code)) console.warn('세션 상태 확인 실패', error);
     }
 });
 

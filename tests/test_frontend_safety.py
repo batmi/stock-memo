@@ -2,10 +2,11 @@
 
 import json
 
+import pytest
 from playwright.sync_api import expect
 
 from app.services import entries
-from helpers import _buy
+from helpers import _buy, _insert_raw
 from test_editor_table import BASE_URL, USER_ID, USER_PW
 from test_journal_frontend import ready, journal_data as journal_data, live_server as live_server
 
@@ -144,6 +145,30 @@ def test_calendar_navigation_does_not_skip_february(page):
     expect(page.locator('#calendarMonthTitle')).to_have_text('2026년 2월')
     page.evaluate('currentDate = new Date(2026, 0, 31); shiftCalendarMonth(1)')
     expect(page.locator('#calendarMonthTitle')).to_have_text('2026년 2월')
+
+
+@pytest.mark.parametrize('view_button', ['btnChartView', 'btnCalendarView'])
+def test_review_notice_opens_visible_list_and_remembers_view(page, view_button):
+    _insert_raw(USER_ID, id=1, stockName='검토종목', stockCode='005930', tradeType='매수',
+                quantity=10, price=100, rawDate='2026-10-03T09:00', needsReview=1,
+                reviewReason='체결 정보 확인 필요')
+    ready(page)
+    page.locator(f'#{view_button}').click()
+    expect(page.locator('#historyList')).not_to_be_visible()
+    notice = page.locator('#reviewNoticeBar .review-notice-btn')
+    expect(notice).to_be_visible()
+    history_requests = []
+    page.on('request', lambda request: history_requests.append(request.url)
+            if '/api/journal/entries?' in request.url else None)
+    notice.click()
+    expect(page.locator('#historyList')).to_be_visible()
+    expect(page.locator('#historyList .entry-card')).to_have_count(1)
+    expect(page.locator('#historyList')).to_contain_text('검토종목')
+    expect(page.locator('#activeFilterBanner')).to_contain_text('검토 필요만')
+    expect(page.locator('#calendarViewSection')).not_to_be_visible()
+    expect(page.locator('#monthlyChartSection')).not_to_be_visible()
+    assert page.evaluate("localStorage.getItem('journalLastView:' + JOURNAL_USER_ID)") == 'list'
+    assert len(history_requests) == 1
 
 
 def test_old_restore_preview_cannot_replace_latest_selected_file(page):

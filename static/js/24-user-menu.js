@@ -83,7 +83,9 @@
         if (!views.includes(view)) {
             try { view = localStorage.getItem(lastViewKey); } catch (e) { }
         }
-        window.setJournalView(views.includes(view) ? view : 'list', { render: false, remember: false });
+        // 고정 시작 화면도 실제로 표시한 마지막 화면이다. 이후 '마지막 화면'으로
+        // 전환할 때 이전에 수동 선택했던 화면으로 돌아가지 않도록 함께 기록한다.
+        window.setJournalView(views.includes(view) ? view : 'list', { render: false });
     };
 
     trigger.addEventListener('click', () => panel.hidden ? open() : close());

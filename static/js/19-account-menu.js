@@ -510,7 +510,7 @@ if (btnChangePassword && passwordModalOverlay) {
                 if (data.api_keys_revoked) extra = `\nAPI 키 ${data.api_keys_revoked}개를 폐기했습니다.`;
                 else if (data.api_keys_remaining) extra = `\n※ API 키 ${data.api_keys_remaining}개는 그대로 유효합니다. 유출이 의심되면 HTS 연동 메뉴에서 폐기하세요.`;
                 await customAlert("비밀번호가 성공적으로 변경되었습니다.\n다른 기기의 로그인은 모두 해제되었습니다." + extra + "\n\n새로운 비밀번호로 다시 로그인해주세요.");
-                window.location.href = '/logout'; // 로그아웃 처리하여 새 비번으로 로그인 유도
+                window.location.href = window.getSessionLogoutUrl(); // 안내 중 다른 탭에서 로그인한 계정은 보존한다.
             } else {
                 submitBtn.innerText = origText;
                 submitBtn.disabled = false;

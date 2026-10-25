@@ -218,7 +218,11 @@ document.getElementById('inlineStatsContainer')?.addEventListener('click', async
     const note = document.querySelector(`[data-stats-note="${Number(noteButton.dataset.statsEntry)}"]`);
     note.hidden = !note.hidden;
     noteButton.textContent = note.hidden ? '메모 보기' : '메모 닫기';
-    if (note.hidden || note.dataset.loaded) return;
+    if (note.hidden) return;
+    // 표 오른쪽의 버튼을 누른 뒤 왼쪽에서 시작하는 메모를 바로 읽을 수 있게 한다.
+    const tableWrap = note.closest('.stats-table-wrap');
+    if (tableWrap) tableWrap.scrollLeft = 0;
+    if (note.dataset.loaded) return;
     const body = note.firstElementChild;
     body.textContent = '메모를 불러오는 중...';
     try {
