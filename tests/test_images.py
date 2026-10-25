@@ -3,6 +3,7 @@
 대상: images.py 와 그 1회성 마이그레이션.
 """
 
+from app.services.users import user_dir as account_storage_dir
 import re
 import time
 
@@ -52,10 +53,11 @@ def test_process_image_edge_cases():
 # ─────────────────────────────────────────────────────────────
 # ⭐️ 본문(thoughts) 내장 base64 이미지 → 파일 추출 (초기 로딩 최적화)
 # ─────────────────────────────────────────────────────────────
-def test_extract_inline_images(monkeypatch, tmp_path):
+def test_extract_inline_images(app, monkeypatch, tmp_path):
     """base64 이미지가 파일로 저장되고 src 가 /uploads/ URL 로 치환된다."""
     import base64 as b64
     monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path))
+    _ensure_user('tester')
 
     raw = b'\x89PNG-fake-image-bytes'
     encoded = b64.b64encode(raw).decode()
@@ -66,7 +68,8 @@ def test_extract_inline_images(monkeypatch, tmp_path):
     assert 'data:image' not in out['thoughts']
     m = re.search(r'src="/uploads/tester/(qimg_\w+\.png)"', out['thoughts'])
     assert m, out['thoughts']
-    saved = tmp_path / 'tester' / m.group(1)
+    from pathlib import Path
+    saved = Path(account_storage_dir(config.UPLOAD_FOLDER, 'tester')) / m.group(1)
     assert saved.read_bytes() == raw
     # 원본 dict 는 변형하지 않는다 (복사본 반환)
     assert 'data:image' in entry['thoughts']
@@ -113,6 +116,7 @@ def test_create_entry_extracts_inline_images(client, monkeypatch, tmp_path):
 def test_migrate_inline_images(app, monkeypatch, tmp_path):
     """기존 DB 의 base64 본문이 일괄 추출되고, 사전 DB 백업본이 생성된다."""
     import base64 as b64
+    _ensure_user('legacy')
     monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path / 'up'))
     backup_dir = tmp_path / 'bak'
     backup_dir.mkdir()
@@ -152,7 +156,9 @@ def test_extract_inline_images_exception(monkeypatch, tmp_path):
         assert out['thoughts'] == broken['thoughts']
 
 
-def test_process_image_base64(monkeypatch, tmp_path):
+def test_process_image_base64(app, monkeypatch, tmp_path):
+    from pathlib import Path
+    _ensure_user('trader')
     monkeypatch.setattr(config, 'UPLOAD_FOLDER', str(tmp_path))
     
     import base64
@@ -163,12 +169,12 @@ def test_process_image_base64(monkeypatch, tmp_path):
     # 첨부 라우트(/uploads/<user>/<file>)가 서빙할 수 있도록 사용자 폴더에 저장한다.
     res = images.process_image('trader', f"data:image/png;base64,{encoded}", 99)
     assert res == "/uploads/trader/img_99.png"
-    assert (tmp_path / "trader" / "img_99.png").read_bytes() == raw
+    assert (Path(account_storage_dir(config.UPLOAD_FOLDER, 'trader')) / 'img_99.png').read_bytes() == raw
 
     # Test jpg
     res2 = images.process_image('trader', f"data:image/jpeg;base64,{encoded}", 100)
     assert res2 == "/uploads/trader/img_100.jpg"
-    assert (tmp_path / "trader" / "img_100.jpg").read_bytes() == raw
+    assert (Path(account_storage_dir(config.UPLOAD_FOLDER, 'trader')) / 'img_100.jpg').read_bytes() == raw
 
     # 경로 문자가 섞인 id 는 걸러져 사용자 폴더를 벗어나지 않는다.
     res3 = images.process_image('trader', f"data:image/png;base64,{encoded}", '../../x')
@@ -184,7 +190,7 @@ _PNG = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAD
 
 def _upload_files(username):
     import os
-    folder = os.path.join(config.UPLOAD_FOLDER, username)
+    folder = account_storage_dir(config.UPLOAD_FOLDER, username)
     return sorted(os.listdir(folder)) if os.path.isdir(folder) else []
 
 
@@ -275,7 +281,7 @@ def test_bot_delete_and_patch_release_unused_images(client):
     from helpers import _insert_raw
 
     _login_as(client, 'imgbot')
-    folder = os.path.join(config.UPLOAD_FOLDER, 'imgbot')
+    folder = account_storage_dir(config.UPLOAD_FOLDER, 'imgbot')
     os.makedirs(folder, exist_ok=True)
     for name in ('a.png', 'b.png'):
         open(os.path.join(folder, name), 'wb').close()

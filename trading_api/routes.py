@@ -96,7 +96,7 @@ def auth_token():
     with db_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "SELECT k.id, k.username, k.scopes, k.revoked_at, u.is_allowed "
+            "SELECT k.id, k.username, k.scopes, k.revoked_at, u.is_allowed, u.must_change_password "
             "FROM api_keys k LEFT JOIN users u ON u.username = k.username "
             "WHERE k.key_hash = ?",
             (_hash_key(api_key.strip()),))
@@ -106,6 +106,8 @@ def auth_token():
         return _err(401, 'INVALID_API_KEY', '유효하지 않은 API 키입니다.')
     if not row['is_allowed']:
         return _account_disabled()
+    if row['must_change_password']:
+        return _err(403, 'PASSWORD_CHANGE_REQUIRED', '웹에서 새 비밀번호를 먼저 설정해주세요.')
 
     token = _serializer().dumps({'u': row['username'], 'k': row['id']})
     return jsonify({

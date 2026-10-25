@@ -11,7 +11,7 @@
 
 import time
 
-from flask import (Blueprint, jsonify, redirect, render_template, request,
+from flask import (Blueprint, current_app, jsonify, redirect, render_template, request,
                    session, url_for, g)
 from flask.sessions import SecureCookieSessionInterface
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -81,6 +81,8 @@ def register(app):
     # ⭐️ 블루프린트가 아니라 앱에 건다. 정적 파일·업로드·봇 API 를 포함한
     #    모든 요청이 이 검사를 지나야 하기 때문이다.
     app.before_request(check_login)
+    from app.routes import csrf
+    csrf.register(app)
     from app.routes.ownership import release_request
     app.teardown_request(release_request)
     from werkzeug.exceptions import Unauthorized
@@ -139,7 +141,7 @@ def check_login():
             else:
                 lock_request(sess_user)
         with db_conn() as conn:
-            owner = conn.execute('SELECT id,is_allowed,session_epoch FROM users WHERE username=?',
+            owner = conn.execute('SELECT id,is_allowed,session_epoch,must_change_password FROM users WHERE username=?',
                                  (sess_user,)).fetchone()
         # 복원 등 다른 변경의 잠금을 기다리는 동안 절대 만료 시각이 지날 수 있다.
         # 그 요청으로 /api/ping을 실행해 만료된 세션을 다시 연장하지 못하게 한다.
@@ -158,6 +160,13 @@ def check_login():
         assert_account_ready(sess_user)
         g.account_identity = (sess_user, owner['id'])
         g.account_epoch = owner['session_epoch'] or 0
+        g.must_change_password = bool(owner['must_change_password'])
+        if g.must_change_password and request.endpoint not in {
+                'auth.change_required', 'api.change_password', 'api.get_me', 'static'}:
+            if request.path.startswith('/api/'):
+                return jsonify(error='새 비밀번호를 먼저 설정해주세요.',
+                               errorCode='PASSWORD_CHANGE_REQUIRED'), 403
+            return redirect(url_for('auth.change_required'))
     elif request.endpoint in ('auth.signup', 'auth.login') and request.method == 'POST':
         from app.routes.ownership import lock_request
         lock_request((request.form.get('username') or '').strip())
@@ -234,6 +243,8 @@ def login():
                     ratelimit.clear_user_failures(username)
                     # ⭐️ 이전 세션에 남아 있던 값을 물려받지 않도록 비우고 시작한다.
                     session.clear()
+                    from app.routes.csrf import csrf_token
+                    csrf_token()
                     # ⭐️ "로그인 유지" 선택 여부에 따라 절대 만료 시각 확정
                     #   - 미선택: 1시간 뒤 만료(사용 중이면 연장 팝업으로 1시간씩 연장 가능) + 브라우저 완전 종료 시에도 만료(세션 쿠키)
                     #   - 선택: 24시간 뒤 무조건 만료(연장 없음), 브라우저를 닫아도 유지(영구 쿠키)
@@ -391,7 +402,14 @@ def request_password_reset():
     return neutral, 200
 
 
-@bp.route('/logout')
+@bp.get('/change-required')
+def change_required():
+    if not g.must_change_password:
+        return redirect(url_for('api.index'))
+    return render_template('change_password.html')
+
+
+@bp.route('/logout', methods=['GET', 'POST'])
 def logout():
     expected_user_id = request.args.get('user_id')
     timed_out = bool(request.args.get('timeout'))
@@ -401,6 +419,8 @@ def logout():
                 and time.time() <= session.get('expires_at', 0))):
         # 옛 화면의 버튼/타이머가 새 계정 또는 이미 연장된 세션을 종료하지 않는다.
         response = redirect(url_for('api.index'))
+    elif request.method == 'GET' and not timed_out:
+        response = current_app.make_response(render_template('logout.html', user_id=expected_user_id))
     else:
         session.clear()
         if timed_out:

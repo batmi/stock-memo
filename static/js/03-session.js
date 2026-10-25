@@ -32,6 +32,19 @@ window.getSessionLogoutUrl = function(timedOut = false) {
     return `/logout?${timedOut ? 'timeout=1&' : ''}user_id=${encodeURIComponent(SESSION_PAGE_USER_ID)}`;
 };
 
+window.logoutCurrentSession = function() {
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = window.getSessionLogoutUrl();
+    const token = document.createElement('input');
+    token.type = 'hidden';
+    token.name = 'csrf_token';
+    token.value = window.JOURNAL_CSRF_TOKEN;
+    form.appendChild(token);
+    document.body.appendChild(form);
+    form.submit();
+};
+
 function rejectExpiredSession() {
     window.location.href = window.getSessionLogoutUrl(true);
     return sessionError('로그인 시간이 만료되었습니다. 다시 로그인해주세요.', 'SESSION_EXPIRED');

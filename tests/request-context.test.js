@@ -11,7 +11,7 @@ const origin = 'https://journal.example';
 function setup(respond = () => new Response('ok')) {
     const calls = [], redirects = [], timers = new Map();
     const context = vm.createContext({
-        JOURNAL_USER_ID: 7, JOURNAL_USERNAME: 'alice',
+        JOURNAL_USER_ID: 7, JOURNAL_USERNAME: 'alice', JOURNAL_CSRF_TOKEN: 'session-bound-token',
         location: { href: origin + '/', origin, replace: value => redirects.push(value) },
         document: { documentElement: { classList: { contains: () => false } } },
         addEventListener() {}, console, URL, Request, Response, Headers, AbortController,
@@ -40,6 +40,20 @@ test('문자열·URL·Request의 내부 API 요청에 페이지 계정을 넣고
     assert.equal(await h.calls[0].request.text(), '{"defaultView":"chart"}');
     assert.equal(h.calls[2].request.headers.get('X-Custom'), 'retained');
     assert.equal(headers['X-Journal-User-ID'], '999');
+});
+
+test('CSRF 토큰은 같은 출처 웹 API의 변경 요청에만 붙인다', async () => {
+    const h = setup();
+    await h.context.fetch('/api/preferences', { method: 'PATCH', body: '{}' });
+    await h.context.fetch(new Request(origin + '/api/account', { method: 'DELETE' }));
+    await h.context.fetch(new Request(origin + '/api/ping'), { method: 'POST' });
+    await h.context.fetch('/api/me');
+    await h.context.fetch('https://other.example/api/entry', { method: 'POST' });
+    await h.context.fetch('/api/v1/auth/token', { method: 'POST' });
+    for (const { request } of h.calls.slice(0, 3)) {
+        assert.equal(request.headers.get('X-CSRF-Token'), 'session-bound-token');
+    }
+    for (const { request } of h.calls.slice(3)) assert.equal(request.headers.get('X-CSRF-Token'), null);
 });
 
 test('Request 본문·메서드·credentials·signal·keepalive는 변경하지 않는다', async () => {
@@ -165,7 +179,8 @@ test('head의 모든 초기 요청은 bundle 로드 전부터 페이지 계정 �
     let initial = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
         .map(match => match[1]).find(script => script.includes('window.__initialFetches ='));
     initial = initial.replace("{{ session.get('username', '') | tojson }}", '"alice"')
-        .replace("{{ session.get('user_id', '') | tojson }}", '7');
+        .replace("{{ session.get('user_id', '') | tojson }}", '7')
+        .replace('{{ csrf_token() | tojson }}', '"session-bound-token"');
     const calls = [];
     const context = vm.createContext({
         localStorage: { getItem: () => JSON.stringify(['/api/journal/entries?limit=15']) },

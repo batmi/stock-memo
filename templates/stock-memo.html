@@ -32,6 +32,7 @@
     <script>
         window.JOURNAL_USERNAME = {{ session.get('username', '') | tojson }};
         window.JOURNAL_USER_ID = {{ session.get('user_id', '') | tojson }};
+        window.JOURNAL_CSRF_TOKEN = {{ csrf_token() | tojson }};
         const initialAccountHeaders = { 'X-Journal-User-ID': String(window.JOURNAL_USER_ID) };
         window.__initialFetches = {
             me: fetch('/api/me', { headers: initialAccountHeaders }).catch(function () { return null; }),

@@ -3,6 +3,7 @@
 대상: middleware.py 와 backend_app 의 정적 자산 라우팅.
 """
 
+from app.services.users import user_dir as account_storage_dir
 import gzip
 import io
 import os
@@ -23,7 +24,7 @@ from helpers import _user_id, _ensure_user
 @pytest.mark.parametrize('suffix', ['', '?v=1'])
 def test_private_uploads_never_get_public_cache_headers(client, tmp_path, suffix):
     _login_testuser(client)
-    folder = os.path.join(config.UPLOAD_FOLDER, 'testuser')
+    folder = account_storage_dir(config.UPLOAD_FOLDER, 'testuser')
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, 'private.txt'), 'w') as f:
         f.write('private attachment')
@@ -31,7 +32,7 @@ def test_private_uploads_never_get_public_cache_headers(client, tmp_path, suffix
     assert response.status_code == 200
     assert response.headers['Cache-Control'] == 'private, no-store'
     assert client.get('/uploads/another/private.txt' + suffix).status_code == 403
-    client.get('/logout')
+    client.post('/logout')
     response = client.get('/uploads/testuser/private.txt' + suffix)
     assert response.status_code != 200
     assert 'no-store' in response.headers['Cache-Control']

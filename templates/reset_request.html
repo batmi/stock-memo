@@ -72,7 +72,7 @@
                 try {
                     const res = await fetch('/request_password_reset', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': {{ csrf_token() | tojson }} },
                         body: JSON.stringify({ username: name, note: resetNote.value.trim() })
                     });
                     const data = await res.json().catch(() => ({}));

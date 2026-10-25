@@ -9,8 +9,9 @@
 import logging
 import os
 import shutil
+import time
 
-from flask import Blueprint, jsonify, session
+from flask import Blueprint, jsonify, request, session
 from werkzeug.security import generate_password_hash
 
 import config
@@ -78,6 +79,7 @@ def admin_delete_user(target_username):
         if target_user and target_user['is_admin']:
             return jsonify({"error": "최고 관리자는 삭제할 수 없습니다."}), 400
 
+        user_folder = user_dir(config.UPLOAD_FOLDER, target_username)
         purge_account(c, target_username)
         conn.commit()
 
@@ -87,7 +89,6 @@ def admin_delete_user(target_username):
     # ⭐️ 경로는 반드시 user_dir() 로 조합한다. 예전에는 os.path.join 을 그대로 써서
     #    DELETE /api/admin/users/. 이 uploads 폴더 전체(모든 사용자 첨부)를,
     #    '..' 이 프로젝트 루트(DB·소스)를 rmtree 했다. 이름이 수상하면 None 이다.
-    user_folder = user_dir(config.UPLOAD_FOLDER, target_username)
     if user_folder and os.path.exists(user_folder):
         shutil.rmtree(user_folder)
 
@@ -120,6 +121,10 @@ def admin_toggle_allow(target_username):
 @bp.route('/api/admin/users/<target_username>/reset_password', methods=['POST'])
 @admin_required
 def admin_reset_password(target_username):
+    options = request.get_json(silent=True) if request.is_json else {}
+    if not isinstance(options, dict) or not isinstance(options.get('revoke_api_keys', True), bool):
+        return jsonify(error='API 키 폐기 여부는 true 또는 false여야 합니다.'), 400
+    revoke_api_keys = options.get('revoke_api_keys', True)
     # ⭐️ secrets 기반 12자리 임시 비밀번호 (예전 uuid4().hex[:8] 은 32비트뿐이었다)
     new_password = generate_temp_password(12)
     hashed_pw = generate_password_hash(new_password)
@@ -136,6 +141,11 @@ def admin_reset_password(target_username):
                   "WHERE username = ?", (hashed_pw, target_username))
         # 초기화도 '비밀번호가 바뀐 것'이므로 기존 세션을 전부 끊는다.
         bump_session_epoch(c, target_username)
+        revoked = 0
+        if revoke_api_keys:
+            c.execute('UPDATE api_keys SET revoked_at=? WHERE username=? AND revoked_at IS NULL',
+                      (time.strftime('%Y-%m-%d %H:%M:%S'), target_username))
+            revoked = c.rowcount
         # 처리한 재설정 요청은 요청함에서 내린다.
         c.execute("DELETE FROM password_reset_requests WHERE username = ?", (target_username,))
         conn.commit()
@@ -144,4 +154,4 @@ def admin_reset_password(target_username):
     log.info(f"🔑 관리자 비밀번호 초기화: username='{target_username}' "
                     f"(by {session.get('username')})")
 
-    return jsonify({"status": "success", "new_password": new_password})
+    return jsonify({"status": "success", "new_password": new_password, "api_keys_revoked": revoked})

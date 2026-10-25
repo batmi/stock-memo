@@ -134,6 +134,8 @@ def main():
     parser.add_argument('--make-admin', action='store_true',
                         help='관리자 권한(is_admin=1)까지 부여 (권한을 잃었을 때만)')
     parser.add_argument('--list', action='store_true', help='계정 목록만 출력하고 종료')
+    parser.add_argument('--keep-api-keys', action='store_true',
+                        help='기존 API 키를 보존 (계정 침해 복구 시에는 사용하지 마세요)')
     args = parser.parse_args()
 
     conn = connect(args.db)
@@ -160,8 +162,9 @@ def main():
 
     # is_allowed 는 명시적으로 요청할 때만 건드린다. 관리자가 의도적으로 막아 둔
     # 계정을 비밀번호 초기화라는 이름으로 슬그머니 열어 주면 안 된다.
-    sets = ["password_hash = ?"]
-    values = [generate_password_hash(password)]
+    sets = ["password_hash = ?", "session_epoch = COALESCE(session_epoch, 0) + 1",
+            "must_change_password = ?"]
+    values = [generate_password_hash(password), int(args.random)]
     unlocked = bool(args.unlock and not target['is_allowed'])
     promoted = bool(args.make_admin and not target['is_admin'])
     if unlocked:
@@ -174,13 +177,18 @@ def main():
         plan += " + 잠금 해제"
     if promoted:
         plan += " + 관리자 권한 부여"
+    plan += " + 기존 로그인 해제"
+    if not args.keep_api_keys:
+        plan += " + 모든 API 키 폐기(봇 재연결 필요)"
     if input(f"\n{plan}합니다. 진행할까요? (y/N): ").strip().lower() != 'y':
         sys.exit("[-] 사용자가 취소했습니다.")
 
     values.append(username)
     with conn:
-        conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE username = ?", values)
-    changed = conn.total_changes
+        changed = conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE username = ?", values).rowcount
+        if not args.keep_api_keys:
+            conn.execute('UPDATE api_keys SET revoked_at=? WHERE username=? AND revoked_at IS NULL',
+                         (time.strftime('%Y-%m-%d %H:%M:%S'), username))
     conn.close()
 
     if changed != 1:

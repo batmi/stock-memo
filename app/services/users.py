@@ -68,19 +68,23 @@ def generate_temp_password(length=12):
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 
-def user_dir(base, username):
-    """base/<username> 경로를 안전하게 조합한다. 이름이 수상하면 None.
-
-    ⭐️ 규칙 도입 이전에 만들어진 계정이 DB 에 남아 있을 수 있으므로, 경로를 쓰는
-       쪽에서도 한 번 더 막는다. (호출부는 None 이면 건너뛴다)
-    """
+def user_dir(base, username, *, user_id=None):
+    """사용자 ID로 파일을 격리한다. 대소문자·동일 이름 재가입도 폴더를 공유하지 않는다."""
     if not is_valid_username(username):
         log.warning(f"⚠️ 경로에 쓸 수 없는 사용자명이라 건너뜁니다: {username!r}")
         return None
-    path = os.path.normpath(os.path.join(base, username))
-    if os.path.commonpath([os.path.abspath(base), os.path.abspath(path)]) != os.path.abspath(base):
-        log.error(f"⚠️ 경로 탈출 시도 차단: {username!r}")
+    if user_id is None:
+        with db_conn() as conn:
+            row = conn.execute('SELECT id FROM users WHERE username=?', (username,)).fetchone()
+        if row is None:
+            return None
+        user_id = row['id']
+    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
         return None
+    path = os.path.join(base, '.users', str(user_id))
+    # 로컬에서 잘못 만들어진 링크를 따라 다른 계정의 파일에 접근하지 않는다.
+    if os.path.islink(os.path.join(base, '.users')) or os.path.islink(path):
+        raise ValueError('사용자 저장 폴더에 심볼릭 링크를 사용할 수 없습니다.')
     return path
 
 

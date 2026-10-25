@@ -3,6 +3,7 @@
 대상: jobs.py.
 """
 
+from app.services.users import user_dir as account_storage_dir
 import json
 import os
 import time
@@ -50,7 +51,7 @@ def test_auto_backup_job(mock_sleep, client, app, tmp_path, monkeypatch):
         
     client.post('/api/entry', json={"type": "buy", "stockName": "자동백업테스트", "price": 10000, "quantity": 1})
 
-    backup_dir = os.path.join(config.BACKUP_DIR, 'autobackupuser')
+    backup_dir = account_storage_dir(config.BACKUP_DIR, 'autobackupuser')
     os.makedirs(backup_dir, exist_ok=True)
     
     # 2. 7일이 지난 가짜 백업 파일 생성 (os.utime으로 수정 시간 조작)
@@ -143,7 +144,7 @@ def test_auto_backup_includes_account_mappings(mock_sleep, client, app, tmp_path
         except KeyboardInterrupt:
             pass
 
-    backup_dir = os.path.join(config.BACKUP_DIR, 'mapbackup')
+    backup_dir = account_storage_dir(config.BACKUP_DIR, 'mapbackup')
     zip_files = [f for f in os.listdir(backup_dir) if f.endswith('.zip')]
     assert len(zip_files) == 1
     with zipfile.ZipFile(os.path.join(backup_dir, zip_files[0])) as zf:
@@ -210,7 +211,7 @@ def test_auto_backup_job_with_uploads_and_errors(mock_sleep, client, app, tmp_pa
         
     client.post('/api/entry', json={"type": "buy", "stockName": "풀업테스트", "price": 10000, "quantity": 1})
     
-    upload_dir = os.path.join(config.UPLOAD_FOLDER, 'fullbackupuser')
+    upload_dir = account_storage_dir(config.UPLOAD_FOLDER, 'fullbackupuser')
     os.makedirs(upload_dir, exist_ok=True)
     with open(os.path.join(upload_dir, 'test_image.jpg'), 'w') as f:
         f.write("fake image data")
@@ -230,7 +231,7 @@ def test_auto_backup_job_with_uploads_and_errors(mock_sleep, client, app, tmp_pa
             except KeyboardInterrupt:
                 pass
                 
-    backup_dir = os.path.join(config.BACKUP_DIR, 'fullbackupuser')
+    backup_dir = account_storage_dir(config.BACKUP_DIR, 'fullbackupuser')
     zip_files = [f for f in os.listdir(backup_dir) if f.endswith('.zip')]
     assert len(zip_files) == 1
     with zipfile.ZipFile(os.path.join(backup_dir, zip_files[0]), 'r') as zf:

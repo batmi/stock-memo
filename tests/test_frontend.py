@@ -181,6 +181,8 @@ def _login(page: Page, username=ADMIN_ID, password=ADMIN_PW, *, navigate=True):
             f"'{username}' 로그인이 거부되었습니다 — 화면 문구: "
             f"{banner.inner_text().strip()!r}\n{_server_account_state(username)}")
     expect(dashboard).to_be_visible(timeout=5000)
+    # DOM이 보여도 defer 번들은 아직 실행 전일 수 있다. 실제 앱의 fetch를 사용한다.
+    page.wait_for_function("() => typeof window.logoutCurrentSession === 'function'", timeout=NAV_TIMEOUT_MS)
 
 
 def _signup(page: Page, username, password='Passw0rd!'):
@@ -476,6 +478,7 @@ def test_admin_table_has_no_horizontal_scroll(page: Page):
     ratelimit.reset_requests.reset()
     for _ in range(3):
         res = page.request.post(BASE_URL + '/request_password_reset',
+                                headers={'X-CSRF-Token': page.locator('input[name="csrf_token"]').input_value()},
                                 data={'username': long_name})
         assert res.ok, f"초기화 요청이 거부됐습니다: {res.status} {res.text()}"
 

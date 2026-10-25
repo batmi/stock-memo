@@ -1,5 +1,6 @@
 """구조 검토에서 발견한 저장·동시성·복원의 경계 사례."""
 
+from app.services.users import user_dir as account_storage_dir
 from concurrent.futures import ThreadPoolExecutor
 import io
 import json
@@ -128,7 +129,7 @@ def backup(entries_to_restore, mappings=None):
 def test_failed_mapping_restore_rolls_back_entries_and_attachments(client, monkeypatch):
     _login(client)
     entries.create('trader', {'id': 1, 'type': 'memo', 'title': 'old'})
-    folder = os.path.join(config.UPLOAD_FOLDER, 'trader')
+    folder = account_storage_dir(config.UPLOAD_FOLDER, 'trader')
     os.makedirs(folder, exist_ok=True)
     old_file = os.path.join(folder, 'old.png')
     with open(old_file, 'w') as f:
@@ -147,7 +148,7 @@ def test_failed_mapping_restore_rolls_back_entries_and_attachments(client, monke
 
 def test_app_can_restore_its_own_backup_larger_than_normal_upload_limit(client):
     _login(client)
-    folder = os.path.join(config.UPLOAD_FOLDER, 'trader')
+    folder = account_storage_dir(config.UPLOAD_FOLDER, 'trader')
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, 'large.jpg'), 'wb') as f:
         f.write(os.urandom(17 * 1024 * 1024))
@@ -230,7 +231,7 @@ def test_legacy_memo_with_null_numbers_can_still_be_edited(client):
 def test_restore_file_swap_failure_preserves_rows_files_and_mappings(client, monkeypatch):
     _login(client)
     entries.create('trader', {'id': 1, 'type': 'memo', 'title': 'old'})
-    folder = os.path.join(config.UPLOAD_FOLDER, 'trader')
+    folder = account_storage_dir(config.UPLOAD_FOLDER, 'trader')
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, 'old.png'), 'w') as f:
         f.write('old')
@@ -250,7 +251,7 @@ def test_restore_file_swap_failure_preserves_rows_files_and_mappings(client, mon
     assert [e['title'] for e in client.get('/api/data').json] == ['old']
     assert os.listdir(folder) == ['old.png']
     assert client.get('/api/mappings').json == old_mappings
-    assert os.listdir(config.UPLOAD_FOLDER) == ['trader']
+    assert os.listdir(config.UPLOAD_FOLDER) == ['.users']
 
 
 def test_restore_limit_does_not_relax_regular_json_limit(client, monkeypatch):

@@ -125,6 +125,7 @@
             TRADING JOURNAL
         </div>
         <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="text" name="username" placeholder="아이디를 입력하세요" required autofocus>
             <input type="password" name="password" placeholder="비밀번호를 입력하세요" required>
             <label class="keep-login">

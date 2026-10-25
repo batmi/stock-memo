@@ -116,6 +116,9 @@ def bootstrap(start_jobs=True):
     from app.services.restore_recovery import recover_pending_restores
     recover_pending_restores()
 
+    from app.services.storage import migrate_user_storage
+    migrate_user_storage()
+
     # ⭐️ 옛 저장소에서 옮겨 오는 1회성 이관 (이미 끝났으면 즉시 통과)
     migrations.migrate_inline_images()      # 본문 내장 base64 이미지 → 파일
     migrations.migrate_account_mappings()   # json/<username>/account_info.json → DB

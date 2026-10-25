@@ -216,12 +216,12 @@ window.toggleUserAllow = async function(username) {
 };
 
 window.resetUserPassword = async function(username) {
-    if (await customConfirm(`'${username}' 사용자의 비밀번호를 안전한 무작위 문자열로 초기화하시겠습니까?`)) {
+    if (await customConfirm(`'${username}' 사용자의 비밀번호를 초기화하시겠습니까?\n기존 로그인과 모든 API 키가 폐기되며, 연동된 봇은 새 키로 다시 연결해야 합니다.`)) {
         try {
             const res = await fetch(`/api/admin/users/${username}/reset_password`, { method: 'POST'});
             if (res.ok) {
                 const data = await res.json();
-                await customAlert(`'${username}' 계정의 비밀번호가 [ ${data.new_password} ] 로 초기화되었습니다.\n사용자에게 이 임시 비밀번호를 전달해 주세요.\n\n다른 기기의 로그인은 모두 해제되었으며, 이 사용자는 다음 로그인에서 새 비밀번호를 설정하게 됩니다.`);
+                await customAlert(`'${username}' 계정의 비밀번호가 [ ${data.new_password} ] 로 초기화되었습니다.\n사용자에게 이 임시 비밀번호를 전달해 주세요.\n\n기존 로그인과 API 키 ${data.api_keys_revoked}개를 폐기했습니다. 새 비밀번호를 설정한 후 봇 연동 키를 다시 발급해주세요.`);
                 // ⭐️ 처리한 요청이 목록·배지에서 바로 사라지도록 다시 불러온다.
                 loadAdminUsers();
             } else {

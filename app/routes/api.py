@@ -14,7 +14,7 @@ import os
 import time
 from datetime import datetime, timedelta
 
-from flask import (Blueprint, current_app, jsonify, render_template, request,
+from flask import (Blueprint, current_app, g, jsonify, render_template, request,
                    send_from_directory, session)
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -301,6 +301,8 @@ def save_mappings_frontend():
 
 @bp.route('/api/me', methods=['GET'])
 def get_me():
+    if getattr(g, 'must_change_password', False):
+        return jsonify(**_session_details(), must_change_password=True)
     username = session.get('username')
     pending_count = 0
     reset_request_count = 0
@@ -393,6 +395,7 @@ def delete_account():
             return jsonify({"error": "비밀번호가 일치하지 않습니다."}), 400
 
         # 사용자 데이터 및 계정 삭제 (API 키·봇·재설정 요청까지 — users.USER_OWNED_TABLES)
+        user_folder = user_dir(config.UPLOAD_FOLDER, username)
         purge_account(c, username)
         conn.commit()
 
@@ -401,7 +404,6 @@ def delete_account():
     statscache.invalidate(username)
 
     # 사용자 전용 업로드 폴더 삭제
-    user_folder = user_dir(config.UPLOAD_FOLDER, username)
     if user_folder and os.path.exists(user_folder):
         shutil.rmtree(user_folder)
 
@@ -420,7 +422,9 @@ def uploaded_file(req_username, filename):
     lock_request(req_username)
     with db_conn(read=True):
         pass
-    user_folder = os.path.join(config.UPLOAD_FOLDER, req_username)
+    user_folder = user_dir(config.UPLOAD_FOLDER, req_username)
+    if user_folder is None:
+        return jsonify(error='파일을 찾을 수 없습니다.'), 404
     # ⭐️ 브라우저(특히 Safari)가 다운로드된 ZIP 파일을 강제로 자동 압축 해제하지 않도록 attachment로 전송
     return send_from_directory(user_folder, filename, as_attachment=True)
 

@@ -1,0 +1,11 @@
+{% extends 'security_base.html' %}
+{% block title %}로그아웃{% endblock %}
+{% block content %}
+<h1>로그아웃</h1>
+<p>현재 계정에서 로그아웃하시겠습니까?</p>
+<form method="post" action="{{ url_for('auth.logout', user_id=session.get('user_id')) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit">로그아웃</button>
+</form>
+<p><a href="{{ url_for('api.index') }}">돌아가기</a></p>
+{% endblock %}

@@ -8,6 +8,7 @@
   - 로그인 IP 실패 횟수가 시간이 지나도 줄지 않았다
 화면 쪽(배지·확인 창)은 test_audit_frontend.py 가 본다.
 """
+from app.services.users import user_dir as account_storage_dir
 import os
 import sqlite3
 import time
@@ -183,7 +184,7 @@ def _old_file(folder, name, days=10):
 def test_failed_verification_keeps_old_backups(app, monkeypatch):
     from helpers import _ensure_user
     _ensure_user('keeper')
-    old = _old_file(os.path.join(config.BACKUP_DIR, 'keeper'), 'TradingJournal_backup_keeper_old.zip')
+    old = _old_file(account_storage_dir(config.BACKUP_DIR, 'keeper'), 'TradingJournal_backup_keeper_old.zip')
     monkeypatch.setattr(jobs, 'verify_backup_zip', lambda *_a: (False, 'broken'))
     with pytest.raises(RuntimeError):
         jobs._backup_user('keeper')
@@ -193,10 +194,10 @@ def test_failed_verification_keeps_old_backups(app, monkeypatch):
 def test_successful_backup_prunes_old_files(app):
     from helpers import _ensure_user
     _ensure_user('keeper')
-    old = _old_file(os.path.join(config.BACKUP_DIR, 'keeper'), 'TradingJournal_backup_keeper_old.zip')
+    old = _old_file(account_storage_dir(config.BACKUP_DIR, 'keeper'), 'TradingJournal_backup_keeper_old.zip')
     jobs._backup_user('keeper')
     assert not os.path.exists(old)
-    assert not [f for f in os.listdir(os.path.join(config.BACKUP_DIR, 'keeper')) if f.endswith('.tmp')]
+    assert not [f for f in os.listdir(account_storage_dir(config.BACKUP_DIR, 'keeper')) if f.endswith('.tmp')]
 
 
 def test_database_snapshot_contains_accounts_and_prunes_old(app):

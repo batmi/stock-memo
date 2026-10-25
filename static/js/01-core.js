@@ -44,6 +44,10 @@ function checkJournalAccountResponse(response) {
         // 원본 Request와 init을 변경하지 않아 본문·signal·keepalive도 그대로 전달된다.
         const headers = new Headers(options?.headers !== undefined ? options.headers : request?.headers);
         if (Number.isSafeInteger(pageUserId) && pageUserId > 0) headers.set('X-Journal-User-ID', String(pageUserId));
+        const method = (options?.method || request?.method || 'GET').toUpperCase();
+        if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && window.JOURNAL_CSRF_TOKEN) {
+            headers.set('X-CSRF-Token', window.JOURNAL_CSRF_TOKEN);
+        }
         return originalFetch(input, { ...options, headers }).then(checkJournalAccountResponse);
     };
 })();

@@ -197,6 +197,7 @@ def restore_user_backup(username, stream, preview_token=None):
     folder = user_dir(config.UPLOAD_FOLDER, username)
     if folder is None:
         raise RestoreError('계정 이름이 올바르지 않습니다.')
+    os.makedirs(os.path.dirname(folder), mode=0o700, exist_ok=True)
     os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
     # 작업별 고유 경로이며, 원본과 같은 파일시스템 안에 있어 rename이 가능하다.
     with _workspace() as (work, state):

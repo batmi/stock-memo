@@ -35,7 +35,8 @@ def assert_account_ready(username):
 def prepare(work, conn, username, had_folder):
     owner = conn.execute('SELECT id FROM users WHERE username=?', (username,)).fetchone()
     operation = os.path.basename(work)
-    state = {'operation': operation, 'username': username, 'userId': owner['id'], 'hadFolder': had_folder}
+    state = {'operation': operation, 'username': username, 'userId': owner['id'],
+             'hadFolder': had_folder, 'storageVersion': 2}
     # 파일 교체보다 먼저 디스크에 남긴다. DB 표식은 원본 데이터와 함께 커밋된다.
     with open(os.path.join(work, JOURNAL), 'x', encoding='utf-8') as out:
         json.dump(state, out)
@@ -86,8 +87,7 @@ def recover_pending_restores():
         with journal.open(encoding='utf-8') as source:
             state = json.load(source)
         username = state['username']
-        folder = user_dir(str(base), username)
-        if folder is None or state['operation'] != work.name:
+        if state['operation'] != work.name or state.get('storageVersion', 1) not in (1, 2):
             raise ValueError('복원 작업 일지의 계정 또는 작업 ID가 올바르지 않습니다.')
         with user_lock(username):
             with db_conn() as conn:
@@ -96,6 +96,15 @@ def recover_pending_restores():
                                       (work.name,)).fetchone()
             same_owner = owner is not None and owner['id'] == state['userId']
             if same_owner:
+                if state.get('storageVersion', 1) == 1:
+                    from app.services.storage import legacy_user_dir
+                    with db_conn() as conn:
+                        owners = [row['username'] for row in conn.execute('SELECT username FROM users')]
+                    folder = legacy_user_dir(str(base), username, owners)
+                else:
+                    folder = user_dir(str(base), username, user_id=owner['id'])
+                if folder is None:
+                    raise ValueError('복원 작업 일지의 계정이 올바르지 않습니다.')
                 committed = marker is not None and tuple(marker) == (username, state['userId'])
                 if committed:
                     if not os.path.isdir(folder):

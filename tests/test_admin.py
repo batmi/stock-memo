@@ -224,10 +224,10 @@ def test_admin_reset_issues_strong_temp_password(client):
     assert row['must_change_password'] == 1     # 다음 로그인에서 변경 강제
 
 # ══════════════════════════════════════════════════════════════
-# 초기화는 비밀번호만 바꾼다 (다른 데이터 보존)
+# 초기화는 인증 정보만 바꾼다 (기록·환경설정 보존)
 # ══════════════════════════════════════════════════════════════
 def test_admin_reset_only_touches_credentials(client):
-    """비밀번호 초기화가 매매기록·API 키·환경설정을 건드리지 않는다."""
+    """비밀번호 초기화는 키를 폐기하되 매매기록·키 이력·환경설정을 보존한다."""
     client.post('/signup', data={'username': 'keepdata', 'password': 'Passw0rd!',
                                  'password_confirm': 'Passw0rd!'})
     client.post('/signup', data={'username': 'adminq', 'password': 'Passw0rd!',
@@ -271,7 +271,8 @@ def test_admin_reset_only_touches_credentials(client):
 
     after = snapshot()
     assert before[0] == after[0], '매매기록이 변경됐다'
-    assert before[1] == after[1], 'API 키가 변경됐다'
+    assert [row[:2] for row in before[1]] == [row[:2] for row in after[1]], 'API 키 이력이 변경됐다'
+    assert all(row[2] is not None for row in after[1]), '기존 API 키가 폐기되지 않았다'
     assert before[2] == after[2], '환경설정이 변경됐다'
 
 # ══════════════════════════════════════════════════════════════

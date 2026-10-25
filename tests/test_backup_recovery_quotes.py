@@ -1,5 +1,6 @@
 """백업 검증/중단 복구 및 거래소를 구분하는 현재가 계약 회귀 검사."""
 
+from app.services.users import user_dir as account_storage_dir
 import io
 from contextlib import contextmanager
 import json
@@ -92,8 +93,8 @@ def test_restore_preserves_legacy_date_before_id_collision(client):
 @pytest.mark.parametrize('phase', ['prepared', 'old_moved', 'new_moved', 'committed'])
 def test_process_exit_during_restore_recovers_database_and_files(app, tmp_path, phase):
     _ensure_user('recover')
-    folder = Path(config.UPLOAD_FOLDER) / 'recover'
-    folder.mkdir()
+    folder = Path(account_storage_dir(config.UPLOAD_FOLDER, 'recover'))
+    folder.mkdir(parents=True)
     (folder / 'old.txt').write_text('old')
     script = '''
 import os, sys
@@ -102,12 +103,13 @@ import config
 config.DB_FILE, config.UPLOAD_FOLDER, phase = sys.argv[1:]
 from app.database.db import get_db
 from app.services.restore_recovery import prepare
+from app.services.users import user_dir as account_storage_dir
 work = Path(config.UPLOAD_FOLDER) / '.restore-crash'
 work.mkdir()
 staging = work / 'staging'
 staging.mkdir()
 (staging / 'new.txt').write_text('new')
-folder = Path(config.UPLOAD_FOLDER) / 'recover'
+folder = Path(account_storage_dir(config.UPLOAD_FOLDER, 'recover'))
 conn = get_db()
 conn.execute('BEGIN IMMEDIATE')
 conn.execute("UPDATE users SET preferences='new' WHERE username='recover'")
@@ -137,9 +139,6 @@ os._exit(79)
 def test_recovery_does_not_replace_a_recreated_accounts_files(app):
     _ensure_user('recreated')
     base = Path(config.UPLOAD_FOLDER)
-    folder = base / 'recreated'
-    folder.mkdir()
-    (folder / 'new-owner.txt').write_text('new owner')
     work = base / '.restore-previous-owner'
     work.mkdir()
     (work / 'retired').mkdir()
@@ -149,14 +148,17 @@ def test_recovery_does_not_replace_a_recreated_accounts_files(app):
         conn.execute("DELETE FROM users WHERE username='recreated'")
         conn.execute("INSERT INTO users(username,password_hash) VALUES ('recreated','new')")
         conn.commit()
+    folder = Path(account_storage_dir(config.UPLOAD_FOLDER, 'recreated'))
+    folder.mkdir(parents=True)
+    (folder / 'new-owner.txt').write_text('new owner')
     restore_recovery.recover_pending_restores()
     assert [p.name for p in folder.iterdir()] == ['new-owner.txt']
 
 
 def test_failed_rollback_blocks_later_restore_until_recovery(client, monkeypatch):
     _login(client, 'blocked')
-    folder = Path(config.UPLOAD_FOLDER) / 'blocked'
-    folder.mkdir()
+    folder = Path(account_storage_dir(config.UPLOAD_FOLDER, 'blocked'))
+    folder.mkdir(parents=True)
     (folder / 'original.txt').write_text('original')
     original_rename = restores.os.rename
 
@@ -180,14 +182,15 @@ def test_failed_rollback_blocks_later_restore_until_recovery(client, monkeypatch
 @pytest.mark.parametrize('interrupt_after', ['blocked-rename', 'staging'])
 def test_exception_after_rename_still_restores_original_files(client, monkeypatch, interrupt_after):
     _login(client, 'blocked-rename')
-    folder = Path(config.UPLOAD_FOLDER) / 'blocked-rename'
-    folder.mkdir()
+    folder = Path(account_storage_dir(config.UPLOAD_FOLDER, 'blocked-rename'))
+    folder.mkdir(parents=True)
     (folder / 'original.txt').write_text('original')
     original_rename = restores.os.rename
 
     def move_then_fail(source, target):
         original_rename(source, target)
-        if Path(source).name == interrupt_after:
+        if (interrupt_after == 'blocked-rename' and Path(source) == folder
+                or interrupt_after == 'staging' and Path(source).name == 'staging'):
             raise OSError('rename completed before interruption')
 
     monkeypatch.setattr(restores.os, 'rename', move_then_fail)
@@ -199,8 +202,8 @@ def test_exception_after_rename_still_restores_original_files(client, monkeypatc
 
 def test_exception_after_commit_never_rolls_back_only_the_files(client, monkeypatch):
     _login(client, 'committed')
-    folder = Path(config.UPLOAD_FOLDER) / 'committed'
-    folder.mkdir()
+    folder = Path(account_storage_dir(config.UPLOAD_FOLDER, 'committed'))
+    folder.mkdir(parents=True)
     (folder / 'original.txt').write_text('old')
     original_connection = restores.db_conn
 

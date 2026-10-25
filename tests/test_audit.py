@@ -4,6 +4,7 @@
 처음에는 xfail(strict=True) 로 두고 결함을 확인했고, 수정과 함께 표시를 걷어냈다.
 화면 XSS(AUDIT-11·12)는 브라우저가 필요해 test_audit_frontend.py 에 있다.
 """
+from app.services.users import user_dir as account_storage_dir
 import io
 import json
 import os
@@ -90,7 +91,8 @@ def test_disallowed_user_cannot_get_bot_token(app):
 
 # AUDIT-04
 def test_admin_delete_does_not_escape_user_folder(app):
-    other = os.path.join(config.UPLOAD_FOLDER, 'alice')
+    _ensure_user('alice')
+    other = account_storage_dir(config.UPLOAD_FOLDER, 'alice')
     os.makedirs(other, exist_ok=True)
     with open(os.path.join(other, 'keep.png'), 'wb') as f:
         f.write(b'x')
@@ -165,7 +167,7 @@ def test_auto_backup_continues_after_one_user_fails(app, monkeypatch):
     with pytest.raises(_StopLoop):
         jobs.auto_backup_job()
 
-    second_dir = os.path.join(config.BACKUP_DIR, 'zzz_second')
+    second_dir = account_storage_dir(config.BACKUP_DIR, 'zzz_second')
     assert os.path.isdir(second_dir) and os.listdir(second_dir)
 
 

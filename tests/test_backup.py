@@ -3,6 +3,7 @@
 대상: backup_api.py, backups.py.
 """
 
+from app.services.users import user_dir as account_storage_dir
 import io
 import json
 import os
@@ -218,7 +219,7 @@ def test_restore_keeps_existing_uploads_when_copy_fails(client, monkeypatch, tmp
         sess['expires_at'] = time.time() + 3600
 
     # 기존 첨부파일을 심어 둔다
-    user_folder = os.path.join(config.UPLOAD_FOLDER, 'restoreuser')
+    user_folder = account_storage_dir(config.UPLOAD_FOLDER, 'restoreuser')
     os.makedirs(user_folder, exist_ok=True)
     keep = os.path.join(user_folder, 'important.png')
     with open(keep, 'w') as f:
@@ -257,7 +258,7 @@ def test_restore_replaces_uploads_on_success(client, monkeypatch, tmp_path):
         sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600
 
-    user_folder = os.path.join(config.UPLOAD_FOLDER, 'restoreuser2')
+    user_folder = account_storage_dir(config.UPLOAD_FOLDER, 'restoreuser2')
     os.makedirs(user_folder, exist_ok=True)
     with open(os.path.join(user_folder, 'old.png'), 'w') as f:
         f.write('old')

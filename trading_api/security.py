@@ -77,7 +77,8 @@ def require_token(*required_scopes):
             with db_conn() as conn:
                 c = conn.cursor()
                 c.execute(
-                    "SELECT k.scopes, k.revoked_at, k.last_used_at, u.is_allowed, u.id AS user_id "
+                    "SELECT k.scopes, k.revoked_at, k.last_used_at, u.is_allowed, "
+                    "u.must_change_password, u.id AS user_id "
                     "FROM api_keys k LEFT JOIN users u ON u.username = k.username "
                     "WHERE k.id = ? AND k.username = ?",
                     (key_id, username))
@@ -89,6 +90,8 @@ def require_token(*required_scopes):
                 #    키를 살려 두면 차단이 봇 쪽으로 새어 나간다.
                 if not key_row['is_allowed']:
                     return _account_disabled()
+                if key_row['must_change_password']:
+                    return _err(403, 'PASSWORD_CHANGE_REQUIRED', '웹에서 새 비밀번호를 먼저 설정해주세요.')
                 from app.services.restore_recovery import assert_account_ready
                 assert_account_ready(username)
                 scopes = set((key_row['scopes'] or '').split())

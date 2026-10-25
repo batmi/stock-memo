@@ -3,6 +3,7 @@
 대상: api.py.
 """
 
+from app.services.users import user_dir as account_storage_dir
 import json
 import os
 import time
@@ -339,7 +340,7 @@ def test_uploaded_file_success(client):
         sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
-    user_dir = os.path.join(config.UPLOAD_FOLDER, 'admin')
+    user_dir = account_storage_dir(config.UPLOAD_FOLDER, 'admin')
     os.makedirs(user_dir, exist_ok=True)
     test_file_path = os.path.join(user_dir, 'test_download.txt')
     with open(test_file_path, 'w') as f:

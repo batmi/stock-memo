@@ -43,7 +43,7 @@ def test_is_valid_username_rules():
 def test_user_dir_blocks_escape(tmp_path):
     """경로 조합 헬퍼가 상위 탈출을 막고 None 을 돌려준다."""
     base = str(tmp_path)
-    assert users.user_dir(base, 'batmi') == os.path.join(base, 'batmi')
+    assert users.user_dir(base, 'batmi', user_id=7) == os.path.join(base, '.users', '7')
     assert users.user_dir(base, '../../etc') is None
     assert users.user_dir(base, 'a/b') is None
     assert users.user_dir(base, '') is None

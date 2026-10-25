@@ -48,7 +48,7 @@ def test_logout(client):
         sess['user_id'] = _user_id(sess['username'])
         sess['expires_at'] = time.time() + 3600  # 세션 절대 만료 시각(check_login 이 요구)
         
-    response = client.get('/logout')
+    response = client.post('/logout')
     assert response.status_code == 302
     assert '/login' in response.location
     
@@ -411,12 +411,19 @@ def _waitress(app, **options):
 
 
 def _post_login(base, username, password, **headers):
+    from http.cookies import SimpleCookie
+    import re
     import urllib.parse
     import urllib.request
 
+    with urllib.request.urlopen(urllib.request.Request(base + '/login', headers=headers)) as form:
+        token = re.search(r'name="csrf_token" value="([^"]+)"', form.read().decode())[1]
+        cookie = SimpleCookie(form.headers['Set-Cookie'])
+    # 프록시 HTTPS를 HTTP 소켓으로 흉내내므로 Secure 쿠키도 직접 전달한다.
     request = urllib.request.Request(
-        base + '/login', data=urllib.parse.urlencode({'username': username, 'password': password}).encode(),
-        headers=headers)
+        base + '/login', data=urllib.parse.urlencode({
+            'username': username, 'password': password, 'csrf_token': token}).encode(),
+        headers={**headers, 'Cookie': f"session={cookie['session'].value}"})
     opener = urllib.request.build_opener(type('NoRedirect', (urllib.request.HTTPRedirectHandler,), {
         'redirect_request': lambda *a, **k: None}))
     try:

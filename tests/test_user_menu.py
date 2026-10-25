@@ -270,7 +270,9 @@ def test_old_account_screen_cannot_save_into_newly_logged_in_account(page):
     _ready(page)
     _open(page)
     # 별도 창에서 로그인한 것처럼 공용 쿠키만 바꾸고 기존 화면은 그대로 둔다.
-    response = page.request.post(BASE_URL + '/login', form={'username': other_user, 'password': USER_PW})
+    response = page.request.post(BASE_URL + '/login', form={
+        'username': other_user, 'password': USER_PW,
+        'csrf_token': page.evaluate('window.JOURNAL_CSRF_TOKEN')})
     assert response.ok
     with page.expect_response(lambda r: '/api/preferences' in r.url and r.request.method == 'PATCH') as save:
         page.locator('#accountMenuDefaultView').select_option('chart')

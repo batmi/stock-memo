@@ -284,7 +284,7 @@ def test_timeout_rejects_expired_session_without_emitting_a_late_deletion_cookie
 
 def test_explicit_logout_of_current_page_still_removes_browser_session(client):
     _login(client, 'sessionuser')
-    response = client.get('/logout', query_string={'user_id': _user_id('sessionuser')})
+    response = client.post('/logout', query_string={'user_id': _user_id('sessionuser')})
     assert response.status_code == 302 and response.location == '/login'
     assert 'Max-Age=0' in response.headers['Set-Cookie']
     assert client.get_cookie('session') is None

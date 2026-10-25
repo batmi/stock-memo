@@ -40,6 +40,7 @@
     <div class="login-container">
         <div class="logo-text">TRADING JOURNAL</div>
         <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="text" name="username" placeholder="사용할 아이디" required autofocus>
             <input type="password" name="password" placeholder="비밀번호" required>
             <input type="password" name="password_confirm" placeholder="비밀번호 확인" required>

@@ -1,5 +1,6 @@
 """업그레이드·거래소 날짜 경계·인증 대기 중 변경을 실제 저장 경로로 검증한다."""
 
+from app.services.users import user_dir as account_storage_dir
 import pytest
 
 from app.database import entry_logic, schema
@@ -129,8 +130,8 @@ def test_failed_restore_rolls_back_entries_revisions_settings_history_and_files(
     assert client.post('/api/mappings', json={'accounts': {'old': {'alias': '기존'}}}).status_code == 200
     assert client.put('/api/journal/split-rule', json={
         'code': '005930', 'currency': 'KRW', 'day': '2026-01-06', 'mode': 'recorded'}).status_code == 200
-    folder = Path(config.UPLOAD_FOLDER) / 'trader'
-    folder.mkdir(exist_ok=True)
+    folder = Path(account_storage_dir(config.UPLOAD_FOLDER, 'trader'))
+    folder.mkdir(parents=True, exist_ok=True)
     (folder / 'original.txt').write_text('원래 첨부', encoding='utf-8')
     def snapshot():
         with db_conn() as conn:

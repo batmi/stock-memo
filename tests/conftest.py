@@ -3,6 +3,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import secrets
 
 import pytest
 
@@ -19,7 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 #    바로 그 파일이라 오염되면 곤란하다.
 import config  # noqa: E402
 
-config.LOG_DIR = tempfile.mkdtemp(prefix='stock-memo-test-logs-')
+_TEST_LOG_DIR = tempfile.mkdtemp(prefix='stock-memo-test-logs-')
+config.LOG_DIR = _TEST_LOG_DIR
 
 import backend_app  # noqa: E402
 from app.services import historical_prices, journal, news  # noqa: E402
@@ -27,6 +29,37 @@ from app.utils import ratelimit  # noqa: E402
 from app.utils import statscache  # noqa: E402
 from app.services import users  # noqa: E402
 from backend_app import app as flask_app  # noqa: E402
+from flask.testing import FlaskClient  # noqa: E402
+from werkzeug.datastructures import Headers  # noqa: E402
+
+
+class BrowserClient(FlaskClient):
+    """기존 기능 테스트는 정상 브라우저처럼 CSRF 토큰을 보낸다.
+
+    CSRF 공격 테스트는 FlaskClient를 직접 사용해 누락/위조 요청도 검증한다.
+    서버의 검증은 모든 테스트에서 켜져 있다.
+    """
+    def open(self, *args, **kwargs):
+        method = kwargs.get('method', 'GET').upper()
+        if method not in ('GET', 'HEAD', 'OPTIONS'):
+            headers = Headers(kwargs.get('headers'))
+            context = {k: kwargs[k] for k in ('base_url', 'environ_overrides') if k in kwargs}
+            with self.session_transaction(**context) as sess:
+                if not sess.get('csrf_token'):
+                    sess['csrf_token'] = secrets.token_urlsafe(32)
+                token = sess['csrf_token']
+            headers.setdefault('X-CSRF-Token', token)
+            kwargs['headers'] = headers
+        return super().open(*args, **kwargs)
+
+
+flask_app.test_client_class = BrowserClient
+
+
+def pytest_sessionfinish(session, exitstatus):
+    import logging
+    logging.shutdown()
+    shutil.rmtree(_TEST_LOG_DIR, ignore_errors=True)
 
 # ⭐️ 테스트가 건드리면 안 되는 실제 데이터 경로. app 픽스처가 전부 임시 폴더로 돌린다.
 _SANDBOXED_PATHS = ('DB_FILE', 'UPLOAD_FOLDER', 'BACKUP_DIR', 'JSON_DIR', 'DATA_FILE')

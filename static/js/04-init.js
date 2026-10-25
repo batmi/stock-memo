@@ -374,7 +374,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (btnLogout) {
         btnLogout.addEventListener('click', async () => {
             if (await customConfirm("로그아웃 하시겠습니까?")) {
-                window.location.href = window.getSessionLogoutUrl();
+                window.logoutCurrentSession();
             }
         });
     }
@@ -398,7 +398,7 @@ window.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-    if (btnLogoutNow) btnLogoutNow.addEventListener('click', () => window.location.href = window.getSessionLogoutUrl());
+    if (btnLogoutNow) btnLogoutNow.addEventListener('click', () => window.logoutCurrentSession());
 
     // ⭐️ 커스텀 글자 크기(medium) 추가
     window.initializeJournalEditor = function() {
