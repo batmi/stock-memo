@@ -321,7 +321,8 @@ function renderStatsEquityChart(s, evaluated = false) {
             scales: {
                 y: {
                     grid: { color: isDark ? '#333333' : '#eeeeee' },
-                    ticks: { callback: v => v.toLocaleString() },
+                    // 눈금이 촘촘하면 Chart.js가 건너뛰며 0 기준선을 지우므로 개수를 제한한다 (16-calendar.js와 동일)
+                    ticks: { maxTicksLimit: 6, callback: v => v.toLocaleString() },
                 },
                 x: {
                     grid: { display: false },

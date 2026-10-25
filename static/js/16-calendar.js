@@ -710,7 +710,9 @@ window.renderMonthlyProfitChart = async function() {
                     stacked: type === 'volume' || type === 'realized',
                     beginAtZero: true,
                     grid: { color: isDark ? '#333333' : '#eeeeee' },
-                    ticks: { callback: function(value) { return value.toLocaleString(); } }
+                    // ⭐️ 180px 높이에서 눈금을 너무 촘촘히 만들면 Chart.js가 하나씩 건너뛰며 0 기준선까지 지운다.
+                    //    처음부터 표시 가능한 개수로 제한해 0과 깔끔한 단위 눈금이 항상 남도록 한다.
+                    ticks: { maxTicksLimit: 6, callback: function(value) { return value.toLocaleString(); } }
                 },
                 x: { 
                     stacked: type === 'volume' || type === 'realized',
