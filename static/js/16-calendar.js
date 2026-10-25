@@ -254,7 +254,7 @@ window.updateChartRangeNav = function(rangeText) {
     if (labelEl) labelEl.innerText = rangeText || '';
 };
 
-// ⭐️ 차트 하단 안내문 — 평가손익의 계산 기준과, 현재가를 못 구해 빠진 종목을 알린다.
+// ⭐️ 차트 하단 안내문 — 선택한 차트의 집계 기준과 현재가 누락 종목을 알린다.
 //    평가손익은 잔여 매수 로트의 원가를, 실현손익은 거래별 저장 금액을 사용한다.
 window.updateChartEvalNotice = function(info) {
     const el = document.getElementById('chartEvalNotice');
@@ -266,9 +266,13 @@ window.updateChartEvalNotice = function(info) {
 
     const esc = (t) => String(t).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
     const notes = [];
+    const periodName = periodWord === '주' ? '주' : '달';
 
-    if (!statsOpen && type === 'evaluated') {
-        const periodName = periodWord === '주' ? '주' : '달';
+    if (!statsOpen && type === 'realized') {
+        notes.push(`※ 각 막대는 <b>해당 ${periodName}의 매매 실현손익과 배당 수익금</b>을 보여줍니다.`);
+        notes.push('※ <b>매도 거래에 저장된 손익</b>을 합산하며, 수수료·세금 반영 여부는 해당 기록의 기준을 따릅니다.');
+        notes.push('※ 배당은 <b>주황색</b>으로 구분하며, 아직 보유 중인 물량의 평가손익은 포함하지 않습니다.');
+    } else if (!statsOpen && type === 'evaluated') {
         notes.push(`※ 각 막대는 <b>해당 ${periodName}에 산 물량 중 지금도 보유 중인 물량</b>의 현재 손익입니다.`);
         notes.push('※ 매수한 건마다 <b>(현재가 − 실제 매수단가) × 지금 남아 있는 수량</b>을 계산해 합산합니다.');
         notes.push('※ 일부를 팔았다면 <b>먼저 산 물량부터 판 것으로 계산</b>합니다(선입선출/FIFO).');
@@ -292,6 +296,14 @@ window.updateChartEvalNotice = function(info) {
         if (staleStocks.length) notes.push(`이전 시세 ${staleStocks.length}개 종목 포함: ${staleStocks.slice(0, 5).map(esc).join(', ')}`);
         if (checkedAt) notes.push(`최근 시세 확인: ${esc(new Date(checkedAt).toLocaleString('ko-KR'))}`);
         if (missingStocks.length || staleStocks.length) notes.push('<button type="button" id="btnChartQuoteRefresh" class="stats-curve-button">시세 다시 확인</button>');
+    } else if (!statsOpen && type === 'volume') {
+        notes.push(`※ 각 막대는 <b>해당 ${periodName}의 매수 금액과 매도 금액</b>을 합쳐 보여줍니다.`);
+        notes.push('※ 거래마다 <b>단가 × 수량</b>을 계산해 합산하며, 수수료·세금·배당은 포함하지 않습니다.');
+        notes.push('※ <b>매수는 빨강(하단), 매도는 파랑(상단)</b>으로 표시해 거래 규모를 확인할 수 있습니다.');
+    } else if (!statsOpen && type === 'cumulative') {
+        notes.push(`※ 각 점은 <b>해당 ${periodName}까지의 실현손익 + 배당 수익금</b>을 누적한 금액입니다.`);
+        notes.push('※ <b>화면에 보이는 기간 이전의 기록도 포함</b>해 누적하며, 보유 중인 물량의 평가손익은 포함하지 않습니다.');
+        notes.push('※ 주황색 <b>누적 배당 수익금은 총 누적 수익금에 이미 포함</b>된 금액입니다.');
     }
 
     if (!notes.length) {
@@ -628,7 +640,7 @@ window.renderMonthlyProfitChart = async function() {
     }
     if (window.updateChartRangeNav) window.updateChartRangeNav(rangeText);
 
-    // ⭐️ 차트 아래 안내문 (평가손익의 계산 기준 / 현재가 누락 / 과거 구간 주의)
+    // ⭐️ 차트 아래 안내문 (차트별 집계 기준 / 현재가 누락 / 과거 구간 주의)
     if (window.updateChartEvalNotice) {
         window.updateChartEvalNotice({
             type,
