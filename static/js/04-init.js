@@ -36,16 +36,12 @@ window.addEventListener('DOMContentLoaded', () => {
     // ⭐️ 휴장일 목록을 먼저 받아둔다. (실패해도 평일 판정으로 동작하므로 await 하지 않는다)
     window.loadMarketCalendar();
 
-    const themeToggle = document.getElementById('theme-toggle');
-
     function applyTheme(theme) {
         document.documentElement.setAttribute('data-theme', theme);
         const fpDark = document.getElementById('flatpickr-dark-theme');
         if (theme === 'dark') {
-            themeToggle.checked = true;
             if (fpDark) fpDark.removeAttribute('disabled');
         } else {
-            themeToggle.checked = false;
             if (fpDark) fpDark.setAttribute('disabled', 'disabled');
         }
         // 차트가 이미 생성되었다면 색상을 업데이트하기 위해 다시 렌더링
@@ -55,16 +51,18 @@ window.addEventListener('DOMContentLoaded', () => {
         if (window.monthlyProfitChartInstance) {
             window.renderMonthlyProfitChart();
         }
+        window.dispatchEvent(new Event('display-settings-changed'));
     }
 
-    themeToggle.addEventListener('change', () => {
-        const theme = themeToggle.checked ? 'dark' : 'light';
-        localStorage.setItem('theme', theme);
+    window.setDisplayTheme = theme => {
+        if (!['dark', 'light'].includes(theme)) return;
+        try { localStorage.setItem('theme', theme); } catch (e) { /* 이번 화면에는 적용한다. */ }
         applyTheme(theme);
-    });
+    };
 
     // 페이지 로드 시 저장된 테마 적용
-    const savedTheme = localStorage.getItem('theme') || 'dark';
+    let savedTheme = 'dark';
+    try { savedTheme = localStorage.getItem('theme') || 'dark'; } catch (e) { }
     applyTheme(savedTheme);
 
     // ⭐️ 모바일/데스크탑 레이아웃 동적 전환 (뉴스 영역 및 접기 버튼 위치 이동)
@@ -76,14 +74,11 @@ window.addEventListener('DOMContentLoaded', () => {
         const newsSidebar = document.getElementById('newsSidebar');
         const mainLayout = document.querySelector('.main-layout');
         
-        const themeSwitchWrapper = document.querySelector('.theme-switch-wrapper');
-        const themeSwitchOuter = themeSwitchWrapper ? themeSwitchWrapper.parentElement.parentElement : null;
         const btnTogglePortfolio = document.getElementById('btnTogglePortfolio');
         const portfolioHeaderGroup = document.querySelector('.portfolio-header > div');
         const btnToggleNews = document.getElementById('btnToggleNews');
-        const newsHeaderGroup = newsSidebar ? newsSidebar.querySelector('.section-title').nextElementSibling : null;
 
-        if (!mainApp || !portfolioSection || !historyHeader || !newsSidebar || !mainLayout || !themeSwitchOuter || !btnTogglePortfolio || !portfolioHeaderGroup) return;
+        if (!mainApp || !portfolioSection || !historyHeader || !newsSidebar || !mainLayout || !btnTogglePortfolio || !portfolioHeaderGroup) return;
 
         if (isMobile) {
             // 1. 뉴스 영역을 포트폴리오와 히스토리 사이로 이동
@@ -94,14 +89,8 @@ window.addEventListener('DOMContentLoaded', () => {
             if (btnTogglePortfolio.parentElement !== portfolioHeaderGroup) {
                 portfolioHeaderGroup.appendChild(btnTogglePortfolio);
             }
-            // 3. 뉴스 접기/펼치기 버튼을 테마 변경 컨테이너 옆(우측)으로 이동
-            if (btnToggleNews && btnToggleNews.parentElement !== themeSwitchOuter) {
-                themeSwitchOuter.appendChild(btnToggleNews);
-                btnToggleNews.style.display = 'inline-block';
-                const isExpanded = document.getElementById('newsList')?.classList.contains('news-expanded');
-                btnToggleNews.style.backgroundColor = isExpanded ? 'var(--primary-color)' : 'transparent';
-                btnToggleNews.style.color = isExpanded ? '#fff' : 'var(--primary-color)';
-            } else if (btnToggleNews) {
+            // 3. 모바일 뉴스 펼치기 버튼은 뉴스 제목 옆에서 제공한다.
+            if (btnToggleNews) {
                 btnToggleNews.style.display = 'inline-block';
                 const isExpanded = document.getElementById('newsList')?.classList.contains('news-expanded');
                 btnToggleNews.style.backgroundColor = isExpanded ? 'var(--primary-color)' : 'transparent';
@@ -114,9 +103,6 @@ window.addEventListener('DOMContentLoaded', () => {
             }
             if (btnTogglePortfolio.parentElement !== portfolioHeaderGroup) {
                 portfolioHeaderGroup.appendChild(btnTogglePortfolio);
-            }
-            if (btnToggleNews && newsHeaderGroup && btnToggleNews.parentElement !== newsHeaderGroup) {
-                newsHeaderGroup.insertBefore(btnToggleNews, newsHeaderGroup.firstChild);
             }
             if (btnToggleNews) btnToggleNews.style.display = 'none';
             const newsList = document.getElementById('newsList');
@@ -400,19 +386,16 @@ window.addEventListener('DOMContentLoaded', () => {
 
     if (btnExtendSession && extensionModal) {
         btnExtendSession.addEventListener('click', async () => {
+            btnExtendSession.disabled = true;
             try {
-                // 백엔드(Flask) 서버의 세션 만료 시각을 현재 기준 1시간 뒤로 재설정
-                const res = await fetch('/api/ping', { method: 'POST'});
-                const data = await res.json();
-                if (data.expires_at) sessionExpiresAtMs = data.expires_at * 1000;
-            } catch(e) {}
-
-            extensionModal.classList.add('closing');
-            setTimeout(() => {
-                extensionModal.style.display = 'none';
-                extensionModal.classList.remove('closing');
-                scheduleSessionTimers(); // 연장된 만료 시각 기준으로 다음 팝업(만료 5분 전) 재예약
-            }, 180);
+                await window.extendCurrentSession();
+            } catch (error) {
+                if (!['SESSION_EXPIRED', 'ACCOUNT_CHANGED'].includes(error.code)) {
+                    await customAlert(error.message || '로그인 시간을 연장하지 못했습니다. 다시 시도해주세요.');
+                }
+            } finally {
+                btnExtendSession.disabled = false;
+            }
         });
     }
     if (btnLogoutNow) btnLogoutNow.addEventListener('click', () => window.location.href = '/logout');

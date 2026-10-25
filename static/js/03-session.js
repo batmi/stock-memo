@@ -12,110 +12,170 @@ let warningTimer;
 let logoutTimer;
 let countdownInterval;
 let sessionExpiresAtMs = window.SESSION_EXPIRES_AT_MS || (Date.now() + 60 * 60 * 1000);
-const SESSION_KEEP_LOGGED_IN = window.SESSION_KEEP_LOGGED_IN === true;
-const WARNING_BEFORE = 5 * 60 * 1000; // 만료 5분 전 경고 (밀리초)
+let sessionKeepLoggedIn = window.SESSION_KEEP_LOGGED_IN === true;
+let sessionExtensionRequest = null;
+let sessionSyncRequest = null;
+let sessionStateVersion = 0;
+const SESSION_PAGE_USERNAME = window.JOURNAL_USERNAME;
+const SESSION_PAGE_USER_ID = window.JOURNAL_USER_ID;
+const WARNING_BEFORE = 5 * 60 * 1000;
+
+window.getSessionState = function() {
+    return { expiresAtMs: sessionExpiresAtMs, keepLoggedIn: sessionKeepLoggedIn };
+};
+
+function sessionError(message, code) {
+    return Object.assign(new Error(message), { code });
+}
+
+function rejectExpiredSession() {
+    window.location.href = '/logout?timeout=1';
+    return sessionError('로그인 시간이 만료되었습니다. 다시 로그인해주세요.', 'SESSION_EXPIRED');
+}
+
+function closeSessionWarning() {
+    const modal = document.getElementById('sessionExtensionModalOverlay');
+    if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('closing');
+    }
+    clearInterval(countdownInterval);
+}
+
+function applyServerSession(data) {
+    // 다른 탭에서 계정이 바뀌었으면 현재 화면의 데이터와 섞지 않는다.
+    if (!data || typeof data.username !== 'string' || !Number.isSafeInteger(data.user_id)
+            || data.user_id <= 0 || typeof data.expires_at !== 'number'
+            || !Number.isFinite(data.expires_at) || data.expires_at <= 0
+            || data.expires_at * 1000 > Date.now() + (data.keep_logged_in ? 24 : 1) * 60 * 60 * 1000 + WARNING_BEFORE
+            || typeof data.keep_logged_in !== 'boolean') {
+        throw sessionError('세션 응답을 확인하지 못했습니다. 잠시 후 다시 시도해주세요.', 'INVALID_SESSION');
+    }
+    if (data.username !== SESSION_PAGE_USERNAME || data.user_id !== SESSION_PAGE_USER_ID) {
+        // 새 계정의 쿠키를 로그아웃시키지 않고, 그 계정에 맞는 화면을 다시 연다.
+        window.location.href = '/';
+        throw sessionError('로그인 계정이 변경되어 화면을 다시 불러옵니다.', 'ACCOUNT_CHANGED');
+    }
+    if (data.expires_at * 1000 <= Date.now()) throw rejectExpiredSession();
+    sessionExpiresAtMs = data.expires_at * 1000;
+    sessionKeepLoggedIn = data.keep_logged_in;
+    closeSessionWarning();
+    scheduleSessionTimers();
+    window.dispatchEvent(new CustomEvent('session-state-changed', { detail: window.getSessionState() }));
+    return window.getSessionState();
+}
+
+async function sessionResponse(response) {
+    if (response.status === 401) throw rejectExpiredSession();
+    if (!response.ok) throw sessionError('세션을 확인하지 못했습니다. 잠시 후 다시 시도해주세요.', 'SESSION_REQUEST_FAILED');
+    try { return await response.json(); }
+    catch (_) { throw sessionError('세션 응답을 확인하지 못했습니다. 잠시 후 다시 시도해주세요.', 'INVALID_SESSION'); }
+}
+
+async function requestSession(url, options) {
+    try { return await fetchWithTimeout(url, options); }
+    catch (_) {
+        throw sessionError('서버에 연결하지 못했습니다. 연결 상태를 확인한 후 다시 시도해주세요.', 'SESSION_REQUEST_FAILED');
+    }
+}
+
+window.extendCurrentSession = function() {
+    if (sessionExtensionRequest) return sessionExtensionRequest;
+    if (sessionKeepLoggedIn) {
+        return Promise.reject(sessionError('로그인 유지 세션은 24시간 후 만료되며 연장할 수 없습니다.', 'SESSION_NOT_EXTENDABLE'));
+    }
+    // 연장 전에 시작된 /api/me 응답이 뒤늦게 와도 새 만료 시각을 되돌리지 않는다.
+    sessionStateVersion += 1;
+    sessionExtensionRequest = (async () => {
+        const response = await requestSession('/api/ping', { method: 'POST', cache: 'no-store' });
+        const data = await sessionResponse(response);
+        if (data?.status !== 'success') throw sessionError('로그인 시간을 연장하지 못했습니다.', 'INVALID_SESSION');
+        const state = applyServerSession(data);
+        if (state.keepLoggedIn) throw sessionError('로그인 유지 세션은 연장할 수 없습니다.', 'SESSION_NOT_EXTENDABLE');
+        return state;
+    })().finally(() => { sessionExtensionRequest = null; });
+    return sessionExtensionRequest;
+};
+
+function syncCurrentSession() {
+    if (sessionExtensionRequest) return sessionExtensionRequest;
+    if (sessionSyncRequest) return sessionSyncRequest;
+    const version = sessionStateVersion;
+    sessionSyncRequest = (async () => {
+        const response = await requestSession('/api/me', { cache: 'no-store' });
+        if (version !== sessionStateVersion) return window.getSessionState();
+        const data = await sessionResponse(response);
+        if (version !== sessionStateVersion) return window.getSessionState();
+        return applyServerSession(data);
+    })().finally(() => { sessionSyncRequest = null; });
+    return sessionSyncRequest;
+}
+
+function checkSessionDeadline() {
+    // 숨겨진 탭의 옛 타이머로 다른 탭에서 연장한 공용 쿠키를 지우지 않는다.
+    if (document.visibilityState === 'hidden') return;
+    syncCurrentSession().catch(error => {
+        if (error.code !== 'ACCOUNT_CHANGED' && Date.now() >= sessionExpiresAtMs) rejectExpiredSession();
+        else console.warn('세션 상태 확인 실패', error);
+    });
+}
 
 function scheduleSessionTimers() {
     clearTimeout(warningTimer);
     clearTimeout(logoutTimer);
     clearInterval(countdownInterval);
-
     const remainingMs = sessionExpiresAtMs - Date.now();
     if (remainingMs <= 0) {
-        window.location.href = '/logout?timeout=1';
+        checkSessionDeadline();
         return;
     }
-
-    // 로그인 유지(24시간) 세션은 연장 개념이 없으므로 만료 시각에 자동 로그아웃만 예약
-    if (SESSION_KEEP_LOGGED_IN) {
-        logoutTimer = setTimeout(() => { window.location.href = '/logout?timeout=1'; }, remainingMs);
-        return;
-    }
-
-    if (remainingMs <= WARNING_BEFORE) {
-        showExtensionWarning();
-    } else {
-        warningTimer = setTimeout(showExtensionWarning, remainingMs - WARNING_BEFORE);
-    }
+    logoutTimer = setTimeout(checkSessionDeadline, remainingMs);
+    if (sessionKeepLoggedIn) return;
+    if (remainingMs <= WARNING_BEFORE) showExtensionWarning();
+    else warningTimer = setTimeout(showExtensionWarning, remainingMs - WARNING_BEFORE);
 }
 
 function showExtensionWarning() {
-    // ⭐️ 브라우저 백그라운드 지연으로 인해 이미 만료된 경우 즉시 로그아웃
+    if (sessionKeepLoggedIn) return;
     const remainingMs = sessionExpiresAtMs - Date.now();
     if (remainingMs <= 0) {
-        window.location.href = '/logout?timeout=1';
+        checkSessionDeadline();
         return;
     }
-
-    const extensionModal = document.getElementById('sessionExtensionModalOverlay');
+    const modal = document.getElementById('sessionExtensionModalOverlay');
     const countdownEl = document.getElementById('sessionCountdown');
-    if (!extensionModal || !countdownEl) return;
-    if (extensionModal.style.display === 'flex') return; // 이미 표시 중이면 중복 방지
-
-    extensionModal.style.display = 'flex';
-
-    // ⭐️ 남은 시간 5분을 고정하지 않고 실제 잔여 시간으로 카운트다운
-    let timeLeft = Math.floor(remainingMs / 1000);
-    countdownEl.innerText = `${Math.floor(timeLeft / 60).toString().padStart(2, '0')}:${(timeLeft % 60).toString().padStart(2, '0')}`;
-
-    countdownInterval = setInterval(() => {
-        // ⭐️ 백그라운드 스로틀링으로 인터벌이 밀려도 정확하도록 실제 만료 시각에서 매번 재계산
-        timeLeft = Math.floor((sessionExpiresAtMs - Date.now()) / 1000);
-        if (timeLeft <= 0) {
+    if (!modal || !countdownEl) return;
+    modal.style.display = 'flex';
+    clearInterval(countdownInterval);
+    const updateCountdown = () => {
+        const seconds = Math.max(0, Math.floor((sessionExpiresAtMs - Date.now()) / 1000));
+        countdownEl.innerText = `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
+        if (seconds <= 0) {
             clearInterval(countdownInterval);
-            window.location.href = '/logout?timeout=1'; // 타이머가 0이 되면 즉시 이동
-        } else {
-            countdownEl.innerText = `${Math.floor(timeLeft / 60).toString().padStart(2, '0')}:${(timeLeft % 60).toString().padStart(2, '0')}`;
+            checkSessionDeadline();
         }
-    }, 1000);
-
-    logoutTimer = setTimeout(() => {
-        window.location.href = '/logout?timeout=1';
-    }, remainingMs);
+    };
+    updateCountdown();
+    countdownInterval = setInterval(updateCountdown, 1000);
 }
 
-// ⭐️ 워치독: 절전 모드·백그라운드 스로틀링으로 setTimeout 이 밀리거나 유실되어도
-//    30초마다 실제 잔여 시간을 재확인하여 연장 팝업 표시와 자동 로그아웃을 보장
 setInterval(() => {
+    if (document.visibilityState === 'hidden') return;
     const remainingMs = sessionExpiresAtMs - Date.now();
-    if (remainingMs <= 0) {
-        window.location.href = '/logout?timeout=1';
-        return;
-    }
-    if (!SESSION_KEEP_LOGGED_IN && remainingMs <= WARNING_BEFORE) {
-        showExtensionWarning(); // 이미 표시 중이면 내부에서 중복 방지됨
-    }
+    if (remainingMs <= 0) checkSessionDeadline();
+    else if (!sessionKeepLoggedIn && remainingMs <= WARNING_BEFORE) showExtensionWarning();
 }, 30000);
 
-// ⭐️ 브라우저 탭 활성화 시 실제 만료 여부를 확인하여 동기화
 document.addEventListener('visibilitychange', async () => {
-    if (document.visibilityState === 'visible') {
-        // ⭐️ 모바일에서 앱 전환 후 복귀 시, 초기 로딩이 실패해 멈춰 있던 상태면 자동으로 재시도
-        if (window.__dataLoadFailed) {
-            loadDataFromLocal();
-        }
-
-        if (Date.now() >= sessionExpiresAtMs) {
-            // 백그라운드에 있는 동안 이미 만료되었다면 즉시 자동 로그아웃 처리
-            window.location.href = '/logout?timeout=1';
-            return;
-        }
-
-        // ⭐️ 서버에 API를 호출하여 실제 세션 만료 여부(또는 타 탭 로그아웃 여부) 체크
-        try {
-            const res = await fetch('/api/me');
-            if (res.status === 401) {
-                window.location.href = '/logout?timeout=1';
-                return;
-            }
-        } catch(e) { console.warn("세션 상태 확인 실패", e); }
-
-        // ⭐️ 백그라운드에서 setTimeout 이 지연되었을 수 있으므로 타이머 재정렬 (팝업 표시 중이면 유지)
-        const extensionModal = document.getElementById('sessionExtensionModalOverlay');
-        if (!extensionModal || extensionModal.style.display !== 'flex') {
-            scheduleSessionTimers();
-        }
+    if (document.visibilityState !== 'visible') return;
+    try {
+        // 로컬 시각이 지났어도 먼저 확인한다. 다른 탭에서 이미 연장했을 수 있다.
+        await syncCurrentSession();
+        if (window.__dataLoadFailed) loadDataFromLocal();
+    } catch (error) {
+        if (error.code !== 'ACCOUNT_CHANGED' && Date.now() >= sessionExpiresAtMs) rejectExpiredSession();
+        else console.warn('세션 상태 확인 실패', error);
     }
 });
 
-scheduleSessionTimers(); // 초기 타이머 시작
+scheduleSessionTimers();

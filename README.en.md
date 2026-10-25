@@ -31,8 +31,12 @@ Beyond simple recording, it aims to maximize investment review and strategy form
 
 *   **Multi-User & Security**
     *   Provides sign-up and login features. The first registered user is automatically assigned as the super admin, who can then approve or deny subsequent registrations.
-    *   Account blocking for 1 minute after 5 failed login attempts, and automatic logout after 1 hour of inactivity with a 5-minute warning.
+    *   Accounts are blocked for one minute after five failed login attempts. Normal sessions expire after one hour, with a warning five minutes before expiry. Keep-me-logged-in sessions last up to 24 hours and cannot be extended.
     *   Regular requests are limited to 16MiB. Restore requests have separate limits (513MiB uploaded, 512MiB expanded), alongside XSS and CSRF defenses.
+*   **My Account Menu**
+    *   Click the username to view account details, role and remaining login time, extend a normal session to one hour from now, change the password or log out.
+    *   Choose a theme and set the start view (last used, list, calendar or chart). The start-view preference is saved to the account and applies on the next visit. Theme and each account's last view are stored in the current browser.
+    *   Amount visibility is controlled by the existing PORTFOLIO button and saved in the current browser. Closed positions, AFT, collapse, accounts (A), HTS (H), data (D) and admin (M) actions remain in their existing positions. Theme selection is available in My Account.
 *   **Journal & Smart Editor**
     *   Allows logging of buy, sell, observe, and dividend records, as well as general memos and ideas about specific stocks.
     *   Supports direct image insertion into the editor body (clipboard pasting of screenshots, drag & drop) and resizing. It also automatically cleans up colors/background styles when pasting external text.
@@ -110,7 +114,7 @@ Restore validates numeric, text and currency fields before deleting existing ent
 ### Security Guide
 This application handles sensitive personal financial and investment data, so extra caution is required.
 *   **Super Admin Account**: The very first account registered after installing the app is automatically designated as the super admin. Any subsequent users must be approved by this admin to log in.
-*   **Session Security**: Internally implements security cookies to prevent session hijacking (XSS) and cross-site request forgery (CSRF). It also features automatic logout after 1 hour of inactivity to prevent data leaks on public devices.
+*   **Session Security**: Security cookies and CSRF checks are enabled. Normal sessions expire one hour after login or explicit extension; keep-me-logged-in sessions expire 24 hours after login. Ordinary reads do not extend a session. Returning to a tab checks the server for extensions made in another tab.
 *   **External Access Caution**: Direct external network (HTTP) exposure via router port forwarding is not recommended. For secure external access (e.g., from a smartphone), please use encrypted security tunneling services like `ngrok`, `Cloudflare Tunnels`, or `Tailscale`.
 *   **Production Environment (HTTPS)**: While it runs stably on a local network via `waitress`, integrating a reverse proxy (e.g., Nginx) to apply HTTPS (SSL) certificates is highly recommended for proper web publishing. Behind a reverse proxy or Cloudflare Tunnel, set `TRUSTED_PROXY_COUNT=1` (the number of proxies in front). Without it every client appears as the proxy IP, so five failed logins by anyone lock everyone out. When started with `run.sh` (waitress), `X-Forwarded-For` and `X-Forwarded-Proto` are trusted only when the connecting peer is the proxy address (`TRUSTED_PROXY_ADDR`, default `127.0.0.1` — cloudflared or nginx on the same machine), so devices on the home network cannot spoof the headers to bypass IP limits. Set `TRUSTED_PROXY_ADDR` to the proxy's IP if it runs on another machine. (Other WSGI servers via `wsgi.py` use ProxyFix, which trusts any peer, so only set it behind a proxy.) With it, the server follows the original protocol reported by the proxy, so session cookies on HTTPS requests automatically get `Secure` while plain `http://192.168.x.x` access on the home network keeps working. If you only ever connect over HTTPS, `SESSION_COOKIE_SECURE=1` pins every session cookie to HTTPS (logins over http will then not persist).
 *   **Static file exposure**: Only `static/` and your own `uploads/<username>/` are web-reachable. The database, backups, logs, source files, and `.secret_key` cannot be fetched by URL even by a logged-in user. (The project root used to be fully exposed — see [Design Rules](#6-project-structure).)
@@ -536,8 +540,9 @@ Always branch on `errorCode`. The `error` text may change without notice.
 
 ### Data inspection, change history and restore previews
 
-The **D** menu now includes integrity checks (missing buys, unresolved stock codes,
-unavailable realized profit and review flags), plus paginated change history recorded from this upgrade onward.
+The **D** menu shows backup, restore and Excel export. Integrity-check and change-history buttons
+have been removed; the underlying functions and APIs remain available. Integrity checks cover missing buys,
+unresolved stock codes, unavailable realized profit and review flags. Paginated change history is recorded from this upgrade onward.
 Cached split data is shared by holdings, monthly valuation, reconstructed profit and sell validation.
 Original fills and explicitly supplied realized profit remain unchanged. If a split was already recorded manually,
 preview the effect and disable automatic application in the integrity screen. Account overrides take priority

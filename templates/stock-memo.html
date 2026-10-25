@@ -104,8 +104,34 @@
         </div>
         <!-- ⭐️ 데이터 관리 및 로그아웃 버튼 -->
         <div style="margin-left: auto; display: flex; gap: 6px; align-items: center; margin-right: max(0px, calc((100% - 955px) / 2));">
-            <!-- ⭐️ 로그인된 사용자 표시 영역 -->
-            <div id="loggedInUserDisplay" style="font-size: 12px; font-weight: bold; color: var(--text-strong-color); margin-right: 4px; display: flex; align-items: center; gap: 4px; background: var(--card-bg-color); padding: 2px 8px; border-radius: 12px; border: 1px solid var(--border-color); display: none;"></div>
+            <div class="user-account-menu">
+                <button type="button" id="loggedInUserDisplay" aria-label="{{ session.get('username', '') }} 내 계정" aria-haspopup="dialog" aria-expanded="false" aria-controls="userAccountPanel" title="내 계정">👤 {{ session.get('username', '') }}</button>
+                <div id="userAccountPanel" class="user-account-panel" role="dialog" aria-label="내 계정" hidden>
+                    <div class="account-menu-heading">
+                        <strong id="accountMenuUsername">{{ session.get('username', '') }}</strong>
+                        <span id="accountMenuRole">{{ '관리자' if session.get('is_admin') else '일반 사용자' }}</span>
+                    </div>
+                    <div class="account-menu-session">
+                        <span>로그인 남은 시간</span>
+                        <strong id="accountMenuSessionRemaining"></strong>
+                        <button type="button" id="btnAccountExtendSession" class="account-menu-button">로그인 연장</button>
+                        <small id="accountMenuSessionPolicy"></small>
+                    </div>
+                    <button type="button" id="btnChangePassword" class="account-menu-button">비밀번호 변경</button>
+                    <fieldset class="account-menu-settings">
+                        <legend>화면 설정</legend>
+                        <label for="accountMenuTheme">테마
+                            <select id="accountMenuTheme"><option value="dark">다크</option><option value="light">라이트</option></select>
+                        </label>
+                        <label for="accountMenuDefaultView">시작 화면
+                            <select id="accountMenuDefaultView" disabled><option value="last">마지막 화면</option><option value="list">리스트</option><option value="calendar">캘린더</option><option value="chart">차트</option></select>
+                        </label>
+                        <small>테마·마지막 화면은 이 기기에 적용됩니다.</small>
+                    </fieldset>
+                    <p id="accountMenuStatus" class="account-menu-status" role="status" aria-live="polite"></p>
+                    <button type="button" id="btnLogout" class="account-menu-button account-menu-logout">로그아웃</button>
+                </div>
+            </div>
             <input type="file" id="restoreFileInput" accept=".zip" style="display:none;">
             
             <!-- ⭐️ 호버 시 분리되는 설정 버튼 그룹 -->
@@ -115,11 +141,9 @@
                     <button type="button" id="btnAccountManagement" class="header-action-btn btn-restore" title="계좌 관리">A</button>
                     <button type="button" id="btnHtsIntegration" class="header-action-btn btn-export" title="HTS 연동">H</button>
                     <button type="button" id="btnDataManagement" class="header-action-btn btn-backup" title="데이터 관리 (백업/복원/엑셀)">D</button>
-                    <button type="button" id="btnChangePassword" class="header-action-btn btn-password" title="비밀번호 변경">P</button>
                     <button type="button" id="btnAdmin" class="header-action-btn btn-admin" title="관리자 대시보드" style="display:none;">M</button>
                 </div>
             </div>
-            <button type="button" id="btnLogout" class="header-action-btn btn-logout" title="안전하게 로그아웃">Logout</button>
         </div>
     </header>
 
@@ -465,19 +489,6 @@
         </div>
         
         <div class="content-right" id="newsSidebar">
-            <!-- ⭐️ 앱 설정 (테마 및 Excel) -->
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--border-light-color); padding-bottom: 15px;">
-                <div style="display: flex; justify-content: flex-start; align-items: center; gap: 10px;">
-                    <span style="font-size: 13px; font-weight: var(--fw-bold, bold); color: var(--text-strong-color);">🌗 화면 테마</span>
-                    <div class="theme-switch-wrapper" style="margin-bottom: 0; position: relative; top: 5px;">
-                        <label class="theme-switch" for="theme-toggle" title="다크/라이트 모드 전환">
-                            <input type="checkbox" id="theme-toggle" />
-                            <span class="slider round"></span>
-                        </label>
-                    </div>
-                </div>
-            </div>
-
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--primary-color); padding-bottom: 8px; margin-bottom: 12px;">
                 <h3 class="section-title" style="margin:0; font-size: 1.1em;">RELATED NEWS</h3>
                 <div style="display: flex; gap: 5px; align-items: center;">
@@ -750,11 +761,9 @@
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 2px;">
-                <button type="button" id="btnDataIntegrity" class="modal-outline-btn">데이터 정합성 검사</button>
-                <button type="button" id="btnDataChanges" class="modal-outline-btn">변경 이력</button>
-                <button type="button" id="btnModalFullBackup" class="modal-outline-btn" style="width: 100%; margin: 0; padding: 9px; font-size: 11.5px; display: block; border-radius: 6px; border: 1px solid var(--primary-color); color: var(--primary-color); cursor: pointer;">백업 (Backup)</button>
-                <button type="button" id="btnModalFullRestore" class="modal-outline-btn" style="width: 100%; margin: 0; padding: 9px; font-size: 11.5px; display: block; border-radius: 6px; border: 1px solid var(--warning-color, #f39c12); color: var(--warning-color, #f39c12); cursor: pointer;">복원 (Restore)</button>
-                <button type="button" id="btnModalExportExcel" class="modal-outline-btn" style="width: 100%; margin: 0; padding: 9px; font-size: 11.5px; display: block; border-radius: 6px; border: 1px solid var(--success-color); color: var(--success-color); cursor: pointer;">엑셀 내보내기 (Excel)</button>
+                <button type="button" id="btnModalFullBackup" class="modal-outline-btn">백업 (Backup)</button>
+                <button type="button" id="btnModalFullRestore" class="modal-outline-btn" style="--data-action-color: var(--warning-color, #f39c12);">복원 (Restore)</button>
+                <button type="button" id="btnModalExportExcel" class="modal-outline-btn" style="--data-action-color: var(--success-color);">엑셀 내보내기 (Excel)</button>
             </div>
         </div>
     </div>

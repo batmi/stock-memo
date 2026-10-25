@@ -132,5 +132,3 @@ async function showDataChanges() {
     };
     await load(null);
 }
-document.getElementById('btnDataIntegrity')?.addEventListener('click', showDataIntegrity);
-document.getElementById('btnDataChanges')?.addEventListener('click', showDataChanges);

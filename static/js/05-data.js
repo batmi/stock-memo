@@ -83,11 +83,7 @@ async function loadDataFromLocal() {
             try {
                 const meData = await meRes.json();
                 if (meData.username) {
-                    const userDisplay = document.getElementById('loggedInUserDisplay');
-                    if (userDisplay) {
-                        userDisplay.innerHTML = `<span style="font-size:12px;">👤</span> ${escapeHtml(meData.username)}`;
-                        userDisplay.style.display = 'flex';
-                    }
+                    window.updateAccountMenuUser?.(meData);
                     if (meData.is_admin) {
                         const btnAdmin = document.getElementById('btnAdmin');
                         if (btnAdmin) {
@@ -190,6 +186,7 @@ async function loadDataFromLocal() {
                 console.warn("환경설정 파싱 실패:", e);
             }
         }
+        window.dispatchEvent(new Event('user-preferences-loaded'));
         
         // 3. 매매 기록 데이터 처리
         console.log("[Data Load] /api/journal/meta 상태 코드:", response.status);
@@ -206,6 +203,7 @@ async function loadDataFromLocal() {
         window.__dataLoadFailed = false; // ⭐️ 로딩 성공: 재시도 플래그 해제
         const errBox = document.getElementById('dataLoadErrorBox');
         if (errBox) errBox.style.display = 'none';
+        window.restoreAccountStartView?.();
         beginInitialViews();
         try { await displayEntries(); } finally { endInitialViews(); }
         console.log("[Data Load] 화면 렌더링(displayEntries) 완료");
@@ -302,26 +300,42 @@ function showDataLoadError(err) {
 }
 
 // ⭐️ 환경설정(사용자가 정렬한 카드 순서)을 DB에 저장
-async function savePreferences() {
+let preferencesSaveQueue = Promise.resolve();
+async function savePreferences(changes = null) {
     // ⭐️ 서버 환경설정을 아직 받아오지 못한 상태(빈 객체)로 저장하면
     //    기존에 저장된 필터·카드 순서 등 설정 전체가 덮어써져 유실되므로 건너뛴다.
     if (!preferencesLoaded) {
         console.warn("환경설정 미로드 상태 - 서버 저장 건너뜀 (기존 설정 보호)");
-        return;
+        return false;
     }
-    try {
-        await fetch('/api/preferences', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            // ⭐️ keepalive: 필터 변경 직후 새로고침·앱 전환으로 페이지가 내려가는 중에도 저장 요청이 완료되도록 보장
-            keepalive: true,
-            body: JSON.stringify(userPreferences)
-        });
-    } catch (err) {
-        console.error("환경설정 저장 실패:", err);
-    }
+    // 전체 설정을 저장하므로 먼저 보낸 응답이 늦게 도착해 새 선택을 덮지 않도록 직렬화한다.
+    preferencesSaveQueue = preferencesSaveQueue.then(async () => {
+        const previous = new Map();
+        if (changes) {
+            for (const [key, value] of Object.entries(changes)) {
+                previous.set(key, { present: Object.hasOwn(userPreferences, key), value: userPreferences[key] });
+                userPreferences[key] = value;
+            }
+        }
+        try {
+            const response = await fetchWithTimeout('/api/preferences', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+                body: JSON.stringify(userPreferences)
+            });
+            if (!response.ok) throw new Error(`환경설정 저장 실패 (${response.status})`);
+            return true;
+        } catch (err) {
+            // 실패한 시작 화면 선택을 뒤에 대기 중인 필터 저장이 다시 서버에 쓰지 않게 한다.
+            for (const [key, old] of previous) {
+                if (userPreferences[key] !== changes[key]) continue;
+                if (old.present) userPreferences[key] = old.value;
+                else delete userPreferences[key];
+            }
+            console.error('환경설정 저장 실패:', err);
+            return false;
+        }
+    });
+    return preferencesSaveQueue;
 }
 
 // ⭐️ 모든 필터 상태를 DB에 저장

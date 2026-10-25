@@ -186,67 +186,32 @@ window.clearAllChartFilters = function() {
     window.renderMonthlyProfitChart();
 };
 
-document.getElementById('btnListView').addEventListener('click', function() {
-    this.classList.add('active'); document.getElementById('btnCalendarView').classList.remove('active');
-    const btnChartView = document.getElementById('btnChartView');
-    if (btnChartView) btnChartView.classList.remove('active');
-    document.getElementById('historyList').style.display = 'flex';
-    document.getElementById('calendarViewSection').style.display = 'none';
-    const monthlyChartSection = document.getElementById('monthlyChartSection');
-    if (monthlyChartSection) monthlyChartSection.style.display = 'none';
-    document.getElementById('filterBoxContainer').style.display = 'block';
-    const chartFilterBoxContainer = document.getElementById('chartFilterBoxContainer');
-    if (chartFilterBoxContainer) chartFilterBoxContainer.style.display = 'none';
-    const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
-    if (btnToggleHistoryClosed) btnToggleHistoryClosed.style.display = 'inline-block';
-    
-    displayEntries(true); // ⭐️ 리스트 뷰 전환 시 활성화된 필터에 맞춰 배너 다시 표시
-});
-
-document.getElementById('btnCalendarView').addEventListener('click', function() {
-    this.classList.add('active'); document.getElementById('btnListView').classList.remove('active');
-    const btnChartView = document.getElementById('btnChartView');
-    if (btnChartView) btnChartView.classList.remove('active');
-    document.getElementById('historyList').style.display = 'none';
-    document.getElementById('calendarViewSection').style.display = 'block';
-    const monthlyChartSection = document.getElementById('monthlyChartSection');
-    if (monthlyChartSection) monthlyChartSection.style.display = 'none';
-    document.getElementById('filterBoxContainer').style.display = 'none';
-    const chartFilterBoxContainer = document.getElementById('chartFilterBoxContainer');
-    if (chartFilterBoxContainer) chartFilterBoxContainer.style.display = 'none';
-    const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
-    if (btnToggleHistoryClosed) btnToggleHistoryClosed.style.display = 'none';
-    
-    const banner = document.getElementById('activeFilterBanner');
-    if (banner) banner.style.display = 'none'; // ⭐️ 캘린더 뷰에서는 필터 배너 강제 숨김
-    
-    renderCalendar();
-});
-
-const btnChartViewEl = document.getElementById('btnChartView');
-if (btnChartViewEl) {
-    btnChartViewEl.addEventListener('click', function() {
-        this.classList.add('active');
-        document.getElementById('btnListView').classList.remove('active');
-        document.getElementById('btnCalendarView').classList.remove('active');
-        
-        document.getElementById('historyList').style.display = 'none';
-        document.getElementById('calendarViewSection').style.display = 'none';
-        
-        const monthlyChartSection = document.getElementById('monthlyChartSection');
-        if (monthlyChartSection) monthlyChartSection.style.display = 'block';
-        
-        document.getElementById('filterBoxContainer').style.display = 'none';
-        const chartFilterBoxContainer = document.getElementById('chartFilterBoxContainer');
-        if (chartFilterBoxContainer) chartFilterBoxContainer.style.display = 'block';
-        const btnToggleHistoryClosed = document.getElementById('btnToggleHistoryClosed');
-        if (btnToggleHistoryClosed) btnToggleHistoryClosed.style.display = 'none';
-        
+// 수동 전환과 시작 화면 복원이 같은 표시 규칙을 사용한다.
+window.setJournalView = function(view, { render = true, remember = true } = {}) {
+    if (!['list', 'calendar', 'chart'].includes(view)) return;
+    const isList = view === 'list', isCalendar = view === 'calendar';
+    for (const [name, id] of [['list', 'btnListView'], ['calendar', 'btnCalendarView'], ['chart', 'btnChartView']]) {
+        document.getElementById(id)?.classList.toggle('active', view === name);
+    }
+    document.getElementById('historyList').style.display = isList ? 'flex' : 'none';
+    document.getElementById('calendarViewSection').style.display = isCalendar ? 'block' : 'none';
+    document.getElementById('monthlyChartSection').style.display = view === 'chart' ? 'block' : 'none';
+    document.getElementById('filterBoxContainer').style.display = isList ? 'block' : 'none';
+    document.getElementById('chartFilterBoxContainer').style.display = view === 'chart' ? 'block' : 'none';
+    document.getElementById('btnToggleHistoryClosed').style.display = isList ? 'inline-block' : 'none';
+    if (!isList) {
         const banner = document.getElementById('activeFilterBanner');
         if (banner) banner.style.display = 'none';
-        
-        window.renderMonthlyProfitChart();
-    });
+    }
+    if (remember) window.dispatchEvent(new CustomEvent('journal-view-changed', { detail: { view } }));
+    if (!render) return;
+    if (isList) displayEntries(true);
+    else if (isCalendar) renderCalendar();
+    else window.renderMonthlyProfitChart();
+};
+
+for (const [view, id] of [['list', 'btnListView'], ['calendar', 'btnCalendarView'], ['chart', 'btnChartView']]) {
+    document.getElementById(id)?.addEventListener('click', () => window.setJournalView(view));
 }
 
 function shiftCalendarMonth(delta) {

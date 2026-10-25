@@ -91,7 +91,16 @@ def ping():
     #    (로그인 유지 세션은 로그인 시점 + 24시간에 그대로 만료되므로 연장하지 않음)
     if not session.get('keep_logged_in'):
         session['expires_at'] = time.time() + 3600
-    return jsonify({"status": "success", "expires_at": session.get('expires_at', 0)})
+    response = jsonify(status='success', **_session_details())
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+def _session_details():
+    """현재 쿠키의 만료 정책과 신원만 공개한다. 비밀번호 세대 등 인증값은 제외한다."""
+    return {'username': session.get('username'), 'user_id': session.get('user_id'),
+            'expires_at': session.get('expires_at', 0),
+            'keep_logged_in': bool(session.get('keep_logged_in', False))}
 
 
 @bp.route('/api/me/api-key', methods=['GET'])
@@ -336,8 +345,8 @@ def get_me():
     else:
         bot_state, bot_elapsed = trading_api.evaluate_bot_state(bot_status, bot_last_seen)
 
-    return jsonify({
-        "username": username,
+    response = jsonify({
+        **_session_details(),
         "is_admin": admin_flag,
         "pending_count": pending_count,
         # ⭐️ 로그인 화면에서 접수된 비밀번호 재설정 요청 수 (관리자에게만 의미 있음)
@@ -353,6 +362,8 @@ def get_me():
         "bot_ping_interval_seconds": trading_api.BOT_PING_INTERVAL_SECONDS,
         "bot_offline_after_seconds": trading_api.BOT_OFFLINE_AFTER_SECONDS
     })
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 @bp.route('/api/account', methods=['DELETE'])

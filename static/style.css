@@ -474,8 +474,60 @@ button:hover {
     overflow: hidden;
 }
 #loggedInUserDisplay {
+    width: auto;
+    max-width: 180px;
+    margin: 0 4px 0 0;
+    padding: 2px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--card-bg-color);
+    color: var(--text-strong-color);
+    font-size: 12px;
+    line-height: 20px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
+.user-account-menu { min-width: 0; }
+.user-account-panel {
+    position: fixed;
+    z-index: 1100;
+    box-sizing: border-box;
+    width: min(280px, calc(100vw - 24px));
+    padding: 16px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--card-bg-color);
+    color: var(--text-color);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+    font-size: 12px;
+}
+.user-account-panel[hidden], #loggedInUserDisplay[hidden] { display: none; }
+.account-menu-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
+.account-menu-heading strong { font-size: 14px; overflow-wrap: anywhere; }
+.account-menu-heading span, .account-menu-session > span, .user-account-panel small { color: var(--text-muted-color); }
+.account-menu-session { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.account-menu-session strong { font-variant-numeric: tabular-nums; }
+.user-account-panel small { display: block; width: 100%; font-size: 11px; line-height: 1.6; }
+.user-account-panel .account-menu-button {
+    width: 100%; margin: 0; padding: 7px 10px; font-size: 12px; line-height: 1.4;
+    text-align: left; background: transparent; color: var(--text-color); border: 1px solid var(--border-color);
+}
+.user-account-panel .account-menu-button:hover { background: var(--border-light-color); }
+.user-account-panel .account-menu-button:disabled { cursor: wait; opacity: 0.6; }
+.user-account-panel #btnAccountExtendSession { width: auto; padding: 4px 8px; color: var(--primary-color); }
+.account-menu-settings { border: 0; border-top: 1px solid var(--border-color); margin: 16px 0 0; padding: 10px 0 0; min-width: 0; }
+.account-menu-settings legend { padding: 0 6px 0 0; font-weight: bold; }
+.account-menu-settings label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 10px; font-size: 12px; }
+.account-menu-settings select { width: 140px; min-width: 0; height: 30px; margin: 0; padding: 3px 8px; font-size: 12px; line-height: 1.4; }
+.account-menu-status { margin: 10px 0; font-size: 11px; line-height: 1.5; }
+.account-menu-status:empty { display: none; }
+.user-account-panel .account-menu-logout { margin-top: 12px; border: 0; border-top: 1px solid var(--border-color); border-radius: 0; padding-top: 12px; color: var(--danger-color); }
+#loggedInUserDisplay:focus-visible, .user-account-panel :is(button, select, input):focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+@media (max-width: 480px) { #loggedInUserDisplay { max-width: 110px; } }
 @media (hover: hover) {
     .header-action-icon:hover {
         background-color: var(--border-light-color);
@@ -1280,44 +1332,6 @@ button:hover {
     font-weight: var(--fw-bold);
 }
 
-/* 다크모드 토글 스위치 스타일 */
-.theme-switch-wrapper {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.theme-switch {
-    position: relative;
-    display: inline-block;
-    width: 34px;
-    height: 18px;
-}
-.theme-switch input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-}
-.slider {
-    position: absolute;
-    cursor: pointer;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background-color: #ccc;
-    transition: .4s;
-}
-.slider:before {
-    position: absolute;
-    content: "☀️";
-    height: 12px; width: 12px; left: 3px; bottom: 3px;
-    background-color: white;
-    transition: .4s;
-    display: flex; align-items: center; justify-content: center; font-size: 8px;
-}
-input:checked + .slider { background-color: var(--primary-color); }
-input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
-.slider.round { border-radius: 34px; }
-.slider.round:before { border-radius: 50%; }
-
-
 /* ⭐️ 커스텀 모달 확인/취소 버튼 스타일 */
 #btnCustomModalOk, #btnCustomModalCancel, #btnSubmitForm, #btnCancelForm {
     margin: 0; flex: 1; padding: 8px; font-size: 12px; font-weight: bold;
@@ -1554,6 +1568,17 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 
 
 /* ⭐️ 팝업(모달) 내 아웃라인 버튼 공통 호버 효과 (즉각 반응) */
+#dataManagementModalOverlay .modal-outline-btn {
+    width: 100%;
+    margin: 0;
+    padding: 9px;
+    font-size: 11.5px;
+    display: block;
+    border-radius: 6px;
+    border: 1px solid var(--data-action-color, var(--primary-color));
+    color: var(--data-action-color, var(--primary-color));
+    cursor: pointer;
+}
 .modal-outline-btn {
     background-color: transparent !important;
     transition: none !important;
@@ -1697,7 +1722,7 @@ input:checked + .slider:before { transform: translateX(16px); content: "🌙"; }
 .data-audit-panel table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .data-audit-panel th, .data-audit-panel td { padding: 8px; text-align: left; border-bottom: 1px solid var(--border-color); }
 .data-audit-panel details { padding: 8px 0; border-bottom: 1px solid var(--border-color); overflow-wrap: anywhere; }
-.data-audit-panel button:not(.btn-close), #btnDataIntegrity, #btnDataChanges {
+.data-audit-panel button:not(.btn-close) {
     width: auto; margin: 0; padding: 5px 9px; font-size: 11.5px; line-height: 1.4; min-height: 0;
 }
 .data-audit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px; }
