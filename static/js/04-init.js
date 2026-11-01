@@ -444,7 +444,7 @@ window.addEventListener('DOMContentLoaded', () => {
                     [{ 'list': 'ordered'}, { 'list': 'bullet' }],    // 리스트
                     ['blockquote', 'code-block'],                    // 인용, 코드 블록
                     [{ [TU.TableUp.toolName]: [] }],                 // ⭐️ 표 삽입 (행×열 선택)
-                    ['image', 'markdown'],                           // ⭐️ 이미지 삽입, 마크다운 붙여넣기
+                    ['link', 'image', 'markdown'],                   // ⭐️ 링크, 이미지 삽입, 마크다운 붙여넣기
                     ['clean']                                        // 서식 초기화
                 ],
                 // 등록된 서식이 아닌 버튼은 생성 시점에 핸들러가 있어야 클릭이 연결된다.
@@ -468,6 +468,9 @@ window.addEventListener('DOMContentLoaded', () => {
                 ]
             }
         },
+        // ⭐️ 링크 주소 입력칸(툴팁)을 편집기 상자 안에 맞춰 띄운다. 기본값(document.body) 기준이면
+        //    모바일에서 가로 넘침을 잘라 내는 편집기 상자 밖으로 나가 입력칸이 잘린다.
+        bounds: '#editor-container',
         placeholder: '현재 시장 상황, 매매 이유, 향후 대응 계획 등을 자유롭게 기록하세요.'
     });
 
@@ -503,6 +506,43 @@ window.addEventListener('DOMContentLoaded', () => {
             }
         };
     });
+
+    // ⭐️ 링크: 글자를 골라 링크 버튼(또는 Ctrl/Cmd+K)을 누르면 주소 입력칸이 뜬다.
+    //    Quill 기본 동작은 고른 글자를 주소칸에 그대로 채워, '기사 보기' 같은 글자에 걸 때마다
+    //    지우고 다시 써야 한다. 고른 글자가 주소처럼 보일 때만 채운다.
+    const LinkFormat = Quill.import('formats/link');
+    const linkTooltip = window.quill.theme.tooltip;
+    linkTooltip.textbox.setAttribute('data-link', '주소를 붙여넣거나 입력');
+    window.quill.getModule('toolbar').addHandler('link', function(value) {
+        const q = window.quill;
+        const range = q.getSelection();
+        if (!value) {
+            // 링크 안에 커서만 두고 누르면 Quill 은 커서 자리 서식만 끈다 → 링크 전체를 푼다.
+            const [link, offset] = range && range.length === 0 ? q.scroll.descendant(LinkFormat, range.index) : [null, 0];
+            if (link) q.formatText(range.index - offset, link.length(), 'link', false, 'user');
+            else q.format('link', false, 'user');
+            linkTooltip.hide();
+            return;
+        }
+        if (!range || range.length === 0) {
+            customAlert('링크를 걸 글자를 먼저 선택하세요.');
+            return;
+        }
+        const text = q.getText(range).trim();
+        const looksLikeUrl = /^(?:(?:https?:\/\/|www\.|mailto:)\S+|[^\s@]+@[^\s@]+\.[^\s@]+)$/i.test(text);
+        linkTooltip.edit('link', looksLikeUrl ? text : '');
+    });
+    // 'naver.com' 처럼 스킴 없이 넣으면 브라우저가 이 앱 안의 상대 경로로 읽어 링크가 깨진다.
+    // 스킴(https:, mailto: 등)이나 / 로 시작하면 그대로 둔다. 'localhost:8080' 의 포트는 스킴이 아니다.
+    const saveTooltip = linkTooltip.save.bind(linkTooltip);
+    linkTooltip.save = function() {
+        if (this.root.getAttribute('data-mode') === 'link') {
+            const url = this.textbox.value.trim();
+            this.textbox.value = !url || /^[a-z][a-z\d+.-]*:(?!\d)|^\//i.test(url) ? url
+                : /^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(url) ? `mailto:${url}` : `https://${url}`;
+        }
+        saveTooltip();
+    };
 
     // ⭐️ 붙여넣기 시 외부 텍스트의 글자색/배경색 서식 강제 제거 (테마 색상 자동 적용)
     window.quill.clipboard.addMatcher(Node.ELEMENT_NODE, function(node, delta) {

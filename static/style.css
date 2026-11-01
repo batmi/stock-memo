@@ -75,6 +75,8 @@
     --dashboard-card-shadow: 0 2px 8px rgba(0,0,0,0.06);
     --fw-bold: bold;
     
+    --link-color: #0369a1; /* 본문 링크 */
+
     /* ⭐️ 현재가 업데이트 시 반짝임 효과 색상 (라이트) */
     --flash-start-color: rgba(52, 152, 219, 0.05);
     --flash-peak-color: rgba(52, 152, 219, 0.3);
@@ -155,7 +157,9 @@
     --badge-stock-hover-bg: #484f58;
     --badge-stock-hover-color: #ffffff;
     --badge-stock-hover-border: #8b949e;
-    
+
+    --link-color: #7fa6c7; /* 본문 링크 */
+
     /* ⭐️ 현재가 업데이트 시 반짝임 효과 색상 (다크) */
     --flash-start-color: rgba(59, 104, 140, 0.15);
     --flash-peak-color: rgba(59, 104, 140, 0.6);
@@ -1652,6 +1656,21 @@ button:hover {
 .entry-card.needs-review {
     border-left-color: var(--warning-color) !important;
 }
+
+/* ⭐️ 본문 링크 — Quill 기본색(#06c)은 다크 배경에서 잘 안 보여 테마 색을 쓴다 (편집기·기록 화면 공통) */
+.ql-snow .ql-editor a, .ql-snow .ql-tooltip a { color: var(--link-color); }
+
+/* ⭐️ 링크 주소 입력칸(Snow 툴팁) — 문구 한글화, 흰 상자 대신 테마 색 */
+.ql-snow .ql-tooltip { background-color: var(--card-bg-color); border-color: var(--border-color); box-shadow: var(--entry-card-shadow); color: var(--text-color); border-radius: 6px; }
+.ql-snow .ql-tooltip::before { content: '링크:'; }
+.ql-snow .ql-tooltip[data-mode=link]::before { content: '링크 주소:'; }
+.ql-snow .ql-tooltip a.ql-action::after { content: '수정'; border-right-color: var(--border-color); }
+.ql-snow .ql-tooltip.ql-editing a.ql-action::after { content: '저장'; }
+.ql-snow .ql-tooltip a.ql-remove::before { content: '링크 해제'; }
+/* 좁은 화면에서도 버튼(저장·링크 해제)이 편집기 상자 밖으로 잘리지 않게 주소 부분을 줄인다 */
+.ql-snow .ql-tooltip a.ql-preview { max-width: min(200px, calc(100vw - 230px)); }
+.ql-snow .ql-tooltip input[type=text] { width: min(170px, calc(100vw - 180px)); border-color: var(--border-color); }
+.ql-snow .ql-tooltip input[type=text]:focus { border-color: var(--primary-color); }
 
 /* ⭐️ 마크다운 붙여넣기 버튼 (21-markdown-paste.js) — 아이콘 대신 글자, 대기 중에는 강조 */
 .ql-toolbar.ql-snow button.ql-markdown { font-size: 9px; font-weight: bold; letter-spacing: -0.3px; color: var(--text-color); width: auto !important; min-width: 22px; }

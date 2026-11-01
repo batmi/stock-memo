@@ -303,3 +303,102 @@ def test_button_reads_clipboard_directly_when_permitted(page: Page, context):
     page.evaluate("() => { formModalOverlay.style.display = 'flex'; window.setEditorHtml(''); }")
     page.locator('#journalForm .ql-toolbar button.ql-markdown').click()
     _expect_markdown_converted(page)
+
+
+# ---------------------------------------------------------------------------
+# 링크 — 글자를 골라 주소를 건다 (Snow 툴팁 + 04-init.js 의 처리)
+# ---------------------------------------------------------------------------
+
+_OPEN_MEMO_FORM = """(title) => {
+    formModalOverlay.style.display = 'flex';
+    const memo = document.querySelector('input[name="recordType"][value="memo"]');
+    memo.checked = true; memo.dispatchEvent(new Event('change', { bubbles: true }));
+    document.getElementById('memoTitle').value = title;
+}"""
+
+
+def _select(page: Page, html, index, length):
+    page.evaluate("""([html, index, length]) => {
+        window.setEditorHtml(html); window.quill.focus(); window.quill.setSelection(index, length, 'user');
+    }""", [html, index, length])
+
+
+def test_link_wraps_selected_text_and_survives_save_and_view(page: Page):
+    _login(page)
+    page.evaluate(_OPEN_MEMO_FORM, '링크 메모')
+    _select(page, '<p>코오롱티슈진 정보</p>', 0, 9)
+    page.locator('#journalForm .ql-toolbar button.ql-link').click()
+
+    tooltip = page.locator('#editor-container .ql-tooltip')
+    textbox = tooltip.locator('input[type="text"]')
+    expect(tooltip).to_have_class(re.compile(r'\bql-editing\b'))
+    expect(textbox).to_have_value('')  # 주소처럼 보이지 않는 글자는 주소칸에 채우지 않는다
+    textbox.fill('www.businesspost.co.kr/BP?command=article_view&num=448879')
+    textbox.press('Enter')
+
+    url = 'https://www.businesspost.co.kr/BP?command=article_view&num=448879'
+    editor = page.locator('#editor-container .ql-editor')
+    expect(editor.locator('a', has_text='코오롱티슈진 정보')).to_have_attribute('href', url)
+    # 주소칸의 Enter 가 기록 폼 제출로 번지지 않는다.
+    assert page.evaluate("() => formModalOverlay.style.display") == 'flex'
+    assert _thoughts('링크 메모') is None
+
+    page.evaluate("() => document.getElementById('journalForm').requestSubmit()")
+    page.wait_for_function("() => cloudEntries.some(e => e.title === '링크 메모')", timeout=10000)
+    assert 'href="https://www.businesspost.co.kr/BP?command=article_view&amp;num=448879"' in _thoughts('링크 메모')
+
+    page.evaluate("() => displayEntries(true)")
+    card = page.locator('#historyList .entry-card', has_text='링크 메모')
+    card.locator('.btn-entry-detail').click()
+    link = card.locator('a', has_text='코오롱티슈진 정보')
+    expect(link).to_have_attribute('href', url)
+    expect(link).to_have_attribute('target', '_blank')
+    expect(link).to_have_attribute('rel', 'noopener noreferrer')
+
+
+def test_link_prefills_url_like_selection_and_unlinks_at_cursor(page: Page):
+    _login(page)
+    page.evaluate("() => { formModalOverlay.style.display = 'flex'; }")
+    _select(page, '<p>https://example.com 보기</p>', 0, 19)
+    button = page.locator('#journalForm .ql-toolbar button.ql-link')
+    button.click()
+    textbox = page.locator('#editor-container .ql-tooltip input[type="text"]')
+    expect(textbox).to_have_value('https://example.com')
+    textbox.press('Enter')
+    editor = page.locator('#editor-container .ql-editor')
+    expect(editor.locator('a[href="https://example.com"]')).to_have_text('https://example.com')
+
+    # 링크 안에 커서만 두고 버튼을 누르면 링크 전체가 풀린다.
+    page.evaluate("() => window.quill.setSelection(5, 0, 'user')")
+    expect(button).to_have_class(re.compile(r'\bql-active\b'))
+    button.click()
+    expect(editor.locator('a')).to_have_count(0)
+    expect(editor).to_have_text('https://example.com 보기')
+
+
+def test_link_address_is_completed_or_blocked(page: Page):
+    _login(page)
+    page.evaluate("() => { formModalOverlay.style.display = 'flex'; }")
+    textbox = page.locator('#editor-container .ql-tooltip input[type="text"]')
+    cases = [('naver.com', 'https://naver.com'),
+             ('  https://finance.naver.com  ', 'https://finance.naver.com'),
+             ('me@example.com', 'mailto:me@example.com'),
+             ('localhost:8080/x', 'https://localhost:8080/x'),
+             ('javascript:alert(1)', 'about:blank')]  # Quill 이 막고, 저장 전 정화가 href 를 지운다
+    for typed, href in cases:
+        _select(page, '<p>주소</p>', 0, 2)
+        page.keyboard.press('ControlOrMeta+k')
+        textbox.fill(typed)
+        textbox.press('Enter')
+        expect(page.locator('#editor-container .ql-editor a')).to_have_attribute('href', href)
+    assert 'href' not in page.evaluate("() => sanitizeHtml(window.quill.root.innerHTML)")
+
+
+def test_link_without_selection_asks_to_select_text(page: Page):
+    _login(page)
+    page.evaluate("() => { formModalOverlay.style.display = 'flex'; }")
+    _select(page, '<p>주소</p>', 1, 0)
+    page.locator('#journalForm .ql-toolbar button.ql-link').click()
+    expect(page.locator('#customModalMessage')).to_have_text('링크를 걸 글자를 먼저 선택하세요.')
+    page.locator('#btnCustomModalOk').click()
+    expect(page.locator('#editor-container .ql-tooltip')).to_have_class(re.compile(r'\bql-hidden\b'))
